@@ -38,7 +38,8 @@ function contoursAt(L) {
     return { id: `L${L.toFixed(2).replace('.', '_')}_${i}`, label: i === 0 ? `loss = ${L.toFixed(2)}` : '', points: [...upper, ...lower, upper[0]] };
   });
 }
-const LEVELS = [0.6, 0.9, 1.3, 1.6, BARRIER, 2.2, 3.0];
+const PASS_LEVEL = BARRIER + 0.01; // a hair above the ridge: the pinched waist renders as one curve
+const LEVELS = [0.6, 0.9, 1.3, 1.6, PASS_LEVEL, 2.2, 3.0];
 const ALL_RINGS = LEVELS.flatMap(contoursAt);
 const AXES = { x: { label: 'w₁', min: -3.2, max: 3.2 }, y: { label: 'w₂', min: -1.7, max: 1.7 } };
 
@@ -73,8 +74,8 @@ function* readingMap() {
 
   yield {
     state: plotState({ axes: AXES, series: ALL_RINGS }),
-    highlight: { active: [contoursAt(BARRIER)[0].id] },
-    explanation: `The full map, seven levels (computed exactly — this surface's contours have a closed form). Read it like a topographer: TWO nested ring families = two basins, their innermost rings circling the two minima. Now find the highlighted curve — the contour at exactly the ridge height, ${BARRIER.toFixed(2)}: it pinches into a FIGURE-EIGHT, the two families kissing at a single point. That point is the mountain pass (the saddle from Loss Landscapes & Optimization Geometry), and its level tells you precisely what an optimizer must climb to escape the shallow basin: ${(BARRIER - 1.49).toFixed(2)} units of loss. One glance at where rings merge = the full escape topology.`,
+    highlight: { active: [contoursAt(PASS_LEVEL)[0].id] },
+    explanation: `The full map, seven levels (computed exactly — this surface's contours have a closed form). Read it like a topographer: TWO nested ring families = two basins, their innermost rings circling the two minima. Now find the highlighted curve — drawn a hair above the ridge height of ${BARRIER.toFixed(2)}: it pinches into a FIGURE-EIGHT waist, the two families all but kissing at one point (at exactly the ridge level they touch and split). That point is the mountain pass (the saddle from Loss Landscapes & Optimization Geometry), and its level tells you precisely what an optimizer must climb to escape the shallow basin: ${(BARRIER - 1.49).toFixed(2)} units of loss. One glance at where rings merge = the full escape topology.`,
     invariant: 'Ring families merge exactly at saddle level: the figure-eight marks the pass between basins.',
   };
 
