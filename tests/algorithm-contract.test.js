@@ -1201,6 +1201,24 @@ test('loss-landscapes: GD settles in the shallow basin and the sharp minimum pay
   assert.ok(sf.some((s) => /Keskar/.test(s.explanation)), 'large-batch finding cited');
 });
 
+test('write-caching: write-back is 50x faster but fails the crash test until the WAL arrives', async () => {
+  const topic = await loadTopic('write-caching');
+  const ways = runTopic(topic, { view: 'three ways to handle a write' });
+  assert.ok(ways.some((s) => /WRITE COALESCING/.test(s.explanation) && /ONE disk write/.test(s.explanation)), 'coalescing superpower explained');
+  assert.ok(ways.some((s) => /Pollution/.test(s.explanation)), 'write-around pollution rationale');
+  const priced = ways[ways.length - 1].state;
+  assert.equal(priced.cells.find((c) => c.id === 'through:lat').value, 5, 'write-through pays disk latency');
+  assert.equal(priced.cells.find((c) => c.id === 'back:lat').value, 0.1, 'write-back pays RAM latency');
+  assert.match(priced.cells.find((c) => c.id === 'back:safe').label, /NO/, 'write-back not crash-safe alone');
+  const crash = runTopic(topic, { view: 'the crash test' });
+  const timeline = crash[0].state;
+  assert.match(timeline.cells.find((c) => c.id === 't3:event').label, /count = 42/, 'acknowledged write lost on reboot');
+  assert.ok(crash.some((s) => /WRITE-AHEAD LOG/.test(s.explanation) && /replay/i.test(s.explanation)), 'WAL rescue explained');
+  const census = crash[crash.length - 1].state;
+  assert.equal(census.rows.length, 5, 'five real systems surveyed');
+  assert.match(census.cells.find((c) => c.id === 'raid:guard').label, /battery/i, 'RAID battery net included');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

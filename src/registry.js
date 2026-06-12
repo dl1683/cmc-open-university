@@ -639,6 +639,16 @@ export const topics = [
     module: () => import('./topics/cache-invalidation.js'),
   },
   {
+    id: 'write-caching',
+    type: 'visualization',
+    buildsOn: ['cache-invalidation', 'lru-cache', 'write-ahead-log'],
+    category: 'Systems',
+    title: 'Write-Through vs Write-Back',
+    summary: 'When a write hits the cache: pay the disk now (through), promise and batch (back), or skip the cache (around).',
+    tags: ['write-through', 'write-back', 'write-around', 'dirty pages', 'fsync', 'durability', 'caching'],
+    module: () => import('./topics/write-caching.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
