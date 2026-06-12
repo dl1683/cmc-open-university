@@ -619,6 +619,16 @@ export const topics = [
     module: () => import('./topics/web-workers.js'),
   },
   {
+    id: 'service-workers',
+    type: 'visualization',
+    buildsOn: ['web-workers', 'cdn-request-flow', 'lru-cache'],
+    category: 'Systems',
+    title: 'Service Workers & Offline-First',
+    summary: 'A programmable proxy between page and network: intercept every request, answer from cache, survive airplane mode.',
+    tags: ['service worker', 'offline', 'PWA', 'cache', 'proxy', 'stale-while-revalidate', 'fetch'],
+    module: () => import('./topics/service-workers.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

@@ -1071,6 +1071,24 @@ test('focal-loss: easy examples hold 81% of the gradient until gamma 2 flips it 
   assert.ok(fix.some((s) => /NOISY/.test(s.explanation)), 'noisy-label caution stated');
 });
 
+test('service-workers: the app survives airplane mode and the strategy table routes by asset type', async () => {
+  const topic = await loadTopic('service-workers');
+  const moves = runTopic(topic, { view: 'a proxy moves in' });
+  assert.ok(!moves[0].state.nodes.some((n) => n.id === 'sw'), 'no proxy installed at the start');
+  const offline = moves.find((s) => /UNREACHABLE/.test(s.state.nodes.find((n) => n.id === 'net')?.note ?? ''));
+  assert.ok(offline, 'airplane-mode step present');
+  assert.match(offline.state.nodes.find((n) => n.id === 'page').note, /✓/, 'page still loads offline');
+  assert.ok(offline.state.edges.some((e) => e.id === 'toCache'), 'offline response served via the cache edge');
+  assert.ok(moves.some((s) => /HTTPS/.test(s.explanation)), 'HTTPS requirement explained');
+  const strat = runTopic(topic, { view: 'the caching strategies' });
+  assert.ok(strat.some((s) => /CACHE-FIRST/.test(s.explanation)), 'cache-first covered');
+  assert.ok(strat.some((s) => /NETWORK-FIRST/.test(s.explanation)), 'network-first covered');
+  assert.ok(strat.some((s) => /STALE-WHILE-REVALIDATE/.test(s.explanation)), 'SWR covered');
+  const table = strat[strat.length - 1].state;
+  assert.match(table.cells.find((c) => c.id === 'auth:strat').label, /network-only/, 'auth never served stale');
+  assert.match(table.cells.find((c) => c.id === 'shell:strat').label, /cache-first/, 'shell precached');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
