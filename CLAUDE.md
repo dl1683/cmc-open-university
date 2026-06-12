@@ -26,11 +26,11 @@ Teach anyone, for free, how computing actually works — by *showing* it. Every 
 
 ## Visual direction (Devansh, 2026-06-11)
 
-Visualizations should be **strategically dimensional** (Devansh): simple structures — trees, searches, lists — stay clean 2D because they explain simply; reach for 3D where it genuinely earns its keep — activation functions and loss surfaces, side-by-side algorithm comparisons, embedding spaces. Content and information density are king; dimensionality is a tool, not a style. Current implementation: a 2.5D depth pass (shadows, glow pulses on semantic highlights, gradient stage) in the zero-dependency SVG engine. **Future step**: a true-3D renderer (WebGL/Three.js, vendored as a static file to preserve no-build) behind the *same* step contract, used for topics where 3D genuinely adds insight (trees, graphs, embedding spaces, loss landscapes). Adding that vendored dependency needs an explicit go-ahead from Devansh since it bends the zero-dependency rule.
+Visualizations should be **strategically dimensional** (Devansh): simple structures — trees, searches, lists — stay clean 2D because they explain simply; reach for 3D where it genuinely earns its keep — activation functions and loss surfaces, side-by-side algorithm comparisons, embedding spaces. Content and information density are king; dimensionality is a tool, not a style. Current implementation: a 2.5D depth pass (shadows, glow pulses on semantic highlights, gradient stage) plus FLIP magic-move transitions in the SVG engine. **Dependencies are allowed** (Devansh, 2026-06-12: "we can have dependencies, I don't mind, as long as GitHub Pages will work") — vendor libraries as static files under `vendor/` so the site stays buildless and Pages-compatible; Three.js for the true-3D renderer is approved. The 3D renderer lives behind the *same* step contract, used only where 3D adds insight (loss landscapes, embedding spaces, large trees).
 
 ## Hard decisions (already made — do not relitigate)
 
-- Modern vanilla JS, ES modules, no framework, no build step.
+- Modern vanilla JS, ES modules, no framework, no build step. Dependencies OK when vendored as static files (no npm/bundler in the serving path).
 - Clean rewrite: old 2017 code is deleted; git history preserves it.
 - One canonical pattern per topic; shared visualization engine; minimal files.
 - Commit format: short description + "Committed by Devansh".
