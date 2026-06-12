@@ -699,6 +699,16 @@ export const topics = [
     module: () => import('./topics/sharding.js'),
   },
   {
+    id: 'tail-latency',
+    type: 'visualization',
+    buildsOn: ['sharding', 'load-balancer', 'distributed-tracing'],
+    category: 'Systems',
+    title: 'Tail Latency & p99 Thinking',
+    summary: 'The average says 60ms; the tail says 1 second — and fan-out makes the rare 1% hit most page loads.',
+    tags: ['tail latency', 'p99', 'percentiles', 'hedged requests', 'SLO', 'fan-out', 'Dean Barroso'],
+    module: () => import('./topics/tail-latency.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

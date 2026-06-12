@@ -1575,6 +1575,22 @@ test('eigenvectors: the diagonal survives untouched and power iteration homes in
   assert.match(census.cells.find((c) => c.id === 'physics:guise').label, /vibration|quantum/i, 'physics guise listed');
 });
 
+test('tail-latency: fan-out turns a 1% tail into a 63% page problem and hedging buys it back for 2%', async () => {
+  const topic = await loadTopic('tail-latency');
+  const lie = runTopic(topic, { view: 'why averages lie' });
+  const sessions = lie.find((s) => /session hits/.test(s.state.title ?? '')).state;
+  assert.ok(Math.abs(sessions.cells.find((c) => c.id === 's20:p').value - 18.2) < 0.1, '20-request session: 18.2%');
+  const fanout = lie.find((s) => /Fan-out amplification/.test(s.state.title ?? '')).state;
+  assert.ok(Math.abs(fanout.cells.find((c) => c.id === 'f100:p').value - 63.4) < 0.1, '100-way fan-out: 63.4%');
+  assert.ok(lie.some((s) => /Tail at Scale/.test(s.explanation)), 'Dean & Barroso cited');
+  assert.ok(lie.some((s) => /1 − \(1 − p\)ⁿ/.test(s.invariant ?? '')), 'the amplification formula stated');
+  const tame = runTopic(topic, { view: 'taming the tail' });
+  const hedge = tame[0].state;
+  assert.match(hedge.cells.find((c) => c.id === 'hedged:what').label, /74ms/, 'BigTable hedging number quoted');
+  assert.ok(tame.some((s) => /DOUBLES traffic/.test((s.state.cells ?? []).map((c) => c.label).join(' ')) || /doubles exactly when overloaded/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'naive retry danger shown');
+  assert.ok(tame.some((s) => /percentiles do not average/.test(s.explanation)), 'percentile-averaging blunder called out');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
