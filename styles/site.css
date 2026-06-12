@@ -380,6 +380,14 @@ svg text {
 .centroid.cluster-3 :is(circle, line) { stroke: var(--viz-3); }
 .centroid.hl-active circle { stroke-dasharray: 5 4; }
 
+/* graph */
+.edge line { stroke: var(--line); stroke-width: 2.5; }
+.edge-weight-bg { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+.edge.hl-active line { stroke: var(--accent); stroke-width: 4; }
+.edge.hl-compare line { stroke: var(--warn); stroke-width: 4; }
+.edge.hl-found line { stroke: var(--good); stroke-width: 4.5; }
+.edge.hl-visited line { opacity: 0.35; }
+
 /* matrix */
 .mcell rect { fill: var(--accent); stroke: var(--line); stroke-width: 1; transition: fill-opacity 200ms; }
 .mcell text { fill: var(--text); }

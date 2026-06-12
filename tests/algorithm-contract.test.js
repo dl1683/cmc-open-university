@@ -226,6 +226,41 @@ test('memoization: result correct and far fewer calls than naive recursion', asy
   assert.ok(steps.at(-1).state.frames.length < 41, 'memoized tree much smaller than the 41-call naive tree');
 });
 
+// ---------------------------------------------- layer 2: graphs & systems
+
+test('graph-bfs: finds every target with minimal hops claimed', async () => {
+  const topic = await loadTopic('graph-bfs');
+  for (const target of ['G', 'F', 'H']) {
+    assert.ok(anyFound(runTopic(topic, { target })), `reaches ${target}`);
+  }
+});
+
+test('dijkstra: takes the cheap 9-cost route to F, not the 12-cost shortcut', async () => {
+  const topic = await loadTopic('dijkstra');
+  const steps = runTopic(topic, { target: 'F' });
+  const last = steps.at(-1);
+  assert.match(last.explanation, /cost 9/);
+  assert.ok(last.highlight.found.includes('C') && last.highlight.found.includes('E'), 'route goes through C and E');
+  assert.ok(!last.highlight.found.includes('B'), 'route avoids the expensive shortcut via B');
+});
+
+test('bloom-filter: inserted key is "probably", absent key with clear bit is "definitely not"', async () => {
+  const topic = await loadTopic('bloom-filter');
+  const hit = runTopic(topic, { query: '47' });
+  assert.ok(hit.some((s) => /PROBABLY present/.test(s.explanation)));
+  const steps = runTopic(topic, { keys: '21, 47', query: '22' });
+  const verdict = steps.filter((s) => /DEFINITELY NOT|PROBABLY/.test(s.explanation)).at(-1);
+  assert.ok(verdict, 'reaches a verdict');
+});
+
+test('lru-cache: evicts least-recently-used, never exceeds capacity', async () => {
+  const topic = await loadTopic('lru-cache');
+  const steps = runTopic(topic, { capacity: '3', accesses: '1, 2, 3, 1, 4' });
+  for (const step of steps) assert.ok(step.state.items.length <= 3, 'capacity respected');
+  const final = finalArray(steps);
+  assert.deepEqual(final, [4, 1, 3], 'most-recent-first order; 2 was evicted as LRU');
+});
+
 // ------------------------------------------------ layer 2: input guards
 
 test('bad input throws InputError, not garbage steps', async () => {

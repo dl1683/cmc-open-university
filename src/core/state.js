@@ -20,6 +20,7 @@ export const STATE_KINDS = [
   'matrix',
   'plot',
   'scatter',
+  'graph',
 ];
 
 export const HIGHLIGHT_KEYS = [
@@ -213,6 +214,18 @@ export function plotState({ axes, series = [], markers = [], vectors = [] }, met
   };
 }
 
+// nodes: [{id, label, x, y, note}] with x/y on a roughly 0–10 canvas;
+// edges: [{id, from, to, weight}] (undirected). `note` renders under the
+// node — e.g. a running distance in Dijkstra.
+export function graphState({ nodes, edges }, meta = {}) {
+  return {
+    kind: 'graph',
+    nodes: nodes.map((n) => ({ ...n, note: n.note ?? '' })),
+    edges: edges.map((e) => ({ ...e })),
+    meta: { ...meta },
+  };
+}
+
 // points: [{id, x, y, clusterId}]; centroids: [{id, x, y, label}]
 export function scatterState({ axes, points = [], centroids = [] }, meta = {}) {
   const xs = [...points.map((p) => p.x), ...centroids.map((c) => c.x)];
@@ -257,6 +270,11 @@ export function collectStateIds(state) {
       return [
         ...state.points.map((p) => p.id),
         ...state.centroids.map((c) => c.id),
+      ];
+    case 'graph':
+      return [
+        ...state.nodes.map((n) => n.id),
+        ...state.edges.map((e) => e.id),
       ];
     default:
       return [];

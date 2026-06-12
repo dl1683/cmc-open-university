@@ -340,6 +340,7 @@ function renderScatter(container, step) {
     const cluster = clusterIndex.has(p.clusterId) ? `cluster-${clusterIndex.get(p.clusterId)}` : 'cluster-none';
     const g = svg('g', { 'data-id': p.id, class: `pt ${cluster}${highlightClassesFor(p.id, step.highlight)}` }, el);
     svg('circle', { cx: sx(p.x), cy: sy(p.y), r: 7 }, g);
+    if (p.label) svgText(g, sx(p.x), sy(p.y) - 13, p.label, 'svg-label svg-center svg-small');
   }
   for (const c of centroids) {
     const g = svg('g', { 'data-id': c.id, class: `centroid cluster-${clusterIndex.get(c.id)}${highlightClassesFor(c.id, step.highlight)}` }, el);
@@ -347,6 +348,41 @@ function renderScatter(container, step) {
     svg('line', { x1: sx(c.x) - 6, y1: sy(c.y), x2: sx(c.x) + 6, y2: sy(c.y) }, g);
     svg('line', { x1: sx(c.x), y1: sy(c.y) - 6, x2: sx(c.x), y2: sy(c.y) + 6, class: '' }, g);
     if (c.label) svgText(g, sx(c.x), sy(c.y) - 18, c.label, 'svg-label svg-center svg-small');
+  }
+}
+
+function renderGraph(container, step) {
+  const { nodes, edges } = step.state;
+  const xs = nodes.map((n) => n.x);
+  const ys = nodes.map((n) => n.y);
+  const axes = {
+    x: { min: Math.min(...xs) - 0.8, max: Math.max(...xs) + 0.8 },
+    y: { min: Math.min(...ys) - 0.8, max: Math.max(...ys) + 0.8 },
+  };
+  const W = 560;
+  const H = 360;
+  const el = makeSvg(container, W, H);
+  const { sx, sy } = makeScales(axes, W, H, 30);
+  const at = new Map(nodes.map((n) => [n.id, { x: sx(n.x), y: sy(n.y) }]));
+
+  for (const edge of edges) {
+    const a = at.get(edge.from);
+    const b = at.get(edge.to);
+    const g = svg('g', { 'data-id': edge.id, class: `edge${highlightClassesFor(edge.id, step.highlight)}` }, el);
+    svg('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y }, g);
+    if (edge.weight !== undefined) {
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      svg('circle', { cx: mx, cy: my, r: 11, class: 'edge-weight-bg' }, g);
+      svgText(g, mx, my, String(edge.weight), 'svg-center svg-small');
+    }
+  }
+  for (const node of nodes) {
+    const p = at.get(node.id);
+    const g = svg('g', { 'data-id': node.id, class: `cell${highlightClassesFor(node.id, step.highlight)}` }, el);
+    svg('circle', { cx: p.x, cy: p.y, r: 20 }, g);
+    svgText(g, p.x, p.y, node.label, 'cell-value svg-center');
+    if (node.note) svgText(g, p.x, p.y + 33, node.note, 'svg-label svg-center svg-small');
   }
 }
 
@@ -361,6 +397,7 @@ const RENDERERS = {
   matrix: renderMatrix,
   plot: renderPlot,
   scatter: renderScatter,
+  graph: renderGraph,
 };
 
 export function renderStep(container, step) {
