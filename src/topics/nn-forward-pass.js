@@ -104,43 +104,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A neural network is a stack of matrix multiplies and bends. This 2-3-1 network has 2 inputs, 3 hidden neurons, and 1 output. You feed inputs through a first layer (multiply by W₁, add bias b₁, apply ReLU), then through a second layer (multiply by W₂, add bias b₂) to get a prediction. The weights are frozen here so you can trace the numbers: input [2, -1] flows through hidden activations to a single prediction. In a real model, Gradient Descent would tune these 13 numbers (6 + 3 weights, 4 biases) on thousands of examples until the predictions are correct.`,
-        `Scale matters only in degree, not kind. Replace "2 inputs" with 12,288 embeddings, "3 hidden" with 4,096 dimensions, add 100 layers and Attention Mechanism blocks, and you have a 7 billion-parameter GPT model. The forward pass is identical: multiply, add bias, bend, repeat. Everything is the same recipe played at different scales.`,
+        `A forward pass is the computation a trained neural network runs to turn input numbers into output numbers. In this demo, the network has 2 inputs, 3 hidden neurons, and 1 output. It applies a first affine layer, a nonlinearity, and a second affine layer: xW1 + b1, then ReLU, then aW2 + b2. The 13 trainable parameters are 6 first-layer weights, 3 first-layer biases, 3 second-layer weights, and 1 output bias.`,
+        `Nothing learns during a forward pass. The weights are fixed, and data flows left to right. Backpropagation is the separate reverse computation that later measures blame. Gradient Descent is the optimizer that changes weights using those gradients. In production, the same idea scales from a tiny fraud classifier to The Transformer Block inside a language model: multiply, add, normalize or activate, repeat.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Given x₁ = 2, x₂ = -1, compute the hidden layer: each neuron j sums weighted inputs plus bias. Neuron 1: z₁ = 2·(0.5) + (-1)·(0.4) + 0.1 = 0.3. Neuron 2: z₂ = 2·(-0.6) + (-1)·(0.9) - 0.2 = -2.3. Neuron 3: z₃ = 2·(0.8) + (-1)·(-0.3) + 0.05 = 1.95. Then ReLU clips negatives to zero: a = [0.3, 0, 1.95]. That input-dependent routing (neuron 2 silenced) is where nonlinearity lives — different inputs activate different neurons.`,
-        `The output layer repeats the recipe: ŷ = 0.3·(0.7) + 0·(-0.5) + 1.95·(0.6) + 0.15 = 1.53. For classification, pass through Softmax & Temperature to get probabilities; for regression, that number is your answer. Every neuron (except inputs) computes: weighted sum → add bias → nonlinearity → becomes input to the next layer. No loops, no hidden state — just linear algebra with a bend in the middle.`,
+        `For input x = [2, -1], each hidden neuron computes a weighted sum plus bias. The demo's numbers give z1 = 0.7, z2 = -2.3, and z3 = 1.95 before the activation. ReLU, one of the core Activation Functions, keeps positive values and clips negatives to zero, so the hidden activation becomes [0.7, 0, 1.95]. That "zero" is not a bug; it is input-dependent gating. A different input might wake that second neuron and silence another.`,
+        `The output layer repeats the same affine recipe: combine hidden activations with W2, add the output bias, and produce one prediction. For regression, the number itself can be the answer. For classification, logits usually pass through Softmax & Temperature to become probabilities. For deep networks, BatchNorm & LayerNorm may rescale activations between layers to keep distributions stable.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `This network does 9 multiplications and 10 additions per forward pass. Modern hardware handles millions per second, so inference is fast. Memory is the bottleneck: a 7B-parameter GPT model's weights occupy ~28 GB of GPU memory alone. Store activations and gradients during training and you need 100+ GB. Quantizing weights to 4-bit integers cuts memory by 8×, barely hurting accuracy.`,
+        `For a dense layer with input width m and output width n, the main cost is O(mn) multiply-adds and O(mn) parameter storage. This tiny network performs 9 multiplications for the two weight matrices, plus bias additions and ReLU comparisons. A 7B-parameter model in fp16 stores about 14 GB of weights before activations, optimizer state, cache, or runtime overhead; fp32 would be about 28 GB. Quantization can store weights in 8-bit, 4-bit, or mixed formats, trading memory bandwidth and sometimes accuracy for speed.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every trained model runs forward passes: GPT for text, ResNets for images, transformers for sequences. Your phone runs them when you unlock with your face; banks run millions daily for fraud detection. When you talk to GPT, it runs a forward pass for each token it generates, using its frozen weights to predict the next word. The KV Cache trick stores old hidden states so you do not recompute them; but the core forward pass never changes.`,
+        `Every deployed neural model is mostly forward passes. A phone face-unlock model runs one over an image. A bank fraud model runs one over transaction features. A recommender scores user-item pairs. A language model runs one forward pass for the prompt prefill and then one smaller decode step per generated token. Attention Mechanism layers add token mixing, convolution layers add local image filters, and feed-forward layers add per-token transformations, but the execution mindset is the same: tensors flow through fixed learned parameters.`,
+        `Training also uses forward passes. Each batch first runs forward to compute predictions and loss; only then does the backward pass compute gradients. Inference skips the backward half, which is why serving a model is usually much cheaper than training it.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Neurons are not intelligent — they are dumb weighted sums. Intelligence emerges from tuning thousands of them. ReLU silencing is not a bug; it is the feature: neurons contribute zero when their input is negative, creating input-dependent routing. ReLU is one of many bends — Softmax & Temperature, sigmoid, tanh, GELU each behave differently. Training is hard (months, millions of dollars for GPT); forward passes are mechanically simple.`,
+        `A neuron is not a miniature mind. It is a parameterized function: weighted sum, bias, activation. Interpretability becomes hard because millions or billions of such functions compose, not because any one neuron is magical. Another misconception is that deeper always means smarter. Depth increases expressivity and cost, but without data, optimization, normalization, and regularization, extra layers can make training worse.`,
+        `Do not confuse logits with probabilities. The output number may need calibration, thresholding, or softmax. Do not confuse inference with learning either: if weights are not updated, the network is only applying what training already stored.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Next, explore the bends that make learning possible: Activation Functions. Then learn Gradient Descent, which nudges weights backward from prediction errors. Master Attention Mechanism — the innovation that powers transformers — which mixes information across the entire input. For classification, use Softmax & Temperature to turn predictions into probabilities. For large models, KV Cache makes generation fast.`,
+        `Study Activation Functions for the bends, then Backpropagation for the reverse-mode gradient calculation and Gradient Descent for the update rule. Softmax & Temperature explains classifier and decoder probabilities. The Transformer Block shows how this same feed-forward recipe sits beside attention in LLMs. BatchNorm & LayerNorm covers stabilization, and Quantization explains how the fixed weights can be stored more cheaply for inference.`,
       ],
     },
   ],
 };
-

@@ -132,45 +132,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Attention is a mechanism that lets every token in a sequence look at every other token in a single parallel step, without loops or recurrence. It answers the question: for each position, which other positions matter for understanding the current one? The answer comes back as a probability distribution — a row of percentages that sum to exactly 100% — telling the network how much to "pay attention" to each neighbor.`,
-        `Three matrices — Queries, Keys, and Values — are the machinery. Queries encode what each token is looking for. Keys encode what each token offers. Values are the information tokens hand over if attended to. A dot product between every query and every key produces a score; softmax normalizes that score into a probability distribution; finally each token becomes a weighted average of everyone's values using those probabilities as weights. Information flows between tokens without loops.`
-      ]
+        `Attention is the operation that lets tokens exchange information. After Tokenization (BPE) turns text into IDs and Embeddings & Similarity turns those IDs into vectors, each token makes three learned projections: a query, a key, and a value. The query asks "what do I need?", the key advertises "what do I contain?", and the value is the information handed over if the match is strong. Vaswani et al.'s 2017 "Attention Is All You Need" made scaled dot-product attention the center of the Transformer era.`,
+        `For one attention head, every query is compared with every key. The comparisons become scores, the scores pass through Softmax & Temperature, and each token receives a weighted average of all value vectors. That weighted average is not a symbolic lookup; it is ordinary linear algebra. The important change from recurrent networks is parallelism: all token-to-token relationships are computed at once, so the model can connect "it" to a noun 40 tokens earlier without stepping through the sentence one word at a time.`,
+      ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Each token's embedding is multiplied by learned projection matrices to create three derived versions: its Query, its Key, and its Value. These are three different "views" of the same embedding, each optimized for a different role. Computing attention then has four steps: (1) Compute all-pairs dot products between queries and keys to get scores — how well each token's question matches each other token's answer. (2) Divide by the square root of the embedding dimension to keep numbers in a stable range, avoiding saturation in softmax. (3) Apply softmax to each row independently, turning scores into a probability distribution where every row sums to 100%. (4) Multiply this weight matrix by the Values matrix — each token is now a weighted average of everyone's value vectors.`,
-        `This all-pairs matching is why attention costs O(n²) in sequence length: an n-token input creates an n × n weight matrix. Modern Transformers run attention with multiple independent "heads" in parallel — GPT-4 uses 128 heads — and each head specializes on different relationships (one tracking pronouns and their referents, another syntax patterns, another nearby tokens). A single attention head is one copy of the machinery above; multi-head attention just runs the same computation multiple times with different learned projections, then concatenates the outputs.`
-      ]
+        `The core formula is softmax(QK^T / sqrt(d_k))V. Q, K, and V are matrices with one row per token. QK^T builds an n by n table, where cell (i, j) says how much token i should read token j. Dividing by sqrt(d_k) matters: without scaling, larger vector dimensions make dot products grow, softmax saturates, and gradients get brittle. After softmax, every row is a probability distribution. Multiplying by V mixes actual content into each token's new representation.`,
+        `Causal language models add a mask before softmax: future positions get negative infinity, so generated token 12 cannot peek at token 13. Multi-Head Attention repeats the same computation with different projections, then concatenates the results. RoPE (Rotary Embeddings) or another position scheme is also needed, because content-only attention is permutation-equivariant: shuffle the input tokens and the outputs shuffle with them.`,
+      ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Attention's O(n²) cost is both its signature and its constraint. For a 4000-token input (a small chapter), the weight matrix alone holds 16 million entries. Generating text with an LLM requires repeating attention many times — once per output token — so total inference cost is O(n²m) where n is input length and m is output length. This is why inference is expensive and why long-context models (accepting 100k tokens) are still slow. Training is even more expensive because backpropagation through softmax requires storing attention weights in memory. Sparse attention variants (attending to only nearby tokens, or random subsets) cut this cost but work less well in practice.`
-      ]
+        `For a sequence of n tokens and head dimension d, prefill attention costs O(n^2 d) per head and stores an n by n attention pattern during training. A 4,096-token prompt has 16,777,216 query-key pairs per head per layer; at 32 layers and many heads, memory bandwidth becomes the wall. During autoregressive decoding, the KV Cache avoids recomputing old keys and values, but the new query still scores against every cached key, so long contexts remain expensive. FlashAttention (Dao et al., 2022) does not change the math; it tiles the computation so the giant attention matrix is not written to slow memory.`,
+      ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Attention powers every state-of-the-art language model: GPT, Claude, Llama, PaLM, Gemini. It is the central mechanism in Transformer architectures which are now standard for text, image (Vision Transformers), and cross-modal models (CLIP, DALL-E). Attention also appears in speech recognition (Conformer models), machine translation, and document understanding. In recommendation systems and vector databases, nearest-neighbor search is a form of attention — finding the top-k keys with highest dot-product scores against a query.`,
-        `Variants are everywhere: rotary positional embeddings encode position information into the query-key dot product; flash attention reorganizes the computation to avoid writing the full weight matrix to memory, cutting inference latency by 10×; grouped query attention reduces the number of key/value projections per head, cutting memory. These optimizations preserve the core insight — queries, keys, values, and softmax — while making attention feasible at scale.`
-      ]
+        `Machine translation was the first showcase: the original Transformer beat recurrent systems on WMT 2014 English-German while training faster. Today the same block powers GPT-style decoders, BERT-style encoders, Vision Transformers, Whisper-like speech models, and multimodal systems that let text attend to image patches. Retrieval systems are not literally attention, but dot-product retrieval rhymes with it: a query vector is compared against many candidate vectors, just outside the network rather than inside a layer. The Embedding Space, in 3D is the geometric version of that idea.`,
+        `Production attention is heavily engineered. Grouped-query and multi-query attention share keys and values across heads to shrink cache memory. Sliding-window attention in models such as Mistral limits which old tokens are visible. Long-context systems combine better position encodings, paged caches, and memory-aware kernels because the simple n^2 table is still the bottleneck.`,
+      ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `One widespread misconception: attention creates a "causal graph" of what-depends-on-what. It does not. Attention is symmetric (bidirectional) by default — every token can see every other token. Language models prevent cheating by masking the future: during generation, future tokens are set to -∞ before softmax (enforcing 0% attention to them), making attention "causal" at inference time. But the mechanism itself has no inherent causality.`,
-        `Another pitfall: assuming attention "explains" model decisions. An attention head focusing heavily on word A does not prove the model considered A when producing its output. Attention is just one component; predictions emerge from the entire multi-layer network. Layer-wise and full-network importance metrics (like integrated gradients) are more trustworthy.`,
-        `Finally, do not confuse attention with memory. Attention is instantaneous — it runs once per forward pass and computes what each token should pull from the current context. It does not persist state across different forward passes. Memory mechanisms (retrieval-augmented generation, external memory) are separate additions to transformer architectures.`
-      ]
+        `Attention weights are not explanations. A bright cell in a head means one value vector influenced one intermediate representation; it does not prove a final answer depended on that token. Attribution needs the whole network, not one softmax table. Another common mistake is calling attention "memory." Attention reads the current context. Persistent memory, retrieval, or tool state must be added outside the basic layer.`,
+        `Do not overstate causality either. Unmasked attention is bidirectional; causal attention is created by a mask. Do not overstate sparsity: sparse patterns save compute, but they also remove possible interactions. The Transformer Block works because attention is wrapped with feed-forward layers, residual paths, and normalization-style stabilization.`,
+      ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Dive deeper into Softmax & Temperature to understand why that exponentiation matters and how temperature controls the sharpness of attention distributions. If you want to see how attention fails at long context and what sparse alternatives exist, study a Transformer paper directly or explore related visualizations. For grounded practice, build a tiny attention implementation from scratch in your preferred language — the math is pure linear algebra. When you are ready to understand full language models, study Gradient Descent to see how attention weights are learned, and explore Activation Functions to understand what comes after attention in the neural network pipeline.`
-      ]
+        `Read Multi-Head Attention next: one head is the scalar version, many heads are the production architecture. Then study The Transformer Block to see attention surrounded by residuals and the feed-forward network. KV Cache explains why serving a decoder is different from training one. RoPE (Rotary Embeddings) explains how position is inserted into query-key geometry. Finally, return to Softmax & Temperature, because the same row-normalizing function appears inside attention and at the final next-token sampler.`,
+      ],
     }
   ]
 };

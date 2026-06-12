@@ -96,46 +96,43 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Multi-head attention runs several independent attention mechanisms in parallel, each with its own learned projection matrices Wq, Wk, Wv. Instead of one pattern describing all relationships in a sentence, you get multiple patterns from the same input — think of it as a small ensemble. The outputs are concatenated and blended through a final learned matrix W_O. You saw this directly: Head 1 focused on position (every token looks at its predecessor), while Head 2 found semantics (every token looks at the noun). Same input, completely different outputs, same architecture.`,
-        `This feels wasteful at first — why not just make attention wider? The genius is that each head operates in lower dimensions (total dims divided by number of heads), so a 96-head model with 96 dimensions per head costs the same compute as one 96-dimensional head, but captures 96 different relationship types simultaneously. Redundancy emerges naturally: some heads specialize, others duplicate — that's fine. The architecture lets diversity emerge without forcing it.`,
+        `Multi-head attention is several Attention Mechanism copies run side by side. Each head has its own learned Wq, Wk, and Wv projections, so the same tokens can be viewed through different relationship lenses. One head might track the previous token, another might find a subject noun, another might copy a repeated pattern. The head outputs are concatenated and mixed by an output matrix W_O, giving the next layer one combined representation.`,
+        `The point is not that each head is mystical or human-readable. The point is capacity with separation. If a model dimension d_model is split across H heads, each head works in d_model / H dimensions, so total projection width stays comparable to one large head while the model gets H different attention patterns. GPT-3 175B is the concrete extreme: 96 layers, 96 heads per layer, 12,288 model width, and 128 dimensions per head. BERT-base is smaller but the same idea: 12 layers, 12 heads, 768 width.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Each head independently computes the standard attention pattern: Qi = Wq·Xi, Ki = Wk·Xi, Vi = Wv·Xi, then softmax(Qi · Ki^T / sqrt(d_head)) · Vi. The only difference is that Wq, Wk, Wv are head-specific and project into a smaller space (dims/heads dimensions). All heads run simultaneously because they don't interact until the end.`,
-        `Once each head has produced its weighted value vectors, you concatenate them side by side (token 1 gets [head_1_output || head_2_output || ... || head_n_output], token 2 gets its own concatenation, and so on). This concatenated tensor is then multiplied by W_O, a learned matrix that can blend the heads — one head's position-tracking output might be scaled down or up relative to another. W_O decides which heads' signals matter most for downstream layers. The beauty is that each head is free to ignore W_O's blending; some heads become specialized while others stay general-purpose.`,
-        `The math ensures efficiency: if you have 96 heads and 96 dimensions total, each head works in 1 dimension internally. Modern hardware loves this because matrix operations parallelize across heads trivially — GPUs can run all 96 heads in one batch operation, then concatenate the results.`,
+        `For head h, the computation is softmax(Q_h K_h^T / sqrt(d_head)) V_h. Q_h, K_h, and V_h come from head-specific slices of the learned projection matrices. The heads do not vote and they do not communicate while attention is being computed. They independently produce one output vector per token, and only after that does W_O blend the concatenated result back into d_model dimensions.`,
+        `This design fits GPUs well. Implementations do not launch 96 tiny separate jobs; they reshape tensors so batched matrix multiplies process all heads together. RoPE (Rotary Embeddings) or another position method is applied per head to queries and keys. During inference, the KV Cache stores keys and values per layer and per head, which is why grouped-query attention shares K/V heads to reduce memory while keeping many query heads.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Multi-head has no asymptotic cost advantage over a single wider attention head — they both compute softmax(Q·K^T)·V. The total floating-point operations stay identical; you're just distributing the work across heads instead of putting it in one. The trade-off is architectural clarity: more parameters are trained (you now have separate Wq, Wk, Wv, W_O for each head), and hardware must parallelize effectively to avoid slowdown. In practice, modern GPUs handle this perfectly — a 96-head model often runs faster than you'd naively expect because parallelization is so efficient.`,
-        `Memory scales linearly: each head's attention pattern is a separate matrix you store (especially important for KV Cache in inference). For a sequence of length N with H heads, the memory footprint is H · N^2 for the attention weights. This is why long-context models struggle: attention memory grows quadratically with sequence length, and multiple heads make it worse proportionally.`,
+        `With d_model held constant, multi-head attention has the same asymptotic cost as single-head attention: O(n^2 d_model) for attention scores and value mixing, plus O(n d_model^2) for projections. The difference is layout, not Big-O. Training memory includes attention probabilities of shape batch by heads by tokens by tokens, so H separate patterns matter. At 4,096 tokens and 32 heads, one layer has about 536 million attention cells before batching. Modern kernels reduce materialization, but the quadratic relationship remains.`,
+        `Parameters are usually four dense matrices: Wq, Wk, Wv, and W_O. They are often stored as large combined projections rather than literal per-head matrices. That implementation detail matters: the architecture says "heads"; the hardware sees packed matrix multiplication.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `GPT-3 uses 96 heads in every layer of its 96 layers. Other models adjust the ratio: GPT-4 uses fewer, deeper layers with more heads per layer. BERT uses 12 heads over 12 layers, a much lighter design for task-specific finetuning. The pattern is universal: any serious transformer uses multi-head attention. Even single-head models (purely educational) are rare in production.`,
-        `Interpretability research has decoded what real heads do: some track syntax (grammatical structure), others find coreference ("her" resolving to the right noun), others implement induction (when I saw "X Y" before, I'll look for "Y" after "X" again). The most famous are induction heads, discovered in 2021 — heads that implement a simple copying algorithm (use attention to find a prior instance of your current token, then look at what followed it). This wasn't explicitly trained; it emerged because it was useful. Researchers also found that pruning redundant heads barely hurts performance, confirming the ensemble theory: many heads are insurance, not essential.`,
+        `Every serious Transformer decoder or encoder uses heads: BERT, T5, GPT-3, Llama, Mistral, and Vision Transformers. Interpretability work has found heads with recognizable roles, especially induction heads described by Olsson et al. in 2022: a model sees a repeated token and attends to what followed it before, enabling simple in-context copying. Other heads track delimiters, syntax, or local position. The Transformer Block is the place these heads live, immediately before residual mixing and normalization.`,
+        `The ensemble analogy is useful but limited. Random Forest combines many explicit trees; heads are not independent models and can be rewritten by downstream layers. Mixture of Experts (MoE) is a better comparison for routed specialization, because it activates different parameter blocks, while heads usually all run for every token.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Myth: more heads are always better. Reality: you hit diminishing returns fast. Beyond a certain point (often 8-16 heads for small models), adding heads doesn't improve performance; you're just training more redundant specialists. This shows up in pruning: if you randomly disable 50% of heads in a trained model, performance drops only slightly. It's similar to overfitting in ensemble learning — too many weak learners stop improving the final answer.`,
-        `Pitfall: assuming each head does one clear job. In practice, many heads are polysemantic (they do multiple things) or almostalmost inert (they barely participate). Real interpretability is messy. A head's learned Wq, Wk, Wv can look nothing like what it ends up doing when combined with downstream layers — the full picture requires looking at the entire stack, not one head in isolation.`,
-        `Misconception: heads are "attention heads." They are not. Each head is an independent weighted average of value vectors, controlled by an independent softmax pattern. The term "attention" is attached to the whole mechanism, not individual heads. Calling them "heads" just means they're parallel copies; "attention" describes what they compute.`,
+        `More heads are not automatically better. If d_model is fixed, adding heads shrinks d_head, and very small head dimensions can make each dot-product space weak. Some trained heads can be pruned with little immediate loss, but "redundant" does not mean useless; redundancy can make optimization and robustness easier. Another trap is clean-story interpretability. A head can be polysemantic, inert on one dataset, crucial on another, or important only because W_O and later layers use it in a specific way.`,
+        `Do not read one attention map as the model's reason for an answer. Saliency Maps & Feature Attribution and full-network ablations are stronger tools. Also do not confuse head count with context length: long context is constrained by token count, position encoding, cache memory, and kernels, not just the number of heads.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Attention Mechanism to see the single-head case that multi-head parallelizes. Then study The Transformer Block, which combines multi-head attention with feedforward layers. If you want to go deeper on speed and inference, KV Cache shows how multi-head attention stores history efficiently. For the big picture on redundancy, Random Forest illustrates the ensemble principle in decision trees — heads often behave like weak learners. Finally, Mixture of Experts (MoE) is the next step: instead of parallel heads with identical compute, use parallel experts with learned routing, so only a few specialists activate per token.`,
+        `Read Attention Mechanism first if the Q/K/V formula is not automatic yet. Then study The Transformer Block, where heads become one sublayer inside a larger residual machine. KV Cache explains the serving cost of storing keys and values per head. RoPE (Rotary Embeddings) shows why position is applied inside each head's query-key space. BatchNorm & LayerNorm explains the stabilizers that keep many stacked head outputs trainable.`,
       ],
     },
   ],
 };
-

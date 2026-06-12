@@ -74,44 +74,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Positional encoding is the mathematical trick that teaches attention "where" a token sits in a sequence. The Attention Mechanism is permutation-invariant — it treats tokens as an unordered set, comparing each token's content to every other by dot products of learned queries and keys. This means "dog bites man" and "man bites dog" produce identical attention patterns unless you explicitly inject position information into the model. Positional encoding solves this by adding a unique, learnable fingerprint to each position's embedding.`,
-        `The original solution, from "Attention Is All You Need" (Vaswani et al., 2017), uses sinusoidal waves at geometric wavelengths. Position p, dimension i gets a combination of sine and cosine of p / 10000^(2i/d), where d is the embedding dimension. This creates a lookup table: every row (position) is geometrically unique, and every column (frequency band) oscillates at a different rate — low bits flipping fast like binary counting, high bits drifting slowly. The values stay bounded in [−1, 1], so they never drown out the word content when added together.`,
+        `Positional encoding is how a Transformer learns word order. Content-only Attention Mechanism is permutation-equivariant: if you shuffle input token vectors, the outputs shuffle the same way. That is not enough for language, where "dog bites man" and "man bites dog" contain the same words but opposite meaning. A position signal makes token 0, token 1, and token 2 numerically different even before attention compares their content.`,
+        `The original Transformer used fixed sinusoidal encodings. For position p and dimension pair i, it used sin(p / 10000^(2i/d)) and cos(p / 10000^(2i/d)). Low-index dimensions oscillate quickly; high-index dimensions change slowly. The vector is bounded in [-1, 1], so it can be added to Embeddings & Similarity-style token vectors without exploding their scale. The result is a compact, deterministic coordinate system for sequence order.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `The math rests on angle-addition identities from trigonometry. When you add a constant offset k to position p, the sinusoidal encoding of p+k is a fixed linear function of p's encoding. This means relative position becomes something attention's learned weight matrices can capture exactly as a rotation — "three tokens back" is not a special case, but a learnable geometric transformation. The design compresses information efficiently: a 512-dimensional embedding holds position signals in its structure, not as sparse one-hot vectors.`,
-        `Deployment is simple and elegant: X + PE. You add the positional encoding (a D-dimensional vector per position) directly to each token's word embedding, element-wise, before feeding the combined matrix into the Transformer Block. Both the position signal and the word signal are now entangled in the same vector. Attention can now distinguish "the cat sat" from "sat the cat" because the same word "the" produces different vectors depending on where it appears, and the dot products reflect order.`,
-        `The idea has evolved significantly. GPT-2 simplified it by learning a separate embedding vector for each position up to a maximum context length — faster to train but brittle when you need longer sequences. Modern large language models — Llama, Mistral, and others — use Rotary Position Embeddings (RoPE), which rotate the query and key vectors by an angle proportional to position, making relative offsets mathematically exact. An alternative, Attention with Linear Biases (ALiBi), skips position embeddings entirely and instead biases the attention scores by the distance between query and key positions. Each approach trades off learnability, extrapolation to longer contexts, and computational cost.`,
+        `The sinusoidal design is not random decoration. Angle-addition identities mean the encoding for p + k can be represented as a linear transformation of the encoding for p. That gives the model a learnable handle on relative offsets such as "one token before" or "three tokens after." In practice, the position vector is added element-wise to the token embedding before the first Transformer Block, so every later query, key, and value projection sees content plus order.`,
+        `Other schemes move the same information to different places. Learned absolute position embeddings, used in GPT-2, store one trainable vector per position and work well inside the trained context length. RoPE (Rotary Embeddings) rotates query and key pairs at attention time so dot products depend naturally on relative distance. ALiBi adds a distance-based bias directly to attention scores. Multi-Head Attention can then learn different heads that care about local syntax, delimiters, or long-range references.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Sinusoidal encoding is computationally free — the table is computed once, stored, and reused across the entire model. The math is deterministic, requiring only sin/cos evaluations and no parameters. RoPE adds a small rotation overhead per attention head (a 2×2 rotation matrix in the complex plane, applied at inference), but remains O(1) per token. ALiBi adds an O(L²) term during attention (one bias per query-key pair), but eliminates embedding computation entirely. For the original Vaswani approach, the only cost is memory for the position table itself, which grows with context length L and dimension d — typically negligible compared to the model's weight matrices.`,
+        `Fixed sinusoidal tables cost O(Ld) memory for maximum length L and model width d, and they can be precomputed once. Learned absolute embeddings also cost O(Ld), but as trainable parameters. RoPE adds a small O(Ld) rotation to queries and keys; implementations precompute sin/cos values and apply them with fused tensor operations. ALiBi adds distance biases to the attention score matrix, so it rides on top of the O(L^2) attention computation rather than creating a new dominant cost. In all cases, position cost is small compared with attention and feed-forward layers.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every Transformer-based model uses positional encoding in some form. The sinusoidal version remains the reference baseline, but practical systems have diverged: GPT-3 and earlier models used learned embeddings; Llama (2023 onward) and Mistral switched to RoPE to handle longer contexts gracefully; recent frontier models stretch or interpolate position signals to train on longer sequences and inference on even longer ones — a critical engineering challenge as context windows grew from 2K tokens in 2017 to millions today. The choice of encoding scheme significantly impacts extrapolation: RoPE extrapolates better to unseen position ranges than fixed learned embeddings, which is why it became the production standard.`,
+        `Every Transformer family needs some order mechanism. The 2017 Transformer used sinusoids. BERT and GPT-2 used learned absolute positions. T5 used relative position bias. Llama, Mistral, Qwen, and many later decoder models use RoPE-style rotations. Long-context engineering often starts here: position interpolation, NTK-aware scaling, and YaRN-style retuning adjust the frequency schedule so models trained at shorter lengths degrade more gracefully at longer lengths. The position scheme also interacts with the KV Cache, because cached keys must keep position meaning stable as decoding appends tokens.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Many students assume position encoding "solves" the attention's permutation invariance problem completely — it does not. It injects positional information into embeddings, but attention still processes sequences as sets. Attention learns to use position signals just as it learns to use word embeddings; nothing forces it to. In practice, models learn this readily, but the connection is learned, not baked in. Another misconception: that sinusoidal encoding is "optimal" — it is convenient and works, but there is no proof it is better than learned or rotational encodings for all tasks. Finally, many overlook context-length extrapolation: an encoding learned on 2K-token sequences may fail gracefully or catastrophically beyond that range, depending on its design. RoPE's success owes partly to its extrapolation properties, not just elegance.`,
+        `Position information is not the same as guaranteed position reasoning. The model must learn to use the signal. A learned absolute table can overfit to seen lengths; a fixed sinusoid can extrapolate mathematically but still fail if the model never trained on long-range dependencies. RoPE extrapolates better in many decoder models, but stretching it too far can cause attention to blur or oscillate. Another misconception is that position is only a first-layer concern. In RoPE, position is applied inside every attention layer's query-key geometry, not simply added once at the input.`,
+        `Finally, do not confuse absolute and relative position. Absolute encodings label "this is position 128." Relative schemes make "this key is 17 tokens behind this query" easier to express. Many practical successes come from making relative distance natural to the dot product.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `To understand why position encoding matters, you need the Attention Mechanism and The Transformer Block, which show how attention processes sequences. Multi-Head Attention reveals how multiple independent attention heads—each with its own position view—combine to capture different relational patterns. KV Cache explains how positional encodings enable efficient inference when you extend a sequence token by token. Embeddings & Similarity covers how word embeddings and position signals combine in the input space, and why both are necessary for a model to reason about language.`,
+        `Study Attention Mechanism to see why content-only attention needs order. The Transformer Block shows where the signal enters the model. RoPE (Rotary Embeddings) is the modern relative-position workhorse. Multi-Head Attention explains why different heads can exploit position differently, and KV Cache shows why appended positions must remain consistent during decoding. Embeddings & Similarity is the right foundation for understanding why adding or rotating vectors can encode structure at all.`,
       ],
     },
   ],
 };
-

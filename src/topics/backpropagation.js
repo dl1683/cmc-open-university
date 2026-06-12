@@ -143,48 +143,46 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Backpropagation is the algorithm that turns a single prediction error into a detailed blame assignment for every weight in a network. After the forward pass computes ŷ = f(x), you measure how wrong it is: loss = (ŷ − y)². Then backpropagation runs the chain rule backward through every layer, accumulating gradients that say "this weight should move left" or "this weight should move right" to reduce the loss. Each weight gets a number—its gradient—proportional to its responsibility for the error.`,
-        `The key insight is symmetry: data flowed left-to-right through the network; error flows right-to-left through the exact same graph, just in reverse. ReLU neurons that silenced themselves forward (z < 0) silence themselves backward too (gradient = 0). Weights that never fired during the forward pass get zero blame and zero learning. The backward pass is not magic; it's just calculus applied methodically to every edge.`,
+        `Backpropagation is reverse-mode automatic differentiation applied to neural networks. Neural Network Forward Pass computes predictions and a loss; backprop walks the same computation graph backward and computes the derivative of that loss with respect to every trainable parameter. Those derivatives are gradients: local instructions for how each weight should move if the goal is to reduce this batch's loss.`,
+        `The historical breakthrough was efficiency. Rumelhart, Hinton, and Williams popularized backprop for neural networks in 1986, but the underlying reverse-mode chain rule is broader than neural nets. One backward sweep gives gradients for millions or billions of weights without separately perturbing each weight. Gradient Descent and its descendants then decide how to turn those gradients into parameter updates.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Start with the loss gradient: dL/dŷ = 2(ŷ − y). This single number seeds everything. From there, the chain rule unfolds: for the output weight w₂ᵢ connected to hidden neuron i, the gradient is ∂L/∂w₂ᵢ = aᵢ × dL/dŷ. Activations act as gain; where the neuron fired strongly (a = 0.9), it bears more blame for the error. Where it didn't fire at all (a = 0), it bears none—no learning signal flows through dead paths.`,
-        `Moving deeper, ReLU's derivative is the gatekeeper: ∂L/∂z = ∂L/∂a × (1 if z > 0, else 0). This is the dead ReLU problem in action—neurons stuck in the negative zone never receive learning signals and never update. Finally, input-layer gradients are an outer product: ∂L/∂W₁ = x ⊗ ∂L/∂z. If input x₂ is negative and the downstream gradient is positive, that weight's gradient is negative—increasing it would worsen the loss. PyTorch and JAX hide all this machinery behind loss.backward(), but every line you just read is what's happening inside.`,
-        `The update step is gradient descent: w ← w − lr·∂L/∂w. One small step in the direction opposite to the gradient. In the visualization, you watch the loss drop in a single step—not by magic, but because we moved along the direction that locally reduces it. This is the fundamental reason training works: gradients point downhill.`,
+        `Start at the loss. For squared error, dL/dy_hat = 2(y_hat - y). That derivative flows into the output layer. A weight connecting hidden activation a_i to the output receives gradient a_i times the downstream error. If a_i was zero, that path contributed nothing on the forward pass and receives no weight gradient on this example. Bias gradients are simpler: they receive the downstream error directly because adding a bias has derivative 1.`,
+        `Then the chain rule continues through Activation Functions. ReLU has derivative 1 for positive pre-activations and 0 for negative ones, so it blocks gradients through inactive units. Other activations have different derivatives. For the first layer, gradients are outer products: input value times hidden-layer error. Frameworks such as PyTorch, TensorFlow, and JAX build a graph of operations during the forward pass, store needed intermediates, and execute these vector-Jacobian products backward when you call backward or grad.`,
+        `The update is separate: w <- w - learning_rate * gradient for plain SGD. Momentum, RMSProp & Adam alter that step using running averages. Learning-Rate Schedules & Warmup change step size over time. Backprop supplies the gradient; the optimizer decides how aggressively to trust it.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `The stunning efficiency: one backward pass costs roughly as much as one forward pass. Not 100× the forward pass. Not "one pass per weight." Just one backward sweep computes gradients for all n weights simultaneously by reusing intermediate activations (z, a) and multiplying them left-to-right. This is dynamic programming on the chain rule—store the forward activations, then replay the chain rule backward, accumulating products. For a network with 1 billion weights, one batch gives you 1 billion gradients in the time of two forward passes. That arithmetic is why deep learning scales.`,
-        `Practical cost: memory. You must store every intermediate activation z and a for every sample in the batch. A model with 7 billion parameters and batch size 32 needs to cache roughly 32 × (number of layers) × (layer widths) in GPU memory. Gradient computation itself is cheap; memory bandwidth and storage are the real constraint.`,
+        `Backward compute is usually on the same order as forward compute, often roughly 2x to 3x a forward pass for dense networks once all gradient calculations are included. It is not one full pass per weight. That is the crucial scaling fact: a billion-parameter model gets a billion parameter gradients from one backward traversal of the graph. The memory cost is often harsher than the arithmetic. Training must keep activations needed for gradients, plus gradients, optimizer state, and sometimes master fp32 weights.`,
+        `Gradient checkpointing trades compute for memory by discarding some activations and recomputing them during backward. Mixed precision reduces bandwidth. Batch size affects activation memory directly. These engineering choices are why training a model is far more expensive than merely running inference.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every neural network trained in production uses backpropagation. Language models, vision systems, reinforcement learning agents—all rely on loss.backward() or equivalent. In research, backprop variants appear everywhere: gradient checkpointing trades recomputation for lower memory, mixed-precision backprop speeds training by computing gradients in lower precision, and gradient accumulation averages gradients over many batches when memory is tight. Automatic differentiation libraries like PyTorch's autograd and JAX build complex custom gradients for novel loss functions; they all bottom out at the chain rule.`,
-        `Understanding backprop also unlocks gradient-based optimization beyond supervised learning: adversarial examples are found by backpropagating through the loss with respect to the input, not the weights; gradient-based meta-learning tunes hyperparameters by treating the inner loop's loss as a function of the learning rate, then differentiating it; neural architecture search uses architecture gradients. The mental model—"differentiate the loss with respect to anything"—opens entire research directions.`,
+        `Every major neural training pipeline uses backprop: language models, diffusion models, CNNs, recommender systems, reinforcement-learning value networks, and small tabular MLPs. It also powers adversarial examples, where the loss is differentiated with respect to the input image or text embedding instead of only the weights. In meta-learning and differentiable architecture search, researchers differentiate through parts of the training process itself.`,
+        `Modern stability tricks exist because raw backprop through deep products of Jacobians can be hostile. BatchNorm & LayerNorm stabilize activation scales. Residual connections give gradients shorter routes. Gradient clipping tames rare spikes. These techniques are the practical answer to Vanishing & Exploding Gradients.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Vanishing gradients: early layers receive tiny gradients because each ReLU kills half the signal. By the time you reach layer 1, the product is near zero. This was a historic blocker in the 1990s—networks deeper than 3–4 layers were thought impossible. Fixes include ReLU itself (which preserves gradient flow better than tanh), residual connections, layer normalization, and careful initialization. Modern networks have 100+ layers precisely because these tricks broke the vanishing gradient ceiling.`,
-        `Dead ReLU: once a neuron's weights drift so that z < 0 for all inputs, it outputs 0 forever, gets zero gradient forever, and never recovers. Some call this dead code in the network. Leaky ReLU (f(z) = max(0.01z, z)) and ELU prevent this by letting small gradients through on the negative side. Another misconception: gradients are guarantees. A large gradient means the loss is sensitive to a weight—it does not mean the direction is correct. With wrong hyperparameters, you can descend the gradient and still increase loss (saddle points, learning rate too high). Gradient descent is not magic; it is local optimization with no global guarantees.`,
-        `One more: backprop computes the gradient assuming a fixed network architecture. If you add dropout during training, gradients estimate the loss under random gating. At test time, you must handle that mismatch (inference dropout requires averaging, or you use "inverted dropout" so test-time expectations align). Backprop is mechanically perfect, but the network's training-vs-test behavior is under your control.`,
+        `Backprop is exact for the computation you defined, not for the problem you wish you had. If the loss is misaligned, the gradients faithfully optimize the wrong thing. If the learning rate is too high, a step along the negative gradient can overshoot and increase loss. If the landscape has saddles, cliffs, or flat basins, gradients can be small or misleading. The Loss Landscape, in 3D shows why local downhill directions do not imply global success.`,
+        `Vanishing gradients are not simply "ReLU kills half the signal." They come from multiplying many Jacobians whose singular values are often below 1; exploding gradients come from products above 1. ReLU helps compared with sigmoid or tanh in many settings, but dead ReLUs, bad initialization, and poor normalization can still break training. Backprop is calculus, not a guarantee of learnability.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Backpropagation is applied Gradient Descent—it computes the gradients that gradient descent uses to update weights. Then study Neural Network Forward Pass to see the forward half; the network architecture defines which weights exist. Activation Functions teach why ReLU blocks gradients where z < 0 and how that shapes learning. The chain rule is calculus; if derivatives feel shaky, recursion through Recursion and then the compositional mental model of Memoization (Dynamic Programming) will show why recomputing vs storing is the core tradeoff—backprop solves it by storing activations and replaying the chain rule, which IS dynamic programming on the composition f(g(h(x))).`,
+        `Read Neural Network Forward Pass first, then Gradient Descent for the basic update. Activation Functions explain derivative gates. Vanishing & Exploding Gradients covers the depth failure modes, while BatchNorm & LayerNorm explains stabilization. The Loss Landscape, in 3D builds geometric intuition for why optimization can stall. Momentum, RMSProp & Adam and Learning-Rate Schedules & Warmup then show how real training loops turn raw gradients into usable progress.`,
       ],
     },
   ],
 };
-

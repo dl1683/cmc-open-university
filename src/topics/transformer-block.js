@@ -111,43 +111,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A Transformer block is the smallest repeating unit of GPT and modern language models. The "Attention Is All You Need" paper (Vaswani et al., 2017) introduced it as the fundamental architecture, and today it is stacked dozens to hundreds of times to build systems like GPT-3 and GPT-4. Each block takes in token embeddings (tokens×dimensions), applies multihead attention so tokens can exchange information, normalizes residually to stabilize training, feeds each token independently through a nonlinear network, and outputs the same shape. Critically, because the input and output shapes match (tokens×dims), blocks are fully composable—you can nest them 32 times for a small model or 100+ times for a large one.`,
-        `The block unifies every major AI concept: Tokenization (BPE) converts text to tokens; Embeddings & Similarity turn tokens into vectors; Attention Mechanism does weighted communication; Residual connections fix vanishing gradients during backprop; LayerNorm keeps numerics stable across depth; the feed-forward network (FFN) processes context per token. The Softmax & Temperature at the very end converts the final block output to probability scores over the vocabulary. No other single unit is more foundational to understanding modern AI.`,
+        `A Transformer block is the repeating unit inside GPT-style language models, BERT-style encoders, Vision Transformers, and many speech and multimodal systems. Vaswani et al. introduced the original encoder-decoder Transformer in 2017; later GPT models kept the decoder-style block and stacked it deeply. Each block takes a matrix shaped tokens by dimensions, lets tokens communicate through attention, applies a per-token feed-forward network, and returns the same shape so another block can consume it.`,
+        `The block is a compact assembly line. Tokenization (BPE) creates token IDs, Embeddings & Similarity maps them into vectors, Attention Mechanism moves information between positions, Multi-Head Attention gives multiple relationship channels, BatchNorm & LayerNorm-style normalization keeps activations usable, and Neural Network Forward Pass explains the feed-forward sublayer. At the very end of the whole model, Softmax & Temperature turns final logits into a next-token distribution. The block itself is not the whole model, but it is the load-bearing unit.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Step 1 embeds each token as a vector and adds positional information, because raw attention is order-blind. Step 2 runs the Attention Mechanism: queries and keys interact to build "importance weights" (via softmax), then values are mixed by those weights so that each token's vector becomes a blend of every token's signal, weighted by relevance. This is the ONLY place in the block where tokens communicate with each other—context flows through this gate. Step 3 adds the attention output back to the original input (a residual connection) and rescales to mean 0, variance 1 (LayerNorm), which forces gradients to remain well-conditioned even after 100 nested blocks.`,
-        `Step 4 routes each token independently through a two-layer feed-forward network (a ReLU nonlinearity sandwiched between two matrix multiplies): this is where roughly two-thirds of the block's parameters live, and it is the layer that Mixture of Experts (MoE) replaces with routed expert networks. Step 5 adds the FFN output back to the post-attention signal, normalizes again, and outputs. The pipeline is deterministic—the exact same block is applied to every token in sequence, making the model embarrassingly parallelizable across tokens at inference time (why KV Cache and Speculative Decoding are so effective).`,
+        `The common decoder block has two sublayers. First, attention forms Q, K, and V, applies a causal mask when generating text, normalizes scores with softmax, and mixes values so each token receives context from earlier tokens. Second, the feed-forward network applies the same small MLP to each token independently, often expanding the hidden width by about 4x before projecting back down. Attention is where tokens communicate; the feed-forward layer is where each token's updated representation is transformed.`,
+        `Residual connections wrap both sublayers: x becomes x + sublayer(x). Normalization appears either before each sublayer (pre-norm, common in modern LLMs) or after it (post-norm, used in the original paper). The residual path preserves a clean gradient route through depth, while normalization prevents activation scale from drifting. This is why a 32-layer 7B model or a 96-layer GPT-3-scale model can train at all.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Attention is O(n²) in sequence length: Q K^T is a matrix multiply between n×d and d×n, yielding an n×n matrix of attention weights. For a 4000-token sequence and 128-dim embedding, that is 16M comparisons. Repeat across 12 heads and 32 layers, and context gets expensive fast—which is why KV Cache compresses the interaction at decode time and why long-context research focuses on sparse or hierarchical attention. The FFN is O(n×d²): each of n tokens flows through a network with d→4d→d layers. LayerNorm is O(n×d) but adds minimal cost; the real expense is the attention quadratic and the FFN's inner-layer dimension (often 4–8× the embedding dim). Overall, a single transformer block is dominated by these two sublayers, and a 7B-parameter model might spend 60% of compute in attention and 40% in FFN.`,
+        `For sequence length n and model width d, attention prefill is O(n^2 d) and the feed-forward network is O(n d d_ff). With d_ff often near 4d, the FFN holds a large share of parameters, while attention becomes dominant as n grows. A 4,096-token sequence creates 16.8 million query-key scores per head per layer before batching. LayerNorm is O(n d), comparatively small but latency-relevant because it touches memory. During decoding, the KV Cache removes repeated K/V projection work for old tokens, yet every new token still attends over the cached context.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every modern large language model (GPT-3, GPT-4, Claude, Gemini, LLaMA) is built from stacked transformer blocks. Encoder-only models (like BERT) use only blocks without causal masking; decoder-only autoregressive models (like GPT) use blocks where attention only looks backward; encoder-decoder models (like T5) pair them. Vision transformers (ViT) apply the same block to image patches. Multimodal models blend image blocks and text blocks. The block is so fundamental that when practitioners optimize for speed, they optimize the block: quantization reduces precision to 8-bit integers, LoRA Fine-Tuning adds trainable adapters without retraining the whole block, and speculative decoding runs small draft blocks in parallel with large blocks to prefill tokens. The serving stack—KV Cache, Quantization, Speculative Decoding, LoRA—wraps around this one unit and multiplies its throughput.`,
+        `The same block pattern appears across model families. BERT uses bidirectional encoder blocks for understanding tasks. GPT and Llama use causal decoder blocks for next-token prediction. T5 uses encoder and decoder stacks. Vision Transformer splits an image into patches and sends patch embeddings through blocks. Whisper-like speech models use Transformer blocks over audio features. The surrounding training objective changes, but the repeated unit remains recognizable: attention, residual path, normalization, feed-forward network, residual path, normalization.`,
+        `Production optimization also targets this block. Kernel fusion reduces memory traffic around normalization and projections. Quantized weights reduce bandwidth. Low-rank adapters add small trainable matrices beside the frozen block. Serving systems batch many users through the same block while carefully paging each user's KV cache.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Misconception 1: attention is a "search" operation. It is not; it is a weighted aggregation, and every token contributes to every other token's output (with zero weight being a valid contribution). Misconception 2: transformer blocks are the only thing that matters. They are central, but tokenization (BPE) shapes what the model even sees, and Softmax & Temperature shapes what comes out. Misconception 3: stacking blocks is "free"—it is not. Vanishing gradients, loss-of-signal, and training instability were real problems until residuals and LayerNorm solved them (roughly), but no amount of normalization is free; numerical precision does degrade, which is why quantization and mixed-precision training exist. Misconception 4: bigger blocks are always better. Mixture of Experts (MoE) showed that routing tokens to specialized sub-blocks can be more compute-efficient than a monolithic FFN. Misconception 5: the block is "static". Inference optimizations like KV Cache actually change the computation graph in subtle but crucial ways.`,
+        `A block is not a brain cell, a database row, or a search engine. It is a differentiable function with learned matrices. Attention is weighted aggregation, not symbolic retrieval. The FFN is not optional glue; in many language models it contains most parameters. Normalization does not magically solve all depth problems; poor initialization, bad learning rates, and numerical precision can still destabilize training. And "more blocks" is not free: latency, memory, optimizer state, and data requirements all rise with depth.`,
+        `Another misconception is that inference runs the same graph as training. The math is equivalent, but serving a causal decoder uses cached keys and values, paged memory, batched requests, and sometimes different precision. Those engineering choices change speed and memory without changing the learned weights.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `To deepen your understanding: Attention Mechanism covers the multihead math in detail and shows why O(n²) is unavoidable. Neural Network Forward Pass walks the ReLU and matrix multiply that build the FFN. Tokenization (BPE) is the pre-block stage that discretizes text. Softmax & Temperature is the post-block stage that turns logits into probability. KV Cache explains how serving rewrites the block to avoid redundant recomputation. Mixture of Experts (MoE) shows an alternative to the monolithic FFN that can reduce compute while scaling up the model.`,
+        `Study Attention Mechanism and Multi-Head Attention for the communication sublayer. Use Neural Network Forward Pass for the per-token FFN. Read BatchNorm & LayerNorm to understand why modern blocks prefer layer-style normalization over batch statistics. Then read KV Cache to see why decoding speed is mostly an inference-systems problem. Finally, revisit Softmax & Temperature, because the model's last block is only useful after logits become a distribution.`,
       ],
     },
   ],
 };
-

@@ -78,45 +78,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `An embedding is a mapping from high-dimensional objects (words, documents, images) to points in a lower-dimensional vector space where geometry encodes meaning: things that are semantically similar sit close together. For example, embeddings of "cat" and "dog" are much closer to each other than "cat" and "truck" because cats and dogs are more similar (animals) than cats and trucks. The embedding space is usually learned: a neural network is trained to map words to vectors such that related words are nearby in the space, and unrelated ones are far. Once embeddings are learned, similarity becomes a geometric problem — measure distance between vectors — rather than a linguistic or logical one.`,
-        `The core insight is that meaning can be represented as geometry. Instead of storing dictionaries or synonym lists, you train a model to arrange meanings in a high-dimensional space. This scales to millions of concepts and enables operations that are impossible in symbolic systems: queen minus woman plus man is approximately king (the famous word2vec analogy). This geometric representation is the foundation of modern semantic search, retrieval-augmented generation (RAG), and vector databases.`
-      ]
+        `An embedding maps a discrete or messy object into a dense vector whose geometry is useful. The object might be a token, sentence, product, image, user, or document. Similar things should land near each other under a metric such as cosine similarity or dot product. The space is not necessarily "lower-dimensional" than the raw object; it is a learned coordinate system where distance can stand in for semantic or behavioral relatedness.`,
+        `The modern story begins with word2vec (Mikolov et al., 2013): train vectors so words that appear in similar contexts get similar coordinates, and analogies such as king - man + woman roughly point toward queen. Tokenization (BPE) decides the units, Neural Network Forward Pass computes representations, and Gradient Descent moves vectors until the training objective improves. Once trained, meaning becomes searchable geometry.`,
+      ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Embeddings are learned through neural networks, typically by predicting one word from nearby words (the Skip-gram model), or by forcing different corruptions of the same text to have similar embeddings (contrastive learning, used in models like CLIP). The loss function encourages semantically similar pairs to have small distance (cosine similarity or Euclidean distance) and dissimilar pairs to have large distance. After training, the embedding layer (usually the hidden state of the neural network) is saved, and inference becomes simple: look up a word, get its embedding vector, measure distances to other vectors.`,
-        `In practice, embeddings for sentences or documents are computed by averaging or pooling the embeddings of their constituent words or tokens, or by using a larger model (like BERT or sentence transformers) that directly produces document embeddings. The dimensionality ranges from 50 (small, fast models) to 3000 and up (large, more expressive models). Most commonly, models like OpenAI's text-embedding-3 use 1536-dimensional embeddings. Once embeddings are stored in a vector database (Pinecone, Weaviate, or even a simple in-memory index), querying is fast: embed the query, find nearby vectors, return those results.`
-      ]
+        `There are several training routes. Skip-gram predicts nearby words. Matrix factorization methods such as GloVe compress co-occurrence statistics. Contrastive systems such as CLIP pull matching text-image pairs together and push mismatches apart. Transformer encoders use Attention Mechanism to make contextual embeddings, where "bank" near "river" differs from "bank" near "loan." Sentence embedding models then pool token states into one vector for the whole passage.`,
+        `Similarity is usually cosine: normalize vectors, then compare angles. Dot product is common when magnitude is meaningful or already normalized. Euclidean distance can work, but high-dimensional spaces make raw distance less intuitive. The Embedding Space, in 3D visualizes a tiny version; real systems use hundreds to thousands of dimensions and cannot be inspected axis by axis.`,
+      ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Computing the embedding for a single text is O(d squared) where d is the embedding dimension (one forward pass through the encoder network, dominated by matrix multiplications). Storing embeddings requires O(n times d) space for n texts. Querying (finding the top-k nearest neighbors) is O(n times d) with naive search (compute distance to all vectors), or O(log n times d) with approximate methods like LSH or HNSW (hierarchical navigable small world). Modern vector databases like Pinecone or Weaviate use HNSW or similar for sub-second queries on millions of vectors. The embedding model itself (like text-embedding-3-large) runs on GPU servers; inference latency is typically 10-100ms per text.`
-      ]
+        `Storage is O(Nd): N items times d dimensions. One million 1,536-dimensional float32 vectors need about 6.1 GB before index overhead; float16 cuts that in half. Naive search is O(Nd) per query, which is fine for thousands of vectors and painful for millions. HNSW (Vector Search at Scale), IVF, and product quantization trade exactness for speed and memory, often returning high-recall neighbors in milliseconds. SVD & Low-Rank Approximation and related compression ideas appear when you need smaller vectors or faster indexes.`,
+      ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Embeddings power semantic search everywhere: Google uses them for search ranking; every modern search engine ranks results partly by embedding similarity. Retrieval-augmented generation (RAG) uses embeddings to fetch relevant documents for an LLM to read and reason over — vital for answering questions over proprietary data. Recommendation systems use embeddings to find similar users or items. Duplicate detection: compute embeddings, find near-duplicates by distance. Clustering and anomaly detection use embeddings to group similar items or spot outliers.`,
-        `Vector databases like Pinecone, Weaviate, and Milvus are built entirely on embedding search. Multimodal models (CLIP) embed both text and images into the same space, enabling cross-modal search (search images with text, or vice versa). Embeddings have become the lingua franca of ML: any modern system that does similarity, search, or clustering starts by embedding everything into the same vector space.`
-      ]
+        `Embeddings power semantic search, recommendations, duplicate detection, anomaly detection, clustering, and retrieval-augmented generation. A support bot embeds a user question, retrieves nearby policy chunks, and sends those chunks to an LLM. A music app embeds users and songs into compatible spaces. A fraud system embeds transactions and flags points far from normal clusters. CLIP-style multimodal embeddings put image and text in one space, enabling "find images like this caption."`,
+        `Vector databases such as FAISS, Milvus, Pinecone, and Weaviate are built around storing vectors plus metadata filters. The hard production problem is not "compute one cosine." It is freshness, filtering, deduplication, index rebuilds, recall measurement, and preventing semantically plausible but factually wrong neighbors from poisoning downstream answers.`,
+      ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A major misconception: embedding distance is a perfect proxy for semantic similarity. It is not. Embeddings are trained on specific objectives (predicting nearby words, contrastive pairs, etc.) and generalize imperfectly to other domains. For instance, two documents might be close in embedding space but unrelated in meaning if they share common words. Different embedding models (word2vec, GloVe, BERT, OpenAI's API) disagree on distances; none is universally correct.`,
-        `Another pitfall: assuming high-dimensional distance is intuitive. It is not. In high dimensions, distances concentrate: most points are roughly equidistant from any given point (the curse of dimensionality). This means embedding space is highly compressed; two close vectors may still represent quite different meanings. Using cosine similarity (angle between vectors) instead of Euclidean distance helps because it is scale-invariant.`,
-        `Finally, embeddings are not human-interpretable. A vector of 1536 dimensions does not offer human intuition about what it means. We can visualize 2D embeddings in demos, but real embeddings live in spaces where individual dimensions have no clear semantic meaning.`
-      ]
+        `Embedding distance is not truth. It reflects the model, data, pooling method, and metric. A legal contract and a blog post can look close if they share boilerplate; two short texts can look far because one uses rare wording. Domain shift matters: a model trained on web text may embed medical abbreviations badly. Bias also matters, because social regularities in training data become geometric regularities in the space.`,
+        `Do not over-read dimensions. Individual coordinates usually lack stable human meaning. Dimensionality reduction plots such as t-SNE & UMAP: Seeing Embeddings are useful maps, not the territory. A pretty cluster in 2D can be an artifact of the projection. Always evaluate retrieval with labeled queries and failure cases.`,
+      ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Understand how embeddings are learned by studying Gradient Descent — neural networks that produce embeddings are trained the same way all models are trained. Study Tokenization (BPE) to understand how text is converted to tokens before embedding. Explore Attention Mechanism to see how transformers (like BERT) produce contextualized embeddings (the same word can have different embeddings depending on context). For practical work, research vector databases (Pinecone, Weaviate, Milvus) and RAG systems. Dive into contrastive learning (SimCLR, CLIP) to understand how embeddings can be trained without labels. When you are ready, implement nearest-neighbor search using HNSW or locality-sensitive hashing to speed up vector queries on large datasets.`
-      ]
+        `Start with Tokenization (BPE), then follow vectors through Neural Network Forward Pass and Gradient Descent. Attention Mechanism explains contextual embeddings. The Embedding Space, in 3D builds geometric intuition; t-SNE & UMAP: Seeing Embeddings shows how high-dimensional spaces get visualized; SVD & Low-Rank Approximation gives the matrix-compression ancestor; HNSW (Vector Search at Scale) explains how million-vector search becomes fast enough for real products.`,
+      ],
     }
   ]
 };

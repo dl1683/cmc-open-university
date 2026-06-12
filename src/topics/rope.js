@@ -84,45 +84,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `RoPE (Rotary Position Embedding) encodes position not by adding a signal to a vector, but by rotating the vector's direction — leaving its magnitude untouched. Instead of "add position 5 to the embedding," RoPE says "spin the embedding by 5 times θ radians." The position lives entirely in the angle, the content entirely in the amplitude. This design was introduced by Su et al. in the 2021 RoFormer paper and has become the default positional encoding in Llama, Mistral, Qwen, and most frontier language models.`,
-        `The core insight is geometric: when two rotated vectors are dot-produced in an attention head, the result depends only on the difference between their rotation angles, not their absolute positions. This means the attention score between tokens at positions m and n is the same whether they appear at the start of a document or at token 100,000 — the relative offset is baked into the geometry itself.`,
+        `RoPE, short for rotary position embedding, encodes position by rotating query and key vectors instead of adding a separate position vector to token embeddings. Su et al. introduced it in the 2021 RoFormer paper, and it became common in Llama, Mistral, Qwen, and many other decoder models because it gives attention a natural notion of relative distance while preserving vector norms.`,
+        `The contrast with Positional Encoding is the key. A sinusoidal input encoding adds numbers to the embedding before the model starts. Rotary encoding waits until Attention Mechanism forms Q and K, then rotates each 2D dimension pair by an angle proportional to token position. Content stays in the vector components; position enters as phase. The dot product between a rotated query and rotated key then depends on their relative offset in a mathematically clean way.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `RoPE treats each pair of embedding dimensions as a 2D plane rotating independently. For position p, dimension-pair i rotates by angle p × θᵢ, where θᵢ = 10000^(−2i/d) — the same frequency ladder used in sinusoidal Positional Encoding. The rotation is applied separately to Q (queries) and K (keys) in the attention mechanism, with each pair spinning at its own frequency. Fast-spinning pairs resolve fine-grained offsets like "the token next door," while slow-spinning pairs distinguish long-range distances like "500 tokens back" from "5,000 back." Together they form a multi-speed ruler of relative distances.`,
-        `The magic emerges in the dot product. If a query at position m is rotated by angle m × θ and a key at position n is rotated by n × θ, then rotating both, computing their dot product depends only on (m − n) × θ — the relative offset. Two token pairs separated by exactly 3 positions will produce identical attention scores regardless of where in the document they appear. This is why relative positions fall out "for free": the mathematics of rotation composition delivers it.`,
-        `The rotation is numerically computed as a 2D transformation: if v = [v₀, v₁], the rotated vector is [v₀ cos(pθ) − v₁ sin(pθ), v₀ sin(pθ) + v₁ cos(pθ)]. Crucially, rotation preserves the vector's norm (length) — a fact called the rotation invariant. Position never bleeds into the magnitude; content strength remains untouched.`,
+        `Each adjacent pair of dimensions is treated as a 2D plane. For position p and frequency index i, the pair rotates by p times theta_i, with theta_i usually following a geometric ladder such as base^(-2i/d). Fast frequencies distinguish local offsets; slow frequencies keep long-range offsets from wrapping too quickly. In matrix form, each pair uses the familiar rotation [x cos a - y sin a, x sin a + y cos a], the same geometry behind Eigenvalues & Eigenvectors lessons on linear transformations.`,
+        `The useful identity is R_m(q) dot R_n(k) = q dot R_(n-m)(k), up to the sign convention. That means the position part of the query-key score is a function of relative distance, not an arbitrary absolute label. Be precise: two pairs with the same offset do not automatically have identical scores if their content vectors q and k differ. RoPE says the positional transformation depends on m - n; the learned content still matters.`,
+        `In Multi-Head Attention, each head applies this rotation to its own Q and K dimensions. Values are usually not rotated. The rotated keys are what the KV Cache stores during decoding, so future queries can compare against position-aware cached keys without recomputing the old tokens.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `RoPE is computationally cheap. Each dimension pair requires two sin/cos calls and four multiply-add operations, all cached for reuse. Applying RoPE to a batch of queries and keys at attention time has negligible overhead compared to the attention matrix multiplication itself. The real-world cost in Llama and Mistral is beneath the noise floor. Unlike some positional encodings that require learning extra parameters, RoPE uses only the sin/cos trigonometry built into every processor.`,
+        `RoPE adds O(Ld) work to rotate queries and keys for L tokens and width d, small beside O(L^2 d) attention prefill and O(Ld) per-token cached attention. Implementations precompute sin and cos tables and use fused elementwise operations, so they do not call trigonometric functions in the inner loop. It adds no learned position parameters. The cache cost is indirect: keys must be stored after the correct rotation, and long-context scaling changes the frequency schedule that produced those rotations.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `RoPE is the foundation of position encoding in virtually every frontier large language model. Llama (7B through 70B), Mistral (7B, Mixture-of-Experts variants), Qwen (1.5B through 72B), and DeepSeek all use RoPE by default. Its relative-position invariance made it the natural choice for extending models beyond their training length without expensive retraining. Long-context engineering layers RoPE stretching techniques atop it: position interpolation shrinks the rotation frequencies to fit more tokens into the same angular space; NTK (Neural Tangent Kernel) scaling adjusts frequencies dynamically; YaRN (Yet another RoPE extensioN) combines both with tuning for optimal coherence. These techniques have stretched 4K-token models toward million-token contexts — a jump that would be impossible with absolute positional encodings.`,
+        `RoPE is standard in many open decoder families: Llama, Mistral, Mixtral, Qwen, and several DeepSeek models. It is especially important in long-context adaptation. Position interpolation rescales positions so more tokens fit into the angle range the model saw during training. NTK-aware scaling changes the base frequencies. YaRN combines interpolation and extrapolation with extra tuning. These methods helped models trained at 2K, 4K, or 8K context stretch to much larger windows, although quality still depends on training data and attention implementation.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A common misconception is that RoPE is "just sinusoidal encoding applied differently." It is not. Sinusoidal Positional Encoding adds sin/cos signals *into* the embedding, mixing position directly into content. RoPE applies the sin/cos to build a rotation *operator* that transforms the embedding's direction without touching its magnitude. The encoding itself never appears in the embedding — only its effect (the rotated vector) does. Practical consequence: sinusoidal encoding can be added at the embedding layer and used everywhere; RoPE must be applied at attention time, after Q and K are computed, which is why it requires API changes to attention mechanisms.`,
-        `Another pitfall: assuming all "stretching" techniques are equally effective. YaRN, position interpolation, and NTK scaling all work by retuning the frequency ladder θᵢ, but they differ in how aggressively they stretch and how well they preserve coherence at extreme lengths. Context-length scaling has hard limits (models eventually lose coherence because they were trained on short contexts), and no amount of frequency stretching fixes that — stretching buys graceful degradation, not infinite length.`,
+        `Do not say RoPE makes a model length-infinite. Frequencies can wrap, training may never teach the model to use far-away evidence, and attention kernels still pay for long contexts. Do not say it erases absolute position either; the model can still infer absolute-ish cues through boundaries, prompts, and layer interactions. And do not describe it as simple addition. Rotary encoding is an operator applied to Q and K, so it changes attention code, cache contents, and long-context scaling knobs.`,
+        `Another misconception is that all RoPE scaling recipes are interchangeable. Position interpolation, NTK-aware scaling, and YaRN move different parts of the frequency ladder and can trade local precision for long-range stability. A model can pass short benchmarks after scaling while losing retrieval accuracy at 64K tokens, so evaluation must include long-context tasks, not just perplexity near the training length.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Dive into the Attention Mechanism to see where RoPE's rotations are applied in Q and K. Study Positional Encoding to understand the sin/cos frequency ladder and how RoPE differs from additive schemes. Explore the KV Cache to see why cache-friendly positioning (rotation at query/key time, not embedding time) is critical for inference speed. Review The Transformer Block to see how position, attention, and feedforward layers interact. And learn Multi-Head Attention to understand how multiple dimension pairs each run RoPE at their own frequencies to build a full ruler of offsets.`,
+        `Start with Positional Encoding for the original sinusoidal frequency ladder. Then read Attention Mechanism to see where Q and K are born, Multi-Head Attention to see how every head gets its own rotated subspace, and KV Cache to understand why rotated keys are stored during decoding. The Transformer Block shows where the rotated attention output fits in the larger layer. If the rotation math feels abstract, Eigenvalues & Eigenvectors gives the linear-algebra foundation.`,
       ],
     },
   ],
 };
-
