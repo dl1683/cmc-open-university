@@ -2101,3 +2101,18 @@ test('importance-sampling: estimator audited against the exact 5.4, ESS prices b
   assert.match(ex[1].state.cells.find((c) => c.id === 'mix:move').label, /uniform/, 'defensive logging in the toolbox');
   assert.match(ex[2].state.cells.find((c) => c.id === 'ppo:where').label, /importance weight/, 'PPO ratio connection made');
 });
+
+test('leader-replacement: the fencing store rejects the zombie live, figure-8 walked, read regimes priced', async () => {
+  const topic = await loadTopic('leader-replacement');
+  const z = runTopic(topic, { view: 'zombies & fencing' });
+  assert.match(z[0].state.cells.find((c) => c.id === 'pick:detail').label, /150–300ms/, 'real timeout numbers cited');
+  assert.match(z[1].state.cells.find((c) => c.id === 'fix:story').label, /the term is 6/, 'epoch check kills the zombie in-protocol');
+  assert.match(z[2].state.cells.find((c) => c.id === 'w2:result').label, /accepted — high-water mark is now 34/, 'token 34 raises the bar, computed live');
+  assert.match(z[2].state.cells.find((c) => c.id === 'w3:result').label, /REJECTED — 33 < 34/, 'the stale token bounces, computed live');
+  const c = runTopic(topic, { view: 'carrying state across the change' });
+  assert.match(c[0].state.cells.find((c2) => c2.id === 'same:how').label, /quorums intersect/, 'the shared theorem stated');
+  assert.match(c[1].state.cells.find((c2) => c2.id === 's4:story').label, /vanish/, 'figure-8: majority replication is not commitment');
+  assert.match(c[1].state.cells.find((c2) => c2.id === 'rule:story').label, /OWN term/, 'the current-term commit rule');
+  assert.match(c[2].state.cells.find((c2) => c2.id === 'lease:how').label, /clock-drift/, 'leases priced in physics');
+  assert.equal(c[3].state.rows.length, 4, 'production epoch examples');
+});

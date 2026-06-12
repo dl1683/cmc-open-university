@@ -859,6 +859,16 @@ export const topics = [
     module: () => import('./topics/byzantine-generals.js'),
   },
   {
+    id: 'leader-replacement',
+    type: 'visualization',
+    buildsOn: ['raft-election', 'paxos', 'byzantine-generals'],
+    category: 'Systems',
+    title: 'View Changes: Replacing a Failed Leader',
+    summary: 'Slow looks exactly like dead, deposed leaders come back as zombies, and committed entries must outlive the regime — the three hard problems of every handover.',
+    tags: ['view change', 'fencing tokens', 'split brain', 'leases', 'epochs', 'zombie leader'],
+    module: () => import('./topics/leader-replacement.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
