@@ -2223,7 +2223,7 @@ test('sparse-table: doubling build, two overlapping windows answer -3 in O(1)', 
   const b = runTopic(topic, { view: 'build: doubling windows' });
   assert.equal(b.length, 4, 'array + three levels for n=8');
   assert.deepEqual(b[2].state.items.map((x) => x.value), [-1, -1, -1, -3, -3], 'level 2: mins of every length-4 window');
-  assert.match(b[3].explanation, /17 stored values/, 'n log n memory counted live');
+  assert.match(b[3].explanation, /21 stored values/, 'n log n memory counted live');
   const q = runTopic(topic, { view: 'query: two windows, one answer' });
   assert.match(q[1].explanation, /min = -1/, 'left window lookup');
   assert.match(q[2].explanation, /min = -3/, 'right window lookup');
