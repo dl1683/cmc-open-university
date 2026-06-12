@@ -770,6 +770,19 @@ test('dns-resolution: cold cache walks the full hierarchy, warm cache skips it',
   assert.ok(cold.some((s) => /93\.184\.216\.34/.test(s.explanation)), 'the record is resolved');
 });
 
+test('thompson-sampling: belief in B grows with data and traffic follows it', async () => {
+  const topic = await loadTopic('thompson-sampling');
+  const steps = runTopic(topic, { rounds: '8 rounds' });
+  const probs = steps
+    .map((s) => s.explanation.match(/gave B a (\d+)% chance/))
+    .filter(Boolean)
+    .map((m) => Number(m[1]));
+  assert.equal(probs[0], 50, 'flat priors start at a 50/50 split');
+  assert.ok(probs.at(-1) > 75, `belief in B strengthens with data (got ${probs.at(-1)}%)`);
+  assert.ok(probs.at(-1) >= probs[0], 'no regression toward ignorance');
+  assert.match(lastText(steps), /distributions instead of point estimates/i);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

@@ -786,6 +786,16 @@ export const topics = [
     module: () => import('./topics/pagerank.js'),
   },
   {
+    id: 'thompson-sampling',
+    type: 'visualization',
+    buildsOn: ['multi-armed-bandits', 'ab-testing'],
+    category: 'AI & ML',
+    title: 'Thompson Sampling',
+    summary: 'Beta-distribution beliefs that sharpen with data — exploration that fades automatically as certainty grows.',
+    tags: ['thompson sampling', 'bayesian', 'beta distribution', 'bandits', 'uncertainty'],
+    module: () => import('./topics/thompson-sampling.js'),
+  },
+  {
     id: 'multi-armed-bandits',
     type: 'visualization',
     buildsOn: ['ab-testing', 'value-iteration'],
