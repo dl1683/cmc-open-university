@@ -74,44 +74,45 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A linked list is a chain of nodes where each node holds a value and a pointer to the next node. Unlike an array where elements sit in contiguous memory and you can jump to any position in constant time, a linked list chains its elements together logically. You can only reach a node by starting at the head and following pointers one step at a time.`,
-        `The shape is simple: each node knows the value it holds and which node comes next. The entire list is defined by a single head pointer — lose that and you lose access to everything. There is no hidden length array underneath, no block of memory you can index into. Everything depends on those pointer links.`,
+        `A linked list stores values in nodes, and each node points to the next node in the chain. Unlike an array, the nodes do not need to sit next to each other in memory. The first node is reached through a head reference; from there, every step follows a next pointer. Lose the head, and the rest of the structure becomes unreachable even though the nodes may still exist in memory.`,
+        `The design trades random access for cheap rewiring. An array can jump to index 500 in O(1) because the address is computed from the base address plus an offset. A linked list must walk 500 pointers to get there. But if you already know where a change belongs, insertion can be as small as one new node and one pointer update. That is why this structure shows up whenever order matters but shifting a large array would be wasteful.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `To add a node to the end, you start at the head and follow next pointers until you reach a node whose next pointer is null. Then you create the new node and update that tail node's next pointer to aim at it. Insertion at the head is faster — just create the new node and make it point to the old head, then update the head pointer itself.`,
-        `To remove a node from the middle, you first find it by walking from the head, checking each value until you match the target. Once you find it, you take the previous node's next pointer and make it point past the removed node, directly to the node after it. No data moves, no shifts — just one pointer reassignment. If you're removing the head, the head pointer itself moves to the second node.`,
-        `Searching is always a walk from the head, one step at a time. If the list has n nodes and your target is at position k, you must make k+1 checks. If it is not in the list at all, you walk the entire length. This is why linked lists have no random access — the only way to know what is at position k is to traverse k pointers.`,
+        `Insertion at the head is the simplest operation: create a node, point it at the old head, and move the head reference to the new node. Appending at the tail is O(n) if you only store head, because you must walk until next is null. If you also store a tail reference, append becomes O(1). Queue implementations often keep both head and tail for exactly this reason.`,
+        `Removal depends on what reference you already have. In a singly linked list, removing a middle node in O(1) requires the previous node, because the previous node's next pointer must skip over the removed node. If you only have a value, you must search from head first, so the whole operation is O(n). A doubly linked list stores both next and previous pointers, spending more memory so removal from a known node is easier.`,
+        `Searching is always a traversal. At each node, compare the value and either stop or follow next. There is no Binary Search shortcut because there is no direct jump to the middle. Even if the values are sorted, reaching the middle still costs pointer walks.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Insertion at the head is O(1) if you have the head pointer already. Insertion at the tail is O(n) because you must walk to the tail first — unless you also maintain a tail pointer, in which case it drops to O(1). Searching is O(n) in the worst case: you might have to walk every node. Removal is O(1) if you already have a pointer to the node you want to remove, but O(n) if you have to search for it first. The core advantage of a linked list is that middle insertion and removal are O(1) once you have found the location; an array forces you to shift all subsequent elements, making it O(n).`,
+        `Head insertion and head removal are O(1). Tail append is O(1) only with a tail pointer; otherwise it is O(n). Search, index lookup, and remove-by-value are O(n). Space is O(n), but each node stores at least one extra pointer, so the constant factor is larger than an array. Big-O Growth Rates explains the asymptotic trade, but real machines add another cost: arrays usually win cache locality because nearby values sit in nearby memory, while nodes may be scattered across the heap.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Linked lists appear in operating system schedulers (queuing ready processes), browser history stacks, and graph adjacency lists where each node's neighbors are stored as a linked list. They are also fundamental building blocks for more complex structures: stacks and queues are often implemented as linked lists because insertion and removal at specific ends happen in constant time. Game engines use linked lists for animation timelines. Any time you need fast removal from the middle without knowing the total size in advance, a linked list (or hash table) is the right tool.`,
+        `Stack can be implemented with the head as the top, giving O(1) push and pop. Queue can be implemented with head as the front and tail as the back. LRU Cache famously combines Hash Table with a doubly linked list: the table finds an item in O(1), and the list moves it to the most-recent end or evicts the least-recent end in O(1).`,
+        `Graphs often store adjacency lists: each vertex points to the neighbors it can reach. Tree Traversals and Graph BFS both rely on the idea of following references from one object to the next, although their shapes branch instead of forming one chain. Skip List extends the same base idea with extra forward pointers, creating fast "express lanes" over a sorted chain.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest trap is confusing a linked list with an array and expecting O(1) access by index. If you write code that says "get me the element at position 5," a linked list must walk 5 steps — there is no shortcut. If your algorithm needs lots of random access, an array is far better. Another common mistake is losing the head pointer or not maintaining pointers correctly during insertion or removal, which breaks the chain and orphans parts of the list. The pointer-by-pointer nature also means linked lists have higher memory overhead per node: you need space for both the value and the next pointer, whereas an array only stores values. Modern caches also favor arrays because data is contiguous, making linked lists slower in practice even for operations that seem equivalent.`,
+        `The biggest misconception is that linked structures are automatically faster because insertion sounds O(1). That is only true after you already have the right position. If you must search first, the search dominates. Another common bug is pointer order during insertion or deletion: if you overwrite the only reference to the next node before saving it, you orphan the rest of the chain.`,
+        `Be careful with memory, too. Each node carries pointer overhead, allocation overhead, and worse cache behavior than an array. In high-performance code, that can make a theoretically worse array operation faster in practice. Use this structure when stable references, frequent end operations, or O(1) known-node removal matter more than random access.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Explore Stack and Queue, which are often built on top of linked lists for their O(1) insertion and removal guarantees. Hash Table offers a different approach to the trade-off between search speed and insertion flexibility. For a deeper dive into pointer manipulation, study Tree Traversals and Graph BFS, which use similar walk-from-a-starting-point logic but with more complex connectivity.`,
+        `Study Stack and Queue to see the two cleanest uses of head and tail pointers. Then read LRU Cache for the classic interview design that fuses Hash Table lookup with linked-list eviction. Skip List shows how extra pointers can recover logarithmic search, while Tree Traversals and Graph BFS generalize pointer walking to branching structures.`,
       ],
     },
   ],
 };
-

@@ -1076,6 +1076,16 @@ export const topics = [
     module: () => import('./topics/early-stopping.js'),
   },
   {
+    id: 'data-leakage',
+    type: 'visualization',
+    buildsOn: ['cross-validation', 'early-stopping', 'influence-functions'],
+    category: 'AI & ML',
+    title: 'Data Leakage & Contamination',
+    summary: 'The answer key inside the exam: target leaks, split contamination, time travel, and benchmark pollution — and how to catch them.',
+    tags: ['data leakage', 'contamination', 'target leakage', 'temporal leakage', 'benchmarks', 'evaluation'],
+    module: () => import('./topics/data-leakage.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],

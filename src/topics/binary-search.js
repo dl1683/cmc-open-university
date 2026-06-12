@@ -85,44 +85,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Binary search finds a target in a sorted array by repeatedly checking the middle element and halving the search space. If the middle is too small, discard the left half and search right; if too large, discard the right half and search left. If it matches, you found the target. Each comparison eliminates half of the remaining candidates, so finding any element (or confirming its absence) takes O(log n) comparisons. It is the most important search algorithm and the workhorse of lookups everywhere.`,
-        `The requirement for sorted input is non-negotiable and is precisely the trade-off: you pay a one-time O(n log n) sort, then gain O(log n) searches forever. For repeated searches, this payoff is massive. For a single search on unsorted data, linear search is better.`,
+        `Binary-style searching finds a target in a sorted sequence by repeatedly checking the middle and throwing away the half that cannot contain the answer. If the middle value is too small, everything to its left is too small too. If the middle value is too large, everything to its right is too large too. One comparison can delete thousands, millions, or billions of candidates from consideration.`,
+        `The sorted-order requirement is non-negotiable. On unsorted data, Linear Search is the honest baseline because every position could still be the target. If you will search once, sorting first is usually wasted work. If you will search the same data many times, paying for Merge Sort or another O(n log n) sort can be worth it because each later lookup becomes logarithmic.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Maintain two pointers: lo (the start of the search range) and hi (the end). Compute mid = ⌊(lo + hi) / 2⌋ and compare the element at mid to the target. Three cases follow: (1) exact match — return mid. (2) target is larger than the middle element — the target cannot be in the left half (since the array is sorted), so move lo to mid+1 and repeat on the right half. (3) target is smaller — move hi to mid−1 and repeat on the left half. Continue until lo > hi (the range is empty), meaning the target is not present.`,
-        `The key insight is the sorted-ness guarantee: if the target is larger than the middle, it cannot exist anywhere to the left. This logical deduction lets you discard entire regions without checking them. The algorithm maintains the invariant: if the target exists, it lies within [lo, hi].`,
+        `Keep two boundaries, lo and hi, around the range where the answer might still live. Compute mid as lo + Math.floor((hi - lo) / 2). That formula avoids integer overflow in languages with fixed-size integers, while giving the same midpoint as floor((lo + hi) / 2). Compare array[mid] with the target. Equal means done. Too small moves lo to mid + 1. Too large moves hi to mid - 1. When lo passes hi, the range is empty and the target is absent.`,
+        `The invariant is the whole proof: if the target exists, it is always inside the current boundaries. Interview variants change what "answer" means. Lower bound finds the first value greater than or equal to a target. Upper bound finds the first value greater than a target. "Search on answer" applies the same structure to any monotonic yes/no test, such as the smallest capacity that can ship packages within D days.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Binary search performs O(log n) comparisons in all cases: best, average, and worst. The array length halves with each comparison, so a million-element array needs at most log₂(1,000,000) ≈ 20 comparisons. Space complexity is O(1) — just the two pointers. The preprocessing cost is O(n log n) if the array is not already sorted. For a single search on unsorted data, linear search (O(n)) is faster; but for many searches, the one-time sort pays back immediately.`,
+        `Best case is O(1) when the first middle element is the target. Average and worst case are O(log n). A million sorted items need at most about 20 comparisons; a billion need about 30. Space is O(1) for the iterative version. A recursive version uses O(log n) stack frames, which is small but not free. Big-O Growth Rates makes the gap vivid: logarithmic growth barely moves while linear growth keeps climbing with every extra item.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Binary search is ubiquitous. Dictionaries, phone books, and any lookup in sorted data use it (whether explicitly or via hash tables for O(1) average time). It underlies database indexes, B-trees, and most file systems. When you search in a sorted list, you are running binary search. Programming languages offer it directly: C++ std::binary_search, Python bisect module, Java Collections.binarySearch. Beyond searching, binary search powers classic algorithms like finding the kth-smallest element, computing the square root, and solving the "leftmost position" variants (find the first element ≥ target, etc.).`,
+        `Language libraries expose this directly: Python has bisect, C++ has lower_bound and upper_bound, and Java has Arrays.binarySearch. Database Indexing uses related search ideas constantly. B-Trees (How Databases Read) keep keys sorted inside disk pages so a page can be searched quickly before following the right child pointer. LSM Trees (How Cassandra Writes) store immutable sorted files, where exact lookup and range lookup both lean on sorted order.`,
+        `The same comparison pattern appears inside Binary Search Tree, but with a different storage shape. A sorted array gives excellent cache locality and O(1) access to the middle; a tree supports cheaper dynamic insertion but can become unbalanced without rotations. Two Pointers is another sorted-array technique, useful when the problem needs coordinated movement from the ends instead of halving from the middle.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The most common mistake is forgetting that binary search requires sorted input. Applying it to unsorted data produces wrong results, often silently. A closely related pitfall is the off-by-one error: using lo <= hi vs lo < hi, or mid vs mid±1. These errors cause infinite loops or wrong boundaries. Classic mistakes include mid = (lo + hi) / 2, which overflows on large integers in C/C++ (use mid = lo + (hi - lo) / 2 instead), and forgetting to update lo or hi correctly in the branching logic.`,
-        `Another misconception is thinking binary search is always faster than hash tables. Hash tables are O(1) average, which beats O(log n) on very large datasets. Binary search is simpler, requires sorted data (no hash function needed), and has better worst-case guarantees. The trade-off depends on your data size, update frequency, and memory constraints.`,
+        `Most bugs are boundary bugs. Mixing lo < hi with lo <= hi without changing the update rules can skip answers or loop forever. Forgetting mid + 1 or mid - 1 after ruling out mid repeats the same midpoint. Duplicates also matter: returning any matching index is easier than returning the first or last matching index.`,
+        `Another misconception is that logarithmic search always beats Hash Table. Hashing gives O(1) average exact lookup, but it does not preserve sorted order and has weaker worst-case guarantees. Sorted arrays are great for mostly-read data and range queries; hash tables are great for mutable exact-key maps. The right choice depends on update rate, ordering needs, and memory overhead, not just one Big-O label.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Review Linear Search to understand the alternative baseline. Study Big-O Growth Rates to feel the exponential speed gain of O(log n) vs O(n) as arrays grow. Explore hash tables and hash functions for O(1) average searching. Learn about Two Pointers, a technique that binary search exemplifies. Finally, study advanced variants: searching for the leftmost/rightmost occurrence, binary search on an answer (solving problems by searching over the space of possible solutions), and how binary search powers algorithms like finding the median in a stream or the square root of a number.`,
+        `Review Linear Search for the unsorted baseline, then study Big-O Growth Rates until O(log n) feels concrete. Binary Search Tree and B-Trees (How Databases Read) show how ordered lookup changes when the data structure is dynamic or disk-backed. Two Pointers and Merge Sort continue the theme: sorted order is a powerful source of shortcuts.`,
       ],
     },
   ],
 };
-

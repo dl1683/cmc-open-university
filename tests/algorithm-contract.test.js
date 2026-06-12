@@ -1485,6 +1485,23 @@ test('svd: the live power iteration finds one dominant layer and rank-2 keeps 96
   assert.ok(everywhere.some((s) => /Netflix/.test(s.state.title ?? '')), 'recommender application staged');
 });
 
+test('data-leakage: the antibiotics feature carries 96% importance and the defense checklist is ordered', async () => {
+  const topic = await loadTopic('data-leakage');
+  const leaks = runTopic(topic, { view: 'four ways the answer leaks' });
+  const target = leaks[0].state;
+  assert.equal(target.cells.find((c) => c.id === 'abx:imp').value, 0.96, 'leaky feature dominates importance');
+  assert.match(target.cells.find((c) => c.id === 'abx:when').label, /AFTER/, 'its timestamp betrays it');
+  assert.match(leaks[1].state.title, /SPLIT CONTAMINATION/, 'contamination staged second');
+  assert.ok(leaks.some((s) => /past → future/.test(s.explanation)), 'temporal split rule stated');
+  assert.ok(leaks.some((s) => /BENCHMARK CONTAMINATION/.test(s.state.title ?? '')), 'LLM contamination staged');
+  const defend = runTopic(topic, { view: 'detection & defense' });
+  const checklist = defend.find((s) => /defense checklist/.test(s.state.title ?? '')).state;
+  assert.equal(checklist.rows.length, 5, 'five ordered defense steps');
+  assert.match(checklist.rows[0].label, /deduplicate/, 'dedup comes first');
+  assert.ok(defend.some((s) => /makes your dashboard BETTER/.test(s.explanation)), 'the silent-killer framing present');
+  assert.ok(defend.some((s) => /would this value exist/.test(s.explanation)), 'the timestamp ritual stated');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

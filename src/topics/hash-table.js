@@ -134,43 +134,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A hash table maps keys to values by using a hash function to convert a key into an array index. Instead of storing every key in memory and searching linearly, a hash function instantly tells you which bucket to look in. If that bucket is empty, the key is not present. If it holds the key, you have found the value. The power of hashing is that this lookup is O(1) on average — no scanning required.`,
-        `The core idea is a trade-off: convert storage (an array of buckets) into indexing power (a fast hash function). When two keys hash to the same bucket (a collision), the table uses linear probing: it walks forward to the next bucket, then the next, until it finds an empty slot or the target key. As the table fills up, the table grows and rehashes every key, because each key's index depends on the table size.`,
+        `A hash table stores key-value pairs by running each key through a hash function and using the result to choose an array bucket. Instead of checking keys one by one like Linear Search, the structure jumps straight to the likely location. With a good hash function and enough empty space, lookup, insert, and delete feel constant time, which is why JavaScript Map, Python dict, Ruby Hash, and many runtime object tables use this idea.`,
+        `The catch is collisions. Two different keys can land in the same bucket because the array has finite size. The demo uses open addressing with linear probing: if the home bucket is full, walk forward until you find the key or an open slot. Other implementations use chaining, where each bucket points to a small list, or more advanced probing strategies. The table is fast because collisions are kept rare, not because collisions are impossible.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `To insert a key, compute its hash: hash_index = key mod capacity. Go to that bucket. If it is empty, place the key there. If it is occupied and holds a different key, probe forward (wrapping around the end) until you find an empty bucket. Insert the key there. If you insert a key that is already present, do nothing.`,
-        `To look up a key, compute the same hash and jump to that bucket. If the bucket holds the key, return its value. If it holds a different key, probe forward until you find your key or hit an empty bucket (which proves the key is absent). To maintain O(1) average performance, the table rehashes when the load factor (size / capacity) exceeds a threshold, typically 0.7. Rehashing doubles the capacity and recomputes every key's hash under the new modulo, distributing them more sparsely.`,
+        `Insertion starts by hashing the key and reducing the hash to an index, often with modulo capacity. If the bucket is empty, store the entry. If the bucket holds the same key, update the value. If it holds another key, probe forward and wrap around the end until a usable slot appears. Lookup repeats the exact probe sequence; stopping at an empty slot proves the key was never inserted along that path.`,
+        `Deletion is the detail beginners miss. In an open-addressed table, you usually cannot simply clear a removed bucket, because later lookups might stop too early and miss keys that were displaced beyond it. Many tables leave a tombstone marker: "deleted, but keep probing through me." Too many tombstones slow the table down, so resizing or rebuilding eventually cleans them out. Rehashing also happens when load factor gets high, commonly around 0.7 for linear probing, because crowded tables create long clusters.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Lookup, insertion, and deletion are O(1) on average with a good hash function and a load factor below 0.7. With high load factors or bad hash collisions, they degrade to O(n) worst case, but that is rare in practice. Rehashing is O(n) but happens infrequently — only when the table is full enough to need resizing. The space complexity is O(n) for n key-value pairs, but with a fixed load factor, the actual array size is proportional to n, not a huge constant multiple.`,
+        `Average lookup, insertion, and deletion are O(1). Worst case is O(n), either because many keys collide or because an attacker deliberately supplies keys that collide under a predictable hash. Space is O(n), but the backing array is intentionally larger than the number of live entries. Rehashing costs O(n) at the moment it happens, yet the amortized cost per insertion remains O(1) because resizing is rare. Big-O Growth Rates helps explain why that average-case O(1) lookup is so powerful compared with Binary Search at O(log n) when sorted order is not needed.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Hash tables are everywhere: JavaScript objects and Map, Python dictionaries, Java HashMap, Redis databases. Caching systems like memcached use hashing to distribute keys across servers. DNS lookup tables map domain names to IP addresses using hashing. Git uses hash tables internally to track file contents and commits. Compilers and interpreters use hash tables for symbol tables, storing variable names and their memory locations. Any time you need fast key-value lookup, a hash table is the canonical choice. LRU caches, session storage, and rate limiters all rely on hash tables.`,
+        `Compilers use hash tables for symbol tables: variable names map to scope and storage information. Web servers use them for headers and session maps. LRU Cache combines Hash Table lookup with Linked List ordering so reads, writes, and evictions stay O(1). Rate Limiter (Token Bucket) implementations often map user IDs or API keys to counters. Consistent Hashing extends the same hash idea across machines, spreading keys around a ring so adding one server moves only part of the data.`,
+        `Hashing also appears where the stored value is the hash itself. Merkle Tree uses hashes to summarize chunks of data, while Git Internals names objects by content hash. Bloom Filter uses several hash positions to answer "definitely not present" with tiny memory. Database Indexing usually chooses tree structures for range scans, but hash indexes are still useful for exact-match workloads.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest trap is assuming hash lookups are always O(1) — they are O(1) average, not worst case. A bad hash function or adversarial keys can trigger many collisions, degrading to O(n). Never trust user input to determine your hash function; use a cryptographic hash or robust function instead. Failing to rehash when the table gets full slowly degrades performance. Another mistake is storing mutable objects as keys — if an object's hash code changes after insertion, you can never find it. In JavaScript, using non-string keys in objects can cause unexpected behavior because keys are coerced to strings. Finally, linear probing suffers from clustering: collisions tend to create chains that slow down future probes, though other collision resolution strategies (chaining, quadratic probing, double hashing) can mitigate this.`,
+        `The biggest misconception is that O(1) is a promise for every operation. It is an average under assumptions: good distribution, controlled load factor, and no adversarial collision pattern. Security-sensitive runtimes often use randomized or keyed hash functions for strings to prevent collision attacks; a cryptographic hash is not always necessary, but predictability is dangerous.`,
+        `Another trap is using plain JavaScript objects as maps without understanding coercion and prototype keys. Object property keys are strings or symbols; Map is safer when keys can be objects. Mutable keys are risky in languages where hash codes depend on object state. Finally, hash tables do not keep sorted order. If you need ordered iteration or range queries, Binary Search Tree, B-Trees (How Databases Read), or sorted arrays with Binary Search may be the better tool.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Explore Binary Search Tree if you need a sorted key structure with O(log n) lookup rather than O(1) average. Study Binary Heap (Priority Queue) to see how hashing combines with heaps for advanced cache eviction. Learn about LRU Cache designs, which layer hashing with linked lists for O(1) eviction. Understanding hash functions themselves requires studying cryptographic basics, but a practical starting point is exploring how different languages implement their built-in hash tables.`,
+        `Study Binary Search and Binary Search Tree to compare exact lookup with ordered lookup. LRU Cache shows the classic systems-design pairing of hashing and linked ordering. Consistent Hashing, Bloom Filter, Merkle Tree, and Rate Limiter (Token Bucket) all reuse hash functions for different systems problems.`,
       ],
     },
   ],
 };
-

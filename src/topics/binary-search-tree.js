@@ -101,43 +101,45 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A binary search tree is a tree where every node has at most two children (left and right), and the data is organized by a simple rule: all values smaller than a node go in its left subtree, all larger values go in its right subtree. This shape encodes binary search. Instead of searching a sorted array by jumping to the middle, you start at the root and compare: if your target is smaller, go left; if larger, go right. Every comparison eliminates half the remaining tree.`,
-        `A BST is self-maintaining: when you insert a new value, the comparison rules automatically place it in the correct position. When you search, you follow the comparisons downward, never looking at irrelevant subtrees. This makes BSTs fast, sorted, and elegant. However, insertion order matters: if you insert values in sorted order, the tree degenerates into a linked list, and all the speed advantages vanish.`,
+        `A BST is a node-based ordered structure. Each node stores a value, a left child, and a right child. Everything in the left subtree is smaller than the node; everything in the right subtree is larger. That rule turns comparisons into navigation: smaller goes left, larger goes right, equal follows whatever duplicate policy the implementation chooses.`,
+        `The structure is the tree version of Binary Search, but with one huge caveat: the shape matters. A perfectly balanced tree with 1,023 nodes has height 10, so search is short. Insert the same values in sorted order without rebalancing and you get a 1,023-node chain, no better than Linked List for lookup. The data rule gives order; balance gives speed.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `To insert a value, start at the root. Compare the value with the current node: if smaller, go left; if larger, go right; if equal, either skip it or insert it anyway (each BST decides its duplicate policy). Follow the comparisons down until you reach an empty slot, then place the new node there. The tree grows depth-first, balanced or unbalanced depending on insertion order.`,
-        `To search for a value, start at the root and follow the same comparison logic: smaller goes left, larger goes right. At each node, you compare once and eliminate an entire subtree. Keep going until you find the value or reach an empty slot (proving it is absent). This is why a balanced BST is fast: with n values, the search path is at most about log₂(n) comparisons. Deletion is more complex: you must handle the case where the deleted node has two children, which requires either promoting its successor or its predecessor.`,
+        `Search starts at the root. Compare the target with the current value. Equal means found. Smaller means move to the left child. Larger means move to the right child. Reaching a missing child proves the target is absent, because the ordering rule would have forced the value down that path if it existed.`,
+        `Insertion uses the same walk, then attaches a new leaf where the search falls off the tree. Deletion has three cases. A leaf can disappear directly. A node with one child can be replaced by that child. A node with two children needs a replacement value, usually the in-order successor: the smallest value in the right subtree. After copying or moving that successor, the tree must still satisfy the ordering rule everywhere.`,
+        `Tree Traversals reveal the hidden sorted order. An in-order traversal - left, node, right - visits values from smallest to largest. Pre-order and post-order are useful for copying, deleting, or serializing tree-shaped data.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `In a balanced BST, search, insertion, and deletion are all O(log n) because each comparison cuts the search space in half. However, if values are inserted in sorted order, the tree becomes a chain, and all operations degrade to O(n). In-order traversal of a BST returns values in sorted order — this is often a hidden cost if you do not realize you are walking every node. Space complexity is O(n) for n values. Self-balancing variants like red-black trees and AVL trees guarantee O(log n) even in the worst case, at the cost of extra bookkeeping during insertion and deletion.`,
+        `Search, insert, and delete cost O(h), where h is the height of the tree. If the tree is balanced, h is O(log n). If it degenerates into a chain, h is O(n). Space is O(n) for the nodes, and recursive operations use O(h) call-stack space. Big-O Growth Rates is the reason self-balancing trees matter: logarithmic height keeps growing slowly, while linear height grows with every inserted value.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `BSTs are the foundation of sorted maps and sets in many standard libraries (C++ std::map, Java TreeMap). Databases use variants of BSTs (B-trees, B+ trees) as the core indexing structure for fast range queries and sorted iteration. File systems use BSTs for directory lookups. Game engines use BSTs for spatial partitioning (every node represents a subtree of space). Expression trees, which compilers use to parse and optimize code, are a variant of BSTs. Any system that needs fast search, sorted order, and dynamic insertion benefits from a BST or its balanced variant.`,
+        `Sorted maps and sets often use balanced search trees. C++ std::map is commonly implemented with a red-black tree; Java TreeMap uses a red-black tree too. AVL Tree Rotations show the stricter balancing style, where rotations repair height differences after inserts and deletes. These structures are useful when you need ordered iteration, predecessor/successor queries, or range queries that Hash Table cannot provide.`,
+        `Database Indexing usually uses B-Trees (How Databases Read), not simple binary nodes, because disk and SSD pages prefer wide nodes with many keys. Random Forest uses many decision trees for prediction, but those trees split feature space rather than maintaining the exact ordered-set invariant. Binary Heap (Priority Queue) is another tree-shaped structure, yet it optimizes only for the top priority, not full sorted lookup.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest trap is assuming a BST is always fast — unbalanced trees with O(n) depth are common when insertion order is sorted or nearly sorted. Always use a self-balancing BST (AVL, red-black) if worst-case guarantees matter. Another mistake is confusing a BST with a heap: both are trees, but a heap is shaped like a complete binary tree with a different ordering rule (parent smaller or larger than children), not a BST shape. Trying to implement deletion without handling the two-child case leads to orphaned subtrees. Finally, duplicates complicate the design: some trees reject them, some put them on the right, some have a counter in each node — pick a strategy and stick with it.`,
+        `The main pitfall is assuming the average picture is guaranteed. A plain unbalanced implementation can be excellent on random insert order and terrible on sorted or nearly sorted insert order. If worst-case latency matters, use a self-balancing tree. Another common mistake is confusing the search-tree property with the heap property: a heap parent beats its children, but the left and right subtrees are not globally ordered around every node.`,
+        `Duplicates need a policy before you code. You can reject them, count them inside the node, or consistently place equals on one side. Deletion is also easy to under-test; the two-child case is where many implementations lose subtrees or break the ordering invariant.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Study Tree Traversals to understand in-order, pre-order, and post-order walks of trees. Explore Binary Heap (Priority Queue) to see a different tree structure with different guarantees. Learn Dijkstra's Shortest Path, which uses a priority queue (often a heap) to select nodes in order of distance. Understand self-balancing variants by reading about Red-Black Trees or AVL Trees. Hash Table provides an alternative to BST for O(1) average lookup without requiring sorted order.`,
+        `Study Binary Search first if the sorted-order logic is not automatic yet. Then learn Tree Traversals for in-order, pre-order, post-order, and level-order walks. AVL Tree Rotations explains how balance is repaired. Compare with Hash Table for exact lookup, B-Trees (How Databases Read) for databases, and Binary Heap (Priority Queue) for priority-first access.`,
       ],
     },
   ],
 };
-
