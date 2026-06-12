@@ -896,6 +896,16 @@ export const topics = [
     module: () => import('./topics/regularization.js'),
   },
   {
+    id: 'cross-validation',
+    type: 'visualization',
+    buildsOn: ['regularization', 'ab-testing', 'imbalanced-classification'],
+    category: 'AI & ML',
+    title: 'Cross-Validation & Honest Evaluation',
+    summary: 'Never grade your own homework: why train accuracy lies, one split gambles, and k-fold spends data honestly.',
+    tags: ['cross-validation', 'k-fold', 'train/test split', 'leakage', 'overfitting', 'evaluation', 'hyperparameters'],
+    module: () => import('./topics/cross-validation.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],

@@ -1031,6 +1031,28 @@ test('adversarial-examples: two FGSM steps walk 97% spam to 14%, and damage scal
   assert.match(menu.cells.find((c) => c.id === 'mask:verdict').label, /FALSE security/, 'gradient masking called out');
 });
 
+test('cross-validation: the diagonal rotates through all five folds and CV picks lambda 0.1', async () => {
+  const topic = await loadTopic('cross-validation');
+  const folds = runTopic(topic, { view: 'k-fold in motion' });
+  const rounds = folds.filter((s) => /^Fold \d of 5/.test(s.state.title ?? ''));
+  assert.equal(rounds.length, 5, 'five rotation steps');
+  rounds.forEach((s, i) => {
+    assert.deepEqual(s.highlight.active, [`f${i + 1}:c${i + 1}`], 'active cell marches down the diagonal');
+    const valCells = s.state.cells.filter((c) => c.value === 1);
+    assert.equal(valCells.length, 5, 'one validation chunk per fold row');
+  });
+  assert.ok(rounds[4].explanation.includes('80.2%'), 'CV mean reported');
+  const lambda = folds.find((s) => /choosing λ/.test(s.state.title ?? '')).state;
+  const best = lambda.cells.reduce((a, c) => (c.value > a.value ? c : a));
+  assert.equal(best.id, 'l1:cv', 'lambda 0.1 wins the CV sweep');
+  const wrong = runTopic(topic, { view: 'why evaluation goes wrong' });
+  const cards = wrong[0].state;
+  assert.equal(cards.cells.find((c) => c.id === 'over:train').value, 1.0, 'memorizer aces training');
+  assert.ok(cards.cells.find((c) => c.id === 'over:test').value < 0.55, 'memorizer fails new data');
+  assert.ok(wrong.some((s) => /opened ONCE/.test(s.explanation)), 'one-shot test set rule stated');
+  assert.ok(folds.some((s) => /LEAKAGE/.test(s.explanation)), 'leakage dragon covered');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
