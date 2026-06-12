@@ -1557,6 +1557,24 @@ test('bootstrap-ci: 200 deterministic resamples yield the 141-255ms percentile i
   assert.match(breaks.cells.find((c) => c.id === 'dep:fix').label, /block bootstrap/, 'block bootstrap patch listed');
 });
 
+test('eigenvectors: the diagonal survives untouched and power iteration homes in on 45 degrees', async () => {
+  const topic = await loadTopic('eigenvectors');
+  const dirs = runTopic(topic, { view: 'the directions a matrix keeps' });
+  const eig = dirs[1].state;
+  const v = eig.vectors.find((x) => x.id === 'eig1').to;
+  const Av = eig.vectors.find((x) => x.id === 'Aeig1').to;
+  assert.ok(Math.abs(Av.x / v.x - 3) < 1e-9 && Math.abs(Av.y / v.y - 3) < 1e-9, '(1,1) direction scaled by exactly 3');
+  const iter = dirs[2].state;
+  const last = iter.vectors.find((x) => x.id === 'it5').to;
+  assert.ok(Math.abs((Math.atan2(last.y, last.x) * 180) / Math.PI - 45) < 0.5, 'power iteration converges to 45 degrees');
+  assert.ok(dirs.some((s) => /3¹⁰ = 59,049/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'exponential dominance shown');
+  const fields = runTopic(topic, { view: 'one equation, five fields' });
+  assert.ok(fields.some((s) => /PageRank IS power iteration/.test(s.state.title ?? '')), 'PageRank unification staged');
+  const census = fields[fields.length - 1].state;
+  assert.equal(census.rows.length, 5, 'five fields in the census');
+  assert.match(census.cells.find((c) => c.id === 'physics:guise').label, /vibration|quantum/i, 'physics guise listed');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

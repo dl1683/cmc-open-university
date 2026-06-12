@@ -769,6 +769,16 @@ export const topics = [
     module: () => import('./topics/svd.js'),
   },
   {
+    id: 'eigenvectors',
+    type: 'visualization',
+    buildsOn: ['svd', 'pca', 'pagerank'],
+    category: 'Concepts',
+    title: 'Eigenvalues & Eigenvectors',
+    summary: 'The directions a matrix refuses to rotate — found live by power iteration, and the skeleton under PageRank, PCA, and SVD.',
+    tags: ['eigenvalues', 'eigenvectors', 'power iteration', 'spectral', 'linear algebra', 'PageRank'],
+    module: () => import('./topics/eigenvectors.js'),
+  },
+  {
     id: 'matrix-completion',
     type: 'visualization',
     buildsOn: ['svd', 'embeddings-similarity', 'thompson-sampling'],
