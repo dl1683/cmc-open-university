@@ -2035,3 +2035,18 @@ test('ntp-sync: symmetric paths recover the offset exactly, asymmetry errs by ha
   assert.match(ptp[1].state.cells.find((c) => c.id === 'tc:idea').label, /INTO the packet/, 'transparent clocks subtract their own queueing');
   assert.match(ptp[2].state.cells.find((c) => c.id === 'spanner:needs').label, /BOUND/, 'TrueTime framed as a bound, not accuracy');
 });
+
+test('quorums: overlapping sets surface version 2, disjoint sets silently serve the stale cart', async () => {
+  const topic = await loadTopic('quorums');
+  const ov = runTopic(topic, { view: 'R + W > N' });
+  assert.match(ov[0].state.cells.find((c) => c.id === 'd:ver').label, /v1/, 'a successful W=3 write leaves D stale');
+  assert.match(ov[1].state.cells.find((c) => c.id === 'c:ver').label, /v2/, 'the overlap member carries freshness into the read set');
+  assert.match(ov[1].explanation, /"cart: 2 items", version 2/, 'the live read returns the new cart');
+  assert.match(ov[2].explanation, /"cart: 1 item" — the OLD cart, version 1/, 'R+W<=N returns the stale cart with no error');
+  assert.match(ov[3].state.cells.find((c) => c.id === 'w1r1:fresh').label, /none/, 'W=1,R=1 drops the guarantee');
+  const dial = runTopic(topic, { view: 'the dial & the fine print' });
+  assert.match(dial[0].state.cells.find((c) => c.id === 'all:when').label, /almost never/, 'ALL flagged as a tail-latency trap');
+  assert.match(dial[1].state.cells.find((c) => c.id === 'cost:does').label, /stopped being a theorem/, 'sloppy quorums honestly priced');
+  assert.equal(dial[2].state.rows.length, 3, 'three healing mechanisms');
+  assert.match(dial[3].state.cells.find((c) => c.id === 'tie:story').label, /LWW|sibling/, 'concurrent-write resolution named');
+});

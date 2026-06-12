@@ -839,6 +839,16 @@ export const topics = [
     module: () => import('./topics/ntp-sync.js'),
   },
   {
+    id: 'quorums',
+    type: 'visualization',
+    buildsOn: ['paxos', 'crdts', 'consistent-hashing'],
+    category: 'Systems',
+    title: 'Read/Write Quorums & Tunable Consistency',
+    summary: 'Write to W of N replicas, read from R: if R + W > N the sets must overlap and the newest version is always in view — a consistency dial, not a switch.',
+    tags: ['quorums', 'eventual consistency', 'Dynamo', 'Cassandra', 'read repair', 'hinted handoff'],
+    module: () => import('./topics/quorums.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
