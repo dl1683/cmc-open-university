@@ -796,6 +796,16 @@ export const topics = [
     module: () => import('./topics/pagerank.js'),
   },
   {
+    id: 'naive-bayes',
+    type: 'visualization',
+    buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],
+    category: 'AI & ML',
+    title: 'Naive Bayes (Spam Filter)',
+    summary: 'Watch each word shift the odds spam-ward or ham-ward — Bayes theorem reading your email.',
+    tags: ['naive bayes', 'spam', 'classification', 'priors', 'laplace smoothing'],
+    module: () => import('./topics/naive-bayes.js'),
+  },
+  {
     id: 'thompson-sampling',
     type: 'visualization',
     buildsOn: ['multi-armed-bandits', 'ab-testing'],

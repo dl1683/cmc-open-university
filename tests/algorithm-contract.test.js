@@ -793,6 +793,18 @@ test('tcp-congestion: slow start doubles, loss halves, sawtooth resumes', async 
   assert.ok(steps.some((s) => /SAWTOOTH/.test(s.explanation) && /AIMD/.test(s.explanation)), 'AIMD named');
 });
 
+test('naive-bayes: posteriors are decisive for clear emails, moderate for mixed', async () => {
+  const topic = await loadTopic('naive-bayes');
+  const posterior = (steps) => {
+    const v = steps.find((s) => s.state.title && s.state.title.startsWith('Verdict')).state;
+    return v.cells.find((c) => c.id === 'spam:post').value;
+  };
+  assert.ok(posterior(runTopic(topic, { email: 'free winner click' })) > 0.99, 'spammy email near 100%');
+  assert.ok(posterior(runTopic(topic, { email: 'project meeting tomorrow' })) < 0.01, 'work email near 0%');
+  const mixed = posterior(runTopic(topic, { email: 'free project meeting' }));
+  assert.ok(mixed > 0.01 && mixed < 0.5, `mixed email is moderate (got ${(mixed * 100).toFixed(1)}%)`);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
