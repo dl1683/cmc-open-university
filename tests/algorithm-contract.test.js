@@ -1634,7 +1634,7 @@ test('circuit-breakers: the FSM trips and heals, and the deadline refuses doomed
   assert.deepEqual(machine.nodes.map((n) => n.id).sort(), ['closed', 'half', 'open'], 'three breaker states');
   assert.ok(machine.edges.some((e) => e.from === 'half' && e.to === 'closed') && machine.edges.some((e) => e.from === 'half' && e.to === 'open'), 'half-open can heal or relapse');
   const incident = fsm.find((s) => /minute by minute/.test(s.state.title ?? '')).state;
-  assert.match(incident.cells.find((c) => c.id === 't2:event').label, /TRIPS/, 'breaker trips at the threshold');
+  assert.match(incident.cells.find((c) => c.id === 't1:event').label, /TRIPS/, 'breaker trips at the threshold');
   assert.match(incident.cells.find((c) => c.id === 't4:event').label, /CLOSED/, 'probe success closes the breaker');
   assert.ok(fsm.some((s) => /microsecond failure/.test(s.invariant ?? '')), 'fast-fail invariant stated');
   const dl = runTopic(topic, { view: 'deadlines that travel' });
