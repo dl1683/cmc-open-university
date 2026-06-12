@@ -769,6 +769,16 @@ export const topics = [
     module: () => import('./topics/retries-jitter.js'),
   },
   {
+    id: 'load-shedding',
+    type: 'visualization',
+    buildsOn: ['retries-jitter', 'bulkheads', 'tail-latency'],
+    category: 'Systems',
+    title: 'Load Shedding & Graceful Degradation',
+    summary: 'Accept everything and serve no one: the unbounded queue simulated live, and the art of rejecting with taste.',
+    tags: ['load shedding', 'admission control', 'brownout', 'goodput', 'overload', '503', 'degradation'],
+    module: () => import('./topics/load-shedding.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

@@ -1774,6 +1774,25 @@ test('attention-3d: rows sum to one, the coreference peak hits 0.62, and the cau
   assert.ok(positional.some((s) => /KV Cache/.test(s.explanation)), 'KV cache link present');
 });
 
+test('load-shedding: unshedded goodput cliffs to zero at t=10 while shedding holds 100/s', async () => {
+  const topic = await loadTopic('load-shedding');
+  const kills = runTopic(topic, { view: 'the queue that kills' });
+  const queue = kills[0].state.series.find((ser) => ser.id === 'queue').points;
+  assert.equal(queue.at(-1).y - queue[0].y, 29 * 20, 'queue grows by exactly 20/s, unbounded');
+  const goodput = kills.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'bad')).state;
+  const bad = goodput.series.find((ser) => ser.id === 'bad').points;
+  const good = goodput.series.find((ser) => ser.id === 'good').points;
+  assert.ok(bad.filter((p) => p.x > 10).every((p) => p.y === 0), 'unshedded goodput is zero past t=10');
+  assert.ok(good.every((p) => p.y === 100), 'shedding holds goodput at 100/s throughout');
+  assert.ok(kills.some((s) => /BUSY SIGNAL/.test(s.explanation)), 'busy-signal analogy present');
+  const taste = runTopic(topic, { view: 'shedding with taste' });
+  const tiers = taste[0].state;
+  assert.match(tiers.cells.find((c) => c.id === 'tier1:when').label, /NEVER/, 'checkout never shed');
+  const brownout = taste.find((s) => /Brownout/.test(s.state.title ?? '')).state;
+  assert.equal(brownout.cells.find((c) => c.id === 'brown3:cost').value, 0, 'final brownout level costs nothing');
+  assert.ok(taste.some((s) => /front door/i.test(s.explanation) && /microsecond/.test(s.explanation)), 'cheap front-door rejection stated');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
