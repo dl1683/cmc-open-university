@@ -2161,3 +2161,16 @@ test('causal-graphs: Simpson reversal and backdoor un-reversal computed from rea
   assert.match(dag[2].state.cells.find((c) => c.id === 'no:rule').label, /colliders/, 'never adjust colliders');
   assert.match(dag[3].state.cells.find((c) => c.id === 'sever:story').label, /NO incoming arrows/, 'randomization severs back doors');
 });
+
+test('fenwick-tree: query walk tiles the prefix, update cascades, verification reconciles', async () => {
+  const topic = await loadTopic('fenwick-tree');
+  const steps = runTopic(topic, { values: '3, 2, -1, 6, 5, 4, -3, 3', prefixUpTo: '6', addAmount: '2', addAt: '3' });
+  assert.match(steps[1].explanation, /Slot 4 \(binary 100\): lowbit = 4, so it stores values 1…4 = 10/, 'responsibilities computed from the input');
+  assert.match(steps[3].explanation, /Answer: 19/, 'prefix(6) = 19 via two slots');
+  assert.deepEqual(steps[3].highlight.active, ['i3'], 'second visit is slot 4 (0-based cell i3)');
+  assert.match(steps[6].explanation, /Slot 8 \(range 1…8\) becomes 21/, 'the update cascades to the root slot');
+  assert.match(steps[7].explanation, /returns 21 — exactly 19 \+ 2/, 'verification reconciles the walks');
+  const outside = runTopic(topic, { values: '3, 2, -1, 6, 5, 4, -3, 3', prefixUpTo: '6', addAmount: '5', addAt: '7' });
+  assert.match(outside.at(-1).explanation, /unchanged from 19/, 'updates outside the prefix leave the query alone');
+  assert.throws(() => runTopic(topic, { values: '1, 2, 3', prefixUpTo: '9', addAmount: '1', addAt: '1' }), /between 1 and 3/, 'prefix bound validated');
+});

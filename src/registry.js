@@ -164,6 +164,16 @@ export const topics = [
     module: () => import('./topics/skip-list.js'),
   },
   {
+    id: 'fenwick-tree',
+    type: 'visualization',
+    buildsOn: ['binary-exponentiation', 'binary-search', 'sliding-window'],
+    category: 'Data Structures',
+    title: 'Fenwick Tree (Binary Indexed Tree)',
+    summary: 'One array, one bit trick — lowbit(i) — and both prefix sums and updates run in O(log n), walked live on your numbers.',
+    tags: ['Fenwick tree', 'binary indexed tree', 'prefix sums', 'lowbit', 'leaderboards', 'bit manipulation'],
+    module: () => import('./topics/fenwick-tree.js'),
+  },
+  {
     id: 'graph-bfs',
     type: 'visualization',
     buildsOn: ['queue', 'tree-traversals'],
