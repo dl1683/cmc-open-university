@@ -1164,6 +1164,24 @@ test('cache-invalidation: the herd collapses to one request and versioned names 
   assert.match(table.cells.find((c) => c.id === 'private:strat').label, /no-store/, 'private data never cached');
 });
 
+test('lime: the local surrogate tracks the gradient and the story flips across the input space', async () => {
+  const topic = await loadTopic('lime');
+  const local = runTopic(topic, { view: 'explaining one verdict locally' });
+  const report = local.find((s) => /read the surrogate/.test(s.state.title ?? '')).state;
+  const w = (id) => report.cells.find((c) => c.id === id).value;
+  assert.ok(w('caps:w') > w('excl:w'), 'caps weigh more at (4,3)');
+  assert.ok(Math.abs(w('excl:w') - 0.158) < 0.01 && Math.abs(w('caps:w') - 0.229) < 0.01, 'weighted LSQ matches the analytic gradient closely');
+  const flip = local.find((s) => /story flips/.test(s.state.title ?? '')).state;
+  const cell = (id) => flip.cells.find((c) => c.id === id).value;
+  assert.ok(cell('there:excl') > 5 * cell('there:caps'), 'at (1,8) exclamations dominate');
+  assert.ok(local.some((s) => /valid locally/.test(s.explanation)), 'locality stamp stated');
+  const print = runTopic(topic, { view: 'the fine print' });
+  assert.ok(print.some((s) => /Slack et al\./.test(s.explanation)), 'scaffolding attack cited');
+  const box = print[print.length - 1].state;
+  assert.match(box.cells.find((c) => c.id === 'lime:needs').label, /API access only/, 'LIME needs only queries');
+  assert.match(box.cells.find((c) => c.id === 'grad:needs').label, /internals/, 'gradients need the model');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

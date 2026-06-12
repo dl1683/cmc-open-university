@@ -1006,6 +1006,16 @@ export const topics = [
     module: () => import('./topics/saliency-maps.js'),
   },
   {
+    id: 'lime',
+    type: 'visualization',
+    buildsOn: ['saliency-maps', 'logistic-regression', 'cross-validation'],
+    category: 'AI & ML',
+    title: 'LIME: Explaining Black Boxes Locally',
+    summary: 'No weights, no gradients, just an API? Sample around the input, fit a local line, read the line.',
+    tags: ['LIME', 'SHAP', 'interpretability', 'black box', 'local surrogate', 'explainability', 'XAI'],
+    module: () => import('./topics/lime.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],
