@@ -589,6 +589,16 @@ export const topics = [
     module: () => import('./topics/browser-rendering.js'),
   },
   {
+    id: 'event-loop',
+    type: 'visualization',
+    buildsOn: ['stack', 'queue', 'browser-rendering'],
+    category: 'Systems',
+    title: 'The Event Loop',
+    summary: `One thread, two queues, strict etiquette: why setTimeout(0) isn't 0 and promises jump the line.`,
+    tags: ['event loop', 'microtask', 'macrotask', 'promises', 'setTimeout', 'async', 'JavaScript runtime'],
+    module: () => import('./topics/event-loop.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

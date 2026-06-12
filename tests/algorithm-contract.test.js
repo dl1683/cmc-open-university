@@ -908,6 +908,22 @@ test('threshold-optimization: optimum slides from 0.65 to 0.3 when the costs fli
   assert.equal(both.series.length, 2, 'both cost curves plotted together');
 });
 
+test('event-loop: output lands A B C D and the microtask chain starves rendering', async () => {
+  const topic = await loadTopic('event-loop');
+  const steps = runTopic(topic, { view: 'why the order is A B C D' });
+  const outputs = steps.map((s) => s.state.nodes.filter((n) => n.id.startsWith('o')).map((n) => n.label).join(''));
+  assert.equal(outputs[outputs.length - 1], 'ABCD', 'final console order is A B C D');
+  const cStep = steps.find((s) => (s.state.nodes ?? []).some((n) => n.id === 'fC'));
+  assert.ok(cStep.state.nodes.some((n) => n.id === 'tD'), 'timer callback still queued while C runs — promise jumped the line');
+  assert.ok(steps.some((s) => /drain the ENTIRE microtask queue/.test(s.explanation)), 'rule 1 stated');
+  const starve = runTopic(topic, { view: 'how microtasks starve rendering' });
+  const frozen = starve.find((s) => /STARVED/.test(s.state.nodes.find((n) => n.id === 'render')?.note ?? ''));
+  assert.ok(frozen, 'render node reports starvation');
+  const fixed = starve[starve.length - 1].state;
+  assert.ok(fixed.nodes.some((n) => n.id === 'c2' && fixed.nodes.find((m) => m.id === 'hMacro')), 'fix re-queues via the task queue');
+  assert.match(fixed.nodes.find((n) => n.id === 'render').note, /✓/, 'rendering breathes again');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
