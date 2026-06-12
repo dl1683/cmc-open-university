@@ -279,6 +279,16 @@ export const topics = [
     module: () => import('./topics/lsm-tree.js'),
   },
   {
+    id: 'write-ahead-log',
+    type: 'visualization',
+    buildsOn: ['lsm-tree', 'b-tree'],
+    category: 'Systems',
+    title: 'Write-Ahead Log (WAL)',
+    summary: 'Log the intent first, apply it second — so a crash at any moment replays into a consistent state.',
+    tags: ['WAL', 'durability', 'ACID', 'crash recovery', 'postgres', 'kafka'],
+    module: () => import('./topics/write-ahead-log.js'),
+  },
+  {
     id: 'rate-limiter',
     type: 'visualization',
     buildsOn: ['stack', 'hash-table'],

@@ -312,6 +312,16 @@ test('backpropagation: one update step always reduces the loss', async () => {
   }
 });
 
+test('write-ahead-log: recovery yields the committed state in both scenarios', async () => {
+  const topic = await loadTopic('write-ahead-log');
+  const crashed = runTopic(topic, { crash: 'crash mid-transaction' });
+  const recovered = crashed.findLast((s) => s.state.items.some((i) => String(i.value).startsWith('A:')));
+  assert.deepEqual(recovered.state.items.map((i) => i.value), ['A: $60', 'B: $90'], 'T1 applied, T2 erased');
+  const clean = runTopic(topic, { crash: 'no crash' });
+  const final = clean.findLast((s) => s.state.items.some((i) => String(i.value).startsWith('A:')));
+  assert.deepEqual(final.state.items.map((i) => i.value), ['A: $35', 'B: $115'], 'both transactions applied');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
