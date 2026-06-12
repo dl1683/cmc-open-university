@@ -1296,6 +1296,29 @@ test('isolation-levels: three anomalies stage correctly and the ladder retires t
   assert.match(guide.cells.find((c) => c.id === 'oracle:ser').label, /snapshot isolation/, 'Oracle serializable caveat included');
 });
 
+test('tsne-umap: clusters converge from random scatter and the reading contract trusts only neighbors', async () => {
+  const topic = await loadTopic('tsne-umap');
+  const squash = runTopic(topic, { view: 'squashing 768-D into 2-D' });
+  const scatters = squash.filter((s) => s.state.kind === 'scatter');
+  const spread = (st, ids) => {
+    const pts = st.points.filter((p) => ids.includes(p.id));
+    const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+    const cy = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+    return pts.reduce((a, p) => a + Math.hypot(p.x - cx, p.y - cy), 0) / pts.length;
+  };
+  const animals = ['cat', 'kitten', 'dog', 'puppy'];
+  assert.ok(spread(scatters[0].state, animals) > 2, 'iteration 0 scatters the animals widely');
+  assert.ok(spread(scatters[2].state, animals) < 0.7, 'converged layout pulls them into a tight island');
+  assert.ok(scatters[2].state.centroids.length === 3, 'three cluster centroids on the final map');
+  assert.ok(squash.some((s) => /KL divergence/.test(s.explanation)), 'objective named');
+  const misread = runTopic(topic, { view: 'how to read (and misread) the map' });
+  assert.ok(misread.some((s) => /PURE random noise/.test(s.explanation)), 'noise-clusters trap demonstrated');
+  assert.ok(misread.some((s) => /distill\.pub/.test(s.explanation)), 'Wattenberg reference cited');
+  const contract = misread[misread.length - 1].state;
+  assert.equal(contract.cells.find((c) => c.id === 'neighbors:trust').value, 1, 'neighbors trustworthy');
+  assert.ok(['size', 'gaps', 'axes'].every((id) => contract.cells.find((c) => c.id === `${id}:trust`).value === 0), 'everything else is artifact');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

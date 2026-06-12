@@ -699,6 +699,16 @@ export const topics = [
     module: () => import('./topics/embeddings-similarity.js'),
   },
   {
+    id: 'tsne-umap',
+    type: 'visualization',
+    buildsOn: ['embeddings-similarity', 'k-means', 'hnsw-search'],
+    category: 'AI & ML',
+    title: 't-SNE & UMAP: Seeing Embeddings',
+    summary: 'Squash 768 dimensions into 2 by preserving neighborhoods — then learn which parts of the picture are lies.',
+    tags: ['t-SNE', 'UMAP', 'dimensionality reduction', 'embeddings', 'visualization', 'perplexity'],
+    module: () => import('./topics/tsne-umap.js'),
+  },
+  {
     id: 'activation-functions',
     type: 'visualization',
     buildsOn: ['gradient-descent'],
