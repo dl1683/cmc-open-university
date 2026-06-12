@@ -2187,3 +2187,19 @@ test('instrumental-variables: naive OLS reads 5.92, the Wald ratio recovers exac
   assert.match(fp[1].state.cells.find((c) => c.id === 'weak:math').label, /0\.5 \/ 0\.1 = 5\.0/, 'weak-instrument amplification arithmetic');
   assert.match(fp[2].state.cells.find((c) => c.id === 'late:detail').label, /FOR COMPLIERS/, 'LATE honesty');
 });
+
+test('segment-tree: canonical decomposition, lazy tags, and push-on-pass all verified live', async () => {
+  const topic = await loadTopic('segment-tree');
+  const bq = runTopic(topic, { view: 'build & range query' });
+  const tree = bq[1].state;
+  assert.equal(tree.nodes.length, 15, '2n-1 nodes for n=8');
+  assert.equal(tree.nodes.find((n) => n.id === tree.rootId).value, 19, 'root holds the total');
+  assert.deepEqual(bq[2].highlight.found, ['n3_4', 'n5_6'], 'query [3,6] decomposes into two canonical nodes');
+  assert.match(bq[2].explanation, /5 \+ 9 = 14/, 'the canonical sums assemble the answer');
+  const lz = runTopic(topic, { view: 'lazy range updates' });
+  assert.deepEqual(lz[1].highlight.found, ['n2_2', 'n3_4', 'n5_6', 'n7_7'], 'update [2,7] covers four canonical nodes');
+  assert.equal(lz[1].state.nodes.find((n) => n.id === 'n1_8').value, 49, 'root corrected wholesale: 19 + 5*6');
+  assert.match(lz[2].explanation, /Answer: 21/, 'push-down query reads honest values');
+  assert.ok(lz[2].highlight.active.length >= 2, 'tags visibly pushed during the walk');
+  assert.ok(lz[3].highlight.active.length >= 1, 'unsettled tags remain — deferred work that may never come due');
+});

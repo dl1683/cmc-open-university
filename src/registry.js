@@ -174,6 +174,16 @@ export const topics = [
     module: () => import('./topics/fenwick-tree.js'),
   },
   {
+    id: 'segment-tree',
+    type: 'visualization',
+    buildsOn: ['fenwick-tree', 'binary-heap', 'merge-sort'],
+    category: 'Data Structures',
+    title: 'Segment Tree & Lazy Propagation',
+    summary: 'Any range is O(log n) canonical nodes: query by collecting them, range-update by tagging them — the lazy tags do the work only when someone looks.',
+    tags: ['segment tree', 'lazy propagation', 'range queries', 'range updates', 'canonical decomposition', 'RMQ'],
+    module: () => import('./topics/segment-tree.js'),
+  },
+  {
     id: 'graph-bfs',
     type: 'visualization',
     buildsOn: ['queue', 'tree-traversals'],
