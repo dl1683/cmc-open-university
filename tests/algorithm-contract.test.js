@@ -1089,6 +1089,23 @@ test('service-workers: the app survives airplane mode and the strategy table rou
   assert.match(table.cells.find((c) => c.id === 'shell:strat').label, /cache-first/, 'shell precached');
 });
 
+test('saliency-maps: gradient and occlusion agree on the culprit, and the sanity check fails guided backprop', async () => {
+  const topic = await loadTopic('saliency-maps');
+  const ask = runTopic(topic, { view: 'interrogating one verdict' });
+  const grad = ask.find((s) => /gradient saliency/.test(s.state.title ?? '')).state;
+  const cell = (state, id) => state.cells.find((c) => c.id === id).value;
+  assert.ok(cell(grad, 'caps:grad') > cell(grad, 'excl:grad'), 'caps words have the larger per-unit gradient');
+  const occ = ask.find((s) => /occlusion/.test(s.state.title ?? '')).state;
+  assert.ok(cell(occ, 'caps:drop') > cell(occ, 'excl:drop'), 'occlusion agrees: removing caps hurts more');
+  assert.ok(Math.abs(cell(occ, 'excl:newp') - 0.31) < 0.01, 'removing exclamations drops p to ~31%');
+  assert.ok(ask.some((s) => /FGSM/.test(s.explanation)), 'attack/explanation duality stated');
+  const tests = runTopic(topic, { view: 'the honesty tests' });
+  assert.ok(tests.some((s) => /Attention is not Explanation/.test(s.explanation)), 'attention caveat cited');
+  const sanity = tests.find((s) => /sanity check/.test(s.state.title ?? '')).state;
+  assert.match(sanity.cells.find((c) => c.id === 'guided:verdict').label, /FAILS/, 'guided backprop fails the sanity check');
+  assert.match(sanity.cells.find((c) => c.id === 'grad:verdict').label, /PASSES/, 'plain gradient passes');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

@@ -966,6 +966,16 @@ export const topics = [
     module: () => import('./topics/adversarial-examples.js'),
   },
   {
+    id: 'saliency-maps',
+    type: 'visualization',
+    buildsOn: ['adversarial-examples', 'multi-head-attention', 'logistic-regression'],
+    category: 'AI & ML',
+    title: 'Saliency Maps & Feature Attribution',
+    summary: 'Ask the model WHY — gradients and occlusion point at the responsible features, and sanity checks catch lying explanations.',
+    tags: ['saliency', 'attribution', 'interpretability', 'explainability', 'Grad-CAM', 'integrated gradients', 'XAI'],
+    module: () => import('./topics/saliency-maps.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],
