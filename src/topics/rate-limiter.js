@@ -87,44 +87,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A rate limiter is a gatekeeper that controls how many requests a user (or IP address, or API key) can make in a given time window. The token bucket algorithm is the most popular approach: imagine a bucket that starts full with a fixed capacity (say, 4 tokens). Every second (or millisecond, depending on the rate), one new token drips in. When a request arrives, it spends one token and passes through. When the bucket is empty, requests are rejected with HTTP 429 (Too Many Requests). When traffic is quiet, tokens accumulate back to capacity, and the next traffic burst is forgiven.`,
-        `The beauty of token bucket: it enforces the long-run average rate (1 request per second, or whatever you set) while allowing short bursts (if 5 requests arrive in quick succession and you have 4 tokens, the first 4 pass, the 5th waits or gets rejected). This matches real traffic patterns much better than a rigid "1 per second, no matter what" policy.`,
+        `A rate limiter is a traffic contract: this user, IP, tenant, or API key may consume at most this much service over time. The token bucket version stores a small balance of tokens. A request spends one token; a background clock refills tokens at a fixed rate up to a maximum capacity. If the bucket refills at 10 tokens per second and holds 50 tokens, the caller can burst 50 requests at once but cannot average more than 10 requests per second for long.`,
+        `That burst allowance is the reason token buckets became common in network traffic shaping and API gateways. A rigid fixed window punishes harmless bursts at the boundary; a token bucket lets a CLI upload 20 files quickly after being idle, then pushes back when the long-run budget is exhausted. The response might be HTTP 429, a retry-after delay, or an internal Queue that waits for more tokens.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `The algorithm is simple. Initialize the bucket with capacity tokens (say, 4). At each time interval (tick), add 1 token (or refill_per_tick tokens) to the bucket, capped at capacity. When a request arrives, check if the bucket has at least 1 token. If yes, decrement the bucket and allow the request. If no, reject the request. The bucket is usually not a real container but a counter and a timestamp — you compute how many tokens to add based on how much time has passed since the last update.`,
-        `In the animation, you can see the bucket growing back up during quiet periods. When requests bunch up (tick 3), they drain tokens; some pass, some fail. The next quiet period lets tokens refill. The key invariant: the bucket never exceeds capacity, which caps the maximum burst size. A bucket of size 4 allows at most 4 consecutive requests no matter how long you wait, preventing a user from gaming the system by idling for days and then unleashing a thundering herd.`,
+        `A production implementation usually stores two fields per key: current tokens and last_refill_time. On each request, compute elapsed time, add elapsed * refill_rate tokens, clamp to capacity, then decide. If tokens >= request_cost, subtract the cost and allow. Otherwise reject or delay. No real dripping process is needed; lazy refill gives the same result with less work.`,
+        `Distributed limiters put that state in Redis, DynamoDB, or an edge-local store and update it atomically. Redis Lua scripts are common because check-and-decrement must be one operation; otherwise two concurrent requests can both see the same token and overspend. Sliding Window counters are another family: they remember recent timestamps or bucketed counts to enforce a precise moving limit, but they use more memory. Token buckets are less exact but cheap, burst-friendly, and predictable.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Token bucket is O(1) per request — one integer comparison and one increment/decrement. Space is O(number of users) — you need one counter per user (or per IP, or per API key). In production, this is usually stored in Redis (a fast in-memory hash table), where thousands of rate limiters can coexist. The refill can be lazy: instead of running a background job to drip tokens, you recompute how many tokens exist based on elapsed time when a request arrives — saves memory and complexity.`,
+        `The local algorithm is O(1) time and O(active keys) space, usually implemented as a Hash Table from key to bucket state. The expensive part is coordination. A central Redis round trip might cost 0.5-2 ms inside a region and much more across regions, which is enough to affect Tail Latency & p99 Thinking on a hot endpoint. Edge-local approximate limiters are faster but can oversell the global budget. Sharded counters reduce hot keys but introduce reconciliation work.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every public API uses rate limiting, usually token bucket or a sibling (sliding window, leaky bucket). Stripe limits API calls to prevent abuse and ensure fair resource allocation. GitHub allows 60 API calls per hour per IP, 5,000 per hour per authenticated user — tuned to the expected usage of legitimate clients. LLM providers like OpenAI rate-limit API keys to prevent runaway costs from bugs or attacks. Twitter's rate limits are famous — they changed from "requests per 15 minutes" to "tokens per 15 minutes" to allow predictable burst capacity. Internal APIs rate-limit each service to prevent one service from overwhelming another. Denial-of-service (DDoS) mitigation heavily relies on rate limiting: drop traffic from IPs that exceed normal rates, automatically. AWS, Cloudflare, and other infrastructure providers implement sophisticated rate limiters at the edge.`,
+        `Public APIs use limiters to protect shared capacity and prevent surprise bills. GitHub's long-standing REST API shape is thousands of authenticated calls per hour rather than unlimited scraping. Stripe and Shopify protect checkout APIs from runaway integrations. Cloudflare Workers and AWS API Gateway enforce tenant budgets at the edge before traffic reaches an origin. LLM APIs use token budgets because one request can cost 100 times another. A Load Balancer often applies coarse IP limits first, then an application gateway applies authenticated per-customer limits.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest pitfall is confusing token bucket with leaky bucket (another algorithm). Token bucket allows bursts, leaky bucket does not — a leaky bucket drains at a constant rate no matter what. Choose token bucket for APIs where users reasonably expect bursts (uploading a batch of files), and leaky bucket for enforcing hard, rigid limits.`,
-        `Another pitfall: not accounting for refill lag in distributed systems. If you store the bucket state in Redis and a network delay hits, your refill might be stale when the next request checks. Use a combination of client-side token counting and server-side truth to mitigate. A third misconception: rate limiting solves all abuse. False — a sophisticated attacker can distribute their requests across many IPs (distributed denial of service). Layer rate limiting with authentication (users you trust get higher limits), IP blocking, behavioral analysis, and CAPTCHA challenges.`,
+        `The first trap is choosing the wrong key. IP-based limits punish offices, campuses, and mobile carriers that NAT thousands of users behind one address. User-based limits miss botnets that rotate accounts. Tenant-based limits are fairer for SaaS, but one customer can still have many workers racing the same bucket.`,
+        `The second trap is treating rejection as harmless. If every rejected client retries immediately, the limiter creates a self-inflicted denial of service. Return retry-after hints, add jitter, and cap retries. Message Queues need the same care: delayed retries should not stampede when a downstream service recovers. Rate limiting is not fraud detection; it is a resource guardrail that must be paired with authentication, abuse analysis, and sometimes Cache Invalidation & Versioning when cached authorization decisions change.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Read Hash Table to understand how rate limiters store per-user or per-IP state (usually a counter in a hash table or Redis). Study Queue to see how requests are buffered while waiting for tokens or when the backend is busy. Explore Load Balancer to see how rate limiting at the front tier prevents traffic spikes from reaching your servers. Finally, explore Token Bucket, Sliding Window, and Leaky Bucket in depth — they are the three main families of rate-limiting algorithms, each with trade-offs in memory, accuracy, and behavior.`,
+        `Read Hash Table for the per-key state map, Queue for delayed work, and Sliding Window for the stricter moving-window alternative. Then connect the limiter to Load Balancer and CDN Request Flow: the earlier you reject abusive traffic, the less backend capacity it burns. Finally, use Tail Latency & p99 Thinking to see why one extra remote counter lookup can matter on the slowest requests.`,
       ],
     },
   ],
 };
-

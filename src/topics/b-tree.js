@@ -147,41 +147,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A B-tree is a self-balancing tree where every node holds multiple keys and children in sorted order. Unlike a Binary Search Tree, which stores one value per node and must read many nodes to find a target, a B-tree packs hundreds or thousands of keys into a single node — matching the size of a disk page in a database. In Postgres, MySQL, SQLite, and most filesystem indexes, a B-tree node equals one disk read. That single architectural choice transforms search from potentially needing log₂(n) page reads into needing log₅₀₀(n) reads: a billion rows go from ~30 random disk accesses to just 4.`,
-        `This visualization shows the smallest B-tree (order 3, or 2-3 tree): each node holds at most 2 keys and 3 children. Real database B-trees hold 500+ keys per node. The core mechanic is identical, and so is the payoff: every leaf sits at exactly the same depth, search always follows one path downward, and inserts never require rebalancing — the tree grows upward from the leaves only.`,
+        `A B-tree is the disk-friendly search tree behind most database indexes. Bayer and McCreight introduced it in 1970 for exactly this problem: memory was small, disks were slow, and a one-key-per-node Binary Search Tree wasted an I/O on every level. A B-tree node stores many sorted keys and child pointers in one page, often 4 KB, 8 KB, or 16 KB. If a page can hold 200 keys, one page read chooses among 201 child ranges.`,
+        `Most databases actually use a B+ tree variant: internal pages guide the search, while leaf pages hold record pointers and are linked for fast range scans. The visualization uses a tiny order-3 tree so splits fit on screen, but the invariant is the same at production scale: leaves stay at the same depth, keys stay sorted, and the tree grows by splitting full pages upward.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Inserts always land at a leaf. Start at the root and compare your key against the stored keys at each node; follow the appropriate child pointer downward until you reach a leaf with no children. Add the key there in sorted order. If a node exceeds its capacity (more than 2 keys in an order-3 tree), it splits: the middle key moves UP to the parent, and the remaining keys become two separate nodes. If the parent overflows, it splits too. This cascades upward until it hits a node with room or reaches the root. If the root splits, the middle key becomes the new root, creating a new level — this is the only way the tree grows taller.`,
-        `Search is even simpler. Start at the root and scan its keys (a real database uses binary search within the node). Since keys are sorted, each comparison narrows which child can contain your target. Follow that child downward; repeat until you either find the key or reach a leaf and confirm it is absent. The search path is logarithmic in both tree height and the number of keys per node, so locality is extraordinary: you touch only a handful of disk pages.`,
+        `Search starts at the root. Within each page, use Binary Search or a cache-conscious linear scan to find the first separator greater than the target, then follow that child pointer. Repeat until a leaf either contains the key or proves it absent. For a billion rows and fanout near 200, height is usually 4 or 5 pages, not the roughly 30 pointer hops a balanced binary tree would need.`,
+        `Insertion also descends to a leaf. If the target leaf has room, insert the key in sorted order and update metadata. If it is full, split the page: half the keys stay, half move to a new sibling, and a separator key is inserted into the parent. Parent pages can split too; a root split is the only way the tree gains a level. Deletion may merge or redistribute underfull pages, although many storage engines delay cleanup to avoid churn.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Search and insert are both O(log n) by tree depth, but depth is log₍ₘ₎(n) where m is the fanout (keys per node). With m = 500, even a billion rows need only 4–5 levels. Compared to a balanced BST requiring log₂(n) ≈ 30 node visits, a B-tree touches just 4–5 disk pages — a 6-fold reduction in I/O cost. The trade-off: scanning keys within a node is O(m) in naive code (O(log m) with binary search), but since m fits in one cache line, this is negligible. Memory footprint per node is O(m) storage but zero rebalancing overhead; the tree rebalances itself as it grows. Splits are O(m) work, but split events are rare — doubling the tree size creates only O(n/m) new nodes.`,
+        `Lookup, insert, and delete are O(log_f n), where f is fanout, but the unit that matters is page I/O. A random SSD read might be tens to hundreds of microseconds; avoiding 25 extra page reads is enormous. Each split is O(page_size), not O(n), but splits cause extra writes and can cascade. Databases soften that cost with buffer pools, fill factors such as 70-90 percent, page-level latches, and a Write-Ahead Log (WAL) that makes page updates crash-safe.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Every major SQL database indexes use B-trees: Postgres, MySQL (InnoDB storage engine), SQLite, MariaDB, and Oracle. NTFS, ext4, and HFS+ filesystems use B+ tree variants (leaves store actual data; internal nodes are index-only). Google's LevelDB began with B-tree concepts before evolving into the LSM tree. Distributed databases like CockroachDB layer B-trees on top of RocksDB's LSM structure. Even key-value stores like RocksDB began with B-trees before moving to LSM design. The B-tree remains the gold standard for read-heavy workloads on sorted, persistent data — which describes nearly every database index on Earth.`,
+        `PostgreSQL, MySQL InnoDB, SQLite, Oracle, and SQL Server all rely on B-tree or B+ tree indexes for ordinary equality and range predicates. Filesystems such as NTFS, APFS, XFS, and HFS+ use related trees for directories and extents. Database Indexing starts here because the structure supports both point reads and ordered scans: WHERE user_id = 7 and WHERE created_at BETWEEN Monday and Friday use the same sorted leaf chain.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Misconception 1: "B-trees balance themselves via rotations like AVL trees." False. B-trees have no rotations — they grow upward instead. Splits propagate upward and guarantee every leaf sits at the same depth, with zero post-insert rebalancing. Misconception 2: "All B-tree nodes hold the same number of keys." False. A node can hold anywhere from ⌈m/2⌉ to m keys (except the root); this flexibility is why B-trees never need rotations. Misconception 3: "B-trees are slow at writes because splits cascade." Splits are rare relative to inserts. In steady-state insertions, most inserts land in nearly-full nodes without triggering splits; cascades happen roughly once per m inserts. The real write cost comes from the LSM Tree philosophy: Postgres writes B-tree changes to a write-ahead log, then updates the index in memory, then checkpoints to disk — a layered I/O strategy orthogonal to B-tree structure. Pitfall: confusing B-tree balance with insertion time; they are independent.`,
+        `B-trees do not rotate like AVL trees. They split, merge, and redistribute pages while preserving equal leaf depth. They also are not always faster than LSM Trees (How Cassandra Writes). A read-heavy SQL workload loves a B-tree; a write-heavy event stream may prefer immutable SSTables and compaction. Another misconception is that an index is free because lookup becomes logarithmic. Every secondary index adds write work, WAL volume, cache pressure, and possible contention under Transaction Isolation Levels. MVCC Internals & VACUUM can also leave dead index entries behind until cleanup catches up.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `If you understood how B-trees keep search fast with few page reads, explore Binary Search to see the in-node search strategy formally. Learn Binary Search Tree to contrast the single-key-per-node approach. Study LSM Trees (How Cassandra Writes) to understand the opposite philosophy: write-optimized trees that defer splits and merge in the background. Compare the two: B-trees optimize reads (few, wide, balanced pages), LSM trees optimize writes (sequential appends, batched merges). Explore Hash Table to see when you do not need a tree at all — direct addressing trades tree depth for space. Finally, learn Tree Traversals to see how to walk the structure once you've built it.`,
+        `Review Binary Search for in-page lookup and Binary Search Tree for the pointer-heavy ancestor. Then study Database Indexing, Transaction Isolation Levels, and MVCC Internals & VACUUM to see how the tree behaves inside a real database. Compare the read-optimized page model against LSM Trees (How Cassandra Writes), and use Tree Traversals to understand why ordered leaves make range scans so cheap.`,
       ],
     },
   ],
 };
-

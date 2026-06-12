@@ -100,44 +100,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A write-ahead log (WAL) is a strict discipline: before you mutate any data, you must first append a complete description of that change to an immutable, append-only log file and flush it to disk. Only after the log entry is safely written do you apply the change to your actual data structures in memory or on disk. The log is the source of truth; the data itself is derivative. If the system crashes at any moment, the log survives unchanged, and recovery reads it to replay all committed work.`,
-        `The core insight is deceptively simple: a crash is not a disaster if you know exactly what you were trying to do. By writing the intent first, you can always resume. The log makes atomicity possible even across multiple separate writes — there is no "both-or-neither" problem if every transaction is marked with a commit flag in the log before any of its changes are applied.`,
+        `A write-ahead log is the promise that intent reaches durable storage before the data page it describes is trusted. If a database wants to update page 42 from value A to value B, it first appends a log record saying what changed, assigns it a log sequence number, and only then lets the dirty page be written later. After a crash, recovery uses the log to redo committed work and undo or ignore incomplete work.`,
+        `This is the foundation of durable transactions. The ARIES recovery paper from 1992 made the pattern canonical: log records, page LSNs, checkpoints, redo, and undo. The log is not just a backup file; it is the ordering spine that lets memory, disk, and crash recovery agree on what happened.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Every transaction begins by writing a sequence of log records — one per logical change — followed by a commit marker. These records are appended sequentially (cheap: just memcpy and disk append) and flushed via fsync. The cost of fsync is harsh: typically 5–20 milliseconds on spinning disks, even on SSDs 0.5–2 milliseconds, because fsync waits for the physical disk to acknowledge. Real databases batch multiple transactions' commits via group commit, allowing one fsync to durably persist dozens of transactions at once, amortizing the cost.`,
-        `Once the commit marker is durable, the database applies the changes to its in-memory and on-disk data structures. If a crash occurs before the commit marker, the transaction never happened. If it crashes after, recovery simply re-reads the log, skips uncommitted records (no commit marker), and replays committed ones. Replay is idempotent: applying the same change twice produces the same result as applying it once, so it is safe to repeat on restart.`,
-        `To prevent recovery from replaying the entire log for years on restart, databases use checkpoints: a background process writes a marker saying "all committed transactions up to timestamp T are now durably applied." Recovery can then skip those records and only replay from the checkpoint forward, keeping restart time bounded.`,
+        `During a transaction, the database modifies pages in memory and appends log records describing those changes. At commit, it must force the commit record, and all earlier log records for that transaction, to durable storage before acknowledging success under full durability settings. The data pages themselves do not need to be forced at commit; they can flush later because the log can reconstruct them.`,
+        `Recovery has three jobs. Analysis finds the last checkpoint and identifies dirty pages and active transactions. Redo repeats logged changes whose effects may not have reached disk. Undo rolls back transactions that had not committed. Page LSNs keep redo safe: if a page already contains a change, recovery sees that its LSN is new enough and skips reapplying it. That is more precise than hoping every operation is naturally idempotent.`,
+        `Group commit makes the cost practical. Instead of one fsync per transaction, PostgreSQL, MySQL InnoDB, and SQLite can persist many commit records with one flush. Durability knobs change the contract: turning synchronous commit off can improve latency but knowingly risks the last few transactions after a power loss.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `The primary cost is I/O latency: every transaction write is blocked by fsync. Raw fsync throughput is measured in hundreds per second, not thousands, making write-heavy workloads sensitive to group-commit tuning and storage hardware. Writes must be sequential (to append to a log), so concurrent writes serialize through a single log mutex. Memory overhead is modest: the log itself occupies disk space but compresses well. The complexity of recovery — scanning the log, filtering by commit status, replaying all changes idempotently — is real but well-understood and critical: if recovery is buggy, your entire durability guarantee is broken.`,
+        `Appending a log record is O(1), but forcing it to stable storage is a latency event. NVMe may flush in hundreds of microseconds; networked storage or spinning disks can take milliseconds. High-throughput systems batch, preallocate segments, compress records, and separate log devices from data devices. The complexity lives in correctness: torn writes, checksums, partial segments, checkpoints, log recycling, and replication all need exact ordering.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `PostgreSQL uses WAL as its core durability mechanism. Every change to any table, index, or internal structure is logged before it hits disk; Postgres ships these log records to replicas for replication — replication is log-shipping, a direct application of WAL. MySQL InnoDB's redo log uses the same idea. SQLite's WAL mode (enabled with PRAGMA journal_mode=WAL) lets readers query the database while writes are being logged, because the log is separate from the main database file. LSM Trees (used in Cassandra, RocksDB, LevelDB) store a memtable — an in-memory write buffer — that is rebuilt from a log on crash recovery. Kafka is, at its core, a distributed write-ahead log: messages are appended, persisted, and replayed by consumers. Raft and other consensus protocols ship log entries between nodes: the log IS the replicated state machine. etcd (Kubernetes' configuration store) uses Raft logs.`,
+        `PostgreSQL WAL powers crash recovery, streaming replication, point-in-time restore, and logical decoding. InnoDB's redo log protects pages and works alongside undo logs for MVCC Internals & VACUUM-style visibility. SQLite's WAL mode lets readers continue while a writer appends to a separate log. LSM Trees (How Cassandra Writes) use a commit log to rebuild memtables after a crash. Message Queues such as Kafka expose the append-only log directly to consumers, while Raft Log Replication turns log agreement into replicated state-machine safety.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A common mistake is thinking the log and the data can be in separate transactions: they cannot. If the log commits but the data does not, or vice versa, atomicity breaks. They must be a single atomic write, or the log must be the only write and data is derived from it on restart. Another trap is forgetting idempotence: if your redo operation is not idempotent (e.g., incrementing instead of setting a value), recovery will silently corrupt state by re-applying an already-applied change. Finally, some systems log optimistically — buffering log records in memory and flushing periodically — which can lose recent transactions on crash. True WAL requires synchronous fsync at commit time, the whole point.`,
+        `The log and data page do not have to be one atomic disk write; the whole point is that the log reaches disk first and page state can catch up later. What is forbidden is a data page reaching disk with changes whose log records are not durable. Another misconception is that a log makes every distributed operation atomic. Two-Phase Commit (2PC) needs each participant's local log, but the coordinator decision is still a separate distributed protocol. Transaction Isolation Levels also are not provided by the log alone; locking or MVCC decides what concurrent readers are allowed to see.`,
+        `Write caching is dangerous if hardware lies about flushes. A database can call fsync correctly and still lose data if the storage stack reorders writes without battery-backed cache. Write-Through vs Write-Back is therefore an operational durability choice, not just a performance tuning checkbox.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `To understand why logs are sequential and efficient, explore LSM Trees (How Cassandra Writes). To see how writes are ordered and how trees handle multiple updates, study B-Trees (How Databases Read). Write-ahead logs are the backbone of message durability — learn Queue to see how Kafka-like systems handle ordering. Understand Consistent Hashing to see how replicas are chosen (and where log records are sent). Study LRU Cache to see how databases manage memory and decide which data pages stay in RAM while the log grows.`,
+        `Read B-Trees (How Databases Read) and LSM Trees (How Cassandra Writes) to see what the log protects. Then study Message Queues and Raft Log Replication for systems where the log becomes the public interface or consensus object. Finish with Transaction Isolation Levels, MVCC Internals & VACUUM, Two-Phase Commit (2PC), and Write-Through vs Write-Back to separate durability, visibility, atomic commit, and storage-cache behavior.`,
       ],
     },
   ],
 };
-

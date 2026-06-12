@@ -118,40 +118,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Raft leader election solves the split-brain problem: how do the surviving servers in a cluster agree on one leader to coordinate writes — without deadlock or two leaders claiming power? The answer: randomized election timers (150–300 ms) nominate candidates, votes are one per term (recorded on disk), and a majority wins. Two majorities of five servers MUST overlap in at least one member, and that member gave its single vote already. Therefore, two leaders in the same term are arithmetically impossible — no luck required.`,
-        `Terms are epochs of authority. When a server hears a heartbeat or vote request stamped with a higher term than it remembers, it instantly steps down and adopts the new term. This prevents stale leaders (crashed servers that rebooted) from claiming power after a partition heals.`,
+        `Raft leader election is the part of Raft that chooses exactly one server to coordinate a replicated log. Diego Ongaro and John Ousterhout designed Raft to be easier to understand than Paxos, and the election protocol is the clearest example: time is divided into numbered terms, each server grants at most one vote per term, and a candidate becomes leader only after winning a majority. In a five-node cluster, any two majorities overlap, so two leaders in the same term cannot both win.`,
+        `The leader is not a performance convenience; it is the source of ordering. Clients send writes to the leader, the leader assigns log positions, and Raft Log Replication copies those entries to followers. If the leader dies or becomes unreachable, followers run an election so the cluster can continue without split-brain.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The leader sends heartbeats to all followers every ~50 ms. Each heartbeat resets the follower's election timer. When the leader dies, heartbeats stop. Followers' randomized timers tick down and expire at staggered times. The first timer to fire (say, S3's) triggers an election: S3 increments the term, votes for itself, and sends RequestVote to all peers. Each peer follows a simple rule: grant one vote per term to the first eligible candidate, write it to disk before answering. S3 collects votes: its own, plus S2 and S4. That is three of five — a majority. S3 becomes leader and broadcasts heartbeats. If two candidates split the votes (S3 gets two, S5 gets two), neither reaches three votes. Both time out, randomize fresh timers, and the next timer to fire starts a new term. Split votes resolve within milliseconds.`,
+        `Followers expect heartbeats, often every few tens of milliseconds. If no heartbeat arrives before a randomized election timeout, commonly in the 150-300 ms range in examples, a follower increments its term, votes for itself, persists that vote to disk, and sends RequestVote RPCs. Persisting term and vote before replying matters: after a crash, the node must not forget that it already voted.`,
+        `A peer grants its vote only if it has not voted in that term and the candidate's log is at least as up to date as its own. That second rule prevents an old, missing-log server from winning just because it woke up first. If one candidate receives a majority, it becomes leader and immediately sends heartbeats. If votes split, no majority forms; candidates time out again with new random delays and a higher term. A server that observes a higher term steps down, which is how stale leaders lose authority after partitions heal.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Each server persists two pieces of state: its current term and the server ID it voted for in that term. Election latency is bounded by the longest timer (300 ms worst case) plus network delay; in practice, sub-second convergence is typical. The protocol is safe because math, not luck — split-brain is impossible by design.`,
+        `Election traffic is O(n^2) in the worst case because candidates ask all peers, but clusters are usually 3, 5, or 7 voting members. A three-node cluster tolerates one failure; a five-node cluster tolerates two. A two-node cluster can elect a leader while both are healthy, but it tolerates zero failures because one survivor is not a majority of two. Election latency is usually one timeout plus a network round trip, so sub-second failover is common inside one region.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Raft powers etcd, the metadata backbone of every Kubernetes cluster. Consul (service discovery), CockroachDB and TiDB (distributed SQL), and Elasticsearch all use Raft. It is now the default consensus protocol in modern infrastructure because it combines elegance with proof of correctness grounded in arithmetic.`,
+        `etcd uses Raft to protect Kubernetes control-plane state. Consul uses it for service discovery metadata and configuration. TiKV, CockroachDB, and many embedded libraries use Raft-style groups per shard or range. The CAP Theorem frame is direct: a Raft group chooses consistency over availability when it cannot reach a majority. A Load Balancer can retry stateless requests elsewhere; a Raft minority must refuse writes.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Randomized timeouts are not a gamble — exponential re-randomization makes collisions exponentially unlikely. A cluster of five servers needs at least three. Never deploy fewer than three; two servers cannot elect (neither has a majority of two). Raft election alone does not replicate data; log replication is the second phase, where the leader commits entries once a majority persists them. Both together form the complete protocol.`,
+        `Randomized timeouts reduce repeated split votes, but safety comes from majority overlap and persistent voting, not luck. Another misconception is that election alone means the data is safe. The new leader must also contain every committed entry, which is why the RequestVote up-to-date-log rule exists. If clocks drift, Raft still works because terms and RPCs, not wall-clock timestamps, define authority. The clock only affects how quickly elections start.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `After election, the leader broadcasts commands safely via Write-Ahead Log (WAL). Log replication shows how to extend election into full consensus: the leader proposes, the majority confirms, the leader commits. Consistent Hashing splits data across clusters without needing a leader. Load Balancer sketches the boundary: stateless replicas need no leader; stateful clusters rely on Raft.`,
+        `Read Raft Log Replication next: election chooses the leader, but replication proves which commands survive. Write-Ahead Log (WAL) explains how votes, terms, and log entries persist through crashes. CAP Theorem explains why minority partitions refuse service. Consistent Hashing shows a different distributed pattern where ownership is partitioned instead of ordered by one leader, and Distributed Tracing helps diagnose the failover path in production.`,
       ],
     },
   ],
 };
-

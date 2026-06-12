@@ -96,44 +96,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `The saga pattern is a way to coordinate distributed transactions across microservices without holding locks. Instead of asking all participants to hold a lock while a central coordinator decides (like Two-Phase Commit does), a saga runs a chain of local transactions—each commits immediately and completely in its own service database, and if a later step fails, the saga unwinds by executing compensating actions in reverse order. Imagine booking a flight, hotel, and car: if the car rental fails after the flight and hotel are already booked, the saga refunds the flight and cancels the hotel, leaving the system as if none of the bookings happened.`,
-        `The core trade-off is visibility: during a saga, the world can see inconsistent intermediate states. For a brief window, a hotel might show as booked for a trip that will never exist. This is the saga's answer to CAP Theorem—it chooses availability and partition tolerance over consistency, ensuring that no service ever waits on another and can recover independently from crashes.`,
+        `The saga pattern coordinates a long business transaction as a sequence of local transactions plus compensating actions. Garcia-Molina and Salem described sagas in 1987 for long-lived database work; microservices revived the idea because one checkout often touches order, inventory, payment, shipping, tax, email, and analytics services. Instead of holding locks across all of them with Two-Phase Commit (2PC), each service commits locally and records what happened.`,
+        `If a later step fails, the saga does not rewind time. It runs semantic repair: release inventory, issue a refund, cancel a shipment, or send a correction event. That is weaker than atomic rollback but much more available. The CAP Theorem flavor is clear: the product accepts temporary inconsistency so individual services can keep making progress during partial failure.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Each step in a saga is a local transaction that commits for real, immediately, using the service's own Write-Ahead Log (WAL). There is no global coordinator holding everyone's resources—the flight service books and moves on; the hotel service reserves and moves on. The trick is that every action must have a companion undo: if flight-booking fails later, all prior steps execute their compensations (undos) in reverse. Compensating actions are themselves transactions and must be idempotent—refunding a payment twice should not double-charge; cancelling a hotel reservation that is already cancelled must succeed quietly.`,
-        `One critical pattern is charging the card last. If the car rental fails, the flight and hotel compensations execute, and the customer was never charged. This simple reordering of steps eliminates one compensation path entirely—if the card transaction fails, everything before it rolls back, and nothing needs undoing from the card's perspective.`,
-        `Sagas come in two flavors: orchestration, where a coordinator service explicitly walks each step and handles failures (easier to understand, single point of failure if the coordinator crashes); and choreography, where each service publishes events and the next service in the chain reacts (more resilient, harder to track). Real systems often mix both: orchestrate the happy path, choreograph compensations so failures trigger recovery automatically. Tools like Temporal.io, AWS Step Functions, and Airflow provide saga orchestration as a service.`,
+        `Every step uses the service's ordinary database transaction and Write-Ahead Log (WAL). The order service creates an order, the inventory service reserves stock, the payment service authorizes money, and the shipping service creates a label. Each step emits an event through Message Queues or returns a result to an orchestrator. If shipping fails after payment authorization, compensation might void the authorization and release stock.`,
+        `There are two common control styles. Orchestration uses a workflow service, such as Temporal, Cadence, AWS Step Functions, or Camunda, to call each step, persist workflow state, retry, and run compensations. Choreography has services react to events: OrderCreated triggers inventory, InventoryReserved triggers payment, and so on. Choreography removes a central workflow brain but makes the global state harder to see.`,
+        `Idempotency is non-negotiable. A compensate_payment command may be delivered twice, so it needs a stable idempotency key and a local record saying the refund or void already happened. Retrying without that guard turns recovery into a duplicate-charge bug.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Sagas are cheaper than Two-Phase Commit in terms of latency and availability—no service waits on a coordinator, and the system tolerates partial outages better. But the cost is in complexity: you must design a compensation for every action, handle the fact that compensations can fail (requiring retries and idempotent design), reason about eventual consistency, and live with the knowledge that a human may see a transient mess. An airline customer might see a refund appear and then disappear as a compensation retries. Debugging is harder because failures are not atomic—a saga failure is not a single point; it is a sequence of rollbacks that might themselves succeed, partially succeed, or fail.`,
+        `Sagas reduce lock duration and cross-service blocking, but they move complexity into business logic. Each forward action needs a compensation, timeout policy, retry policy, and human escalation path. A workflow that touches 6 services and allows 3 retries per step can generate dozens of observable states. Rate Limiter (Token Bucket) behavior is needed so retry storms do not crush a recovering dependency. Distributed Tracing is needed so engineers can answer where the order is now.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every e-commerce checkout that spans multiple services uses sagas: the order service accepts the order, the inventory service reserves stock, the shipping service plans the route, and the payment service charges the card. If any step fails, compensations unwind what came before. Uber uses sagas to manage ride matching—once the driver accepts, the matching service locks that driver, the trip service starts a trip, the payment service prepares a charge, and the navigation service loads the route. If the driver cancels after being matched, compensations reset the system. Temporal.io (the temporal workflow engine) and AWS Step Functions are two modern saga orchestrators that handle retries, compensations, and state durably.`,
+        `E-commerce checkout is the standard example: create order, reserve inventory, authorize payment, create shipment, send confirmation. Travel booking is another: reserve flight, hotel, and car, then compensate reservations if one provider rejects the trip. Ride-hailing uses similar flows for match, driver acceptance, trip start, payment authorization, and cancellation fees. Cache Invalidation & Versioning often becomes part of the saga because users should not keep seeing stale order or inventory status after a compensating event.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `One common mistake is assuming compensation is free. A refund is not the inverse of a charge—it is a separate transaction that can fail. If a refund fails, you need a retry strategy (exponential backoff, dead-letter queues, human review). Another pitfall is under-designing for idempotency: if a service resets the network and retries a compensating action, it must detect that the undo was already done and not repeat. A refund that is applied twice is a bug; the code must use idempotency keys (unique identifiers per compensation) to detect duplicates. A third pitfall is confusing sagas with transactions: a saga is not ACID. It is ACD (atomic in outcome, consistent eventually, durable per step, isolated in terms of locks) but not immediately consistent—a brief window of inconsistency is guaranteed. For systems where that window is unacceptable (banking ledgers, inventory counts with hard limits), Two-Phase Commit is still the right tool, and the saga pattern is a false economy.`,
+        `The biggest misconception is that compensation restores the exact previous state. It usually creates a new state that is acceptable to the business. A refund is not an uncharge; it is a new ledger event. A cancellation may incur a fee. Inventory released after five minutes may already have affected customer promises. For hard invariants, use a strongly coordinated path or narrow the invariant to one service boundary.`,
+        `Sagas also do not remove the need for Transaction Isolation Levels inside each service. A local reservation step still needs to prevent overselling. Finally, avoid mixing orchestration and choreography accidentally. If both the workflow engine and an event subscriber issue the same compensation, idempotency saves you once; clear ownership saves you every day.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `To understand sagas in context, study Two-Phase Commit (2PC) to see the locking-based alternative, CAP Theorem to understand the availability trade-off, Write-Ahead Log (WAL) to see how each service durably records its side of a saga, Raft Log Replication to see how sagas stay consistent across service replicas, and Rate Limiter (Token Bucket) to control retries so failed compensations do not hammer the system. Sagas are the distributed-systems answer to managing failure at scale.`,
+        `Compare directly with Two-Phase Commit (2PC), then use CAP Theorem to name the availability trade-off. Write-Ahead Log (WAL) and Message Queues explain durable local steps and event delivery. Rate Limiter (Token Bucket), Distributed Tracing, Cache Invalidation & Versioning, and Transaction Isolation Levels cover the operational pieces that make sagas survivable in production.`,
       ],
     },
   ],
 };
-

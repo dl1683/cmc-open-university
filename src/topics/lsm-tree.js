@@ -81,47 +81,41 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `An LSM tree (Log-Structured Merge tree) is how Cassandra, RocksDB, and LevelDB write so fast: writes NEVER modify data in place. Instead, writes land in a sorted in-memory buffer (the memtable), are logged to an append-only crash journal (the WAL), and only later merged into immutable sorted tables on disk (SSTables). Appends are fast; merges happen in the background.`,
-        `Compare to a B-tree database: every write is a random disk seek to find the right page and rewrite it. With an LSM, every write is one sequential log append (milliseconds) plus one in-memory insertion (microseconds). The cost? Reads must check the memtable first, then multiple SSTables. Bloom filters bail you out.`,
+        `An LSM tree, short for Log-Structured Merge tree, is a storage engine design for turning random writes into sequential work. The 1996 O'Neil paper described the core bargain: accept writes into memory quickly, flush immutable sorted runs to disk, and merge those runs later in the background. Cassandra, HBase, LevelDB, and RocksDB use this pattern because disks and SSDs are much better at large sequential writes than at scattered small rewrites.`,
+        `The write path has two parts. First append the update to a Write-Ahead Log (WAL) so a crash can replay it. Then insert it into a memtable, often a skip list, tree, or other ordered in-memory structure. When the memtable reaches a threshold such as 64 MB or 128 MB, it becomes immutable and flushes as an SSTable: a sorted string table on disk. The cost is shifted to reads and compaction, not erased.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Write comes in: append to the WAL (append-only, survives crashes), insert into the sorted memtable. Client is acknowledged immediately. On a crash, replay the WAL to rebuild the memtable. When the memtable grows past a limit (e.g., 4 rows in this animation, 64 MB in RocksDB), flush it as an immutable SSTable to disk (one big sequential write).`,
-        `Reads search the memtable first (live data), then each SSTable newest-to-oldest (binary search inside each file). More SSTables = slower reads. Enter compaction: periodically merge N sorted SSTables into one using the merge step of Merge Sort. Deleted keys (marked with tombstones) and old versions are dropped during compaction. Result: fewer SSTables, faster reads.`,
-        `Levels: production systems (RocksDB, LevelDB) organize SSTables in levels. Level 0 (freshest) can have multiple tables; Level 1 is a single merged table; Level 2 is another merged table. Compaction promotes tables downward, keeping read latency logarithmic in total data size.`,
+        `A read checks the newest places first: active memtable, immutable memtables waiting to flush, then SSTables from newest to oldest or by level. Each SSTable has an index and usually a Bloom Filter, so the engine can skip files that definitely do not contain the key. If the key appears several times, the newest version wins. Deletes are stored as tombstones until compaction proves older versions can be discarded.`,
+        `Compaction is the heart of the design. Background workers merge sorted files using the same linear merge idea as Merge Sort, dropping overwritten values and expired tombstones. Size-tiered compaction groups similarly sized files; leveled compaction keeps most levels non-overlapping to reduce read amplification. This is why an LSM can write fast but still needs careful tuning: too little compaction hurts reads, too much steals I/O from foreground writes.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Write: O(log M) where M is memtable size (insertion into a sorted array), plus O(1) append to the WAL. After flush: O(L log L) to flush L items to disk sequentially.`,
-        `Read: O(log M) in the memtable plus O(log T × K) to search K SSTables (binary search per table). Bloom filters cut this—if a filter says the key is NOT in an SSTable, skip it.`,
-        `Compaction: O(n log n) to merge n keys across tables, spread over background time. The win: writes are O(log M), not O(log N) random seeks per write.`,
+        `A write is O(1) for the log append plus O(log M) or similar for the memtable, where M is active memory state. A point read is O(log M) plus probes into candidate SSTables; filters often make the number of disk probes small. Compaction is linear in the bytes it rewrites for each merge, but the same data may be rewritten many times. That write amplification is the hidden tax. Space amplification comes from old versions and tombstones waiting for compaction.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Cassandra uses LSM trees: every write hits the commit log and memtable instantly (millions per second), then flushes to SSTables asynchronously. Reads consult Bloom Filters to skip SSTables. RocksDB (embedded in many databases: Kafka, MyRocks for MySQL, Fuchsia) uses LSM with a 6-level hierarchy by default.`,
-        `LevelDB (originally Google's embedded database, now a reference implementation) popularized LSM design. HBase (Hadoop's database) is built on LSM. Every embedded database optimizing for write throughput uses LSM or a variant.`,
+        `Cassandra combines token ownership from Consistent Hashing with an LSM storage engine on each node. RocksDB powers MyRocks, Kafka Streams state stores, Flink state backends, and many embedded indexes. LevelDB made the design easy to study; Pebble reimplemented a RocksDB-like engine in Go for CockroachDB. The competing shape is B-Trees (How Databases Read): PostgreSQL and InnoDB update buffered pages and indexes in place, still protected by logs, rather than accumulating immutable runs.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `"LSM trees are only for write-heavy workloads." — Partly true. Read-heavy workloads suffer if Bloom Filters miss (hitting disk). But with good filters and low SSTable counts, reads stay competitive with B-trees.`,
-        `"Compaction is free." — Wrong. Compaction eats disk I/O and CPU, which can stall user writes. RocksDB's compaction threads compete with the write memtable; tuning the background workload is critical.`,
-        `"The memtable limit of 4 is typical." — Wrong. RocksDB defaults to 64 MB; Cassandra to 128 MB. Small limits flush more often (more SSTables, slower reads). Large limits need more RAM. Trade-off.`,
+        `The first misconception is that an LSM never rewrites data. It avoids rewriting on the foreground write path, then rewrites heavily during compaction. The second is that reads are automatically slow. A well-tuned engine with good filters, block cache, and low overlap can serve fast point reads; a neglected one with thousands of SSTables can fall apart. The third is that tombstones are harmless. In Cassandra, a delete may remain visible to compaction for hours or days so replicas can learn it; too many tombstones can make range scans painfully slow.`,
+        `Do not confuse the memtable with a Hash Table. Hash structures help membership tests and caches, but sorted order is what makes range scans and merge compaction possible. Also separate LSM mechanics from MVCC Internals & VACUUM: both manage old versions, but LSM compaction is a storage-layout process, while MVCC visibility is a transaction rule.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Learn Merge Sort to understand the merge operation that makes compaction efficient. Study Hash Table and Bloom Filter to see how reads skip SSTables. Explore Consistent Hashing to learn which SERVER owns each key (LSM handles the data structure on one server; Consistent Hashing spreads keys across servers). Finally, examine B-Tree to compare the in-place update strategy that LSM trees abandoned.`,
+        `Read Write-Ahead Log (WAL) for crash recovery, Merge Sort for compaction, and Bloom Filter for read avoidance. Compare against B-Trees (How Databases Read) and Write-Through vs Write-Back to understand why buffering changes the I/O shape. Then connect storage layout to MVCC Internals & VACUUM and Consistent Hashing, which answer different questions: which versions are visible, and which server owns the key.`,
       ],
     },
   ],
 };
-

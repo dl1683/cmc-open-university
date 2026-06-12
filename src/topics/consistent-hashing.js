@@ -102,46 +102,41 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Consistent hashing places servers AND keys on a ring (a circle with angles from 0° to 360°). Each key belongs to the first server walking clockwise from it. When you add a server, only keys between the new server and the previous server on the ring need to move—not all keys like in naive modulo hashing. When you remove a server, its keys walk to the next server; everything else stays put.`,
-        `This is how Cassandra, DynamoDB, Memcached, and Redis Cluster decide which replica holds which data without a central coordinator. The ring is deterministic: any client with the server list can compute ownership instantly.`,
+        `Consistent hashing is a placement trick for systems whose server set changes. Ordinary modulo hashing maps key_hash % server_count; add one server, the divisor changes, and nearly every key moves. Consistent hashing maps both keys and servers onto the same circular hash space. A key belongs to the first server clockwise from its position, so adding a server only steals the arc immediately before it. In a 100-node cache, adding one node moves about 1 percent of keys instead of almost 100 percent.`,
+        `The idea was formalized by Karger and colleagues in 1997 and became famous through Amazon's Dynamo paper in 2007. It is not just a Hash Table with more servers; it is a way to keep ownership stable while machines fail, scale out, or return from maintenance. That stability is why it appears in Memcached clients, Cassandra-style storage, CDN routing, and cache-aware Load Balancer designs.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Hash each physical server to a position on the ring—say S1 to 20°, S2 to 140°, S3 to 260°. Hash each key the same way: key 17 lands at 65°. Apply the ownership rule: walk clockwise from the key until you hit a server. Key 17 → S2 (first server at 140° or higher).`,
-        `To add server S4 at 320°: keys between S3 (260°) and S4 (320°) now walk to S4 instead of wrapping to S1. Everything else is unaffected. To remove S2: its keys simply continue to the next server (S3). The cost scales: adding 1 server to N servers moves only K/N keys on average (the theoretical minimum).`,
-        `A refinement: each physical server gets 100–300 virtual ring positions. Instead of one unlucky gap causing imbalance, gaps smooth out and load stays even. Cassandra and DynamoDB use this by default.`,
+        `Imagine a 0 to 2^32 - 1 ring. Hash server A to position 100, server B to 400, and server C to 800. A key that hashes to 350 walks clockwise to B; a key at 900 wraps around to A. To add server D at 600, only keys in the interval (400, 600] move from C to D. To remove B, its interval moves to C. The invariant is local movement: membership changes affect neighbors, not the whole cluster.`,
+        `Real deployments use virtual nodes, also called tokens. One physical server may own 16, 128, or 256 positions on the ring, depending on the system and version. Virtual nodes smooth random gaps and make capacity weighting easy: a server with twice the RAM receives twice as many tokens. Replication is also ring-based: store the key on the next R distinct physical servers clockwise, skipping duplicate virtual nodes for the same machine.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Lookup (finding a key's owner): O(log S) with a sorted server list and binary search, or O(1) with a hash table if S is small. Adding/removing a server: O(1) to update the ring, O(K/N) to move keys. Building the ring initially: O(S log S) to sort server positions.`,
-        `Memory for ring metadata: O(S × V) where V is virtual nodes per server (typically 100–300). Negligible compared to the data.`,
+        `Lookup is O(log T) with binary search over T sorted tokens, or effectively constant when T is small and cached. Ring metadata is O(T), tiny compared with data. Rebalancing is the real cost: adding one equal-capacity node to N nodes moves roughly K / (N + 1) keys, plus network transfer, compaction, cache warming, and replica repair. If each key averages 4 KB and 2 TB must move, the algorithmic win still becomes hours of I/O.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Cassandra assigns each node a token range (a slice of the ring). Data hashes to a token, and the replica set is the N clockwise servers from that token. Failures are handled by replication: the next server in the ring already has the data. DynamoDB uses the same ring logic for its shard distribution.`,
-        `Memcached client libraries (like python-memcached) run consistent hashing in the client—no central coordinator, cache misses are local, not cluster-wide. Redis Cluster, HAProxy, load balancers, and CDN request routers all lean on the same ring idea.`,
+        `Cassandra partitions rows by token, then stores them in LSM Trees (How Cassandra Writes) on the owning replicas. Riak and the original Dynamo design used the same family of ring ideas. Memcached client libraries often compute the ring locally so losing one cache server invalidates only that server's slice. CDNs use related placement to keep users near edge capacity, while storage systems combine the ring with Sharding & Partitioning so each shard has a clear owner.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `"The ring is deterministic, so two clients always agree." — True, ONLY if they see the same server list. A stale client with an old ring can route to the wrong server and trigger a forwarding cascade. Consistency requires all clients to learn server changes quickly.`,
-        `"Without virtual nodes, the ring is unfair." — Correct. If S1 is at 20° and S2 is at 21°, S2 owns 360°; S1 owns 1°. Virtual nodes (same server at many angles) smooth this out—modern systems use 100+.`,
-        `"Consistent hashing guarantees equal load." — Wrong. Load depends on access patterns (some keys are hot) and ring distribution (bad luck with server positions). Virtual nodes help, but monitoring and rebalancing during failures are still needed.`,
+        `The ring is deterministic only if every participant sees the same membership list. A stale client can route to the wrong owner, causing forwarding loops or failed reads. Systems use a Gossip Protocol, a control plane, or a strongly consistent metadata store to spread membership changes.`,
+        `The bigger misconception is that even key counts mean even load. One celebrity user's timeline, one viral product page, or one tenant's nightly job can dominate a shard. Virtual nodes smooth ownership, not popularity. Hot Rows & Append-and-Aggregate is the follow-up technique when one logical key is hotter than any single node can handle. Bloom Filter structures help reads avoid unnecessary SSTable probes, but they do not solve hot-key traffic.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Learn Hash Table to understand hashing fundamentals. Then explore LSM Trees to see how Cassandra actually stores the data (once you know WHICH server owns it). Study Load Balancer to see how ring ideas apply to spreading requests. Finally, examine Bloom Filter, because consistent hashing nodes use bloom filters to avoid scanning every SSTable on a read miss.`,
+        `Start with Hash Table for the hashing model, then Sharding & Partitioning for the broader data-placement problem. Load Balancer shows the request-routing version of the same idea. CAP Theorem explains what happens when ring members disagree during a partition. Then connect the storage path through LSM Trees (How Cassandra Writes), Bloom Filter, and Hot Rows & Append-and-Aggregate.`,
       ],
     },
   ],
 };
-

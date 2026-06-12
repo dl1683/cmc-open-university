@@ -78,44 +78,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A load balancer is software or hardware that sits in front of a fleet of servers and distributes incoming requests across them. A request comes in, the balancer picks a server, and the request is routed there. When a single server would be overwhelmed by traffic (100,000 requests per second), spreading them across 10 servers (10,000 each) keeps the whole system responsive. Every large website — Google, Netflix, Amazon — runs behind a load balancer. Most users do not see this; it is infrastructure, invisible but essential.`,
-        `There are many strategies to pick which server gets the next request. Round-robin is the simplest: server 1, then server 2, then server 3, then back to server 1, in a cycle. It is stateless (you do not need to track anything) and fair (each server gets the same number of requests). Least-connections is smarter: always route the new request to the server that currently has the fewest active connections. It reacts to reality, but you have to track how many requests each server is handling.`,
+        `A load balancer is the traffic director in front of a fleet of servers. Clients connect to one stable address, while the balancer chooses which backend receives each request. Ten machines that each handle 10,000 requests per second can serve about 100,000 while exposing one address. The same idea appears at several layers: DNS chooses a region, a Layer 4 balancer forwards TCP connections, and a Layer 7 proxy such as NGINX or Envoy routes HTTP requests by path, header, tenant, or health.`,
+        `Classic strategies are deliberately simple. Round-robin cycles through backends. Weighted round-robin gives a larger server more turns. Least-connections sends the next request to the backend with the fewest active requests. More advanced systems add latency-aware routing, outlier detection, sticky sessions, and ring-based placement borrowed from Consistent Hashing when cache locality matters.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Round-robin is trivial: maintain a counter that increments with each request, then compute counter % number_of_servers to get the next server index. No lookup, no state beyond the counter — a single modulo operation decides everything.`,
-        `Least-connections requires tracking the number of active requests on each server. When a new request arrives, you scan the counts and pick the server with the minimum count. You also have to decrement the count when a request finishes. The animation shows this in real time: watch how round-robin can pile all the long-running requests onto the same server (making that server slow) while others sit idle, whereas least-connections keeps the load spread out because it actually checks who is busy before routing.`,
+        `The balancer keeps a live membership list: which servers are healthy, what weight each has, and sometimes how many connections or requests are active. A round-robin implementation is just a counter modulo the healthy server count. Least-connections needs a counter per server and must decrement it when the request finishes. Health checks remove a server after repeated failures, commonly 2 or 3 failed probes, and add it back only after successful probes so traffic does not flap.`,
+        `Layer 4 balancers work with IPs, ports, and connections; they are fast because they do not parse application payloads. Layer 7 balancers terminate HTTP or TLS and can route /api to one pool and /images to another, but they spend CPU parsing requests. At high scale the load balancer itself is replicated: AWS Network Load Balancer, Google Cloud Load Balancing, HAProxy pairs with VRRP, and Kubernetes Services all hide multiple balancer instances behind one virtual endpoint.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Round-robin is O(1) — one modulo and a lookup, both constant. Least-connections is O(n) where n is the number of servers — you scan all counts and find the minimum. In practice, n is tiny (maybe 10–100 servers in a cluster), so O(n) is still instantaneous. The real cost is operational: least-connections requires accurate load tracking (which can fail if servers are unreliable), whereas round-robin works even if the balancer's view of the servers is slightly stale. Modern balancers like nginx, HAProxy, and AWS Elastic Load Balancer add health checks (skip dead servers), sticky sessions (keep a user on the same server), and weighted distributions (bigger machines get more load).`,
+        `Round-robin selection is O(1). Least-connections is O(n) if it scans n backends, though production systems usually keep a heap, sample two choices, or maintain per-worker counters to avoid a hot global lock. The larger cost is not the algorithm; it is tail behavior. One overloaded backend can dominate Tail Latency & p99 Thinking even when average load looks fine. Cross-zone routing can add 1-20 ms, TLS termination burns CPU, and sticky sessions reduce balancing quality because one heavy user can pin to one server.`,
+        `Operationally, the balancer is part of the failure domain. Bad health checks can drain a healthy fleet. A stale backend list can send traffic into a deploy that already rolled back. Connection draining matters during deploys: stop assigning new work, let old requests finish for perhaps 30-300 seconds, then terminate.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Load balancing is backbone infrastructure for every internet company. nginx (one of the most widely deployed servers) includes round-robin and least-connections load balancing built-in. AWS Elastic Load Balancer, Google Cloud Load Balancer, and Azure Load Balancer are managed services that handle millions of requests per second across thousands of servers. CDNs (content delivery networks) like Akamai and Cloudflare use load balancing to route users to the nearest edge server. Video streaming (Netflix, YouTube) uses weighted round-robin to account for different server capacities. Financial exchanges use custom load balancers (with extremely low latency requirements) to spread trading orders. Without load balancing, a single server would be a bottleneck — you could never scale.`,
+        `NGINX appeared in 2004 to solve the C10k web-server problem and remains a common reverse proxy. HAProxy, first released around 2000, is standard in low-latency TCP and HTTP fleets. Envoy, created at Lyft, popularized sidecar and service-mesh balancing. Cloudflare and Akamai combine load balancing with CDN Request Flow so users hit a nearby edge instead of a distant origin. Kubernetes uses kube-proxy or eBPF datapaths to spread Service traffic across pods. Databases and caches also use balancing, but they often combine it with Sharding & Partitioning so writes land on the shard that owns the key.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest pitfall is assuming round-robin is "fair." It distributes requests evenly, but not work evenly — if one request takes 100 seconds and another takes 1 second, round-robin can send both to the same server. Least-connections does not solve this either if requests have wildly different durations; a better strategy (weighted by estimated request time, or adaptive based on server response time) would help.`,
-        `Another pitfall: load balancing alone does not guarantee performance. If all your servers are overloaded (you have 10 million requests per second but only capacity for 5 million), no balancer can help. You need horizontal scaling (add more servers) or vertical scaling (upgrade server hardware). A third misconception: the balancer is a single point of failure. In production, load balancers themselves are redundant — you have multiple balancers behind a virtual IP that automatically fails over if one dies.`,
+        `Even request counts are not equal work. A 5 ms cache hit and a 5 second report export both count as one request, so round-robin can look fair while one backend melts. Least-connections helps long requests but can overfeed a freshly restarted server whose counters begin at zero. Latency-based routing sounds ideal, but it can amplify noise: one slow measurement may drain traffic from a perfectly healthy server.`,
+        `A load balancer is not a capacity machine. If the fleet can process 50,000 requests per second and users send 80,000, routing cannot create the missing 30,000. That is where Rate Limiter (Token Bucket), autoscaling, Queue-based buffering, and backpressure matter. Another trap is state: sticky sessions make login carts easy, but they hide state in one backend and make failover worse. Prefer shared storage, signed cookies, or explicit cache state when possible.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Read Hash Table to understand consistent hashing, a strategy for distributing requests in systems where servers come and go (cloud infrastructure). Study Queue to understand how load balancers themselves often sit in front of a queue of requests, smoothing bursty traffic. Then explore Rate Limiter, which prevents a single user from overwhelming the system. Finally, look at real load balancers: nginx is open-source and widely deployed; reading its config and docs will give you practical intuition for how these concepts actually work at scale.`,
+        `Study Queue to understand why request buffers smooth short spikes but cannot fix sustained overload. Use Hash Table for the key-to-backend mapping beneath routing tables and session stores. Consistent Hashing explains why cache clusters avoid remapping every key during membership changes. Rate Limiter (Token Bucket) covers the front-door control that protects the balancer and backend pool. Then read Tail Latency & p99 Thinking and CDN Request Flow to see why the slowest hop, not the average hop, often defines the user experience.`,
       ],
     },
   ],
 };
-

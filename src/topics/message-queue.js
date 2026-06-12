@@ -97,44 +97,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A message queue is a durable buffer between two services that run at different speeds. A producer (like a checkout service) writes messages to the queue and returns immediately—customers don't wait for the slow backend. A consumer (like an email or payment processor) pulls messages at its own pace, processes them, and acknowledges success. The queue is not temporary RAM; it's backed by a Write-Ahead Log (WAL) so that messages survive power failures and crashes.`,
-        `The second part of the contract is "at-least-once delivery": a message is never lost, but it *might arrive twice*. If a consumer crashes mid-job without sending an ACK, the message stays in the queue and is redelivered after a visibility timeout expires—usually seconds to minutes. Amazon SQS uses a 30-second default, but the timeout is configurable. This design trades duplicate risk for durability.`,
+        `A message queue is a durable handoff between producers and consumers. The producer records work, receives an acknowledgment that the broker has accepted it, and moves on. The consumer pulls or receives the message later, does the work, and acknowledges completion. That decoupling is the point: checkout should not wait for email, thumbnail rendering, fraud scoring, and warehouse sync to all finish inside one HTTP request.`,
+        `The structure resembles a Queue, but production brokers add persistence, retries, ordering rules, visibility timeouts, dead-letter handling, and fan-out. SQS, RabbitMQ, Google Pub/Sub, NATS JetStream, and Kafka all solve versions of this problem. Some are task queues where a message disappears after acknowledgment; Kafka is closer to an append-only log where consumers track offsets and can replay history.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `The producer calls enqueue() and gets an acknowledgment immediately, without waiting for processing. The message is written to disk (WAL) first, so "enqueued" means "will survive a power cut". Meanwhile the consumer polls the queue for available messages, pulls one, does the work, and sends an ACK. Once the queue receives the ACK, the message is deleted and never seen again. If the consumer crashes or the network breaks before sending the ACK, the message automatically becomes available again after the visibility timeout.`,
-        `At-least-once delivery means your consumer must be idempotent: it must safely handle the same message arriving twice. The standard solution is an idempotency key—a unique ID in each message. Before processing, check if you've already seen that ID (via a cache or database row). Stripe webhooks require this; Kafka consumer offsets enforce it at the broker level. Kafka is a special case: instead of discarding messages after ACK, it's an append-only log where each consumer tracks its own read position (offset), so consumers can replay history and scale horizontally.`,
-        `Backpressure handles outages. If a consumer stays down for hours and the queue grows unbounded, memory and latency explode. Production systems bound the queue depth, emit alerts when it reaches 80% capacity, and shed load (drop or reroute messages) if it fills. RabbitMQ and SQS both support dead-letter queues to catch messages that fail repeatedly, preventing poison messages from jamming the pipeline.`,
+        `A basic broker writes the message to durable storage, often through a Write-Ahead Log (WAL), before acknowledging the producer. A consumer receives the message and either ACKs success or lets the lease expire. In SQS the default visibility timeout is 30 seconds; if the consumer dies before ACK, the message becomes visible again. RabbitMQ uses acknowledgments and redelivery. Kafka stores records in partitions, and a consumer group commits offsets to mark progress.`,
+        `Most queues default to at-least-once delivery: no lost messages if the broker is configured durably, but duplicates are possible. Consumers therefore need idempotency keys, transaction IDs, or unique constraints. A payment worker should record event_id before charging so a retry does not double charge. Ordering is also scoped. Kafka preserves order within one partition, not across every topic; SQS FIFO queues preserve order within a message group; higher throughput often means weaker global ordering.`,
+        `Backpressure is explicit. If consumers lag, queue depth grows and end-to-end latency rises. Systems alert on lag, scale consumer groups, route through a Load Balancer, slow producers, or shed low-priority work. Poison messages that fail repeatedly go to dead-letter queues for inspection instead of blocking the hot path forever.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `A message queue adds latency (the time between "enqueued" and "processing starts") and durability overhead (writing to disk costs I/O). For high-throughput systems, this cost is worth it: Kafka handles millions of messages per second across distributed clusters. For small systems, the complexity of setting up a broker (Kafka, RabbitMQ, SQS) may outweigh the benefit; you might inline the queue in your application or use a simpler async mechanism. The real cost is operational: you now have to monitor queue depth, tune visibility timeouts, and handle the mental model that "sent" no longer means "done".`,
+        `Enqueue and dequeue are usually O(1), but durability, replication, and network hops add milliseconds. Kafka scales by appending sequentially to partitions and letting consumers read in batches; RabbitMQ excels at flexible routing; SQS trades direct control for managed operations. The real cost is operational: monitor depth, lag, retry rate, dead-letter count, disk use, and Tail Latency & p99 Thinking for the user-visible workflow that depends on queued work.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Uber uses message queues to match ride requests (producer) with available drivers (consumer). Stripe uses them to retry webhooks that fail; each webhook delivery is an idempotent event with a unique event ID so that duplicate deliveries don't double-charge customers. Microservices communicate via queues to isolate failures: if the payment service crashes, orders keep arriving and waiting; the purchase never fails in the customer's hands. Saga Pattern choreography (distributed transactions across services) is built on reliable message delivery—each service publishes events, others subscribe, and idempotency keys ensure that replayed messages don't create duplicate ledger entries.`,
+        `Stripe-style webhooks, email delivery, video transcoding, search indexing, telemetry ingestion, and order fulfillment all use queues. A Saga Pattern often rides on events: reserve inventory, request payment, arrange shipment, compensate if a later step fails. Distributed Tracing becomes essential because one user action may cross five asynchronous workers over minutes. Cache Invalidation & Versioning frequently uses queues too: publish product_changed, let many cache holders invalidate or refresh independently.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Misconception: "Exactly-once delivery exists." It doesn't. Every major system—Kafka, SQS, RabbitMQ—offers at-least-once by default. Exactly-once requires consumer idempotence AND broker coordination; it's expensive and only matters for financial transactions. Pitfall: setting the visibility timeout too short (consumer crashes and the message redelivers before the crash is even detected) or too long (outages cause long delays). Pitfall: treating the queue as a cache instead of a durable inbox; if you don't ACK, the message never leaves, and your consumer must be prepared to see the same message on restart. Pitfall: not monitoring queue depth—an outage in one service silently fills the queue until disk is full and the broker dies.`,
+        `The phrase exactly once is easy to overread. Kafka transactions can give exactly-once processing inside Kafka topics, but an email sent, card charged, or file written outside the broker still needs idempotency. A short visibility timeout creates duplicate work; a long one slows recovery. A queue is also not a database cache. If you need current state, store state in a database and use events to notify readers. Finally, retries need Rate Limiter (Token Bucket) behavior; otherwise a recovering dependency gets hit by every delayed retry at once.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Read Queue to understand the underlying FIFO data structure. Read Write-Ahead Log (WAL) to see how durability is actually enforced. Read Saga Pattern to see how queues choreograph transactions across services. Read Load Balancer to understand how multiple consumers pull from the same queue in parallel (consumer groups in Kafka). Read Rate Limiter (Token Bucket) to understand backpressure and how to prevent a queue from overflowing during spikes.`,
+        `Start with Queue for FIFO intuition and Write-Ahead Log (WAL) for durable appends. Then connect Saga Pattern, Distributed Tracing, and Cache Invalidation & Versioning to see how asynchronous systems stay understandable. Load Balancer and Rate Limiter (Token Bucket) explain how consumers scale and how retries avoid overwhelming dependencies.`,
       ],
     },
   ],
 };
-

@@ -104,43 +104,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `CAP theorem says: in a network of replicated databases, you cannot simultaneously guarantee Consistency (every read returns the latest write), Availability (every request gets an answer), and Partition tolerance (the system survives when the network splits). Partition tolerance is not optional—it will happen to you: a backhoe cuts a fiber, a misconfigured router flakes, a datacenter goes dark for three minutes. The real theorem is that during a partition, you choose between C and A. Consistency means refusing stale reads; availability means answering with what you have, even if it is outdated.`,
-        `Why does this matter? Because a replicated system held 100% consistent requires that before it answers, it must confirm the write propagated to all replicas—but if those replicas are unreachable, it cannot confirm anything. The only way to stay available is to answer with whatever state you have locally, knowing it might be out of step.`,
+        `CAP theorem says a replicated data system cannot guarantee all three properties under a network partition: Consistency, Availability, and Partition tolerance. Eric Brewer stated the conjecture in 2000; Gilbert and Lynch proved a formal version in 2002. Here, consistency means linearizability: operations appear to happen in one global order, so a read after a completed write sees that write. Availability means every request to a non-failing node eventually receives a non-error response. Partition tolerance means the system keeps operating despite lost or delayed messages between groups of nodes.`,
+        `The practical reading is narrower than the slogan. You do not choose C, A, or P on a whiteboard forever. During a partition, if one side cannot communicate with the other, it must either refuse some operations to preserve one-copy truth, or answer locally and risk stale or conflicting state.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Consider two datacenters, N1 and N2, both holding the true value x = 5. A client near N1 writes x = 9; the replication link carries it to N2. But mid-write, the link dies. Now N1 has x = 9 and N2 has x = 7. A client near N2 asks: "What is x?" Here is where you choose: if you choose Consistency (CP), N2 says "I cannot answer—the partition has broken my ability to prove I am up-to-date," and the client waits or gets an error. This is the path banks and distributed ledgers like etcd take: Raft leader election (see Raft Leader Election) will not form a majority on a partitioned minority, so those nodes simply refuse to serve. If you choose Availability (AP), N2 says "x = 7" immediately. It is stale, but the answer arrives—the cart shows an old price, the DNS gives an old IP address, the recommendation feed runs on yesterday's data. Real-world systems—Cassandra, DynamoDB, DNS, and most social networks—choose AP by default.`,
-        `When the partition heals, N1 and N2 must reconcile. For CP systems, refused writes just retry and succeed—no problem. For AP systems, the real work begins: detecting conflicting writes (N1 saw x = 9, N2 saw an unrelated write x = 8) and merging them using strategies like last-write-wins timestamps, version vectors, or CRDTs. This window during which the two replicas disagreed is exactly what "eventual consistency" means: the disagreement closes, not that it never existed.`,
+        `Suppose two replicas both hold x = 5. A client writes x = 9 to replica A, but the link to replica B fails before B learns the write. A client now asks B for x. A CP design refuses the read or redirects it until a quorum can prove the latest value. etcd does this with Raft Leader Election and Raft Log Replication: a minority partition cannot elect or contact a leader, so it stops serving writes and many reads. An AP design lets B answer x = 5 and reconciles later. The answer arrived, but it was stale.`,
+        `When the network heals, AP systems must merge. Last-write-wins is simple but can lose an update if clocks skew. Version vectors preserve causality but are harder to expose. CRDTs make certain merges mathematically safe, but only for data types whose operations commute. Cassandra-style systems use Consistent Hashing, replicas, hints, read repair, and tunable quorums to decide how much consistency each operation buys.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `CP systems are simpler to reason about: the data is always true, but availability drops when partitions occur. They are safe for invariants—your bank balance cannot go negative, inventory cannot oversell—but they do not work well when reliability-above-all is not the goal. AP systems are harder to build: you must design conflict resolution logic that is sound (last-write-wins works only if clock skew is tight; CRDTs require careful algebra). The hidden cost is that every AP query now carries a choice: how many replicas must agree before I trust the answer? This is the quorum: Cassandra lets you set this per query (read_consistency = ONE, QUORUM, or ALL), trading latency for confidence. The PACELC refinement adds another dimension: even without partitions, you trade consistency against latency. A write that must cross a continent to be confirmed costs ~100ms of pure speed-of-light, partition or not. That latency penalty applies to every write in a CP system, which is why most AP systems with local writes are deployed geographically.`,
+        `CP systems pay with unavailable partitions and quorum latency. A five-node Raft group can tolerate two failures; if only two nodes are reachable, it must stop committing. AP systems pay with conflict semantics, background repair, and application logic. PACELC adds the everyday cost: if there is no partition, else latency versus consistency still matters. A cross-continent round trip can add 70-150 ms even on a healthy network, so global strong consistency is visible to users.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Banks and inventory systems choose CP: every ledger entry must be durable and consistent, and a partition is rare enough that the cost of stopping service is worth it. Kubernetes (via etcd) chooses CP—the control plane must not admit two contradictory truths. Shopping carts, social feeds, and recommendation systems choose AP: a stale cart is acceptable, even preferred to a broken checkout. DNS has been AP forever: an old IP address is better than a timeout. DynamoDB and Cassandra both default to AP but expose quorum controls; a Cassandra cluster can be tuned to behave like CP (QUORUM for both reads and writes) if your application demands it. Most real systems are hybrids: banks run AP storefronts (fast checkouts, eventual settlement) over CP ledgers (accurate money). Cloud storage systems use CRDT-inspired merging (see Write-Ahead Log (WAL) and LSM Trees (How Cassandra Writes)) to reconcile conflicts without manual intervention.`,
+        `Kubernetes stores control-plane truth in etcd because two contradictory schedulers would be worse than a temporary outage. Financial ledgers, inventory decrements, and unique username claims usually prefer CP or at least a strongly coordinated path. Social feeds, metrics pipelines, DNS caches, shopping recommendations, and offline-first mobile apps often accept AP behavior. Cassandra stores writes in LSM Trees (How Cassandra Writes) and exposes per-operation consistency levels; Dynamo-style systems emphasized availability and repair. Many products mix both: a CP payment ledger beside AP notifications and feeds.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Myth: Partitions are rare, so CAP does not matter. Reality: Partitions happen; plan for them. Even if your network is reliable, you will upgrade a switch, and during that upgrade, the partition is live. Myth: You choose CP or AP for your entire company. Reality: Choose per feature. One table might be CP (authoritative inventory), another AP (recommendations). Myth: Consistency means "ACID transactions." It does not—it means every replica agrees on the current value. Myth: "Eventual consistency" means eventually consistent enough, so let us not worry about staleness. Reality: During the disagreement window, your system can fork (two contradictory truths exist), and merging them is hard. Last-write-wins loses data (if two writes collide, one is silently dropped). Version vectors add complexity. CRDTs prevent data loss but constrain your data model. Myth: Tuning the quorum to ALL replicas makes you safe. Reality: All-quorum is AP with a CP flavor—you gain confidence but lose availability if even one replica is slow.`,
+        `CAP consistency is not the C in ACID, and availability is not uptime on a status page. It is a formal property about every non-failing node returning a response. Another trap is believing quorum settings alone make a database linearizable. R + W > N can prevent some stale reads, but clocks, read repair, leader leases, and failure detection still matter. Two-Phase Commit (2PC) gives atomic commit across participants, but it can block under coordinator failure; it is not a magic CAP escape hatch.`,
+        `Sagas are not a CAP escape either. Saga Pattern designs choose visible intermediate states plus compensations because the business can tolerate them. Sharding & Partitioning and a Gossip Protocol change placement and membership; they do not remove the C-versus-A decision during a partition.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Dive into how CP systems prevent partitions from breaking consensus with Raft Leader Election. See how AP systems scale reads across many replicas with Consistent Hashing. Understand how Cassandra and DynamoDB commit writes durably with Write-Ahead Log (WAL) and LSM Trees (How Cassandra Writes). For distributed systems facing the availability-latency tradeoff, see Load Balancer.`,
+        `Read Raft Leader Election and Raft Log Replication for the CP path. Read Consistent Hashing, Sharding & Partitioning, and Gossip Protocol for AP-style placement and membership. Then compare Two-Phase Commit (2PC) and Saga Pattern to see how distributed transactions choose between blocking atomicity and compensating availability.`,
       ],
     },
   ],
 };
-
