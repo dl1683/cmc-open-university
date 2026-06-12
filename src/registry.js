@@ -426,6 +426,16 @@ export const topics = [
     module: () => import('./topics/backpropagation.js'),
   },
   {
+    id: 'knowledge-distillation',
+    type: 'visualization',
+    buildsOn: ['softmax-temperature', 'nn-forward-pass', 'quantization'],
+    category: 'AI & ML',
+    title: 'Knowledge Distillation',
+    summary: 'A big teacher model trains a small student with soft probabilities — dark knowledge included.',
+    tags: ['distillation', 'compression', 'teacher student', 'DistilBERT', 'small models'],
+    module: () => import('./topics/knowledge-distillation.js'),
+  },
+  {
     id: 'dropout',
     type: 'visualization',
     buildsOn: ['nn-forward-pass', 'backpropagation', 'random-forest'],
