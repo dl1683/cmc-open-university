@@ -1206,6 +1206,16 @@ export const topics = [
     module: () => import('./topics/attention-3d.js'),
   },
   {
+    id: 'activation-geometry-3d',
+    type: 'visualization',
+    buildsOn: ['activation-functions', 'nn-forward-pass', 'loss-surface-3d'],
+    category: 'AI & ML',
+    title: 'Activations as 3D Origami',
+    summary: 'A tiny neural layer rendered as terrain: ReLU creases space like origami, sigmoid rolls saturating hills.',
+    tags: ['3D', 'WebGL', 'ReLU', 'GELU', 'sigmoid', 'piecewise linear', 'activation functions'],
+    module: () => import('./topics/activation-geometry-3d.js'),
+  },
+  {
     id: 'adam-optimizer',
     type: 'visualization',
     buildsOn: ['gradient-descent', 'loss-landscapes', 'regularization'],

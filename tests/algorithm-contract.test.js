@@ -1793,6 +1793,26 @@ test('load-shedding: unshedded goodput cliffs to zero at t=10 while shedding hol
   assert.ok(taste.some((s) => /front door/i.test(s.explanation) && /microsecond/.test(s.explanation)), 'cheap front-door rejection stated');
 });
 
+test('activation-geometry-3d: ReLU terrain has a dead floor and flat facets, sigmoid plateaus, GELU dips', async () => {
+  const topic = await loadTopic('activation-geometry-3d');
+  const origami = runTopic(topic, { view: 'ReLU: the origami' });
+  const one = origami[0].state.heights;
+  assert.ok(one[0][0] === 0 && one[2][3] === 0, 'single ReLU neuron is exactly zero in the dead half-plane');
+  assert.ok(one[32][32] > 2.5, 'and rises linearly in the live half');
+  const three = origami[2].state.heights;
+  const secondDiff = three[28][28] - 2 * three[28][27] + three[28][26];
+  assert.ok(Math.abs(secondDiff) < 1e-9, 'within a facet the ReLU surface is exactly planar');
+  assert.ok(origami.some((s) => /Montúfar/.test(s.explanation)), 'exponential-regions result cited');
+  const smooth = runTopic(topic, { view: 'sigmoid & GELU: the smooth country' });
+  const sig = smooth[0].state.heights;
+  const cornerSlope = Math.abs(sig[1][1] - sig[0][0]);
+  assert.ok(cornerSlope < 0.02, 'sigmoid corner plateau is nearly flat');
+  assert.ok(sig.flat().every((v) => v > 0), 'sigmoid output never reaches zero');
+  const gel = smooth[1].state.heights;
+  assert.ok(Math.min(...gel.flat()) < 0, 'GELU dips slightly below zero near the crease');
+  assert.ok(smooth.some((s) => /Transformer Block/.test(s.explanation)), 'GELU credited to transformers');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
