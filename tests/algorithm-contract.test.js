@@ -1918,3 +1918,21 @@ test('logical-clocks: Lamport jumps to max+1, vectors expose concurrency, TrueTi
   assert.equal(toolbox.rows.length, 5, 'five tools in the ordering toolbox');
   assert.match(toolbox.cells.find((c) => c.id === 'hlc:gives').label, /64 bits/, 'hybrid logical clocks included');
 });
+
+test('hessian-curvature: eigensystem computed live, Newton lands in one step where GD takes 26', async () => {
+  const topic = await loadTopic('hessian-curvature');
+  const reading = runTopic(topic, { view: 'reading curvature' });
+  assert.match(reading[2].explanation, /λ₁ = 4/, 'tilted Hessian eigenvalue computed from the closed form');
+  const v1 = reading[2].state.series.find((s) => s.id === 'v1');
+  assert.ok(Math.abs(v1.points[1].x - v1.points[1].y) < 1e-9, 'leading eigenvector of [[2.5,1.5],[1.5,2.5]] lies on the 45° diagonal');
+  assert.ok(reading[1].state.series.every((s) => /^s[pn]/.test(s.id)), 'saddle view draws hyperbola branches, no closed rings');
+  assert.equal(reading[3].state.rows.length, 4, 'curvature decoder covers all four regimes');
+  const race = runTopic(topic, { view: 'Newton vs gradient descent' });
+  const gd = race[0].state.series.find((s) => s.id === 'gd');
+  assert.equal(gd.points.length - 1, 26, 'optimal-lr GD needs 26 steps on the kappa=9 ravine');
+  assert.match(gd.label, /26 steps/, 'the live step count surfaces in the legend');
+  const newton = race[1].state.series.find((s) => s.id === 'newton');
+  assert.equal(newton.points.length, 2, 'Newton path is a single segment');
+  assert.ok(Math.hypot(newton.points[1].x, newton.points[1].y) < 1e-12, 'Newton lands on the minimum in one step');
+  assert.match(race[3].state.cells.find((c) => c.id === 'adam:keeps').label, /diagonal/, 'Adam framed as diagonal curvature');
+});

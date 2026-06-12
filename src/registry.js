@@ -1216,6 +1216,16 @@ export const topics = [
     module: () => import('./topics/contour-maps.js'),
   },
   {
+    id: 'hessian-curvature',
+    type: 'visualization',
+    buildsOn: ['contour-maps', 'eigenvectors', 'adam-optimizer'],
+    category: 'Concepts',
+    title: "The Hessian: Curvature & Newton's Step",
+    summary: 'The second derivative of a loss surface is a matrix — its eigenvalues are the ring shapes, and inverting it beats gradient descent in one step.',
+    tags: ['Hessian', 'curvature', 'Newton method', 'condition number', 'second order', 'saddle points'],
+    module: () => import('./topics/hessian-curvature.js'),
+  },
+  {
     id: 'embedding-space-3d',
     type: 'visualization',
     buildsOn: ['embeddings-similarity', 'tsne-umap', 'loss-surface-3d'],
