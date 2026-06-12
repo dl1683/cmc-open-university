@@ -739,6 +739,16 @@ export const topics = [
     module: () => import('./topics/circuit-breakers.js'),
   },
   {
+    id: 'bulkheads',
+    type: 'visualization',
+    buildsOn: ['circuit-breakers', 'tail-latency', 'sharding'],
+    category: 'Systems',
+    title: 'Bulkheads & Resource Isolation',
+    summary: 'One shared thread pool = shared doom. Compartmentalize per dependency and a sick service drowns alone.',
+    tags: ['bulkheads', 'isolation', 'thread pools', 'Littles law', 'blast radius', 'cells', 'resilience'],
+    module: () => import('./topics/bulkheads.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

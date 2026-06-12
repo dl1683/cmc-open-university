@@ -1663,6 +1663,22 @@ test('multiple-testing: twenty tests lie 64% of the time and BH accepts four whe
   assert.ok(fixes.some((s) => /PRE-REGISTRATION/.test(s.explanation)), 'pre-registration crowned');
 });
 
+test('bulkheads: the shared pool drowns payments but compartments cap the blast radius at 40 threads', async () => {
+  const topic = await loadTopic('bulkheads');
+  const doom = runTopic(topic, { view: 'one pool, shared doom' });
+  const report = doom.find((s) => /who actually died/.test(s.state.title ?? '')).state;
+  assert.equal(report.cells.find((c) => c.id === 'recs:threads').value, 200, 'sick dependency holds all 200 threads');
+  assert.match(report.cells.find((c) => c.id === 'pay:status').label, /collateral damage/, 'healthy payments dies collaterally');
+  assert.ok(doom.some((s) => /600 thread-demands/.test(s.explanation)), 'the drowning arithmetic shown');
+  const sealed = runTopic(topic, { view: 'compartments, sized by math' });
+  const pools = sealed[0].state;
+  assert.equal(pools.cells.find((c) => c.id === 'recs:size').value, 40, 'recommendations capped at 40');
+  assert.match(pools.cells.find((c) => c.id === 'pay:sick').label, /untouched/, 'payments untouched behind its wall');
+  assert.ok(sealed.some((s) => /L = λ·W/.test(s.invariant ?? '')), 'Little\'s law sizing stated');
+  assert.ok(sealed.some((s) => /cell/.test((s.state.rows ?? []).map((r) => r.label).join(' '))), 'cell-based architecture included');
+  assert.ok(sealed.some((s) => /Containment first, recovery second/.test(s.explanation)), 'breaker pairing doctrine stated');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
