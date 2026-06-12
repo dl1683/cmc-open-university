@@ -659,6 +659,16 @@ export const topics = [
     module: () => import('./topics/isolation-levels.js'),
   },
   {
+    id: 'mvcc-vacuum',
+    type: 'visualization',
+    buildsOn: ['isolation-levels', 'git-internals', 'lsm-tree'],
+    category: 'Systems',
+    title: 'MVCC Internals & VACUUM',
+    summary: 'Updates that never overwrite: version chains, xmin/xmax visibility, dead tuples, and the long transaction that blocks the janitor.',
+    tags: ['MVCC', 'VACUUM', 'PostgreSQL', 'dead tuples', 'bloat', 'xmin', 'versions', 'databases'],
+    module: () => import('./topics/mvcc-vacuum.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

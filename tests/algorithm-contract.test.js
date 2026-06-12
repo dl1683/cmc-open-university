@@ -1361,6 +1361,26 @@ test('lr-schedules: the schedule beats both constants and warmup ramps before th
   assert.ok(zoo.some((s) => /Leslie Smith/.test(s.explanation)), 'LR range test attributed');
 });
 
+test('mvcc-vacuum: each snapshot sees exactly one version and the idle transaction pins the horizon', async () => {
+  const topic = await loadTopic('mvcc-vacuum');
+  const versions = runTopic(topic, { view: 'row versions & visibility' });
+  const vis = versions.find((s) => /three snapshots/.test(s.state.title ?? '')).state;
+  for (const snap of ['s150', 's250', 's400']) {
+    const seen = vis.cells.filter((c) => c.column === snap && c.value === 1);
+    assert.equal(seen.length, 1, `snapshot ${snap} sees exactly one version`);
+  }
+  assert.equal(vis.cells.find((c) => c.id === 'v1:s150').value, 1, 'reader 150 sees the $100 world');
+  assert.equal(vis.cells.find((c) => c.id === 'v3:s400').value, 1, 'reader 400 sees the current $95');
+  assert.ok(versions.some((s) => /locks not required/.test(s.invariant ?? '')), 'lock-free reads stated');
+  const trap = runTopic(topic, { view: 'VACUUM and the bloat trap' });
+  const corpses = trap[0].state;
+  assert.equal(corpses.cells.filter((c) => c.column === 'status' && c.label === 'DEAD — invisible to every snapshot').length, 4, 'four dead tuples for one live row');
+  assert.ok(trap.some((s) => /xmin horizon/.test(s.explanation)), 'horizon rule explained');
+  const incident = trap.find((s) => /bloat trap/.test(s.state.title ?? '')).state;
+  assert.ok(incident.cells.find((c) => c.id === 't4pm:bloat').value > 2000000, 'bloat compounds past two million');
+  assert.ok(trap.some((s) => /idle in transaction/.test(s.explanation)), 'the classic incident named');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
