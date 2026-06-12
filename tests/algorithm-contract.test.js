@@ -300,6 +300,18 @@ test('b-tree: stays balanced — every leaf at the same depth, all keys present'
   assert.ok(anyFound(steps), 'search finds 45');
 });
 
+test('backpropagation: one update step always reduces the loss', async () => {
+  const topic = await loadTopic('backpropagation');
+  for (const lr of ['0.02', '0.05', '0.1']) {
+    const steps = runTopic(topic, { lr });
+    const updateStep = steps.find((s) => s.state.title && s.state.title.startsWith('Update'));
+    const [before, after] = updateStep.state.cells
+      .filter((c) => c.column === 'l')
+      .map((c) => c.value);
+    assert.ok(after < before, `lr=${lr}: loss ${before} -> ${after} decreased`);
+  }
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

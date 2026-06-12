@@ -386,6 +386,16 @@ export const topics = [
     module: () => import('./topics/kv-cache.js'),
   },
   {
+    id: 'backpropagation',
+    type: 'visualization',
+    buildsOn: ['nn-forward-pass', 'gradient-descent'],
+    category: 'AI & ML',
+    title: 'Backpropagation',
+    summary: 'Run the error backward through the network, blame every weight, nudge them all — loss drops.',
+    tags: ['backprop', 'chain rule', 'training', 'gradients', 'deep learning'],
+    module: () => import('./topics/backpropagation.js'),
+  },
+  {
     id: 'rag-pipeline',
     type: 'visualization',
     buildsOn: ['embeddings-similarity', 'attention', 'kv-cache'],

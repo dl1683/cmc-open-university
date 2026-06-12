@@ -114,7 +114,7 @@ export const article = {
       heading: 'How it works',
       paragraphs: [
         `Given x₁ = 2, x₂ = -1, compute the hidden layer: each neuron j sums weighted inputs plus bias. Neuron 1: z₁ = 2·(0.5) + (-1)·(0.4) + 0.1 = 0.3. Neuron 2: z₂ = 2·(-0.6) + (-1)·(0.9) - 0.2 = -2.3. Neuron 3: z₃ = 2·(0.8) + (-1)·(-0.3) + 0.05 = 1.95. Then ReLU clips negatives to zero: a = [0.3, 0, 1.95]. That input-dependent routing (neuron 2 silenced) is where nonlinearity lives — different inputs activate different neurons.`,
-        `The output layer repeats the recipe: ŷ = 0.3·(0.7) + 0·(-0.5) + 1.95·(0.6) + 0.15 ≈ 1.41. For classification, pass through Softmax & Temperature to get probabilities; for regression, that number is your answer. Every neuron (except inputs) computes: weighted sum → add bias → nonlinearity → becomes input to the next layer. No loops, no hidden state — just linear algebra with a bend in the middle.`,
+        `The output layer repeats the recipe: ŷ = 0.3·(0.7) + 0·(-0.5) + 1.95·(0.6) + 0.15 = 1.53. For classification, pass through Softmax & Temperature to get probabilities; for regression, that number is your answer. Every neuron (except inputs) computes: weighted sum → add bias → nonlinearity → becomes input to the next layer. No loops, no hidden state — just linear algebra with a bend in the middle.`,
       ],
     },
     {
