@@ -717,6 +717,15 @@ test('ab-testing: same rates flip from noise to signal as n grows', async () => 
   assert.ok(!large.some((s) => /NOT significant/.test(s.explanation)), 'no contradiction at n=10000');
 });
 
+test('url-shortener: base-62 encoding is correct for both IDs', async () => {
+  const topic = await loadTopic('url-shortener');
+  const big = runTopic(topic, { id: '125487' });
+  assert.ok(big.some((s) => /tiny\.url\/wDZ/.test(s.explanation)), '125487 encodes to wDZ');
+  const small = runTopic(topic, { id: '999' });
+  assert.ok(small.some((s) => /tiny\.url\/g7/.test(s.explanation)), '999 encodes to g7');
+  assert.ok(big.some((s) => /3\.5 TRILLION/.test(s.explanation)), 'capacity math taught');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

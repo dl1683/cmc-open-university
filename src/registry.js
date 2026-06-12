@@ -519,6 +519,16 @@ export const topics = [
     module: () => import('./topics/git-internals.js'),
   },
   {
+    id: 'url-shortener',
+    type: 'visualization',
+    buildsOn: ['hash-table', 'lru-cache', 'database-indexing', 'message-queue'],
+    category: 'Systems',
+    title: 'Design a URL Shortener',
+    summary: 'From long URL to tiny.url/wDZ and back in milliseconds — the interview classic, fully assembled.',
+    tags: ['system design', 'interview', 'base62', 'bitly', 'composition'],
+    module: () => import('./topics/url-shortener.js'),
+  },
+  {
     id: 'message-queue',
     type: 'visualization',
     buildsOn: ['queue', 'write-ahead-log', 'saga-pattern'],
