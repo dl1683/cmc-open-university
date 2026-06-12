@@ -400,8 +400,51 @@ const RENDERERS = {
   graph: renderGraph,
 };
 
+// FLIP "magic move": record where every [data-id] element sat in the old
+// frame, re-render, then let matching elements GLIDE from their old spot to
+// the new one. Items keep their identity across steps, so sorted bars slide
+// past each other, queue entries shuffle forward, graph nodes drift — every
+// topic animates for free, no per-renderer work.
+const FLIP_MAX_ELEMENTS = 240;
+const FLIP_MS = 650;
+
+function flipPositions(container) {
+  const map = new Map();
+  const tagged = container.querySelectorAll('[data-id]');
+  if (tagged.length === 0 || tagged.length > FLIP_MAX_ELEMENTS) return map;
+  for (const el of tagged) {
+    const box = el.getBoundingClientRect();
+    if (box.width || box.height) map.set(el.dataset.id, box);
+  }
+  return map;
+}
+
+function flipPlay(container, before) {
+  if (before.size === 0) return;
+  const movers = [];
+  for (const el of container.querySelectorAll('[data-id]')) {
+    const prev = before.get(el.dataset.id);
+    if (!prev) continue;
+    const now = el.getBoundingClientRect();
+    const dx = prev.left - now.left;
+    const dy = prev.top - now.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    movers.push(el);
+  }
+  if (movers.length === 0) return;
+  container.getBoundingClientRect(); // flush styles so the glide animates
+  for (const el of movers) {
+    el.style.transition = `transform ${FLIP_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+    el.style.transform = '';
+  }
+}
+
 export function renderStep(container, step) {
+  const before = flipPositions(container);
   RENDERERS[step.state.kind](container, step);
+  flipPlay(container, before);
 }
 
 // --------------------------------------------------------------- player
