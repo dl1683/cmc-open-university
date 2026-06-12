@@ -105,7 +105,53 @@ export function* run(input) {
     state: snapshot(),
     highlight: { returning: path },
     explanation: k === 1
-      ? `Greedy's sentence: "${sentence}" at ${pct(winner.score)} total. It took "sat" because 50% beat 30% in the moment — and walked into weak continuations. Now run BEAM (k=2) on the same model: it keeps "ran" alive and finds "The cat ran away home" at 24%, beating this. The lesson generalizes: locally optimal ≠ globally optimal.`
+      ? `Greedy's sentence: "${sentence}" at ${pct(winner.score)} total. It took "sat" because 50% beat 30% in the moment — and walked into weak continuations. Now run BEAM (k=2) on the same model: it keeps "ran" alive and finds "The cat ran away home" at 24%, beating this. The lesson generalizes: locally optimal is not equal to globally optimal.`
       : `Beam's winner: "${sentence}" at ${pct(winner.score)} — built on "ran", the SECOND-best first word, which greedy throws away immediately (try it). Larger beams search wider at linear cost; today's chat LLMs usually use temperature SAMPLING instead (see Softmax & Temperature), but beam search still rules translation and speech recognition, where there's one right answer to find.`,
   };
 }
+
+export const article = {
+  sections: [
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `Beam search is a decoding algorithm for language models that keeps the k most-likely partial hypotheses (sentences) alive at every step, instead of greedily picking the single best token. Greedy decoding says: at each step, pick the token with the highest probability, and move on. Beam search says: keep k candidate sentences ranked by their total probability so far, expand each one, score all children, and keep the k best partial sentences. A weaker first word might lead to stronger continuations, so keeping it alive gives the algorithm a second chance to find the globally best sentence instead of getting stuck with a locally-good choice.`,
+        `The name "beam" refers to the width k: a beam of k=1 is greedy (one hypothesis), k=2 keeps two candidates alive, k=4 keeps four, etc. Higher k searches more broadly but costs k times more computation. In practice, k=5-10 is common in neural machine translation and speech recognition, where finding the best translation or transcription matters. Modern language models (GPT, Claude) typically use sampling (with temperature control) instead of beam search during inference, favoring diversity over optimality, but beam search is still the standard in constrained-output tasks.`
+      ]
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `Beam search maintains a list of k candidate hypotheses. Each hypothesis is a partial sentence (a sequence of tokens so far) paired with its total log-probability. At each step: (1) Expand: for each of the k live hypotheses, score all possible next tokens (the vocabulary, ~50k tokens). Multiply the hypothesis's probability by each next-token probability. (2) Rank: sort all k times vocab_size candidates by their total probability. (3) Prune: keep only the k best, discarding the rest. (4) Repeat: go to step 1 until all k hypotheses reach the end-of-sentence token.`,
+        `In the demo, starting from "The cat" with k=2, the algorithm explores "sat" (p=0.5) and "ran" (p=0.3). Greedy picks "sat", locks in, and finds a mediocre sentence. Beam search keeps both, expands both, and then re-ranks: maybe "ran away home" (0.3 * 0.9 * 0.9 = 0.24) beats "sat on it" (0.5 * 0.5 * 0.4 = 0.1), so beam reconsiders and outputs the better sentence. This is the core of beam search: global re-ranking at every step, with a fixed-size window.`
+      ]
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        `Each step of beam search scores all vocabulary items for each of the k live hypotheses, costing O(k times vocab_size). For a sequence of length n, total cost is O(n times k times vocab_size). With vocab_size ~ 50k and k=5, this is 250k operations per step, scaling linearly in sequence length. By contrast, greedy (k=1) costs O(n times vocab_size), just 50k per step. Sampling with temperature (used in modern LLMs) also costs O(n times vocab_size) — comparable to greedy. So beam search is roughly 5-10x slower than sampling, which is why it is reserved for tasks where exact quality matters (translation, speech) rather than open-ended generation (chat).`
+      ]
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        `Beam search is standard in neural machine translation (NMT): Google Translate, DeepL, and others use beam search with k=4-8 to find high-quality translations. Speech recognition models (Wav2Vec, Conformer) use beam search to decode audio into text. Any seq2seq task (summarization, code generation, image captioning) benefits from beam search when the output has a single "right" answer. The reason these domains use beam search (not sampling) is because mistranslating a single word or transcribing incorrectly is costly; prioritizing the most-likely output (highest probability under the model) makes sense.`,
+        `Modern large language models (GPT-3, Claude, Llama) rarely use beam search during generation. Instead, they use nucleus sampling (top-p) with temperature control — keeping inference fast and outputs diverse. But beam search remains the gold standard when you can afford the compute and want reproducibility and beam-optimal outputs.`
+      ]
+    },
+    {
+      heading: 'Pitfalls and misconceptions',
+      paragraphs: [
+        `A major misconception: beam search finds the globally optimal sentence. It does not. Beam search finds the highest-probability sentence under the model, which is not the same as the best sentence by human judgment. The model might assign high probability to a grammatical but meaningless sentence. Beam search optimizes for the model's beliefs, not objective quality.`,
+        `Another pitfall: increasing beam size always improves quality. Beyond a certain point (usually k=5-10), larger beams give diminishing returns and add cost. The model's top k hypotheses often converge to very similar outputs once k > 5; exploring further yields no new insights.`,
+        `Finally, confusing beam search with other decoding strategies. Greedy decoding is k=1 (no branching, no comparison). Nucleus sampling is probabilistic (sample from the top p% of the distribution); it is not beam search. Temperature controls the sharpness of the probability distribution; it affects both beam search and sampling independently. Beam search + length penalties (penalizing very long outputs) is common to avoid the model always preferring longer hypotheses.`
+      ]
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Understand the probability model behind beam search by studying Softmax & Temperature — the probabilities come from softmax over logits. Explore Attention Mechanism to see how language models produce those logits in the first place. Research length penalties and other scoring adjustments used in practice (e.g., coverage penalties in translation to avoid repeating the same phrase). Study sampling-based decoding methods: top-k sampling, nucleus sampling, and temperature control, which are now preferred in open-ended generation. For a deeper dive, read papers on beam search variants: diverse beam search (keeping diverse hypotheses, not just high-probability ones), and constrained beam search (enforcing hard constraints on outputs). Compare performance: run the same model with greedy, beam k=1, beam k=5, and temperature sampling on a real task and observe trade-offs between speed and quality.`
+      ]
+    }
+  ]
+};

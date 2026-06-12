@@ -84,3 +84,48 @@ export function* run(input) {
     explanation: `Where this runs in production: Chrome used one to check URLs against malware lists, Cassandra and RocksDB use them to skip disk reads for absent keys, CDNs use them to decide what's worth caching. The pattern: put a cheap "definitely not" filter in front of an expensive lookup. Built from nothing but the Hash Table idea — minus the table.`,
   };
 }
+
+export const article = {
+  sections: [
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `A bloom filter is a probabilistic data structure — a bit array that tells you, with absolute certainty, that something is NOT in a set, but only with high probability that it IS in the set. You never store the actual items; instead, you run each item through k hash functions (usually 3 to 5), and those hashes tell you which bits to flip on. Later, when you query for an item, you check if all k bits are set. If any bit is 0, the item is definitely not there. If all k bits are 1, the item is probably there — but there is a small chance it is a false positive (other items' bits happened to overlap).`,
+        `The trade is extraordinary: a bloom filter uses about 10 bits per item instead of storing the entire item. A hash table storing 1 million strings might use 100 megabytes; a bloom filter remembering 1 million items uses about 1.25 megabytes. The cost: occasional false positives, and you cannot delete items (they would corrupt the bits for other items).`,
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `To insert an item, run it through all k hash functions. Each hash returns a bit index. Set all k bits to 1. That is it — the item is "remembered" as a pattern of bits, never stored itself.`,
+        `To query, run the item through all k hash functions again and check if all k bits are set to 1. If even one bit is 0, the item was definitely never inserted (no insert operation would leave a bit at 0 without setting it). If all bits are 1, the item might be there — or you have a collision, where other items' hash functions happened to cover the same bits. The false-positive rate depends on the filter size, the number of items inserted, and k (the number of hash functions). A well-tuned filter with a million items in a 10-million-bit array has a false-positive rate around 1%.`,
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        `Insert and query are both O(k) — you run k hash functions, each in O(1). In practice, k is small (usually 3–7), so this is O(1) with a tiny constant. Space is O(m) where m is the bit-array size; a well-chosen m (relative to the number of items n) gives a false-positive rate of roughly (0.5)^k. Deletion is not straightforward (marking bits as deleted corrupts the filter), so bloom filters are used only for immutable or append-only sets.`,
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        `Bloom filters are ubiquitous in systems where speed and memory matter. Google Chrome uses bloom filters to check URLs against malware blocklists — fast, local, and you do not need to download the entire database. Cassandra (a distributed database) uses bloom filters to skip reads from disk for keys that are definitely not in a partition. RocksDB and LevelDB (embedded databases) use them the same way. Content delivery networks use bloom filters to decide what content is worth caching — if a URL is definitely not in the cache, do not even start the lookup. Bitcoin uses Bloom Filters for lightweight clients that cannot store the entire blockchain. They appear in spell-checkers (is this word definitely not in the dictionary?), spam filters (is this definitely not spam?), and deduplication systems.`,
+      ],
+    },
+    {
+      heading: 'Pitfalls and misconceptions',
+      paragraphs: [
+        `The biggest pitfall is forgetting that a false positive is possible. A "yes" answer is never certain — you have to validate it with a proper lookup. The "no" answer is always correct, which is the whole point: use the bloom filter to eliminate 99% of false lookups without expensive work, then do the expensive lookup only for the remaining 1%.`,
+        `Another pitfall: you cannot delete from a bloom filter. Setting a bit to 0 would corrupt the footprints of other items. If you need deletion, use a variant called a "counting bloom filter" (which stores counts instead of bits, allowing decrements), at the cost of more space. A third misconception: bloom filters need to be huge. A well-tuned filter is actually quite small — millions of bits fit in kilobytes. The key is matching the array size to the expected number of insertions; if you insert more items than you planned, the false-positive rate climbs, which is why production systems monitor that metric.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Read Hash Table to understand hash functions — bloom filters are hash tables with the keys removed. Learn Big-O Growth Rates to see why O(1) lookups matter even when the constant is small. Then explore Set (a related data structure that is similar but allows deletion and no false positives). Finally, study probabilistic data structures and sketches — Count-Min Sketch and HyperLogLog are cousins of bloom filters, trading accuracy for space in different ways, and appear in streaming algorithms and database approximation.`,
+      ],
+    },
+  ],
+};
+

@@ -126,6 +126,24 @@ async function initTopic() {
 
   const mod = await entry.module();
   createTopicRuntime({ root, topic: mod.topic });
+  renderArticle(root.querySelector('[data-topic-article]'), mod.article);
+}
+
+// Study notes: the written course that lives under every animation.
+// Modules export `article = { sections: [{heading, paragraphs: [...]}] }`.
+function renderArticle(container, article) {
+  if (!article || !Array.isArray(article.sections)) return;
+  for (const section of article.sections) {
+    const heading = document.createElement('h3');
+    heading.textContent = section.heading;
+    container.appendChild(heading);
+    for (const text of section.paragraphs) {
+      const p = document.createElement('p');
+      p.textContent = text;
+      container.appendChild(p);
+    }
+  }
+  container.hidden = false;
 }
 
 // "Built from": the simpler ideas this topic is composed of.

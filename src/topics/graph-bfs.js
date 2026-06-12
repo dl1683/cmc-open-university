@@ -94,3 +94,46 @@ export function* run(input) {
     };
   }
 }
+
+export const article = {
+  sections: [
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `Breadth-first search (BFS) is an algorithm for exploring a graph starting from a source node, visiting all nodes reachable from that source. It explores outward in expanding rings: first visit all neighbors, then all neighbors of neighbors, and so on. At each hop distance, all nodes are visited before moving to the next distance. The result is a "shortest path tree" where the path from the source to any node uses the fewest edges possible.`,
+        `BFS differs from depth-first search in its order of exploration. DFS dives deep into one branch before backtracking; BFS fans out evenly in all directions, always exploring the closest unvisited nodes first. This makes BFS the natural choice for finding shortest paths in unweighted graphs, detecting connected components, and level-order exploration.`,
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `Start with the source node in a queue. Mark it as seen. Then repeatedly dequeue a node, examine all its unvisited neighbors, mark them as seen, record their distance (current distance + 1), and enqueue them. The queue ensures nodes are processed in the order they are discovered. Nodes at distance d are processed before any node at distance d+1, because nodes at distance d are enqueued before nodes at distance d+1.`,
+        `To track the shortest path, maintain a parent pointer for each node, recording which node discovered it. When you reach the target, backtrack through parent pointers to reconstruct the path. The queue is essential: it enforces the layer-by-layer exploration that guarantees shortest paths. Unlike depth-first search (which uses a stack and explores deeply), BFS uses a queue to explore widely.`,
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        `BFS visits every node once and examines every edge twice (once from each direction, unless the graph is directed). With V nodes and E edges, the time complexity is O(V + E). Space complexity is O(V) for the queue and the seen set. The queue size is bounded by the maximum number of nodes at any distance, which is at most V. BFS is more efficient than trying all paths or random exploration because it visits each node exactly once and does not revisit nodes.`,
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        `Social networks use BFS to compute degrees of separation — how many hops away is one person from another. GPS and routing systems use BFS (or Dijkstra for weighted roads) to find shortest routes. Web crawlers use BFS to explore the web, discovering new pages from known pages. Operating systems use BFS in garbage collection to mark reachable objects. Peer-to-peer networks use BFS to flood-fill messages (Gnutella, BitTorrent). Game pathfinding uses BFS to find shortest paths for characters. Network switches use BFS-like algorithms to forward packets efficiently.`,
+      ],
+    },
+    {
+      heading: 'Pitfalls and misconceptions',
+      paragraphs: [
+        `A common mistake is using BFS on weighted graphs without adjusting the algorithm. BFS finds the path with the fewest hops, not the lowest total weight — use Dijkstra's algorithm instead for weighted graphs. Forgetting to mark nodes as seen before enqueuing them leads to infinite loops and revisiting the same node many times. Confusing BFS with depth-first search is easy: remember BFS explores all neighbors before going deeper (breadth first), while DFS explores one branch all the way before backtracking (depth first). Assuming BFS always finds a path is wrong: in a disconnected graph, BFS only reaches nodes in the same component as the source. Finally, BFS requires tracking which nodes have been visited; without that, the algorithm degenerates into exploring every path.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Dijkstra's Shortest Path to see how BFS extends to weighted graphs using a priority queue instead of a regular queue. Learn Graph DFS (depth-first search) to contrast with BFS and understand when to use each. Explore Tree Traversals and level-order traversal, which use the same queue-based approach on trees. Understand Queue, which is the data structure powering BFS.`,
+      ],
+    },
+  ],
+};

@@ -91,3 +91,49 @@ export function* run(input) {
     };
   }
 }
+
+export const article = {
+  sections: [
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `K-means is an unsupervised learning algorithm that partitions a set of unlabeled points into exactly k clusters by repeatedly assigning each point to its nearest cluster center (centroid) and moving each centroid to the mean of its assigned points. The algorithm is unsupervised because nobody tells it what the clusters are or even that they exist — it discovers them purely from the point positions and the number k (which you choose). Once converged, each point belongs to exactly one cluster, and the centroid is the geometric center of its cluster.`,
+        `The elegance of k-means is its simplicity: two moves, repeated in a loop, until convergence. Assign points to nearest centroids. Recenter each centroid at the mean of its points. Repeat. Both operations are fast (linear in the number of points or clusters), and the algorithm always converges to a local minimum of the within-cluster variance — the sum of squared distances from points to their centroids.`
+      ]
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `K-means begins with an initialization step: pick k starting centroids, either randomly or via k-means++ (spreading them out in a weighted-random fashion to avoid poor local minima). Then enter the main loop: (1) Assign: for each point, find the nearest centroid (Euclidean distance is standard) and label it with that centroid's cluster ID. (2) Recenter: for each centroid, compute the mean of all points assigned to it, and move the centroid to that mean. (3) Check convergence: if no points changed clusters in step 1, stop; otherwise repeat from step 1.`,
+        `The algorithm converges because each step either reduces or maintains the objective function (sum of squared within-cluster distances), and the objective is bounded below by zero. In practice k-means converges in 10-100 iterations on real data. The final clusters are a Voronoi partition of the space — each region belongs to whichever centroid is closest. This partition minimizes the sum of squared distances from points to their assigned centroids.`
+      ]
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        `Each iteration of k-means costs O(nkd) where n is the number of points, k is the number of clusters, and d is the dimensionality. Computing distances from all n points to all k centroids takes O(nkd); recomputing the k means takes O(nd). Most datasets converge in O(log n) or fewer iterations, so total time is typically O(n k d log n). This is fast enough for millions of points in moderate dimensions. However, k-means does not scale well to very high dimensions: in high-dimensional spaces, distances become less meaningful (the curse of dimensionality), and k-means may converge to poor local minima. For high-dimensional data, using dimensionality reduction first (PCA) or a distance metric designed for the domain (not Euclidean) is common.`
+      ]
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        `K-means is ubiquitous in machine learning and data science. It powers image compression: cluster pixel colors and replace each pixel with its centroid color. Customer segmentation: cluster users by browsing behavior, purchase history, and engagement, then personalize content for each segment. Vector-database indexing: cluster high-dimensional embeddings to speed up nearest-neighbor search (e.g., in semantic search or recommendation systems). Outlier detection: points far from all centroids are anomalies. Data exploration: visualizing the k=2 or k=3 solution of high-dimensional data reveals natural groupings.`,
+        `K-means++ (seeding) and variants like mini-batch k-means (processing data in small batches, for streaming data) improve scalability and stability. Hierarchical clustering and DBSCAN are alternatives when you don't want to specify k in advance.`
+      ]
+    },
+    {
+      heading: 'Pitfalls and misconceptions',
+      paragraphs: [
+        `The biggest pitfall is assuming k-means discovers the true clusters in the data. It does not. K-means always produces exactly k clusters, regardless of the true underlying structure. If the data has 3 natural groups and you run k-means with k=5, it will split one of the groups unnecessarily. If you use k=2, it will merge groups that should be separate. Choosing k requires external knowledge, domain intuition, or techniques like the elbow method (plot objective value vs. k and look for where the curve flattens).`,
+        `Another misconception: k-means finds the data's natural structure in an unsupervised way. It is unsupervised in that it does not use labels, but it is supervised by your choice of k and the Euclidean distance metric. In high-dimensional spaces where Euclidean distance is unreliable, k-means can give meaningless results. Using a domain-aware distance metric or projecting the data to a lower-dimensional space first is essential.`,
+        `Finally, k-means can converge to poor local minima (not the global optimum) depending on initialization. Running the algorithm multiple times with different random seeds and keeping the best result (lowest objective value) is standard practice.`
+      ]
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Explore Embeddings & Similarity to understand how to represent high-dimensional data in vector spaces where k-means actually works well — the algorithm shines on learned embeddings, not raw pixels. Study Activation Functions and Gradient Descent to understand how neural networks learn to produce those good embeddings. If you want to understand alternatives to k-means, research hierarchical clustering and DBSCAN. For a deeper dive into the mathematics, look up Lloyd's algorithm (the formal name) and the connection to Voronoi partitions. When you are ready for practical applications, explore vector databases (Pinecone, Weaviate) which use k-means-like indexing for semantic search, and study real customer segmentation pipelines to see how practitioners choose k.`
+      ]
+    }
+  ]
+};

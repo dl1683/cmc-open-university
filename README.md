@@ -13,8 +13,11 @@ memoization, Big-O growth curves), systems design (LRU cache, load balancer,
 bloom filter), and modern AI (attention, gradient descent, k-means, BPE
 tokenization, softmax & temperature, embeddings). Topics declare what simpler
 ideas they are *built from*, so every page links back to its ingredients and
-forward to what it unlocks. Any visualization can be **exported as a video**
-(WebM) with the explanations baked in, for sharing. More is added continuously —
+forward to what it unlocks. Below every animation sit **study notes** — what it
+is, how it works, real costs, real-world uses, pitfalls, and what to learn
+next — so the site works as a course, not just a gallery. Any visualization
+can be **exported as a video** (WebM) with the explanations baked in, for
+sharing. More is added continuously —
 the goal is a free CS resource for anyone who wants to understand how
 computing works.
 

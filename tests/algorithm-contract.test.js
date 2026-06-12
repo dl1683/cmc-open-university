@@ -261,6 +261,27 @@ test('lru-cache: evicts least-recently-used, never exceeds capacity', async () =
   assert.deepEqual(final, [4, 1, 3], 'most-recent-first order; 2 was evicted as LRU');
 });
 
+// ----------------------------------------------- layer 3: study articles
+
+for (const entry of visualizations) {
+  test(`${entry.id}: exports complete study notes`, async () => {
+    const mod = await (topics.find((t) => t.id === entry.id)).module();
+    const { article } = mod;
+    assert.ok(article && Array.isArray(article.sections), 'article with sections exists');
+    assert.ok(article.sections.length >= 5, 'at least 5 sections');
+    let words = 0;
+    for (const section of article.sections) {
+      assert.ok(typeof section.heading === 'string' && section.heading.length > 0, 'heading present');
+      assert.ok(Array.isArray(section.paragraphs) && section.paragraphs.length > 0, 'paragraphs present');
+      for (const p of section.paragraphs) {
+        assert.ok(typeof p === 'string' && p.trim().length > 40, 'substantial paragraph');
+        words += p.split(/\s+/).length;
+      }
+    }
+    assert.ok(words >= 250, `substantial content (${words} words)`);
+  });
+}
+
 // ------------------------------------------------ layer 2: input guards
 
 test('bad input throws InputError, not garbage steps', async () => {

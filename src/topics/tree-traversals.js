@@ -98,3 +98,47 @@ export function* run(input) {
     explanation: `Done: ${outro[order]}`,
   };
 }
+
+export const article = {
+  sections: [
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `A tree traversal is a systematic way to visit every node in a tree, one at a time. There are four major orders, each designed for a specific job. In-order visits the left subtree, then the node, then the right subtree — on a binary search tree this produces sorted output. Pre-order visits the node first, then its subtrees — perfect for copying or serializing a tree. Post-order visits subtrees first, then the node — the safe way to delete a tree. Level-order visits all nodes at depth d before visiting depth d+1 — also called breadth-first.`,
+        `Why four traversals? Because the order matters for different tasks. An in-order walk on a BST magically produces sorted values without any sorting algorithm. A pre-order walk gives you the order you need to rebuild a tree from a sequence. A post-order walk is the only way to safely delete all nodes. Level-order is the natural choice when you want to process a tree in layers, like exploring a maze level by level.`,
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `In-order, pre-order, and post-order are all recursive: they visit the left subtree recursively, the current node, and the right subtree recursively, in different orders. In-order: visit left, process node, visit right. Pre-order: process node, visit left, visit right. Post-order: visit left, visit right, process node. For level-order, instead of recursion, you use a queue: enqueue the root, then repeatedly dequeue a node, process it, and enqueue its children. The queue ensures you process all children before grandchildren.`,
+        `The recursive orders can also be implemented iteratively using a stack, though they are more naturally expressed as recursive code. Level-order requires explicit queue management. The choice between orders is determined by what your algorithm needs: need sorted output? Use in-order. Need to rebuild the tree? Use pre-order. Need to delete the tree? Use post-order. Need to explore neighbors first? Use level-order.`,
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        `All four traversals visit every node exactly once and every edge exactly twice. With n nodes, the time complexity is O(n) and space complexity is O(h) where h is the height of the tree (for the recursive call stack or explicit queue). In a balanced tree, h = O(log n), but in a degenerate tree (a chain), h = O(n). Level-order uses a queue that can grow to the width of the tree — the maximum number of nodes at any depth.`,
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        `In-order traversal on a binary search tree is how databases and file systems list directory contents in sorted order. Pre-order traversal is used to serialize trees to disk and to copy trees in memory, ensuring parents are copied before their children. Post-order traversal is essential for garbage collection and memory cleanup — you must delete children before deleting parents. Level-order traversal is the basis of breadth-first search (BFS), which explores graphs level by level, finds shortest paths, and detects cycles. The JavaScript DOM is a tree; DOM traversal for rendering or event delegation uses these concepts.`,
+      ],
+    },
+    {
+      heading: 'Pitfalls and misconceptions',
+      paragraphs: [
+        `Confusing traversal order with insertion order is common. The traversal order is independent of how the tree was built; in-order on a BST is always sorted regardless of insertion order. Another mistake is using the wrong traversal for your task: trying to delete a tree with pre-order will crash because parents are freed before children. Recursion depth can overflow the call stack on very deep trees — you must use an iterative approach with an explicit stack or queue. In level-order traversal, forgetting to enqueue children causes missed nodes. Finally, assuming all traversals have the same performance is wrong: level-order uses extra space for the queue, which can be large in a wide tree.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Binary Search Tree to understand the structure being traversed. Explore Graph BFS, which uses the same level-order idea to traverse graphs instead of trees. Learn about Dijkstra's Shortest Path, which uses similar traversal concepts with priority. Understand the call stack by studying Recursion. Binary Heap uses a different tree structure with different traversal patterns worth comparing.`,
+      ],
+    },
+  ],
+};
+

@@ -70,3 +70,48 @@ export function* run(input) {
     explanation: `${removed.value} is gone and the chain is whole again. Compare with an array, where removing from the middle means shifting everything after it. Pointer surgery is the linked list's whole advantage.`,
   };
 }
+
+export const article = {
+  sections: [
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `A linked list is a chain of nodes where each node holds a value and a pointer to the next node. Unlike an array where elements sit in contiguous memory and you can jump to any position in constant time, a linked list chains its elements together logically. You can only reach a node by starting at the head and following pointers one step at a time.`,
+        `The shape is simple: each node knows the value it holds and which node comes next. The entire list is defined by a single head pointer — lose that and you lose access to everything. There is no hidden length array underneath, no block of memory you can index into. Everything depends on those pointer links.`,
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `To add a node to the end, you start at the head and follow next pointers until you reach a node whose next pointer is null. Then you create the new node and update that tail node's next pointer to aim at it. Insertion at the head is faster — just create the new node and make it point to the old head, then update the head pointer itself.`,
+        `To remove a node from the middle, you first find it by walking from the head, checking each value until you match the target. Once you find it, you take the previous node's next pointer and make it point past the removed node, directly to the node after it. No data moves, no shifts — just one pointer reassignment. If you're removing the head, the head pointer itself moves to the second node.`,
+        `Searching is always a walk from the head, one step at a time. If the list has n nodes and your target is at position k, you must make k+1 checks. If it is not in the list at all, you walk the entire length. This is why linked lists have no random access — the only way to know what is at position k is to traverse k pointers.`,
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        `Insertion at the head is O(1) if you have the head pointer already. Insertion at the tail is O(n) because you must walk to the tail first — unless you also maintain a tail pointer, in which case it drops to O(1). Searching is O(n) in the worst case: you might have to walk every node. Removal is O(1) if you already have a pointer to the node you want to remove, but O(n) if you have to search for it first. The core advantage of a linked list is that middle insertion and removal are O(1) once you have found the location; an array forces you to shift all subsequent elements, making it O(n).`,
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        `Linked lists appear in operating system schedulers (queuing ready processes), browser history stacks, and graph adjacency lists where each node's neighbors are stored as a linked list. They are also fundamental building blocks for more complex structures: stacks and queues are often implemented as linked lists because insertion and removal at specific ends happen in constant time. Game engines use linked lists for animation timelines. Any time you need fast removal from the middle without knowing the total size in advance, a linked list (or hash table) is the right tool.`,
+      ],
+    },
+    {
+      heading: 'Pitfalls and misconceptions',
+      paragraphs: [
+        `The biggest trap is confusing a linked list with an array and expecting O(1) access by index. If you write code that says "get me the element at position 5," a linked list must walk 5 steps — there is no shortcut. If your algorithm needs lots of random access, an array is far better. Another common mistake is losing the head pointer or not maintaining pointers correctly during insertion or removal, which breaks the chain and orphans parts of the list. The pointer-by-pointer nature also means linked lists have higher memory overhead per node: you need space for both the value and the next pointer, whereas an array only stores values. Modern caches also favor arrays because data is contiguous, making linked lists slower in practice even for operations that seem equivalent.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Explore Stack and Queue, which are often built on top of linked lists for their O(1) insertion and removal guarantees. Hash Table offers a different approach to the trade-off between search speed and insertion flexibility. For a deeper dive into pointer manipulation, study Tree Traversals and Graph BFS, which use similar walk-from-a-starting-point logic but with more complex connectivity.`,
+      ],
+    },
+  ],
+};
+

@@ -99,3 +99,47 @@ export function* run(input) {
     explanation: 'That is the entire priority queue: insert = bubble up, extract = sift down, both O(log n), max always at the root. Operating systems schedule tasks with this, Dijkstra finds shortest paths with it — and run extract-max n times and you have invented Heap Sort.',
   };
 }
+
+export const article = {
+  sections: [
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `A binary max-heap is a tree where every parent is greater than or equal to its children. This single rule guarantees that the maximum element is always at the root. A heap is a priority queue: the element with the highest priority (largest value) is always instantly accessible. Unlike a binary search tree, a heap does not maintain sorted order across the entire structure — only the local parent-child relationship matters.`,
+        `The clever part of a heap is its representation: although conceptually it is a tree, it lives in a flat array. The children of index i are at indices 2i+1 and 2i+2, and the parent is at floor((i-1)/2). This dense packing keeps the tree complete (filled level by level from left to right), which is essential for the efficiency of heap operations.`,
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `To insert a value, add it to the end of the array (the next available leaf position). This keeps the tree complete and compact. The new value might violate the heap promise (a child is now larger than its parent). To fix it, bubble up: swap the child with its parent, then continue checking the parent against its parent, until the promise is restored or you reach the root.`,
+        `To extract the maximum, remove the root (the largest element). Take the last element in the array, move it to the root position (keeping the tree complete), then sift down: compare the root with its children, swap it with the larger child if the child is bigger, then continue with that child until the heap promise is restored. Both operations follow a path of at most log n nodes.`,
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        `Insertion and deletion (extract-max) are both O(log n) because the heap height is log n for n elements. Finding the maximum is O(1) — it is always at the root. Heapifying an entire array (turning it into a heap) is O(n), not O(n log n), because most elements are near the leaves and bubble up only a short distance. Building a heap this way is faster than inserting elements one at a time. Space complexity is O(n) for the array.`,
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        `Operating systems use heaps to schedule processes by priority: every time a process is created or finishes, the priority queue is updated to select the next highest-priority process. Dijkstra's shortest path algorithm uses a min-heap to greedily select the unvisited node closest to the source. Heap Sort uses repeated extract-max operations to sort data in O(n log n) time. Load balancers and message queues use heaps to prioritize urgent requests. Huffman coding, used in data compression, builds a tree using a min-heap. Streaming data algorithms use heaps to track the k largest elements without storing the entire stream.`,
+      ],
+    },
+    {
+      heading: 'Pitfalls and misconceptions',
+      paragraphs: [
+        `A heap is not a sorted structure — while the maximum is at the root, the rest of the array is not sorted. Trying to iterate a heap and expecting sorted output will fail; you must extract elements one at a time. Confusing a heap with a binary search tree is common: a BST maintains sorted order and supports efficient search, while a heap only promises the maximum is accessible. Min-heaps and max-heaps have opposite ordering, so be clear which you are building. Implementing heaps with pointer-based tree nodes instead of arrays wastes space and cache locality — arrays are the right representation. Finally, when implementing extract-max, forgetting to sift down the new root completely will leave the heap broken.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Dijkstra's Shortest Path, which relies on a min-heap for efficiency. Explore Heap Sort to see how extract-max is a complete sorting algorithm. Learn Binary Search Tree to contrast different tree structures and their trade-offs. Understand Priority Queues conceptually and how they are implemented with heaps. Graph BFS uses a regular queue; Dijkstra upgrades it to a priority queue (heap) to track distance.`,
+      ],
+    },
+  ],
+};
+

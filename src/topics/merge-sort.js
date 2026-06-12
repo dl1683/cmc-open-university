@@ -93,3 +93,48 @@ function* merge(values, lo, mid, hi) {
     explanation: `Positions ${lo}–${hi} are now one sorted run, ready to be merged with a neighbor at the level above.`,
   };
 }
+
+export const article = {
+  sections: [
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `Merge sort is the first algorithm that escapes the O(n²) wall. It uses divide-and-conquer: split the array in half recursively until each piece is a single element (trivially sorted), then merge pairs of sorted pieces back together into larger sorted pieces, layer by layer. The merge operation is cheap — it is linear in the size of the pieces — because both pieces are already sorted. Compare front elements, take the smaller, and repeat.`,
+        `It is stable, meaning equal elements retain their original order. This is crucial in real applications where you might sort objects by one field, then re-sort by another field and expect ties to remain in the previous order. It is also predictable: O(n log n) worst, average, and best case. No pathological inputs exist.`,
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `Recursively divide the array into halves until you reach single elements. Then merge: take two sorted arrays (or sub-arrays), create an empty result, and repeatedly compare the front of each sorted piece, taking the smaller one and moving its pointer forward. When one piece runs out, copy the rest of the other piece over. The merge step is the heart of the algorithm and is where the sorting actually happens.`,
+        `A subtle but crucial detail is the tie-breaking rule in merge: when both fronts are equal, take from the left half. This ensures the sort is stable and also prevents an infinite loop (the classic merge bug is taking from the wrong half on a tie, which can leave both pointers stuck). The merge touches every element exactly once, so merging two sorted arrays of size n is O(n). Since the array is split log n times, and each level merges all n elements once, the total cost is O(n log n).`,
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        `Merge sort guarantees O(n log n) comparisons in all cases: best, average, and worst. The array is split log n times (creating a recursion tree of depth log n), and at each level, all n elements are touched once during merging. Space complexity is O(n) because merge requires temporary arrays to hold the left and right halves during merging. This extra space is merge sort's main weakness — it is not in-place like Quicksort or Insertion Sort. On the flip side, the predictable O(n log n) and the stability make merge sort invaluable in practice.`,
+      ],
+    },
+    {
+      heading: 'Real-world uses',
+      paragraphs: [
+        `Merge sort is the backbone of stable sorting in many languages and libraries. Python's Timsort uses merge sort as its core strategy, combining it with insertion sort for small ranges. Java's Arrays.sort uses a dual-pivot variant of quicksort, but merges are used for parallel sorting. C's qsort often uses merge sort for robustness. External-memory sorting (when data does not fit in RAM) relies heavily on merge sort because it processes data in sequential passes. Whenever you need a guaranteed O(n log n) sort or stability is mandatory, merge sort is a strong candidate.`,
+      ],
+    },
+    {
+      heading: 'Pitfalls and misconceptions',
+      paragraphs: [
+        `The biggest misconception is that O(n log n) is always better than O(n²). For small arrays (under 50 elements), Insertion Sort is often faster due to lower constants and better cache locality. Merge sort's overhead is only worth paying on larger arrays. Another pitfall is forgetting the space cost. Merge sort uses O(n) extra space, which matters on memory-constrained systems. Some implementations try to optimize away the copy by using in-place merging, but that destroys stability and adds complexity.`,
+        `A subtle bug lurks in the tie-breaking rule during merge: using strict less-than ( < ) instead of less-or-equal ( <= ) on the comparison can cause infinite loops or incorrect results when duplicates exist. The code must take from the left half when values are equal to ensure both pointers advance and the sort remains stable.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Compare merge sort to Quick Sort to understand the trade-offs between guaranteed O(n log n) and average-case speed with lower constants. Study Heap Sort for another O(n log n) sort that uses O(1) space. Learn Recursion to understand the divide-and-conquer pattern that merge sort exemplifies. Explore Big-O Growth Rates to internalize why O(n log n) dominates O(n²) at scale. Finally, study Timsort (a hybrid of merge sort and insertion sort used in Python) to see how real-world libraries adapt these ideas.`,
+      ],
+    },
+  ],
+};
+

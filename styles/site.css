@@ -298,6 +298,19 @@ h1, h2, h3 { line-height: 1.2; }
 .progress-text { margin: 0 0 2px; font-size: 0.82rem; color: var(--muted); }
 .step-slider { width: 100%; accent-color: var(--accent); }
 
+/* study notes under the animation */
+.study {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 26px 18px;
+  margin-top: 16px;
+  max-width: 86ch;
+}
+.study-title { font-size: 1.25rem; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.study h3 { font-size: 1.02rem; margin: 20px 0 6px; color: var(--accent); }
+.study p { margin: 8px 0; line-height: 1.65; }
+
 @media (max-width: 880px) {
   .topic-layout { grid-template-columns: 1fr; }
   .topic-nav { display: none; }
