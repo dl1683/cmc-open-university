@@ -756,6 +756,16 @@ export const topics = [
     module: () => import('./topics/transformer-block.js'),
   },
   {
+    id: 'positional-encoding',
+    type: 'visualization',
+    buildsOn: ['attention', 'transformer-block'],
+    category: 'AI & ML',
+    title: 'Positional Encoding',
+    summary: 'Sinusoidal fingerprints for word order — how attention learns that position exists at all.',
+    tags: ['positional encoding', 'RoPE', 'sinusoidal', 'transformers', 'context length'],
+    module: () => import('./topics/positional-encoding.js'),
+  },
+  {
     id: 'multi-head-attention',
     type: 'visualization',
     buildsOn: ['attention', 'transformer-block'],

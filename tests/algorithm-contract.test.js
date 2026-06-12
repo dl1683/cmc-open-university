@@ -656,6 +656,20 @@ test('git-internals: unchanged blob is shared by both commits; new edit creates 
   assert.ok(steps.some((s) => /4 small objects/.test(s.explanation)), 'edit cost counted');
 });
 
+test('positional-encoding: fingerprints are unique, bounded, and multi-frequency', async () => {
+  const topic = await loadTopic('positional-encoding');
+  const steps = runTopic(topic, { positions: '12' });
+  const state = steps[1].state;
+  const rowOf = (rid) => state.cells.filter((c) => c.row === rid).map((c) => c.value);
+  const fingerprints = state.rows.map((r) => JSON.stringify(rowOf(r.id)));
+  assert.equal(new Set(fingerprints).size, 12, 'all 12 position fingerprints unique');
+  assert.ok(state.cells.every((c) => c.value >= -1 && c.value <= 1), 'all values bounded in [-1, 1]');
+  const signChanges = (vals) => vals.slice(1).filter((v, i) => Math.sign(v) !== Math.sign(vals[i])).length;
+  const fast = signChanges(state.rows.map((r) => rowOf(r.id)[0]));
+  const slow = signChanges(state.rows.map((r) => rowOf(r.id)[6]));
+  assert.ok(fast > slow, `low dimension oscillates faster (${fast} vs ${slow} sign changes)`);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
