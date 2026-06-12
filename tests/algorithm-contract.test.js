@@ -1539,6 +1539,24 @@ test('matrix-completion: live ALS recovers the seven hidden ratings within half 
   assert.ok(loops.some((s) => /grading its own homework/.test(s.explanation)), 'feedback loop tied to leakage');
 });
 
+test('bootstrap-ci: 200 deterministic resamples yield the 141-255ms percentile interval', async () => {
+  const topic = await loadTopic('bootstrap-ci');
+  const live = runTopic(topic, { view: 'the bootstrap, resampled live' });
+  const shown = live.find((s) => /resample it/.test(s.state.title ?? '')).state;
+  assert.equal(shown.rows.length, 3, 'three example resamples displayed');
+  assert.ok(shown.cells.filter((c) => c.column === 'm').every((c) => c.value > 100 && c.value < 300), 'resample means in plausible range');
+  const hist = live.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'hist')).state;
+  assert.equal(hist.series[0].points.reduce((a, p) => a + p.y, 0), 200, 'histogram bins sum to 200 resamples');
+  const ci = live.find((s) => /middle 95%/.test(s.state.title ?? ''));
+  assert.match(ci.explanation, /141–255ms/, 'percentile interval reads 141-255ms');
+  assert.ok(live.some((s) => /WITH REPLACEMENT/.test(s.explanation)), 'the with-replacement move stated');
+  const reading = runTopic(topic, { view: 'reading (and misreading) the interval' });
+  assert.ok(reading.some((s) => /property of the method over repetitions/.test(s.invariant ?? '')), 'coverage contract stated');
+  assert.ok(reading.some((s) => /straddles/.test(s.explanation)), 'interval-straddling-zero decision shown');
+  const breaks = reading[reading.length - 1].state;
+  assert.match(breaks.cells.find((c) => c.id === 'dep:fix').label, /block bootstrap/, 'block bootstrap patch listed');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

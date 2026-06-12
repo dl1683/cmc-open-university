@@ -309,6 +309,16 @@ export const topics = [
     module: () => import('./topics/ab-testing.js'),
   },
   {
+    id: 'bootstrap-ci',
+    type: 'visualization',
+    buildsOn: ['ab-testing', 'cross-validation', 'reservoir-sampling'],
+    category: 'Concepts',
+    title: 'Confidence Intervals & the Bootstrap',
+    summary: 'One measurement is a point; the truth is a wobble. Resample your own data 200 times and draw the error bars.',
+    tags: ['bootstrap', 'confidence interval', 'resampling', 'error bars', 'statistics', 'Efron'],
+    module: () => import('./topics/bootstrap-ci.js'),
+  },
+  {
     id: 'binary-exponentiation',
     type: 'visualization',
     buildsOn: ['recursion', 'big-o-growth'],
