@@ -97,44 +97,44 @@ function* siftDown(values, start, heapSize, sortedCount) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Heap sort builds a special data structure inside the array called a max-heap — a binary tree where every parent is at least as large as its children. It exploits a brilliant trick: the array itself IS the tree (children of index i live at 2i+1 and 2i+2, no pointers needed). Once the heap is built, the largest element always sits at index 0. Extract it to the end, shrink the heap, rebuild the top, and repeat. After n extractions, the array is sorted.`,
-        `The algorithm guarantees O(n log n) in all cases and sorts in-place with O(1) extra space. Unlike quicksort, there are no bad inputs; like merge sort, it is predictable. The downside is cache unfriendliness — accessing arbitrary indices via the formula 2i+1 and 2i+2 causes random memory jumps, making heap sort slower in practice than quicksort or even merge sort on modern hardware, despite the better worst-case guarantee.`,
+        `Heap sorting turns the array into a max-heap, then repeatedly removes the maximum into the final sorted suffix. A max-heap is a nearly complete binary tree where every parent is at least as large as its children. The storage trick is that no node objects are needed: for index i, the children live at 2i + 1 and 2i + 2. That formula lets the array act like a tree.`,
+        `J. W. J. Williams introduced heaps and this sort in 1964; Robert Floyd soon showed the bottom-up O(n) heap construction used here. The algorithm is in-place and has guaranteed O(n log n) time, which makes it an important contrast with Quick Sort. Its weakness is practical speed: the sift-down walk jumps around the array, so it fights cache locality more than partitioning or merging does.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Phase 1: Build the max-heap. Start from the last parent (index ⌊n/2⌋−1) and work backward to the root, "sifting down" each subtree. Sift down means: if a parent is smaller than one of its children, swap them and continue sifting the parent downward. After this phase, the entire array satisfies the max-heap property: every parent ≥ its children.`,
-        `Phase 2: Extract the maximum repeatedly. The root (index 0) is always the largest element. Swap it to the end of the unsorted zone, shrink the unsorted zone by one, and sift down the new root to restore the heap property. Repeat until the unsorted zone shrinks to a single element. Since that last element has nowhere else to go, it is in its final position, and the whole array is sorted.`,
+        `Phase one builds the heap. Start at the last parent, floor(n / 2) - 1, and move backward to index 0. For each parent, compare it with its larger child. If the child is bigger, swap and continue sinking the parent until the local subtree satisfies the heap property. Going bottom-up matters: by the time a parent is repaired, both child subtrees are already valid heaps.`,
+        `Phase two sorts. The maximum is at index 0. Swap it with the last item in the unsorted zone, shrink the heap size by one, and sift the new root down to restore order. The right side of the array grows as a sorted suffix from largest to smallest. This is the same structural idea behind Binary Heap (Priority Queue), but the priority queue is being consumed inside the original array.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Building the heap (phase 1) is O(n) — not O(n log n) as intuition might suggest, because most subtrees are small and sift down only a few levels. Extracting n maxima (phase 2) is O(n log n) because each extraction sifts down at most log n levels. Total: O(n log n) in all cases. Space complexity is O(1) besides the input array. Heap sort is one of the few comparison sorts with guaranteed O(n log n) and O(1) extra space, which is why it is a fallback when quicksort's worst case is a concern.`,
+        `Bottom-up heap construction is O(n), not O(n log n), because most nodes sit near leaves and can sink only one or two levels. Extraction dominates: n removals, each with at most log2 n swaps and comparisons, for O(n log n) time in best, average, and worst cases. Extra space is O(1) beyond the input array.`,
+        `Those guarantees explain why introsort can fall back to it. The Big-O Growth Rates look excellent, but hardware details matter. A sift-down path from 0 to 2i + 1 to 4i + 3 does not scan sequential memory, so CPU prefetchers help less than they do for Merge Sort or partition-based loops.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Heap sort is rarely the first choice for sorting because its random memory access pattern on modern hardware (traversing the tree via index arithmetic) is slower than quicksort's sequential scans and cache-friendly behavior. However, it is used as a safety net: C++ std::sort (introsort) falls back to heap sort if quicksort recursion depth exceeds a threshold, ensuring O(n log n) even on adversarial input. The heap data structure itself is far more useful than heap sort; heaps power priority queues, Dijkstra's algorithm, Huffman coding, and online median-finding. Heap sort is often taught not for production use but to introduce the heap concept.`,
+        `The full sort is most visible as a safety net inside hybrid library sorts. The heap structure itself is more important: operating systems use priority queues for scheduling, Dijkstra's Shortest Path uses a heap to pop the cheapest frontier node, Prim's Algorithm can use the same structure for minimum spanning trees, and Huffman Coding repeatedly removes the two lightest symbols. In streaming analytics, two heaps maintain a running median in O(log n) per update.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A common misconception is that heap sort should be the default because it has guaranteed O(n log n) and O(1) space. In practice, quicksort with good pivot selection is faster due to better cache locality and simpler inner loops. Heap sort's random index pattern defeats CPU prefetching and causes cache misses. The O(n log n) guarantee sounds better until you profile real hardware.`,
-        `Another pitfall is confusing the heap property (parent ≥ children) with sortedness. A max-heap only promises the root is the largest; the rest of the array can be in any order. That is why extraction is necessary — a max-heap is not automatically sorted. Finally, beginners sometimes sift UP instead of DOWN, which breaks the heap property and produces wrong results.`,
+        `A heap is not a sorted array. It only promises that each parent beats its children, so siblings and cousins can appear in almost any order. That is why the extraction phase is necessary. Another common mistake is building the heap by repeated insertions and calling that the algorithm; repeated insertion works but costs O(n log n), while Floyd's bottom-up heapify is O(n).`,
+        `The sort is also not stable. Equal records can swap across each other during heap repair. And although the extra storage is O(1), recursive Tree Traversals are not involved here; the tree shape is implicit arithmetic over an array, not pointers and recursion.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Understand Binary Heap (Priority Queue) to see the heap concept beyond sorting. Study Merge Sort and Quick Sort to compare the practical costs of different O(n log n) strategies. Learn Recursion and Big-O Growth Rates to internalize why O(n log n) is the theoretical floor for comparison-based sorts. Explore advanced topics like introsort (the fallback mechanism), and how real libraries choose between sort algorithms based on input characteristics and hardware profiles.`,
+        `Study Binary Heap (Priority Queue) to use the structure without destroying it as a sort. Compare Quick Sort and Merge Sort for the locality, stability, and worst-case trade-offs. Big-O Growth Rates explains why O(n log n) is the target for comparison sorting. Then connect the same heap operation to Dijkstra's Shortest Path, Prim's Algorithm, and Huffman Coding.`,
       ],
     },
   ],
 };
-

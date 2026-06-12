@@ -93,44 +93,44 @@ function* quickSort(values, lo, hi, done) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Quicksort is the favorite production sort of the industry: it is in-place, has tight inner loops, and runs in O(n log n) average time. The idea is simple: pick a pivot element, partition the array so everything smaller goes left and everything larger goes right, then recursively sort both sides. The pivot lands in its final position after partitioning, never to move again. Unlike merge sort, no extra array is needed.`,
-        `It is not stable (equal elements may reorder), and in the worst case it degrades to O(n²) if the pivot consistently lands at the worst position. Real implementations mitigate this with better pivot selection strategies (median-of-three, random, introsort fallback). When the pivot splits the array evenly, quicksort dominates every other sort in practice due to cache locality and instruction-level parallelism.`,
+        `Quicksort is the classic in-place divide-and-conquer sort: choose a pivot, partition the array so lower values land on one side and higher values on the other, then repeat on the two smaller ranges. Tony Hoare published it in 1961, and the reason it survived is not just the O(n log n) average case. Its partition loop walks memory mostly left to right, uses few writes, and keeps the hot working set inside CPU cache.`,
+        `The pivot becomes final after one partition. The two sides are not fully sorted yet; they are merely safe to solve independently. Compared with Merge Sort, this usually saves the extra O(n) merge buffer. Compared with Heap Sort, it usually has better locality. Compared with Insertion Sort, it wins once ranges stop being tiny. Production libraries often use hybrids: C++ sort is usually introsort, Java primitive arrays use dual-pivot quicksort, and small subarrays often finish with insertion-style cleanup.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Choose a pivot (in this visualization, the last element). Scan the array, comparing each element to the pivot. Elements smaller than or equal to the pivot move to the left; others stay on the right. The mechanism is a moving boundary between the "left zone" (≤ pivot) and the "unclassified zone." As you scan from left to right, when you hit an element that belongs on the left, swap it to the boundary position and advance the boundary. After scanning the whole range, swap the pivot into the boundary position — it is now in its final spot. Recursively apply the same process to the left and right portions.`,
-        `The Lomuto partition scheme used here tracks a boundary marker. It is slightly slower than Hoare's partition (which uses two pointers scanning from opposite ends) but is easier to understand and visualize. The key invariant is that after partitioning, all elements at positions lo to boundary−1 are ≤ pivot, position boundary holds the pivot, and positions boundary+1 to hi are > pivot.`,
+        `This visualization uses Lomuto partitioning. Pick the last item as the pivot. Keep a boundary marking the first position of the greater-than-pivot zone. Scan left to right; when a value belongs on the low side, swap it with the boundary and advance the boundary. At the end, swap the pivot into the boundary. The invariant is precise: values before the boundary are <= pivot, values between boundary and the scan cursor are > pivot, and the unscanned suffix is unknown.`,
+        `Hoare's original partition uses Two Pointers moving inward from both ends and often makes fewer swaps, but Lomuto is easier to teach because it has one moving frontier. After partitioning, Recursion solves the left and right ranges. Real implementations avoid recursive overhead on small ranges, pick pivots by median-of-three or sampling, and switch to Heap Sort if recursion becomes too deep.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Best and average cases are O(n log n) when the pivot splits the array near the middle, creating a balanced recursion tree of depth log n with O(n) work per level. Worst case is O(n²) if the pivot is always the smallest or largest element (creating a lopsided tree of depth n). Space complexity is O(log n) for the recursion stack in the average case, O(n) in the worst case. In practice, good pivot selection (median-of-three or random) makes the worst case vanishingly unlikely, and the tight inner loop beats merge sort and most other O(n log n) sorts.`,
+        `Each partition scans its range once. If pivots split roughly in half, there are about log2 n levels, so the total work is O(n log n). If the pivot is always the smallest or largest value, the recursion depth becomes n and the work becomes O(n^2). A sorted array is therefore bad for the naive last-pivot version shown here.`,
+        `Average stack space is O(log n), but worst-case stack space is O(n) unless the implementation recurses on the smaller side first or uses an explicit stack. The Big-O Growth Rates lesson explains why O(n log n) is the comparison-sort target: comparison sorting cannot beat that bound in the general case, but constants and memory locality still decide real speed.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Quicksort is the default choice in C's stdlib qsort, C++ std::sort (which is actually introsort — quicksort with a fallback to heap sort after a depth limit), Java's Arrays.sort (dual-pivot quicksort), and many other languages. Its cache-friendly access patterns make it faster than theoretically superior algorithms like merge sort on modern hardware. When worst-case guarantees are critical, introsort (which switches to heap sort after a recursion depth limit) is used. When stability is required, Timsort (Python, Java collections) blends insertion sort with merge sort.`,
+        `This algorithm shaped production sorting for decades, but exact library behavior varies. The C standard function qsort specifies an interface, not the algorithm. Many C libraries use quicksort-derived or introspective variants. C++ standard-library sort implementations commonly use Musser's 1997 introsort idea: partition like quicksort, then fall back to Heap Sort when depth exceeds about 2 log n. Java 7 adopted Vladimir Yaroslavskiy's dual-pivot variant for primitive arrays in 2009; object arrays use stable TimSort-style logic because object equality order matters.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A common misconception is that O(n²) worst-case makes quicksort unreliable. In practice, with modern pivot selection (random or median-of-three), the worst case is so rare that quicksort is more predictable than naïve merge sort for real-world data. The real risk is a bad pivot-selection strategy on deliberately adversarial input — security researchers have crafted hash table inputs that trigger O(n log n) behavior in sorts with fixed pivot schemes.`,
-        `Another pitfall is confusing the partition step's role. The partition does NOT sort the two sides; it just arranges them so that all left-side elements are ≤ pivot and all right-side elements are > pivot. The sorting happens recursively. Beginners sometimes expect a single partition to sort the whole array, leading to confusion when the result is not sorted.`,
+        `The first misconception is that partitioning sorts. It does not. One partition only proves that the pivot is final and that every low-side value belongs before every high-side value. The recursive calls do the remaining work. The second misconception is that the worst case is only theoretical. Fixed-pivot schemes can be forced into O(n^2) by already sorted, reverse-sorted, or adversarially arranged inputs.`,
+        `Duplicates need care. A two-way partition that sends every equal value to one side can become badly unbalanced when the array has many repeats. Three-way partitioning groups values less than, equal to, and greater than the pivot, which is why it is useful on data with many duplicate keys. Stability is also not automatic: equal records can cross during swaps, so use Merge Sort or another stable algorithm when equal-key order must be preserved.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Compare quicksort to Merge Sort to understand the trade-off between in-place (low space) and stable sorts. Study Heap Sort for another O(n log n) in-place sort with guaranteed worst-case. Learn about the Two Pointers technique, which is the foundation of the faster Hoare partition scheme. Explore introsort, the production hybrid used in C++ std::sort. Finally, study Recursion and Divide-and-Conquer strategies to grasp why these recursive approaches are so powerful.`,
+        `Study Merge Sort for stability and predictable O(n log n) time with extra memory. Study Heap Sort for the in-place worst-case guarantee that introsort uses as a safety valve. Review Insertion Sort because real quicksorts hand tiny ranges to it. Two Pointers explains Hoare-style partitioning, Recursion explains the call tree, and Big-O Growth Rates gives the scaling context behind the whole family.`,
       ],
     },
   ],
 };
-

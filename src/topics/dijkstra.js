@@ -104,43 +104,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Dijkstra's algorithm finds the cheapest path from a source to any reachable node in a weighted graph (a graph where edges have costs). Breadth-first search finds the path with the fewest hops, but if edges have different costs — kilometers, time, money — the fewest hops may not be the cheapest. Dijkstra replaces BFS's queue with a greedy rule: always expand the unsettled node with the lowest known cost. This guarantees that the first time you settle a node, you have found its cheapest path.`,
-        `The algorithm maintains two pieces of state: the best-known distance to each node (initialized to infinity for all but the source) and a parent pointer to reconstruct paths. It repeatedly selects the cheapest unsettled node, settles it (marking its distance as final), then relaxes its outgoing edges: for each neighbor, it checks if going through the just-settled node provides a cheaper path, and if so, updates the neighbor's distance.`,
+        `Dijkstra's algorithm finds minimum-cost paths from one source to every reachable node in a graph whose edge weights are nonnegative. Edsger Dijkstra described it in 1959 after thinking about a shortest-route problem between Dutch cities. The move is greedy: repeatedly settle the unsettled node with the smallest known distance, then improve its neighbors through edge relaxation.`,
+        `This is what Graph BFS becomes when edges have prices. BFS treats every edge as cost 1, so fewest hops equals lowest cost. Once edges represent seconds, dollars, risk, or distance, a two-edge route can be worse than a five-edge route. The algorithm keeps the best known cost to each node and a parent pointer so the winning route can be reconstructed.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Initialize all distances to infinity except the source, which is 0. Then repeat: find the unsettled node with the smallest distance, settle it, and for each unsettled neighbor of that node, compute the cost of reaching it via the just-settled node (settled node's distance + edge weight). If this cost is better than the neighbor's current best, update the neighbor's distance and parent.`,
-        `The greedy strategy works because of a key invariant: once a node is settled, its distance is final. No future discovery can find a cheaper path to a settled node because all unsettled nodes have distance greater than or equal to the settled node's distance, so any path through them would be more expensive. This guarantees correctness. In practice, a binary heap (priority queue) selects the cheapest unsettled node in O(log n) instead of scanning all unsettled nodes, reducing the total time complexity.`,
+        `Initialize every distance to infinity except the source, which is 0. Put reachable candidates in a priority structure ordered by distance. Pop the cheapest unsettled node; its distance is now final. For each outgoing edge, compute candidate = distance(current) + edge weight. If that candidate beats the neighbor's current distance, update the neighbor and remember current as its parent.`,
+        `The proof rests on nonnegative weights. When the cheapest unsettled node is selected, every alternative route to it would have to pass through another unsettled node whose distance is already no smaller, then add a nonnegative edge. That route cannot improve the answer. A Binary Heap (Priority Queue) makes the cheapest-node selection efficient; a plain Queue would lose the cost ordering.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `With a naive implementation (scanning for the cheapest unsettled node each iteration), Dijkstra runs in O(V^2 + E) with V nodes and E edges. With a binary heap for the priority queue, it is O((V + E) log V). The space complexity is O(V) for the distance and parent maps. Dijkstra fails on graphs with negative edge weights — the greedy strategy can miss cheaper paths because settling a node early might prevent discovering a better path through a negative edge. For those graphs, use the Bellman-Ford algorithm instead.`,
+        `If you scan all unsettled nodes to find the cheapest one, time is O(V^2 + E). With a binary heap and adjacency lists, the usual bound is O((V + E) log V). Some implementations push duplicate heap entries instead of decreasing keys; the asymptotic shape is similar but the heap may hold O(E) entries. Distance and parent maps take O(V) space, plus the graph storage and priority queue.`,
+        `Negative edges break the greedy finality proof. A later negative edge could make an already settled node cheaper. Use Bellman-Ford-style relaxation for negative weights, and avoid negative cycles entirely because no finite shortest path exists there. Big-O Growth Rates explains why the heap version matters on sparse road-like graphs.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `GPS navigation systems use Dijkstra (or a variant like A*) to compute shortest routes, where edge weights are distances or travel times. Internet routers use OSPF (Open Shortest Path First), which is Dijkstra's algorithm on a graph of networks. Game pathfinding uses variants of Dijkstra to find optimal character movement. Flight planning systems use it to find cheap ticket combinations. Social networks might use it to find the minimum-cost connection between two people (where cost is social distance or barrier to contact). Network optimization and resource allocation both rely on cheapest-path algorithms to reduce costs or latency.`,
+        `Network routing protocols such as OSPF run shortest-path-first calculations over link-state graphs. Mapping systems use variants plus preprocessing, traffic models, and A* Search-style heuristics. Games use it when movement costs differ by terrain. Robotics planners use weighted graphs for energy, risk, or time. Prim's Algorithm for minimum spanning trees looks similar because it also grows a frontier with a priority queue, but it optimizes total connection cost, not path cost from one source.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest mistake is using Dijkstra on a graph with negative edge weights — it will give wrong answers because the greedy "settle the cheapest node" strategy breaks. For negative weights, use Bellman-Ford. Another trap is confusing Dijkstra with BFS: BFS is simpler and faster for unweighted graphs, but Dijkstra is necessary when edges have costs. Failing to use a priority queue and instead scanning for the cheapest unsettled node each iteration makes the algorithm O(V^2), which is prohibitively slow on large graphs. A subtle bug arises if you relax edges without checking whether a node is settled: you might process a node multiple times or miss the settlement invariant. Finally, assuming the path with the fewest hops is the cheapest leads to wrong results in weighted graphs.`,
+        `Do not use it merely because the input is a graph. If every edge has equal cost, Graph BFS is simpler and faster. If the graph is a dependency DAG, Topological Sort answers ordering, not route cost. If the graph has negative edges, this greedy method can return wrong answers.`,
+        `Another practical pitfall is forgetting stale priority-queue entries. If a node's distance improves after an older, worse entry was pushed, popping the stale entry later must be ignored. Production code usually checks whether the popped distance still equals the current best distance before relaxing edges.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Study Binary Heap (Priority Queue), which is essential for efficient Dijkstra implementation. Explore Graph BFS to understand the simpler unweighted case. Learn A* pathfinding, which is Dijkstra with a heuristic for faster search in games. Study the Bellman-Ford algorithm for graphs with negative edge weights. Understand the call stack in Recursion to see how pathfinding algorithms maintain call frames during exploration.`,
+        `Study Graph BFS for the unweighted version, then Binary Heap (Priority Queue) for the data structure that makes the frontier fast. A* Search adds a heuristic to reduce search around a goal. Prim's Algorithm reuses the priority-queue frontier for spanning trees. Queue and Big-O Growth Rates fill in the implementation and scaling background.`,
       ],
     },
   ],
 };
-

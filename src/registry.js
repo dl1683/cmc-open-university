@@ -319,6 +319,16 @@ export const topics = [
     module: () => import('./topics/bootstrap-ci.js'),
   },
   {
+    id: 'power-analysis',
+    type: 'visualization',
+    buildsOn: ['ab-testing', 'bootstrap-ci'],
+    category: 'Concepts',
+    title: 'Statistical Power & Sample Size',
+    summary: 'Can your experiment even SEE the effect it hunts? Power computed live — and the n it demands will surprise you.',
+    tags: ['statistical power', 'sample size', 'minimum detectable effect', 'winners curse', 'experiments', 'A/B testing'],
+    module: () => import('./topics/power-analysis.js'),
+  },
+  {
     id: 'binary-exponentiation',
     type: 'visualization',
     buildsOn: ['recursion', 'big-o-growth'],

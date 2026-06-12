@@ -54,44 +54,45 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Linear search is the simplest searching algorithm: start at the beginning of the array, check each element in turn, and return the index when you find a match. If you reach the end without finding the target, it does not exist. No structure, no cleverness — just a straightforward left-to-right scan. Every array supports linear search immediately; it requires nothing (no sorting, no preprocessing).`,
-        `It is the baseline: every faster search algorithm must beat it. Linear search is honest, working on any data regardless of order. It is also robust — there is no worst-case pathology, and the constants are small.`,
+        `Linear scanning is the baseline search: inspect one item, compare it with the target, and either stop or move to the next item. It requires no sorting, no index, no Hash Table, and no preprocessing. If the item appears, the scan returns the first matching position. If the scan reaches the end, absence has been proven by exhaustion.`,
+        `That simplicity is its strength. It works on arrays, linked data, streams, logs, files, and any iterable sequence. It is also the honest lower bound for unstructured data: if the data gives you no ordering or index, every unchecked element could still be the answer.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Maintain an index starting at 0. At each step, compare the element at the current index to the target. If they match, return the index immediately. If not, increment the index and continue. After checking all n elements without a match, return not-found. The algorithm maintains an invariant: all elements to the left of the current index have been examined and rejected.`,
-        `The key characteristic is that early success can cut the search short. If the target is at position 0, you return in one step. If it is near the end, you check n−1 elements. If it is not there, you check all n elements. This variability is why linear search is O(n) worst case but can be much faster on average or best case (O(1) if the target is first).`,
+        `Maintain a cursor starting at index 0. At each step, compare the current value to the target. A match returns immediately. A mismatch advances the cursor. The invariant is that everything before the cursor has already been checked and rejected. This is the same mental model used by Sliding Window and Two Pointers techniques, but here only one cursor is needed.`,
+        `Early exit matters. A target at index 0 costs one comparison. A target at the last index costs n comparisons. A missing target also costs n comparisons. If multiple matches are required, the scan must continue after the first hit and collect all positions, which is why log scanners and grep-like tools are still fundamentally linear.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Best case is O(1) — the target is the first element. Average case is O(n/2) = O(n) — you expect to check half the array on average if the target exists and is equally likely to be anywhere. Worst case is O(n) — the target is at the end or not present at all. Space complexity is O(1); you only track the current index. No preprocessing, no data structure needed.`,
+        `Best case is O(1). If the target exists and is equally likely to be anywhere, the expected number of comparisons is (n + 1) / 2. If the target is absent, the cost is n. Big-O drops the constants, so average and worst case are both O(n). Extra space is O(1).`,
+        `For small n, the constants are excellent: one tight loop over contiguous memory can beat Binary Search because branch prediction and prefetching are friendly. For repeated queries over large data, the lack of preprocessing becomes the bottleneck. Sorting once enables O(log n) search; hashing once enables average O(1) lookup.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Linear search dominates when the array is small (under ~100 elements) because the O(1) space and tight inner loop beat the overhead of binary search or hash tables. It is also used when the data arrives as a stream and you must search as elements come in, or when you need to find multiple matches (and binary search requires multiple lookups). Search in memory-constrained systems often uses linear search by default because no index structure is needed. However, for larger datasets or repeated searches, hash tables (O(1) average lookup) and binary search (O(log n) guaranteed on sorted data) are much faster.`,
+        `Compilers linearly scan tiny token lists and symbol buckets. JavaScript engines and databases scan short arrays before choosing heavier index machinery. Operating systems scan process tables and file descriptor arrays when the table is small. Unix tools such as grep stream bytes from disk because the file may be larger than memory and may never be queried again.`,
+        `Membership filters also start from this baseline. A Bloom Filter can reject many absent queries before a scan or disk lookup. A Hash Table is better for repeated exact lookups, and Binary Search is better once sorted order is already available.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A common misconception is dismissing linear search as always slow. On small arrays, linear search is often faster than binary search because binary search has more overhead (logarithmic comparisons are still multiple probes, and each one is more complex than a simple equality check). The crossover point varies, but is typically around 50–100 elements.`,
-        `Another pitfall is assuming linear search does not work on sorted data. It works fine; sorting is simply not required. If you sort the data, you enable faster algorithms like binary search, but linear search still functions correctly on sorted data (it just wastes the structure).`,
+        `The common mistake is treating O(n) as automatically bad. If n is 8, a scan is often the simplest and fastest answer. If n is 8,000,000 and queries repeat, it is usually the wrong data structure. Another misconception is that sorted data prevents scanning. A scan still works on sorted data; it just ignores useful structure.`,
+        `Be careful about equality. Searching objects by reference is different from searching by a field, a normalized string, or a comparator. Real systems often fail here through case sensitivity, Unicode normalization, or floating-point comparison surprises rather than through the loop itself.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Move to Binary Search to see how sorting enables O(log n) searching. Study Big-O Growth Rates to grasp the exponential advantage of logarithmic over linear time at scale. Explore hash tables and hash functions to understand O(1) average-case searching. Finally, study the analysis of algorithms and how best, average, and worst cases all matter in practice.`,
+        `Study Binary Search to see how sorted order changes the game. Hash Table shows average O(1) lookup after preprocessing. Bloom Filter explains fast negative answers with false positives. Big-O Growth Rates gives scale intuition, while Sliding Window and Two Pointers show how controlled scans become more powerful than a plain one-cursor pass.`,
       ],
     },
   ],
 };
-

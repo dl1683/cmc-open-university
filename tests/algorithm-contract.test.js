@@ -1591,6 +1591,24 @@ test('tail-latency: fan-out turns a 1% tail into a 63% page problem and hedging 
   assert.ok(tame.some((s) => /percentiles do not average/.test(s.explanation)), 'percentile-averaging blunder called out');
 });
 
+test('power-analysis: 2,000 users detect a real 10% lift one time in ten, and 80% power costs 31,232 per arm', async () => {
+  const topic = await loadTopic('power-analysis');
+  const flip = runTopic(topic, { view: 'the coin-flip experiment' });
+  const live = flip.find((s) => /Power at n = 2,000/.test(s.state.title ?? '')).state;
+  const detect = live.cells.find((c) => c.id === 'detect:p').value;
+  assert.ok(Math.abs(detect - 10.5) < 0.3, 'power at n=2000 is ~10.5%');
+  assert.ok(flip.some((s) => /WINNER'S CURSE/.test(s.explanation)), 'winners curse explained');
+  const sizing = runTopic(topic, { view: 'sizing the experiment, live' });
+  const curve = sizing[0].state;
+  const at = (n) => curve.series[0].points.find((p) => p.x === n).y;
+  assert.ok(at(31000) > 79 && at(31000) < 81, 'curve crosses 80% near 31k per arm');
+  assert.ok(at(2000) < 12, 'the coin flip sits low on the same curve');
+  const law = sizing.find((s) => /inverse-square law/.test(s.state.title ?? '')).state;
+  assert.equal(law.cells.find((c) => c.id === 'l10%:n').value, 31232, '10% lift costs 31,232 per arm');
+  assert.ok(law.cells.find((c) => c.id === 'l5%:n').value > 3.8 * law.cells.find((c) => c.id === 'l10%:n').value, 'halving the effect ~quadruples n');
+  assert.ok(sizing.some((s) => /pick three, the fourth is determined/.test(s.state.title ?? '')), 'four-way trade staged');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

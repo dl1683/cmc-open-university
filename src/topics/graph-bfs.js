@@ -98,41 +98,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Breadth-first search (BFS) is an algorithm for exploring a graph starting from a source node, visiting all nodes reachable from that source. It explores outward in expanding rings: first visit all neighbors, then all neighbors of neighbors, and so on. At each hop distance, all nodes are visited before moving to the next distance. The result is a "shortest path tree" where the path from the source to any node uses the fewest edges possible.`,
-        `BFS differs from depth-first search in its order of exploration. DFS dives deep into one branch before backtracking; BFS fans out evenly in all directions, always exploring the closest unvisited nodes first. This makes BFS the natural choice for finding shortest paths in unweighted graphs, detecting connected components, and level-order exploration.`,
+        `Breadth-first search explores a graph in expanding rings from a source. First it visits nodes one edge away, then nodes two edges away, then three, and so on. That ring order is what gives the algorithm its strongest guarantee: in an unweighted graph, the first time a node is discovered, the recorded path uses the fewest possible edges.`,
+        `A graph can contain cycles, cross-links, and disconnected components, so this is not just Tree Traversals with different labels. The algorithm must remember which nodes have already been seen. Without that seen set, a cycle like A to B to A can loop forever or enqueue the same node exponentially many times.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Start with the source node in a queue. Mark it as seen. Then repeatedly dequeue a node, examine all its unvisited neighbors, mark them as seen, record their distance (current distance + 1), and enqueue them. The queue ensures nodes are processed in the order they are discovered. Nodes at distance d are processed before any node at distance d+1, because nodes at distance d are enqueued before nodes at distance d+1.`,
-        `To track the shortest path, maintain a parent pointer for each node, recording which node discovered it. When you reach the target, backtrack through parent pointers to reconstruct the path. The queue is essential: it enforces the layer-by-layer exploration that guarantees shortest paths. Unlike depth-first search (which uses a stack and explores deeply), BFS uses a queue to explore widely.`,
+        `Put the source node into a Queue and mark it seen. Repeatedly dequeue the oldest node, inspect each neighbor, and enqueue only the neighbors not seen before. When a neighbor is first discovered, store its parent pointer and distance as current distance + 1. Parent pointers reconstruct the path once the target is found.`,
+        `The queue is the proof mechanism. Nodes discovered at distance d enter the queue before nodes at distance d + 1, so all closer work is processed first. This is why the path is shortest by hop count. A Stack would create depth-first behavior instead, which can be useful for cycle detection or backtracking but does not guarantee fewest hops.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `BFS visits every node once and examines every edge twice (once from each direction, unless the graph is directed). With V nodes and E edges, the time complexity is O(V + E). Space complexity is O(V) for the queue and the seen set. The queue size is bounded by the maximum number of nodes at any distance, which is at most V. BFS is more efficient than trying all paths or random exploration because it visits each node exactly once and does not revisit nodes.`,
+        `With V vertices and E edges in an adjacency-list graph, time is O(V + E): each vertex enters the queue once, and each edge is examined once in a directed graph or twice in an undirected graph. Space is O(V) for the queue, seen set, distance map, and parent map. On a dense adjacency matrix, scanning neighbors can cost O(V^2) because every row has to be checked.`,
+        `The Big-O Growth Rates are linear in the explicit graph size, not in the number of possible paths. That distinction is the whole win: a graph with cycles can have exponentially many walks, but breadth-first search refuses to revisit already seen nodes.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Social networks use BFS to compute degrees of separation — how many hops away is one person from another. GPS and routing systems use BFS (or Dijkstra for weighted roads) to find shortest routes. Web crawlers use BFS to explore the web, discovering new pages from known pages. Operating systems use BFS in garbage collection to mark reachable objects. Peer-to-peer networks use BFS to flood-fill messages (Gnutella, BitTorrent). Game pathfinding uses BFS to find shortest paths for characters. Network switches use BFS-like algorithms to forward packets efficiently.`,
+        `Social networks use this pattern for degrees of separation. Web crawlers use it or priority-adjusted variants to fan out from seed pages. Garbage collectors mark all objects reachable from roots. Peer-to-peer systems flood messages with a hop limit. In games, it finds shortest movement paths on unweighted grids. Weighted road networks need Dijkstra's Shortest Path or A* Search instead because one hop may be far more expensive than another.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A common mistake is using BFS on weighted graphs without adjusting the algorithm. BFS finds the path with the fewest hops, not the lowest total weight — use Dijkstra's algorithm instead for weighted graphs. Forgetting to mark nodes as seen before enqueuing them leads to infinite loops and revisiting the same node many times. Confusing BFS with depth-first search is easy: remember BFS explores all neighbors before going deeper (breadth first), while DFS explores one branch all the way before backtracking (depth first). Assuming BFS always finds a path is wrong: in a disconnected graph, BFS only reaches nodes in the same component as the source. Finally, BFS requires tracking which nodes have been visited; without that, the algorithm degenerates into exploring every path.`,
+        `The biggest mistake is applying it to weighted edges and expecting cheapest paths. It finds fewest edges, not lowest cost. Another bug is marking a node seen only when dequeued; in graphs with many incoming edges, that can enqueue duplicates. Mark when enqueuing so each vertex enters once. Also remember disconnected graphs: starting from A cannot reach nodes in another component.`,
+        `It is not inherently recursive. The normal implementation is iterative and queue-driven. Recursion can express depth-first traversal naturally, but breadth-first order needs an explicit frontier. Topological Sort uses a queue too, yet its priority is in-degree zero rather than graph distance.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Study Dijkstra's Shortest Path to see how BFS extends to weighted graphs using a priority queue instead of a regular queue. Learn Graph DFS (depth-first search) to contrast with BFS and understand when to use each. Explore Tree Traversals and level-order traversal, which use the same queue-based approach on trees. Understand Queue, which is the data structure powering BFS.`,
+        `Study Queue first, because it is the engine. Tree Traversals shows the same level-order idea on trees. Dijkstra's Shortest Path adds edge weights with Binary Heap (Priority Queue). A* Search adds a goal-directed heuristic. Topological Sort shows another queue-based graph algorithm, and Big-O Growth Rates explains why O(V + E) is so powerful.`,
       ],
     },
   ],
