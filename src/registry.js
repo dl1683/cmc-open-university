@@ -926,6 +926,16 @@ export const topics = [
     module: () => import('./topics/uncertainty-quantification.js'),
   },
   {
+    id: 'adversarial-examples',
+    type: 'visualization',
+    buildsOn: ['logistic-regression', 'gradient-descent', 'uncertainty-quantification'],
+    category: 'AI & ML',
+    title: 'Adversarial Examples & FGSM',
+    summary: 'Point the gradient at the input instead of the weights: one deliberate nudge turns 97% spam into 14%.',
+    tags: ['adversarial examples', 'FGSM', 'robustness', 'security', 'evasion', 'gradients'],
+    module: () => import('./topics/adversarial-examples.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],

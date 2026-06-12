@@ -1014,6 +1014,23 @@ test('web-workers: render unfreezes when the parse moves threads, and the clone 
   assert.match(move.cells.find((c) => c.id === 'transfer:catch').label, /neutered/, 'transfer neuters the sender');
 });
 
+test('adversarial-examples: two FGSM steps walk 97% spam to 14%, and damage scales with dimension', async () => {
+  const topic = await loadTopic('adversarial-examples');
+  const fool = runTopic(topic, { view: 'fooling the spam filter' });
+  const ledger = fool.find((s) => /The attack, summarized/.test(s.state.title ?? '')).state;
+  const cell = (id) => ledger.cells.find((c) => c.id === id).value;
+  assert.ok(cell('orig:p') > 0.97, 'original scam confidently flagged');
+  assert.ok(cell('adv:p') < 0.15, 'adversarial copy sails through');
+  assert.ok(fool.some((s) => (s.state.vectors ?? []).some((v) => v.id === 'grad')), 'gradient escape arrow drawn');
+  assert.ok(fool.some((s) => /x′ = x − ε·sign\(∇ₓ\)/.test(s.explanation)), 'FGSM formula stated');
+  const why = runTopic(topic, { view: 'why tiny steps fool big models' });
+  const dims = why[0].state;
+  assert.ok(Math.abs(dims.cells.find((c) => c.id === 'toy:shift').value - 0.002) < 1e-9, 'toy shift negligible');
+  assert.ok(dims.cells.find((c) => c.id === 'imagenet:shift').value > 150, 'ImageNet shift overwhelming');
+  const menu = why[why.length - 1].state;
+  assert.match(menu.cells.find((c) => c.id === 'mask:verdict').label, /FALSE security/, 'gradient masking called out');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
