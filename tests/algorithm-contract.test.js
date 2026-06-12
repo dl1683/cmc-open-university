@@ -878,6 +878,22 @@ test('calibration-curves: overconfidence sags below diagonal, T=2 repairs ECE wi
   assert.ok(pts.every((p) => Math.abs(p.x - p.y) <= 0.01 + 1e-9), 'scaled bins land within 1 point of honest');
 });
 
+test('logistic-regression: gradient descent drives loss down and misclassifications to zero', async () => {
+  const topic = await loadTopic('logistic-regression');
+  const learn = runTopic(topic, { view: 'the boundary learn' });
+  const epochs = learn.filter((s) => /^Epoch \d+/.test(s.explanation));
+  assert.equal(epochs.length, 4, 'four training checkpoints');
+  const losses = epochs.map((s) => Number(s.explanation.match(/average loss ([\d.]+)/)[1]));
+  for (let i = 1; i < losses.length; i++) assert.ok(losses[i] < losses[i - 1], 'loss strictly decreases');
+  assert.match(epochs[0].explanation, /misclassified [1-9]\/10/, 'starts with errors');
+  assert.match(epochs[3].explanation, /misclassified 0\/10/, 'ends fully separated');
+  assert.ok(epochs[3].state.series.some((ser) => ser.id === 'boundary'), 'boundary line rendered');
+  const close = runTopic(topic, { view: 'the sigmoid up close' });
+  const sig = close.find((s) => /squashing function/.test(s.explanation)).state;
+  assert.equal(sig.markers.find((m) => m.id === 'mZero').y, 0.5, 'sigmoid(0) = 0.5');
+  assert.ok(close.some((s) => /\(p − y\)·x/.test(s.explanation)), 'gradient formula stated');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

@@ -846,6 +846,16 @@ export const topics = [
     module: () => import('./topics/calibration-curves.js'),
   },
   {
+    id: 'logistic-regression',
+    type: 'visualization',
+    buildsOn: ['gradient-descent', 'nn-forward-pass', 'roc-auc'],
+    category: 'AI & ML',
+    title: 'Logistic Regression',
+    summary: 'A weighted sum, a sigmoid squash, and a boundary that gradient descent drags into place before your eyes.',
+    tags: ['logistic regression', 'sigmoid', 'classification', 'decision boundary', 'cross-entropy', 'gradient descent'],
+    module: () => import('./topics/logistic-regression.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],
