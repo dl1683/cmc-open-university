@@ -569,6 +569,20 @@ test('finite-state-machine: accepts exactly the ab*c strings', async () => {
   }
 });
 
+test('edit-distance: computes the canonical distances with a correct edit script', async () => {
+  const topic = await loadTopic('edit-distance');
+  const cases = [['kitten → sitting', 3], ['sunday → saturday', 3], ['cat → cat', 0]];
+  for (const [pair, expected] of cases) {
+    const steps = runTopic(topic, { pair });
+    const answer = steps.find((s) => s.state.title && s.state.title.startsWith('The answer'));
+    const corner = answer.highlight.found[0];
+    const value = answer.state.cells.find((c) => c.id === corner).value;
+    assert.equal(value, expected, `${pair} distance ${expected}`);
+  }
+  const kitten = runTopic(topic, { pair: 'kitten → sitting' });
+  assert.match(lastText(kitten), /substitute 'k' → 's'.*insert 'g'/s, 'edit script recovered');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

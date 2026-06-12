@@ -279,6 +279,16 @@ export const topics = [
     module: () => import('./topics/big-o-growth.js'),
   },
   {
+    id: 'edit-distance',
+    type: 'visualization',
+    buildsOn: ['memoization', 'two-pointers'],
+    category: 'Concepts',
+    title: 'Edit Distance (DP Table)',
+    summary: 'Fill a grid of subproblems and the spell-checker question answers itself in the corner.',
+    tags: ['dynamic programming', 'levenshtein', 'spell check', 'diff', 'alignment'],
+    module: () => import('./topics/edit-distance.js'),
+  },
+  {
     id: 'finite-state-machine',
     type: 'visualization',
     buildsOn: ['graph-bfs', 'trie'],
