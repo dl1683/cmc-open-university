@@ -766,6 +766,16 @@ export const topics = [
     module: () => import('./topics/pagerank.js'),
   },
   {
+    id: 'multi-armed-bandits',
+    type: 'visualization',
+    buildsOn: ['ab-testing', 'value-iteration'],
+    category: 'AI & ML',
+    title: 'Multi-Armed Bandits',
+    summary: 'Explore a little, exploit a lot — adaptive experiments that stop wasting traffic on losers.',
+    tags: ['bandits', 'epsilon-greedy', 'explore exploit', 'UCB', 'thompson sampling'],
+    module: () => import('./topics/multi-armed-bandits.js'),
+  },
+  {
     id: 'value-iteration',
     type: 'visualization',
     buildsOn: ['gradient-descent', 'pagerank', 'memoization'],

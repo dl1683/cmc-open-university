@@ -726,6 +726,18 @@ test('url-shortener: base-62 encoding is correct for both IDs', async () => {
   assert.ok(big.some((s) => /3\.5 TRILLION/.test(s.explanation)), 'capacity math taught');
 });
 
+test('multi-armed-bandits: traffic concentrates on the best arm and beats the even split', async () => {
+  const topic = await loadTopic('multi-armed-bandits');
+  for (const epsilon of ['20%', '10%']) {
+    const steps = runTopic(topic, { epsilon });
+    const final = steps.find((s) => s.state.title === 'After 1,800 visitors').state;
+    const pullsOf = (arm) => final.cells.find((c) => c.row === `arm${arm}` && c.column === 'pulls').value;
+    assert.ok(pullsOf('B') > pullsOf('A') && pullsOf('B') > pullsOf('C'), `ε=${epsilon}: B gets the most traffic`);
+    const gap = steps.find((s) => /extra sales/.test(s.explanation));
+    assert.match(gap.explanation, /\d+ extra sales/, `ε=${epsilon}: bandit beats uniform split`);
+  }
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
