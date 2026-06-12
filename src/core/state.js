@@ -18,6 +18,8 @@ export const STATE_KINDS = [
   'tree',
   'call-tree',
   'matrix',
+  'plot',
+  'scatter',
 ];
 
 export const HIGHLIGHT_KEYS = [
@@ -176,6 +178,54 @@ function defaultFormat(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
+// Computes axis ranges from the data when none are given, with 6% padding.
+function fitAxes(axes, xs, ys) {
+  const pad = (lo, hi) => {
+    const span = hi - lo || 1;
+    return { min: lo - span * 0.06, max: hi + span * 0.06 };
+  };
+  return {
+    x: { label: axes?.x?.label ?? '', ...pad(Math.min(...xs), Math.max(...xs)), ...axes?.x },
+    y: { label: axes?.y?.label ?? '', ...pad(Math.min(...ys), Math.max(...ys)), ...axes?.y },
+  };
+}
+
+// series: [{id, label, points: [{x, y}]}]; markers: [{id, x, y, label}];
+// vectors: [{id, from: {x, y}, to: {x, y}, label}]
+export function plotState({ axes, series = [], markers = [], vectors = [] }, meta = {}) {
+  const xs = [
+    ...series.flatMap((s) => s.points.map((p) => p.x)),
+    ...markers.map((m) => m.x),
+    ...vectors.flatMap((v) => [v.from.x, v.to.x]),
+  ];
+  const ys = [
+    ...series.flatMap((s) => s.points.map((p) => p.y)),
+    ...markers.map((m) => m.y),
+    ...vectors.flatMap((v) => [v.from.y, v.to.y]),
+  ];
+  return {
+    kind: 'plot',
+    axes: fitAxes(axes, xs, ys),
+    series: series.map((s) => ({ id: s.id, label: s.label ?? '', points: s.points.map((p) => ({ ...p })) })),
+    markers: markers.map((m) => ({ ...m })),
+    vectors: vectors.map((v) => ({ id: v.id, label: v.label ?? '', from: { ...v.from }, to: { ...v.to } })),
+    meta: { ...meta },
+  };
+}
+
+// points: [{id, x, y, clusterId}]; centroids: [{id, x, y, label}]
+export function scatterState({ axes, points = [], centroids = [] }, meta = {}) {
+  const xs = [...points.map((p) => p.x), ...centroids.map((c) => c.x)];
+  const ys = [...points.map((p) => p.y), ...centroids.map((c) => c.y)];
+  return {
+    kind: 'scatter',
+    axes: fitAxes(axes, xs, ys),
+    points: points.map((p) => ({ ...p, clusterId: p.clusterId ?? null })),
+    centroids: centroids.map((c) => ({ ...c })),
+    meta: { ...meta },
+  };
+}
+
 // ------------------------------------------------------- step contract
 
 export function collectStateIds(state) {
@@ -196,6 +246,17 @@ export function collectStateIds(state) {
         ...state.rows.map((row) => row.id),
         ...state.columns.map((column) => column.id),
         ...state.cells.map((cell) => cell.id),
+      ];
+    case 'plot':
+      return [
+        ...state.series.map((s) => s.id),
+        ...state.markers.map((m) => m.id),
+        ...state.vectors.map((v) => v.id),
+      ];
+    case 'scatter':
+      return [
+        ...state.points.map((p) => p.id),
+        ...state.centroids.map((c) => c.id),
       ];
     default:
       return [];

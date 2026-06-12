@@ -344,6 +344,41 @@ svg text {
 .ct-returned rect { fill: var(--good-soft); stroke: var(--good); }
 .ct-returned text { fill: var(--text); }
 
+/* plot + scatter */
+:root, [data-theme="light"], [data-theme="dark"] {
+  --viz-0: #2f7de1;
+  --viz-1: #d97706;
+  --viz-2: #0a9b6c;
+  --viz-3: #d6409f;
+}
+.svg-axis { stroke: var(--muted); stroke-width: 1.5; }
+.series polyline { fill: none; stroke-width: 2.5; }
+.s-0 polyline, .s-0 text { stroke: var(--viz-0); }
+.s-1 polyline, .s-1 text { stroke: var(--viz-1); }
+.s-2 polyline, .s-2 text { stroke: var(--viz-2); }
+.s-3 polyline, .s-3 text { stroke: var(--viz-3); }
+.series text { stroke: none; fill: var(--text); }
+.series.hl-active polyline { stroke-width: 4.5; }
+.series.hl-visited polyline { opacity: 0.3; }
+.vector line { stroke: var(--bad); stroke-width: 2.5; }
+.vector-arrowhead { fill: var(--bad); }
+.plot-marker circle { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.plot-marker.hl-visited circle { opacity: 0.35; }
+.pt circle { stroke: var(--panel); stroke-width: 1.5; }
+.cluster-none circle { fill: var(--muted); }
+.cluster-0 circle { fill: var(--viz-0); }
+.cluster-1 circle { fill: var(--viz-1); }
+.cluster-2 circle { fill: var(--viz-2); }
+.cluster-3 circle { fill: var(--viz-3); }
+.pt.hl-compare circle { stroke: var(--warn); stroke-width: 3; }
+.centroid circle { fill: none; stroke-width: 3.5; }
+.centroid line { stroke-width: 2.5; }
+.centroid.cluster-0 :is(circle, line) { stroke: var(--viz-0); }
+.centroid.cluster-1 :is(circle, line) { stroke: var(--viz-1); }
+.centroid.cluster-2 :is(circle, line) { stroke: var(--viz-2); }
+.centroid.cluster-3 :is(circle, line) { stroke: var(--viz-3); }
+.centroid.hl-active circle { stroke-dasharray: 5 4; }
+
 /* matrix */
 .mcell rect { fill: var(--accent); stroke: var(--line); stroke-width: 1; transition: fill-opacity 200ms; }
 .mcell text { fill: var(--text); }

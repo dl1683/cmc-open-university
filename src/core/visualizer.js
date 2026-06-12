@@ -263,6 +263,92 @@ function renderMatrix(container, step) {
   }
 }
 
+// Shared coordinate scaling for plot/scatter: data space -> svg space.
+function makeScales(axes, width, height, pad) {
+  return {
+    sx: (x) => pad + ((x - axes.x.min) / (axes.x.max - axes.x.min)) * (width - 2 * pad),
+    sy: (y) => height - pad - ((y - axes.y.min) / (axes.y.max - axes.y.min)) * (height - 2 * pad),
+  };
+}
+
+function drawAxes(el, axes, width, height, pad) {
+  svg('line', { x1: pad, y1: height - pad, x2: width - pad, y2: height - pad, class: 'svg-axis' }, el);
+  svg('line', { x1: pad, y1: pad, x2: pad, y2: height - pad, class: 'svg-axis' }, el);
+  if (axes.x.label) svgText(el, width / 2, height - 8, axes.x.label, 'svg-label svg-center');
+  if (axes.y.label) {
+    const label = svgText(el, 0, 0, axes.y.label, 'svg-label svg-center');
+    label.setAttribute('transform', `translate(14 ${height / 2}) rotate(-90)`);
+  }
+}
+
+function renderPlot(container, step) {
+  const { axes, series, markers, vectors } = step.state;
+  const W = 520;
+  const H = 320;
+  const PAD = 46;
+  const el = makeSvg(container, W, H);
+  const { sx, sy } = makeScales(axes, W, H, PAD);
+  drawAxes(el, axes, W, H, PAD);
+
+  const defs = svg('defs', {}, el);
+  const marker = svg('marker', {
+    id: 'plot-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5,
+    markerWidth: 6.5, markerHeight: 6.5, orient: 'auto-start-reverse',
+  }, defs);
+  svg('path', { d: 'M 0 0 L 10 5 L 0 10 z', class: 'vector-arrowhead' }, marker);
+
+  series.forEach((s, index) => {
+    const g = svg('g', { 'data-id': s.id, class: `series s-${index % 4}${highlightClassesFor(s.id, step.highlight)}` }, el);
+    svg('polyline', { points: s.points.map((p) => `${sx(p.x)},${sy(p.y)}`).join(' ') }, g);
+    if (s.label && s.points.length > 0) {
+      const last = s.points[s.points.length - 1];
+      svgText(g, sx(last.x) + 6, sy(last.y), s.label, 'series-label svg-small');
+    }
+  });
+
+  for (const vector of vectors) {
+    const g = svg('g', { 'data-id': vector.id, class: `vector${highlightClassesFor(vector.id, step.highlight)}` }, el);
+    svg('line', {
+      x1: sx(vector.from.x), y1: sy(vector.from.y),
+      x2: sx(vector.to.x), y2: sy(vector.to.y),
+      'marker-end': 'url(#plot-arrow)',
+    }, g);
+    if (vector.label) {
+      svgText(g, (sx(vector.from.x) + sx(vector.to.x)) / 2, (sy(vector.from.y) + sy(vector.to.y)) / 2 - 10, vector.label, 'svg-label svg-center svg-small');
+    }
+  }
+
+  for (const m of markers) {
+    const g = svg('g', { 'data-id': m.id, class: `plot-marker${highlightClassesFor(m.id, step.highlight)}` }, el);
+    svg('circle', { cx: sx(m.x), cy: sy(m.y), r: 7 }, g);
+    if (m.label) svgText(g, sx(m.x), sy(m.y) - 14, m.label, 'svg-label svg-center svg-small');
+  }
+}
+
+function renderScatter(container, step) {
+  const { axes, points, centroids } = step.state;
+  const W = 520;
+  const H = 340;
+  const PAD = 42;
+  const el = makeSvg(container, W, H);
+  const { sx, sy } = makeScales(axes, W, H, PAD);
+  drawAxes(el, axes, W, H, PAD);
+
+  const clusterIndex = new Map(centroids.map((c, i) => [c.id, i % 4]));
+  for (const p of points) {
+    const cluster = clusterIndex.has(p.clusterId) ? `cluster-${clusterIndex.get(p.clusterId)}` : 'cluster-none';
+    const g = svg('g', { 'data-id': p.id, class: `pt ${cluster}${highlightClassesFor(p.id, step.highlight)}` }, el);
+    svg('circle', { cx: sx(p.x), cy: sy(p.y), r: 7 }, g);
+  }
+  for (const c of centroids) {
+    const g = svg('g', { 'data-id': c.id, class: `centroid cluster-${clusterIndex.get(c.id)}${highlightClassesFor(c.id, step.highlight)}` }, el);
+    svg('circle', { cx: sx(c.x), cy: sy(c.y), r: 12 }, g);
+    svg('line', { x1: sx(c.x) - 6, y1: sy(c.y), x2: sx(c.x) + 6, y2: sy(c.y) }, g);
+    svg('line', { x1: sx(c.x), y1: sy(c.y) - 6, x2: sx(c.x), y2: sy(c.y) + 6, class: '' }, g);
+    if (c.label) svgText(g, sx(c.x), sy(c.y) - 18, c.label, 'svg-label svg-center svg-small');
+  }
+}
+
 const RENDERERS = {
   array: renderArray,
   stack: renderStack,
@@ -272,6 +358,8 @@ const RENDERERS = {
   tree: renderTree,
   'call-tree': renderCallTree,
   matrix: renderMatrix,
+  plot: renderPlot,
+  scatter: renderScatter,
 };
 
 export function renderStep(container, step) {
