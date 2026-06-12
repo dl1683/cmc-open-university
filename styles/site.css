@@ -229,50 +229,61 @@ h1, h2, h3 { line-height: 1.2; }
   margin: 0 0 10px;
 }
 
-.learn-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
-  gap: 16px;
-  align-items: start;
-}
+/* Explanation ABOVE the animation: read the sentence, watch it happen. */
+.learn-grid { display: flex; flex-direction: column; gap: 12px; }
+
 .vis-panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 14px;
-  min-height: 280px;
+  min-height: 260px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.vis-panel svg { width: 100%; height: auto; max-height: 70vh; }
+.vis-panel svg { width: 100%; height: auto; max-height: 62vh; }
 
 .explain-panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px 18px;
-  position: sticky;
-  top: 14px;
+  padding: 16px 20px;
 }
-.progress-text { margin: 0 0 6px; font-size: 0.82rem; color: var(--muted); }
-.step-slider { width: 100%; accent-color: var(--accent); }
-.explanation { font-size: 1.02rem; min-height: 4.5em; margin: 12px 0 6px; }
+.explanation {
+  font-size: 1.12rem;
+  line-height: 1.6;
+  min-height: 3.3em; /* keeps the animation from jumping as text length changes */
+  margin: 0 0 8px;
+  max-width: 85ch;
+}
 .invariant {
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: 8px;
   padding: 8px 12px;
+  margin: 0 0 8px;
+  max-width: fit-content;
 }
-.player-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.player-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.player-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .speed-label { font-size: 0.82rem; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.progress-area { flex: 1 1 220px; max-width: 380px; }
+.progress-text { margin: 0 0 2px; font-size: 0.82rem; color: var(--muted); }
+.step-slider { width: 100%; accent-color: var(--accent); }
 
 @media (max-width: 880px) {
   .topic-layout { grid-template-columns: 1fr; }
   .topic-nav { display: none; }
-  .learn-grid { grid-template-columns: 1fr; }
-  .explain-panel { position: static; }
 }
 
 /* -------------------------------------------- SVG visual vocabulary */

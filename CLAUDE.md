@@ -18,8 +18,9 @@ Teach anyone, for free, how computing actually works — by *showing* it. Every 
 ## Product requirements
 
 - **Synchronized step-by-step explanations**: every animation step carries a human-readable explanation rendered alongside it.
+- **Education-first pacing (Devansh, 2026-06-11)**: people come here to learn, not to watch boxes fly. The explanation text sits ABOVE the animation so both can be followed at once, and the default playback speed must be slow enough to read every step (1× = 2s/step). Speeding up is the user's choice; a fast default is a bug.
 - **Site-wide search**: client-side, so visitors can find any topic instantly.
-- **ClustrMaps visitor map** on the homepage (the pinned world map — it brings joy).
+- **Visitor world map**: ClustrMaps and its sister Mapmyvisitors are dead (DNS/origin gone, verified 2026-06-11). Dropped for now; bring a map back when Devansh registers with a living service (GoatCounter is the healthiest free option, needs his signup).
 - **Zero build step**: modern vanilla JS (ES modules), plain static files, deploys straight to GitHub Pages, never rots.
 - **Responsive + accessible**: works on phones; this is for students everywhere.
 

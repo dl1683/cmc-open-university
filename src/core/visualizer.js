@@ -280,10 +280,14 @@ export function renderStep(container, step) {
 
 // --------------------------------------------------------------- player
 
+// 1× is deliberately slow: people must be able to READ the explanation while
+// the animation moves. Learners can speed up; a too-fast default teaches no one.
+const READING_PACE_MS = 2000;
+
 export function createPlayer(steps, hooks) {
   let index = 0;
   let timer = null;
-  let delay = 900;
+  let delay = READING_PACE_MS;
   const total = steps.length;
 
   function emit() { hooks.onStep(steps[index], index, total); }
@@ -316,7 +320,7 @@ export function createPlayer(steps, hooks) {
     emit();
   }
   function setSpeed(multiplier) {
-    delay = Math.round(900 / Number(multiplier));
+    delay = Math.round(READING_PACE_MS / Number(multiplier));
     if (timer !== null) { clearInterval(timer); timer = null; play(); }
   }
 
