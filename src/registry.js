@@ -1606,6 +1606,16 @@ export const topics = [
     module: () => import('./topics/difference-in-differences.js'),
   },
   {
+    id: 'regression-discontinuity',
+    type: 'visualization',
+    buildsOn: ['difference-in-differences', 'instrumental-variables', 'causal-graphs'],
+    category: 'Concepts',
+    title: 'Regression Discontinuity',
+    summary: 'A deterministic cutoff manufactures a local experiment: fit a line on each side, read the gap at the threshold — the known +8 recovered exactly, live.',
+    tags: ['regression discontinuity', 'cutoff', 'bandwidth', 'McCrary test', 'fuzzy RD', 'causal inference'],
+    module: () => import('./topics/regression-discontinuity.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],

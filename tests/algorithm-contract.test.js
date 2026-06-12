@@ -2231,3 +2231,18 @@ test('sparse-table: doubling build, two overlapping windows answer -3 in O(1)', 
   assert.match(q[3].state.title, /min\(-1, -3\) = -3/, 'two lookups, one answer');
   assert.match(q[3].state.cells.find((c) => c.id === 'sparse:needs').label, /idempotent/, 'the algebra named');
 });
+
+test('regression-discontinuity: global 23.3 and local means 10.50 both lie, the line-fit gap reads 8.00', async () => {
+  const topic = await loadTopic('regression-discontinuity');
+  const j = runTopic(topic, { view: 'the jump at the cutoff' });
+  assert.match(j[0].state.cells.find((c) => c.id === 'naive:detail').label, /^23\.3/, 'the global comparison is junk, computed live');
+  assert.equal(j[1].state.series.length, 3, 'two segments and the cutoff line');
+  assert.match(j[2].state.cells.find((c) => c.id === 'means:result').label, /^10\.50/, 'local means still slope-contaminated');
+  assert.match(j[2].state.cells.find((c) => c.id === 'lines:result').label, /^8\.00 — the true effect EXACTLY/, 'per-side line fits recover the truth at the cutoff');
+  const f = runTopic(topic, { view: 'bandwidth, bunching & fuzzy RD' });
+  assert.match(f[0].state.cells.find((c) => c.id === 'wide:estimate').label, /^8\.50/, 'wide bandwidth imports curvature bias');
+  assert.match(f[0].state.cells.find((c) => c.id === 'narrow:estimate').label, /^8\.10/, 'narrow bandwidth shrinks the bias');
+  assert.match(f[1].state.cells.find((c) => c.id === 'mccrary:detail').label, /HISTOGRAM/, 'the density check');
+  assert.match(f[2].state.cells.find((c) => c.id === 'family:detail').label, /Wald ratio/, 'fuzzy RD identified as IV at the cutoff');
+  assert.equal(f[3].state.rows.length, 5, 'the completed toolkit shelf');
+});
