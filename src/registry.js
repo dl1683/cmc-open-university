@@ -516,6 +516,16 @@ export const topics = [
     module: () => import('./topics/backpropagation.js'),
   },
   {
+    id: 'mixture-of-experts',
+    type: 'visualization',
+    buildsOn: ['nn-forward-pass', 'softmax-temperature', 'load-balancer'],
+    category: 'AI & ML',
+    title: 'Mixture of Experts (MoE)',
+    summary: 'A router picks top-k experts per token — trillion-parameter capacity at small-model compute.',
+    tags: ['MoE', 'mixtral', 'sparse', 'router', 'conditional computation', 'scaling'],
+    module: () => import('./topics/mixture-of-experts.js'),
+  },
+  {
     id: 'lora',
     type: 'visualization',
     buildsOn: ['nn-forward-pass', 'quantization', 'backpropagation'],

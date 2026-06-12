@@ -443,6 +443,18 @@ test('merkle-tree: locates each tampered block; identical replicas verify with o
   assert.ok(clean.some((s) => /IDENTICAL, all 8 blocks, proven by one comparison/.test(s.explanation)));
 });
 
+test('mixture-of-experts: top-k routing activates exactly k experts per token', async () => {
+  const topic = await loadTopic('mixture-of-experts');
+  for (const [kStr, expected] of [['1', 4], ['2', 8]]) {
+    const steps = runTopic(topic, { topk: kStr });
+    const routing = steps.find((s) => s.state.title && s.state.title.startsWith(`Top-${kStr} routing:`));
+    assert.equal(routing.highlight.active.length, expected, `k=${kStr} activates ${expected} of 16 cells`);
+  }
+  const steps = runTopic(topic, { topk: '1' });
+  const routing = steps.find((s) => s.state.title.startsWith('Top-1'));
+  assert.ok(routing.highlight.active.includes('t1:e1'), 'protein routes to its specialist E2');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
