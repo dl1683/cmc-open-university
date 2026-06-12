@@ -829,6 +829,23 @@ test('precision-recall: the lazy classifier exposes the accuracy lie', async () 
   assert.equal(compare.rows.length, 3, 'all classifiers compared');
 });
 
+test('roc-auc: real classifier scores 0.89, coin flip rides the diagonal', async () => {
+  const topic = await loadTopic('roc-auc');
+  const real = runTopic(topic, { view: 'a real classifier' });
+  assert.ok(real.some((s) => /Area Under the Curve.*0\.89/.test(s.explanation)), 'AUC computed as 0.89');
+  const curve = real.find((s) => /full sweep/.test(s.explanation)).state;
+  const roc = curve.series.find((ser) => ser.id === 'roc').points;
+  assert.deepEqual(roc[0], { x: 0, y: 0 }, 'curve starts at origin');
+  assert.deepEqual(roc[roc.length - 1], { x: 1, y: 1 }, 'curve ends at (1,1)');
+  for (let i = 1; i < roc.length; i++) {
+    assert.ok(roc[i].x >= roc[i - 1].x && roc[i].y >= roc[i - 1].y, 'both rates monotone non-decreasing');
+  }
+  const coin = runTopic(topic, { view: 'a coin flip' });
+  assert.ok(coin.some((s) => /0\.50/.test(s.explanation)), 'coin flip AUC is 0.50');
+  const coinRoc = coin.find((s) => /full sweep/.test(s.explanation)).state.series.find((ser) => ser.id === 'roc').points;
+  assert.ok(coinRoc.every((p) => Math.abs(p.x - p.y) < 1e-9), 'coin-flip curve lies on the diagonal');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

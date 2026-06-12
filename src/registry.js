@@ -816,6 +816,16 @@ export const topics = [
     module: () => import('./topics/precision-recall.js'),
   },
   {
+    id: 'roc-auc',
+    type: 'visualization',
+    buildsOn: ['precision-recall', 'thompson-sampling'],
+    category: 'AI & ML',
+    title: 'ROC Curves & AUC',
+    summary: 'Sweep every threshold at once: the curve is the menu of trade-offs, the area is the ranking skill.',
+    tags: ['evaluation', 'ROC', 'AUC', 'threshold', 'true positive rate', 'false positive rate'],
+    module: () => import('./topics/roc-auc.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],
