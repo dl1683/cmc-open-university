@@ -1128,6 +1128,24 @@ test('learning-curves: the variance gap narrows, the bias curves fuse, and the U
   assert.ok(modern.at(-1).y < modern[1].y, 'second descent past the interpolation peak');
 });
 
+test('gradient-flow: sigmoid chains starve layer 1, ReLU and residuals keep the signal alive', async () => {
+  const topic = await loadTopic('gradient-flow');
+  const dying = runTopic(topic, { view: 'the signal dying layer by layer' });
+  const firstLayer = (st, id) => st.series.find((ser) => ser.id === id).points.find((p) => p.x === 1).y;
+  const vanish = dying.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'vanish')).state;
+  assert.ok(firstLayer(vanish, 'vanish') < 1e-5, 'sigmoid chain delivers under 4 millionths to layer 1');
+  const both = dying.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'explode')).state;
+  assert.ok(firstLayer(both, 'explode') > 30, 'factor 1.5 amplifies ~38x by layer 1');
+  const fixes = runTopic(topic, { view: 'the fixes that made depth possible' });
+  const relu = fixes.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'relu')).state;
+  assert.ok(firstLayer(relu, 'relu') > 0.5, 'ReLU plus init keeps layer 1 above half signal');
+  const res = fixes.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'residual')).state;
+  assert.ok(res.series.find((ser) => ser.id === 'residual').points.every((p) => p.y >= 1), 'residual identity path floors the gradient at 1');
+  assert.ok(fixes.some((s) => /1 \+ f′/.test(s.invariant ?? '')), 'residual derivative stated');
+  const armor = fixes[fixes.length - 1].state;
+  assert.equal(armor.rows.length, 4, 'full armor has four pieces');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

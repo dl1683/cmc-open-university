@@ -926,6 +926,16 @@ export const topics = [
     module: () => import('./topics/learning-curves.js'),
   },
   {
+    id: 'gradient-flow',
+    type: 'visualization',
+    buildsOn: ['backpropagation', 'nn-forward-pass', 'transformer-block'],
+    category: 'AI & ML',
+    title: 'Vanishing & Exploding Gradients',
+    summary: 'Backprop multiplies a factor per layer — below 1 the signal starves, above 1 it detonates. Depth was unusable until three fixes.',
+    tags: ['vanishing gradients', 'exploding gradients', 'residual connections', 'ReLU', 'normalization', 'deep learning', 'ResNet'],
+    module: () => import('./topics/gradient-flow.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],
