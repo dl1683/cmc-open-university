@@ -779,6 +779,16 @@ export const topics = [
     module: () => import('./topics/load-shedding.js'),
   },
   {
+    id: 'backpressure',
+    type: 'visualization',
+    buildsOn: ['load-shedding', 'retries-jitter', 'tcp-congestion'],
+    category: 'Systems',
+    title: 'Backpressure & Flow Control',
+    summary: 'Overload as a feedback loop: amplifying loops melt down, damping loops sawtooth around capacity — AIMD, live.',
+    tags: ['backpressure', 'flow control', 'AIMD', 'feedback loops', 'reactive streams', 'bounded queues'],
+    module: () => import('./topics/backpressure.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

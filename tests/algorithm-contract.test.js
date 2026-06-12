@@ -1862,3 +1862,20 @@ test('bad input throws InputError, not garbage steps', async () => {
     assert.throws(() => runTopic(topic, overrides), InputError, `${id} rejects ${JSON.stringify(overrides)}`);
   }
 });
+
+test('backpressure: AIMD sawtooths around capacity while deaf clients pin at 240', async () => {
+  const topic = await loadTopic('backpressure');
+  const loops = runTopic(topic, { view: 'two feedback loops' });
+  const sim = loops.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'aimd')).state;
+  const aimd = sim.series.find((ser) => ser.id === 'aimd').points.map((p) => p.y);
+  const deaf = sim.series.find((ser) => ser.id === 'deaf').points.map((p) => p.y);
+  assert.ok(deaf.slice(10).every((y) => y === 240), 'deaf clients saturate at 3x and stay');
+  const tail = aimd.slice(8);
+  assert.ok(Math.max(...tail) < 115 && Math.min(...tail) > 55, 'AIMD oscillates in a band around capacity');
+  const crossings = tail.filter((y, i) => i > 0 && (y - 100) * (tail[i - 1] - 100) < 0).length;
+  assert.ok(crossings >= 4, 'the sawtooth repeatedly crosses the capacity line');
+  assert.ok(loops.some((s) => /gain > 1/.test(s.invariant ?? '')) && loops.some((s) => /gain < 1/.test(s.invariant ?? '')), 'both loop gains stated');
+  const wild = runTopic(topic, { view: 'backpressure in the wild' });
+  assert.ok(wild.some((s) => /the queue itself is the wire/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'bounded queue as the wire');
+  assert.ok(wild.some((s) => /delayed feedback oscillates/i.test(s.explanation)), 'control-theory delay lesson stated');
+});
