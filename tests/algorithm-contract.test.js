@@ -697,6 +697,17 @@ test('rope: norms preserved under rotation and equal offsets give equal scores',
   assert.ok(Math.abs(qk('pair2_0') - qk('pair3_0')) > 1e-3, 'different offset scores differ');
 });
 
+test('message-queue: nothing lost in either scenario; crash causes one redelivery', async () => {
+  const topic = await loadTopic('message-queue');
+  for (const scenario of ['steady consumer', 'consumer crashes mid-job']) {
+    const steps = runTopic(topic, { scenario });
+    assert.match(lastText(steps), /8 orders processed, zero lost/, `${scenario}: all 8 drained`);
+    assert.equal(steps.at(-1).state.items.length, 0, `${scenario}: queue empty at end`);
+  }
+  const crash = runTopic(topic, { scenario: 'consumer crashes mid-job' });
+  assert.ok(crash.some((s) => /AT-LEAST-ONCE/.test(s.explanation)), 'redelivery semantics taught');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

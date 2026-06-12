@@ -509,6 +509,16 @@ export const topics = [
     module: () => import('./topics/git-internals.js'),
   },
   {
+    id: 'message-queue',
+    type: 'visualization',
+    buildsOn: ['queue', 'write-ahead-log', 'saga-pattern'],
+    category: 'Systems',
+    title: 'Message Queues',
+    summary: 'Producers rush, consumers plod, the queue absorbs the difference — plus the at-least-once catch.',
+    tags: ['kafka', 'rabbitmq', 'SQS', 'at-least-once', 'backpressure', 'decoupling'],
+    module: () => import('./topics/message-queue.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
