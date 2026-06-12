@@ -806,6 +806,16 @@ export const topics = [
     module: () => import('./topics/pagerank.js'),
   },
   {
+    id: 'precision-recall',
+    type: 'visualization',
+    buildsOn: ['naive-bayes', 'ab-testing'],
+    category: 'AI & ML',
+    title: 'Precision, Recall & the Confusion Matrix',
+    summary: 'Accuracy lies on imbalanced data — meet the four cells and two ratios that tell the truth.',
+    tags: ['evaluation', 'precision', 'recall', 'F1', 'confusion matrix', 'imbalanced data'],
+    module: () => import('./topics/precision-recall.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],

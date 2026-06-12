@@ -817,6 +817,18 @@ test('entropy: H values correct and cross-entropy never beats the floor', async 
   assert.match(cross.explanation, /2\.00 bits per outcome instead of the optimal 1\.26/, 'cross-entropy exceeds entropy');
 });
 
+test('precision-recall: the lazy classifier exposes the accuracy lie', async () => {
+  const topic = await loadTopic('precision-recall');
+  const lazy = runTopic(topic, { clf: 'lazy (always ham)' });
+  assert.ok(lazy.some((s) => /95\.0%/.test(s.state.title ?? '') || /scores 95%/.test(s.explanation)), 'lazy scores 95% accuracy');
+  assert.ok(lazy.some((s) => /recall is 0%/.test(s.explanation)), 'recall exposes it');
+  const balanced = runTopic(topic, { clf: 'threshold 0.5' });
+  const pr = balanced.find((s) => /Precision .* Recall/.test(s.state.title ?? ''));
+  assert.match(pr.state.title, /Precision 57\.1% · Recall 80\.0%/, 'threshold 0.5 metrics correct');
+  const compare = balanced.find((s) => s.state.title === 'Three classifiers, four lenses').state;
+  assert.equal(compare.rows.length, 3, 'all classifiers compared');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
