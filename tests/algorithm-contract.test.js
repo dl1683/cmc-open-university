@@ -2021,3 +2021,17 @@ test('paxos: chosen value rides quorum intersections, the duel livelocks, Raft m
   assert.match(duel[2].state.cells.find((c) => c.id === 'ballot:raft').label, /TERM/, 'ballots map to terms');
   assert.equal(duel[3].state.rows.length, 5, 'lineage covers VR through today');
 });
+
+test('ntp-sync: symmetric paths recover the offset exactly, asymmetry errs by half the split', async () => {
+  const topic = await loadTopic('ntp-sync');
+  const four = runTopic(topic, { view: 'the four-timestamp trick' });
+  assert.match(four[0].state.cells.find((c) => c.id === 'est:reads').label, /offset 120ms, delay 80ms/, 'live estimator nails the true 120ms through 80ms of symmetric delay');
+  assert.match(four[1].state.cells.find((c) => c.id === 'err:reads').label, /30ms — exactly the asymmetry/, '70/10 split errs by 30ms, half the asymmetry');
+  assert.match(four[1].explanation, /no exchange of timestamps can ever expose the split/i, 'undetectability stated honestly');
+  assert.match(four[2].state.cells.find((c) => c.id === 'filter:what').label, /LOWEST-DELAY/, 'clock filter trusts minimum-delay samples');
+  assert.match(four[3].state.cells.find((c) => c.id === 'slew:how').label, /500 parts per million/, 'slewing bounded, monotonic');
+  const ptp = runTopic(topic, { view: 'PTP & the nanosecond world' });
+  assert.ok(ptp[0].state.rows.length === 4, 'the jitter journey has four stops');
+  assert.match(ptp[1].state.cells.find((c) => c.id === 'tc:idea').label, /INTO the packet/, 'transparent clocks subtract their own queueing');
+  assert.match(ptp[2].state.cells.find((c) => c.id === 'spanner:needs').label, /BOUND/, 'TrueTime framed as a bound, not accuracy');
+});

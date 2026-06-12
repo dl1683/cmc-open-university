@@ -829,6 +829,16 @@ export const topics = [
     module: () => import('./topics/paxos.js'),
   },
   {
+    id: 'ntp-sync',
+    type: 'visualization',
+    buildsOn: ['logical-clocks', 'dns-resolution', 'tcp-congestion'],
+    category: 'Systems',
+    title: 'NTP & PTP: How Clocks Actually Sync',
+    summary: "The four-timestamp exchange that measures a clock's offset through an unknown network delay — and why asymmetry, not distance, is the accuracy wall.",
+    tags: ['NTP', 'PTP', 'clock sync', 'stratum', 'leap smear', 'TrueTime'],
+    module: () => import('./topics/ntp-sync.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
