@@ -17,7 +17,10 @@ export const topic = {
 
 // The exact surface from the 3D page: f(x,y) = (x²−4)²/22 + x/4 + 1 + 1.5y².
 const g = (x) => ((x * x - 4) ** 2) / 22 + x / 4 + 1; // the y = 0 spine
-const BARRIER = g(0); // ≈ 1.727 — the mountain pass
+// The pass is the MAXIMUM of g between the two minima (the x/4 tilt pushes
+// the crest right of zero) — found numerically, not assumed.
+let BARRIER = -Infinity;
+for (let x = -1.9; x <= 1.9; x += 0.001) BARRIER = Math.max(BARRIER, g(x));
 
 // Exact contours: for level L, y = ±√((L − g(x)) / 1.5) wherever g(x) ≤ L.
 function contoursAt(L) {

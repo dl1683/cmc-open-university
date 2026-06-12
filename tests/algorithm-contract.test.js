@@ -1888,7 +1888,7 @@ test('contour-maps: levels below the pass split into two loops and the barrier d
   assert.equal(loopsAt('L1_60').length, 2, 'level 1.6 cuts two separate basins');
   assert.equal(loopsAt('L0_90').length, 1, 'level 0.9 exists only in the deep basin');
   assert.equal(loopsAt('L2_20').length, 1, 'level 2.2 encloses both basins as one ring');
-  const barrier = loopsAt('L1_74');
+  const barrier = loopsAt('L1_78');
   assert.equal(barrier.length, 1, 'just above the barrier the contour is a single pinched curve');
   assert.ok(reading.some((s) => /FIGURE-EIGHT/.test(s.explanation)), 'the figure-eight named');
   const paths = runTopic(topic, { view: 'optimizer paths on the map' });
