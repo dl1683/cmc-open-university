@@ -2131,3 +2131,17 @@ test('doubly-robust: DM bias corrected in case A, weight explosion defused in ca
   assert.match(st[1].state.cells.find((c) => c.id === 'neither:drCol').label, /biased too/, 'the grid is honest about both-wrong');
   assert.match(st[2].state.cells.find((c) => c.id === 'causal:where').label, /augmented inverse propensity/, 'AIPW identification');
 });
+
+test('distributed-locks: the lease-overlap arithmetic computes 7 seconds of double-holding', async () => {
+  const topic = await loadTopic('distributed-locks');
+  const lease = runTopic(topic, { view: 'why your lock is a lease' });
+  assert.match(lease[0].state.cells.find((c) => c.id === 'rename:detail').label, /lease/i, 'the honest rename');
+  assert.match(lease[1].state.cells.find((c) => c.id === 'math:event').label, /7 seconds with TWO clients/, 'overlap computed from the timeline');
+  assert.match(lease[2].state.cells.find((c) => c.id === 'heart:verdict').label, /pauses with everything else/, 'renewal thread debunked');
+  assert.match(lease[2].state.cells.find((c) => c.id === 'real:verdict').label, /fencing tokens/, 'the real fix points outside the client');
+  const rec = runTopic(topic, { view: 'recipes & when not to lock' });
+  assert.match(rec[0].state.cells.find((c) => c.id === 'redlock:guarantee').label, /defeats it identically/, 'Redlock honestly bounded');
+  assert.match(rec[0].state.cells.find((c) => c.id === 'zk:guarantee').label, /no thundering herd/, 'ZK watch-chain fairness');
+  assert.match(rec[1].state.cells.find((c) => c.id === 'eff:detail').label, /saves money, not data/, 'efficiency vs correctness distinction');
+  assert.equal(rec[2].state.rows.length, 4, 'four lock-free alternatives');
+});

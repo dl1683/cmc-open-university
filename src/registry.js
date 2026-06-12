@@ -869,6 +869,16 @@ export const topics = [
     module: () => import('./topics/leader-replacement.js'),
   },
   {
+    id: 'distributed-locks',
+    type: 'visualization',
+    buildsOn: ['leader-replacement', 'idempotency', 'raft-election'],
+    category: 'Systems',
+    title: 'Distributed Locks: What They Can Promise',
+    summary: 'Why every distributed lock is a lease, why a GC pause defeats any client-side check, and when the right lock is no lock at all.',
+    tags: ['distributed locks', 'leases', 'Redlock', 'fencing', 'ZooKeeper', 'optimistic concurrency'],
+    module: () => import('./topics/distributed-locks.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
