@@ -170,6 +170,16 @@ export const topics = [
     module: () => import('./topics/recursion.js'),
   },
   {
+    id: 'memoization',
+    type: 'visualization',
+    buildsOn: ['recursion', 'hash-table'],
+    category: 'Concepts',
+    title: 'Memoization (Dynamic Programming)',
+    summary: 'Cache every answer the first time you compute it — watch the exponential call tree collapse.',
+    tags: ['dynamic programming', 'cache', 'fibonacci', 'optimization'],
+    module: () => import('./topics/memoization.js'),
+  },
+  {
     id: 'attention',
     type: 'visualization',
     category: 'AI & ML',
