@@ -196,6 +196,36 @@ test('attention: softmax rows sum to 1 and output has token-by-dim shape', async
   assert.equal(output.columns.length, 4, 'embedding dimension preserved');
 });
 
+// ----------------------------------------------- layer 2: AI & concepts
+
+test('gradient-descent: converges on a sane learning rate, diverges on 1.05', async () => {
+  const topic = await loadTopic('gradient-descent');
+  const good = runTopic(topic, { lr: '0.35' });
+  const finalMarker = good.at(-1).state.markers.at(-1);
+  assert.ok(Math.abs(finalMarker.x - 3) < 0.2, `converged near 3 (got ${finalMarker.x})`);
+  const bad = runTopic(topic, { lr: '1.05 (too big!)' });
+  assert.match(lastText(bad), /DIVERGED/);
+});
+
+test('k-means: converges and every point ends assigned to a real centroid', async () => {
+  const topic = await loadTopic('k-means');
+  for (const k of ['2', '3', '4']) {
+    const steps = runTopic(topic, { k });
+    assert.match(lastText(steps), /CONVERGED/);
+    const last = steps.at(-1).state;
+    const centroidIds = new Set(last.centroids.map((c) => c.id));
+    assert.equal(last.centroids.length, Number(k));
+    assert.ok(last.points.every((p) => centroidIds.has(p.clusterId)), `k=${k}: all points assigned`);
+  }
+});
+
+test('memoization: result correct and far fewer calls than naive recursion', async () => {
+  const topic = await loadTopic('memoization');
+  const steps = runTopic(topic, { n: '8' });
+  assert.match(lastText(steps), /fib\(8\) = 21/);
+  assert.ok(steps.at(-1).state.frames.length < 41, 'memoized tree much smaller than the 41-call naive tree');
+});
+
 // ------------------------------------------------ layer 2: input guards
 
 test('bad input throws InputError, not garbage steps', async () => {
