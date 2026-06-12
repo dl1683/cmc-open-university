@@ -446,6 +446,16 @@ export const topics = [
     module: () => import('./topics/nn-forward-pass.js'),
   },
   {
+    id: 'convolution',
+    type: 'visualization',
+    buildsOn: ['nn-forward-pass', 'backpropagation'],
+    category: 'AI & ML',
+    title: 'Convolution',
+    summary: 'Slide a 3×3 kernel across an image — the same nine weights detect a pattern everywhere at once.',
+    tags: ['CNN', 'kernel', 'computer vision', 'feature map', 'AlexNet', 'edge detection'],
+    module: () => import('./topics/convolution.js'),
+  },
+  {
     id: 'kv-cache',
     type: 'visualization',
     buildsOn: ['attention', 'lru-cache'],

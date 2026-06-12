@@ -373,6 +373,19 @@ test('huffman-coding: codes are prefix-free and frequent symbols get shorter cod
   assert.ok(codes.every((c) => eCode.length <= c.code.length), 'most frequent symbol has the shortest code');
 });
 
+test('convolution: edge kernel responds strongest at the image boundary', async () => {
+  const topic = await loadTopic('convolution');
+  const steps = runTopic(topic, { kernel: 'vertical edge detector' });
+  const featureMap = steps.findLast((s) => s.state.title && s.state.title.startsWith('The full feature map')).state;
+  const byColumn = new Map();
+  for (const cell of featureMap.cells) {
+    byColumn.set(cell.column, Math.max(byColumn.get(cell.column) ?? 0, Math.abs(cell.value)));
+  }
+  const edgeResponse = Math.max(byColumn.get('p1'), byColumn.get('p2'));
+  const flatResponse = Math.max(byColumn.get('p0'), byColumn.get('p3'));
+  assert.ok(edgeResponse > flatResponse * 2, `edge columns (${edgeResponse}) dominate flat columns (${flatResponse})`);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
