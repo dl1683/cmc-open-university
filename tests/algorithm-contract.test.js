@@ -72,7 +72,7 @@ for (const entry of visualizations) {
 
 // ------------------------------------------ layer 2: sorting correctness
 
-const SORTS = ['bubble-sort', 'merge-sort', 'quick-sort', 'heap-sort'];
+const SORTS = ['bubble-sort', 'merge-sort', 'quick-sort', 'heap-sort', 'insertion-sort', 'selection-sort'];
 const HOSTILE_INPUTS = {
   'duplicates': '5, 3, 5, 1, 3, 5',
   'all equal (2017 merge-sort hung here)': '4, 4, 4, 4',
