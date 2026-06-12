@@ -1186,6 +1186,16 @@ export const topics = [
     module: () => import('./topics/embedding-space-3d.js'),
   },
   {
+    id: 'attention-3d',
+    type: 'visualization',
+    buildsOn: ['multi-head-attention', 'loss-surface-3d', 'kv-cache'],
+    category: 'AI & ML',
+    title: 'Attention as a 3D Landscape',
+    summary: `One sentence's attention matrix as WebGL terrain: the diagonal ridge, the "it"→"cat" mountain, the causal cliff.`,
+    tags: ['3D', 'WebGL', 'attention', 'causal mask', 'coreference', 'transformers'],
+    module: () => import('./topics/attention-3d.js'),
+  },
+  {
     id: 'adam-optimizer',
     type: 'visualization',
     buildsOn: ['gradient-descent', 'loss-landscapes', 'regularization'],

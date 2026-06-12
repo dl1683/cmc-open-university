@@ -153,10 +153,16 @@ function syncStep(ctx, step) {
 
 // Sync facade for the RENDERERS map: first call boots Three lazily (with a
 // small placeholder), later calls reuse the live scene so steps animate.
+const heightsKey = (heights) => `${heights.length}x${heights[0].length}:${heights.flat().reduce((a, v) => a + v, 0).toFixed(4)}`;
+
 export function renderSurface3d(container, step) {
   const boot = () => {
-    if (!container._three || container._three.disposed || !container.contains(container._three.renderer.domElement)) {
+    const key = heightsKey(step.state.heights);
+    if (!container._three || container._three.disposed || container._three.terrainKey !== key
+      || !container.contains(container._three.renderer.domElement)) {
+      if (container._three && !container._three.disposed) container._three.disposed = true;
       container._three = buildScene(container, step.state);
+      container._three.terrainKey = key;
     }
     syncStep(container._three, step);
   };

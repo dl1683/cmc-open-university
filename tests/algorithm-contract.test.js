@@ -1757,6 +1757,23 @@ test('retries-jitter: naive retries triple the load and jitter+budget stays with
   assert.ok(disc.some((s) => /27 requests|27 database/.test((s.state.cells ?? []).map((c) => c.label).join(' ') + s.explanation)), 'stacked-retry amplification shown');
 });
 
+test('attention-3d: rows sum to one, the coreference peak hits 0.62, and the causal cliff is flat zero', async () => {
+  const topic = await loadTopic('attention-3d');
+  const content = runTopic(topic, { view: 'the content head' });
+  assert.ok(content.every((s) => s.state.kind === 'surface3d'), 'attention rendered as 3D terrain');
+  const peakStep = content.find((s) => (s.state.markers ?? []).some((m) => /0\.62/.test(m.label ?? '')));
+  assert.ok(peakStep, 'the it→cat mountain is marked at 0.62');
+  const grid = content[0].state.heights;
+  assert.equal(grid.length, 29, '8-token grid upsampled 4x to 29 rows');
+  const cliffSample = grid[4][24];
+  assert.ok(cliffSample === 0, 'the causal upper triangle is flat zero');
+  assert.ok(content.some((s) => /COREFERENCE RESOLUTION/.test(s.explanation)), 'coreference explained');
+  assert.ok(content.some((s) => /sums to exactly 1/.test(s.invariant ?? '')), 'row-distribution invariant stated');
+  const positional = runTopic(topic, { view: 'the positional head' });
+  assert.ok(positional.some((s) => (s.state.markers ?? []).some((m) => /because/.test(m.label ?? ''))), 'positional head sends it to because');
+  assert.ok(positional.some((s) => /KV Cache/.test(s.explanation)), 'KV cache link present');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
