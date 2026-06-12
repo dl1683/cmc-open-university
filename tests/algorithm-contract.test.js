@@ -534,6 +534,20 @@ test('saga-pattern: failure compensates in reverse; success commits all four', a
   assert.equal(done.highlight.found.length, 4, 'all steps committed');
 });
 
+test('transformer-block: layer norm rows have mean zero and shape is preserved', async () => {
+  const topic = await loadTopic('transformer-block');
+  const steps = runTopic(topic, { text: 'the cat sat' });
+  for (const title of ['Add & Norm: x + attention(x), then LayerNorm', 'Block output: ready for the next block']) {
+    const state = steps.find((s) => s.state.title === title).state;
+    for (const row of state.rows) {
+      const mean = state.cells.filter((c) => c.row === row.id).reduce((a, c) => a + c.value, 0) / 4;
+      assert.ok(Math.abs(mean) < 1e-6, `${title}: row ${row.label} normalized (mean ${mean})`);
+    }
+    assert.equal(state.rows.length, 3, 'one row per token throughout');
+    assert.equal(state.columns.length, 4, 'dimension preserved for stacking');
+  }
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

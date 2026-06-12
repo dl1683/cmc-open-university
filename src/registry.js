@@ -656,6 +656,16 @@ export const topics = [
     module: () => import('./topics/random-forest.js'),
   },
   {
+    id: 'transformer-block',
+    type: 'visualization',
+    buildsOn: ['attention', 'nn-forward-pass', 'tokenization-bpe', 'softmax-temperature'],
+    category: 'AI & ML',
+    title: 'The Transformer Block',
+    summary: 'The full assembly: attention, residuals, layer norm, and the FFN — one complete block of a GPT.',
+    tags: ['transformer', 'GPT', 'residual', 'layer norm', 'architecture', 'capstone'],
+    module: () => import('./topics/transformer-block.js'),
+  },
+  {
     id: 'attention',
     type: 'visualization',
     buildsOn: ['tokenization-bpe', 'softmax-temperature', 'embeddings-similarity'],
