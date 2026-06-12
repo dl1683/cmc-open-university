@@ -926,6 +926,16 @@ export const topics = [
     module: () => import('./topics/imbalanced-classification.js'),
   },
   {
+    id: 'focal-loss',
+    type: 'visualization',
+    buildsOn: ['imbalanced-classification', 'logistic-regression', 'entropy'],
+    category: 'AI & ML',
+    title: 'Focal Loss & Hard Examples',
+    summary: 'Easy examples drown the gradient by sheer headcount — (1−p)^γ mutes the confident and amplifies the struggling.',
+    tags: ['focal loss', 'hard examples', 'OHEM', 'RetinaNet', 'object detection', 'loss functions'],
+    module: () => import('./topics/focal-loss.js'),
+  },
+  {
     id: 'uncertainty-quantification',
     type: 'visualization',
     buildsOn: ['dropout', 'calibration-curves'],

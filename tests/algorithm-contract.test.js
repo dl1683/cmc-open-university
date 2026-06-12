@@ -1053,6 +1053,24 @@ test('cross-validation: the diagonal rotates through all five folds and CV picks
   assert.ok(folds.some((s) => /LEAKAGE/.test(s.explanation)), 'leakage dragon covered');
 });
 
+test('focal-loss: easy examples hold 81% of the gradient until gamma 2 flips it past 99.9% hard', async () => {
+  const topic = await loadTopic('focal-loss');
+  const drown = runTopic(topic, { view: 'easy examples drown the loss' });
+  const ledger = drown.find((s) => /cross-entropy ledger/.test(s.state.title ?? '')).state;
+  const share = (id) => ledger.cells.find((c) => c.id === id).value;
+  assert.ok(Math.abs(share('easy:share') - 0.813) < 0.01, 'easy background holds ~81% of the loss');
+  assert.ok(share('easy:total') > 1000, 'collective easy loss past 1000');
+  const fix = runTopic(topic, { view: 'the (1−p)^γ fix' });
+  const curves = fix[0].state;
+  assert.equal(curves.series.length, 4, 'four gamma curves plotted');
+  const at = (id, x) => curves.series.find((ser) => ser.id === id).points.find((pt) => Math.abs(pt.x - x) < 0.02).y;
+  assert.ok(at('g2', 0.99) < at('g0', 0.99) / 1000, 'gamma 2 crushes confident examples over 1000x');
+  assert.ok(at('g2', 0.12) > at('g0', 0.12) * 0.7, 'struggling examples keep most of their loss');
+  const refereed = fix.find((s) => /refereed by/.test(s.state.title ?? '')).state;
+  assert.ok(refereed.cells.find((c) => c.id === 'hard:share').value > 99.9, 'hard examples now steer the gradient');
+  assert.ok(fix.some((s) => /NOISY/.test(s.explanation)), 'noisy-label caution stated');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
