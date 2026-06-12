@@ -289,6 +289,16 @@ export const topics = [
     module: () => import('./topics/big-o-growth.js'),
   },
   {
+    id: 'binary-exponentiation',
+    type: 'visualization',
+    buildsOn: ['recursion', 'big-o-growth'],
+    category: 'Concepts',
+    title: 'Binary Exponentiation',
+    summary: 'Square-and-multiply along the exponent bits — huge powers in O(log n) steps instead of n.',
+    tags: ['exponentiation', 'RSA', 'modular arithmetic', 'square and multiply', 'cryptography'],
+    module: () => import('./topics/binary-exponentiation.js'),
+  },
+  {
     id: 'edit-distance',
     type: 'visualization',
     buildsOn: ['memoization', 'two-pointers'],

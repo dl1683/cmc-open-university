@@ -617,6 +617,14 @@ test('gossip-protocol: saturates every reachable node, even with failures', asyn
   assert.equal(degradedFinal.nodes.filter((n) => n.note === 'offline').length, 3, 'offline stay uninformed');
 });
 
+test('binary-exponentiation: correct modular results with logarithmic operation counts', async () => {
+  const topic = await loadTopic('binary-exponentiation');
+  const a = runTopic(topic, { problem: '7^45 mod 100' });
+  assert.match(a.find((s) => /Answer:/.test(s.explanation)).explanation, /= 7, in 6 squarings \+ 4 multiplies/);
+  const b = runTopic(topic, { problem: '3^10 mod 50' });
+  assert.match(b.find((s) => /Answer:/.test(s.explanation)).explanation, /= 49, in 4 squarings \+ 2 multiplies/);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
