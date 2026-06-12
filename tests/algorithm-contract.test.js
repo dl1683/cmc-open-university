@@ -738,6 +738,16 @@ test('multi-armed-bandits: traffic concentrates on the best arm and beats the ev
   }
 });
 
+test('distributed-tracing: all spans close, durations nest, culprit identified', async () => {
+  const topic = await loadTopic('distributed-tracing');
+  const steps = runTopic(topic, { view: 'one checkout request' });
+  const final = steps.at(-1).state;
+  assert.ok(final.frames.every((f) => f.status === 'returned'), 'every span closed');
+  const ms = (id) => Number(final.frames.find((f) => f.id === id).result.replace('ms', ''));
+  assert.ok(ms('f') < ms('p') && ms('p') < ms('o') && ms('o') < ms('g'), 'child durations nest inside parents');
+  assert.ok(steps.some((s) => /CRITICAL PATH/.test(s.explanation) && /46%/.test(s.explanation)), 'culprit quantified');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

@@ -519,6 +519,16 @@ export const topics = [
     module: () => import('./topics/git-internals.js'),
   },
   {
+    id: 'distributed-tracing',
+    type: 'visualization',
+    buildsOn: ['message-queue', 'load-balancer', 'recursion'],
+    category: 'Systems',
+    title: 'Distributed Tracing',
+    summary: 'One trace ID, one tree of spans across six services — and the slow hop has nowhere to hide.',
+    tags: ['observability', 'opentelemetry', 'jaeger', 'spans', 'microservices', 'debugging'],
+    module: () => import('./topics/distributed-tracing.js'),
+  },
+  {
     id: 'url-shortener',
     type: 'visualization',
     buildsOn: ['hash-table', 'lru-cache', 'database-indexing', 'message-queue'],
