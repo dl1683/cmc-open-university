@@ -132,44 +132,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Recursion is when a function calls itself to solve a smaller version of the same problem. Instead of writing a loop, you break the problem into a smaller piece, solve that piece the same way, and keep going until you hit a simple case you can answer directly — the base case. Each function call opens a frame in memory, waits for all the calls it made to finish, then returns its answer to whoever called it.`,
-        `The two examples here show the two personalities of recursion. Fibonacci branches at every step — fib(5) calls both fib(4) and fib(3), and each of those calls two more — creating an exponential tree of work. Factorial is a straight chain — fact(5) calls fact(4), which calls fact(3), and so on, each call nesting one deeper, then all collapsing back up. Neither would convince anyone to avoid loops, but both show why recursion matters: tree traversals, graph exploration, divide-and-conquer algorithms, and backtracking search all branch naturally this way.`,
+        `Recursion is a way to solve a problem by letting a function call itself on a smaller version of the same problem. Every recursive solution needs two pieces: a base case that stops, and a recursive case that moves closer to that base case. Without the base case, the calls never bottom out. Without progress toward it, the function loops through the call stack until the program crashes.`,
+        `The demo's two examples show different shapes. Factorial is a chain: fact(5) waits for fact(4), which waits for fact(3), down to fact(1), then results multiply on the way back. Fibonacci is a branching tree: fib(5) calls fib(4) and fib(3), and those calls branch again. The code is short, but the shape of the calls determines whether the algorithm is elegant or wildly expensive.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `When a function calls itself, the JavaScript engine does exactly what it does for any call: it opens a new frame (a pocket of memory holding the function's local variables and arguments), pushes it onto the call stack, and runs the function from the top. If that function calls itself again, another frame opens and goes on top. The key rule: a frame cannot return its answer until every call it made has already returned.`,
-        `Watch the animation closely. When you call fib(5), it opens a frame and immediately tries to compute fib(4). But it cannot finish fib(5) without both fib(4) AND fib(3), so the fib(5) frame goes into a WAITING state. Only when fib(4) returns does the fib(5) frame wake up and say "okay, now I need fib(3)." And only when both have returned can fib(5) add them together and return its own answer. The base cases — fib(1) and fib(2) both returning 1 — are the floor; without them, the descent never ends and you get a stack overflow.`,
+        `A JavaScript function call creates a frame containing arguments, local variables, and a return location. The engine pushes that frame onto the call stack. When the function calls itself, another frame goes on top. A frame cannot finish until the calls above it finish. This is exactly the Last-In, First-Out behavior taught by Stack: the newest unfinished call returns first.`,
+        `Think of each call as an unfinished question. fact(4) asks "what is 4 times fact(3)?" and pauses. fact(3) asks the smaller version, and so on. When fact(1) returns 1, the answers unwind upward. For branching problems, many frames can be waiting for multiple child answers. Tree Traversals use this naturally: visit a node, recursively visit the left subtree, then recursively visit the right subtree.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `The cost of recursion depends entirely on the shape of the tree. Factorial is O(n) time and O(n) space — n calls, each touching the stack once, each doing one multiplication. Fibonacci is brutal: O(2^n) time because the tree doubles at every level, and it wastes enormous energy computing the same sub-problems over and over — fib(3) is calculated independently dozens of times just to compute fib(5). The stack depth is O(n) in both cases, which matters: if n is 10,000 and your stack is only 1,000 frames deep, you overflow and crash.`,
+        `The cost depends on the call tree. Factorial does n calls, so it is O(n) time and O(n) stack space. Naive Fibonacci is exponential - often described as O(2^n), more tightly O(phi^n) - because it recomputes the same values again and again. Memoization (Dynamic Programming) stores each Fibonacci result once, turning the time into O(n). Big-O Growth Rates is essential here because recursive code can hide enormous repeated work behind a clean one-line formula.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Recursion is the natural way to traverse trees (every DOM node in the browser has children, which have children) and graphs (file systems, org charts, social networks). It is essential for divide-and-conquer algorithms like mergesort and quicksort — you split the array in half, recursively sort each half, then merge them back. Backtracking search in puzzles and constraint satisfaction (chess engines, Sudoku solvers, maze search) relies on recursion to try a path, and if it fails, back out and try another. The most reliable way to implement many recursive-by-nature problems — parsing, tree building, graph traversal — is to write the recursive solution, not twist it into a loop.`,
+        `Divide-and-conquer algorithms use recursion because the problem literally splits into smaller problems. Merge Sort sorts the left half, sorts the right half, then merges. Quick Sort partitions around a pivot, then sorts the left and right partitions. Binary Search can be written recursively too, although the iterative version uses less stack space.`,
+        `Tree-shaped data is the strongest use case. File systems, DOM trees, syntax trees, and JSON documents all contain smaller structures of the same kind. Graph algorithms need more care because graphs can have cycles; Graph BFS uses Queue explicitly, while recursive depth-first search must track a visited set or it may loop forever. Backtracking solvers for Sudoku, mazes, and constraint problems also fit the pattern: choose, recurse, undo, try the next choice.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The most common pitfall is forgetting or misdefining the base case. Without it, or with a base case that never triggers, the function calls itself forever, and your stack overflows. The second pitfall is writing expensive recursive calls that recompute the same results. Fibonacci is famous for this; memoization (recording each answer the first time and reusing it) transforms Fibonacci from exponential to linear.`,
-        `A misconception: recursion is always slower than loops. False — recursion and loops are equivalent in power; what changes is clarity and overhead. A simple loop will beat a recursive factorial because the loop has no frame-opening overhead. But a recursive tree traversal is often cleaner and just as fast as loop-based equivalents. The real cost comes from bad design — exponential re-computation — not from recursion itself.`,
+        `The first pitfall is a missing or unreachable base case. The second is stack depth. JavaScript engines have finite call stacks, and you should not rely on tail-call optimization being available across browsers and Node runtimes. A loop may be safer for a million-step linear process even when the recursive version is prettier.`,
+        `The third pitfall is confusing clarity with efficiency. A recursive definition can be mathematically beautiful and computationally terrible, as naive Fibonacci shows. On the other hand, recursion is not automatically slow; for balanced trees, parsing, and divide-and-conquer algorithms, it can express the real structure of the problem with little overhead. The design question is not "recursive or iterative?" but "what call tree am I creating?"`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Read Memoization (Dynamic Programming) to see how to rescue expensive recursive problems like Fibonacci. Then study Big-O Growth Rates to understand why exponential time is catastrophic, and polynomial or linear time is livable. Divide-and-conquer shows you recursive algorithms that actually earn their keep. When you traverse actual structures, learn Linked List, Tree, and Graph — all taught recursively at their core.`,
+        `Study Stack to understand the call stack directly. Then read Memoization (Dynamic Programming) to see repeated subproblems collapse from exponential to linear work. Big-O Growth Rates helps you judge the call tree. Merge Sort, Quick Sort, Tree Traversals, and Graph BFS show where recursion competes with or complements explicit data structures.`,
       ],
     },
   ],
 };
-

@@ -88,44 +88,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A bloom filter is a probabilistic data structure — a bit array that tells you, with absolute certainty, that something is NOT in a set, but only with high probability that it IS in the set. You never store the actual items; instead, you run each item through k hash functions (usually 3 to 5), and those hashes tell you which bits to flip on. Later, when you query for an item, you check if all k bits are set. If any bit is 0, the item is definitely not there. If all k bits are 1, the item is probably there — but there is a small chance it is a false positive (other items' bits happened to overlap).`,
-        `The trade is extraordinary: a bloom filter uses about 10 bits per item instead of storing the entire item. A hash table storing 1 million strings might use 100 megabytes; a bloom filter remembering 1 million items uses about 1.25 megabytes. The cost: occasional false positives, and you cannot delete items (they would corrupt the bits for other items).`,
+        `A bloom filter is a tiny probabilistic set. It can say "definitely not present" with certainty, or "maybe present" with a tunable false-positive rate. It never stores the original items. Instead, it stores a bit pattern created by several hash functions. That trade is powerful when a full Hash Table would be too large or too expensive to check first.`,
+        `The asymmetry is the point. False negatives are impossible: if the filter says no, the item was not inserted. False positives are possible: if it says yes, different inserted items may have set the same bits by coincidence. A well-sized filter can remember one million items with about ten million bits, roughly 1.25 MB, and a false-positive rate around 0.8% when using about seven hash positions per item.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `To insert an item, run it through all k hash functions. Each hash returns a bit index. Set all k bits to 1. That is it — the item is "remembered" as a pattern of bits, never stored itself.`,
-        `To query, run the item through all k hash functions again and check if all k bits are set to 1. If even one bit is 0, the item was definitely never inserted (no insert operation would leave a bit at 0 without setting it). If all bits are 1, the item might be there — or you have a collision, where other items' hash functions happened to cover the same bits. The false-positive rate depends on the filter size, the number of items inserted, and k (the number of hash functions). A well-tuned filter with a million items in a 10-million-bit array has a false-positive rate around 1%.`,
+        `Start with an array of m bits, all 0. To insert an item, compute k hash values and map each one to a bit index. Set those k bits to 1. To query the same item later, compute the same k indexes. If any checked bit is 0, the item cannot have been inserted, because insertion would have set every one of its bits. If all checked bits are 1, the item may have been inserted.`,
+        `The false-positive probability is approximately (1 - e^(-kn/m))^k, where n is inserted items, m is bits, and k is hash functions. For a fixed m and n, too few hash functions leave weak fingerprints; too many hash functions fill the array too quickly. The optimal k is about (m / n) * ln 2. Systems often derive k positions from two fast hashes rather than computing many unrelated hashes from scratch.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Insert and query are both O(k) — you run k hash functions, each in O(1). In practice, k is small (usually 3–7), so this is O(1) with a tiny constant. Space is O(m) where m is the bit-array size; a well-chosen m (relative to the number of items n) gives a false-positive rate of roughly (0.5)^k. Deletion is not straightforward (marking bits as deleted corrupts the filter), so bloom filters are used only for immutable or append-only sets.`,
+        `Insert and query are O(k), which is treated as O(1) when k is a small configured constant. Space is O(m), chosen from the expected item count and target error rate. Big-O Growth Rates does not tell the whole story here because constants are the selling point: ten bits per item can be dramatically smaller than storing full strings, object headers, and pointers. A standard filter cannot delete safely, because clearing one bit might erase evidence for many other items. Counting variants store small counters instead of bits so they can decrement, at a higher memory cost.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Bloom filters are ubiquitous in systems where speed and memory matter. Google Chrome uses bloom filters to check URLs against malware blocklists — fast, local, and you do not need to download the entire database. Cassandra (a distributed database) uses bloom filters to skip reads from disk for keys that are definitely not in a partition. RocksDB and LevelDB (embedded databases) use them the same way. Content delivery networks use bloom filters to decide what content is worth caching — if a URL is definitely not in the cache, do not even start the lookup. Bitcoin uses Bloom Filters for lightweight clients that cannot store the entire blockchain. They appear in spell-checkers (is this word definitely not in the dictionary?), spam filters (is this definitely not spam?), and deduplication systems.`,
+        `LSM Trees (How Cassandra Writes) use bloom filters to avoid wasted disk reads. If a key is definitely absent from an immutable sorted file, the database skips that file entirely. RocksDB, LevelDB, and Cassandra all rely on this idea because random disk or SSD reads are far more expensive than a few hash checks. Cache Invalidation & Versioning systems can use filters to avoid asking a remote cache about objects that are definitely absent.`,
+        `Security and networking systems use the same negative-test pattern. Browser safe-browsing systems have historically used compact hashed-prefix structures and related probabilistic techniques to avoid shipping complete blocklists to every client. Older Bitcoin lightweight clients used BIP37 bloom filters to ask peers for relevant transactions without downloading the full chain, though privacy weaknesses made that approach controversial. Deduplication systems, crawlers, spell-check prefilters, and Rate Limiter (Token Bucket) support structures all use approximate membership when memory matters.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest pitfall is forgetting that a false positive is possible. A "yes" answer is never certain — you have to validate it with a proper lookup. The "no" answer is always correct, which is the whole point: use the bloom filter to eliminate 99% of false lookups without expensive work, then do the expensive lookup only for the remaining 1%.`,
-        `Another pitfall: you cannot delete from a bloom filter. Setting a bit to 0 would corrupt the footprints of other items. If you need deletion, use a variant called a "counting bloom filter" (which stores counts instead of bits, allowing decrements), at the cost of more space. A third misconception: bloom filters need to be huge. A well-tuned filter is actually quite small — millions of bits fit in kilobytes. The key is matching the array size to the expected number of insertions; if you insert more items than you planned, the false-positive rate climbs, which is why production systems monitor that metric.`,
+        `The dangerous mistake is treating "maybe present" as proof. A positive answer must usually be followed by a real lookup in a database, set, or Hash Table. The filter saves work by eliminating definite misses; it does not replace the source of truth. Another mistake is overfilling it. Once more items are inserted than planned, too many bits become 1 and the false-positive rate can rise sharply.`,
+        `Deletion is another trap. A normal bit array is append-only for practical purposes. If your workload needs removals, use a counting filter or rebuild periodically. Also remember that hash quality matters: correlated hash positions create more collisions than the formula assumes. Merkle Tree and Consistent Hashing use hashes for different guarantees, so do not treat every hash-based structure as interchangeable.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Read Hash Table to understand hash functions — bloom filters are hash tables with the keys removed. Learn Big-O Growth Rates to see why O(1) lookups matter even when the constant is small. Then explore Set (a related data structure that is similar but allows deletion and no false positives). Finally, study probabilistic data structures and sketches — Count-Min Sketch and HyperLogLog are cousins of bloom filters, trading accuracy for space in different ways, and appear in streaming algorithms and database approximation.`,
+        `Study Hash Table first, because this structure borrows hashing but discards exact storage. Then read LSM Trees (How Cassandra Writes) for the database use case, Cache Invalidation & Versioning for systems freshness problems, and Big-O Growth Rates to separate asymptotic cost from constant-factor memory wins. Merkle Tree and Consistent Hashing show other ways hashes organize large systems.`,
       ],
     },
   ],
 };
-

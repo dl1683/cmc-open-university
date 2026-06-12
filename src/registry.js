@@ -679,6 +679,16 @@ export const topics = [
     module: () => import('./topics/hot-rows.js'),
   },
   {
+    id: 'sharding',
+    type: 'visualization',
+    buildsOn: ['consistent-hashing', 'hot-rows', 'two-phase-commit'],
+    category: 'Systems',
+    title: 'Sharding & Partitioning',
+    summary: 'Split the table across machines by range or by hash — and learn exactly which superpowers stop working at the seams.',
+    tags: ['sharding', 'partitioning', 'range', 'hash', 'hot partition', 'resharding', 'scatter-gather', 'distributed'],
+    module: () => import('./topics/sharding.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

@@ -1502,6 +1502,23 @@ test('data-leakage: the antibiotics feature carries 96% importance and the defen
   assert.ok(defend.some((s) => /would this value exist/.test(s.explanation)), 'the timestamp ritual stated');
 });
 
+test('sharding: range skews where hash scatters, and the casualties are queries, transactions, resharding', async () => {
+  const topic = await loadTopic('sharding');
+  const split = runTopic(topic, { view: 'splitting the table' });
+  const range = split.find((s) => /RANGE/.test(s.state.title ?? '')).state;
+  assert.equal(range.cells.find((c) => c.id === 'sh3:rows').value, 185, 'N-S shard carries 2x the rows');
+  const hash = split.find((s) => /HASH/.test(s.state.title ?? '')).state;
+  assert.ok(['h1', 'h2', 'h3', 'h4'].every((h) => hash.cells.find((c) => c.id === `${h}:rows`).value === 125), 'hash spreads rows evenly');
+  assert.ok(split.some((s) => /celebrity/.test(s.state.title ?? '') && /salt/i.test(s.explanation)), 'celebrity problem and salting staged');
+  const broke = runTopic(topic, { view: 'what sharding breaks' });
+  const scatter = broke[0].state;
+  assert.match(scatter.nodes.find((n) => n.id === 's4').note, /94ms/, 'slowest shard sets scatter-gather latency');
+  assert.ok(broke.some((s) => /max over shards/.test(s.invariant ?? '')), 'tail-at-scale invariant stated');
+  const reshard = broke.find((s) => /resharding day/.test(s.state.title ?? '')).state;
+  assert.match(reshard.cells.find((c) => c.id === 'naive:moves').label, /75%/, 'naive mod rehash moves 75%');
+  assert.ok(broke.some((s) => /relocates cost/.test(s.explanation)), 'the closing thesis stated');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

@@ -59,44 +59,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Big-O is a way to describe how much work an algorithm does as the input gets bigger. It ignores constants (is it 2n or 5n? who cares, it is O(n)). It ignores lower-order terms (n² + n is still O(n²)). What it captures is the shape of the growth curve — the thing that actually matters. A typical input size is small (n = 10), manageable (n = 1,000), large (n = 1,000,000), or enormous (n = 1,000,000,000 and beyond). The Big-O tells you which algorithms survive when n gets large, and which ones die.`,
-        `The most common growth rates, from best to worst: O(1) — constant (a single lookup), O(log n) — logarithmic (binary search), O(n) — linear (one pass), O(n log n) — linearithmic (merge sort), O(n²) — quadratic (nested loops), O(n³) — cubic, and O(2^n) — exponential (brute-force recursion). This chart shows you why: at n=1,000,000, the n log n line is barely visible, but the n² line has already left the building.`,
+        `Big-O describes how an algorithm's work grows as the input size n grows. It does not try to predict exact milliseconds. Instead, it keeps the dominant shape: constant, logarithmic, linear, n log n, quadratic, cubic, exponential. That shape tells you whether an approach survives when n moves from 100 to 1,000,000.`,
+        `The usual ladder is O(1), O(log n), O(n), O(n log n), O(n^2), O(n^3), and O(2^n). Hash Table lookup is O(1) on average. Binary Search is O(log n). Linear Search is O(n). Merge Sort is O(n log n). Bubble Sort is O(n^2). Naive branching Recursion can become O(2^n). The notation is a map of danger zones: some curves stay tame, some explode.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `To compute the Big-O of an algorithm, count the loops and how many times each loop runs. A single loop over n items is O(n). Two nested loops (outer loop runs n times, inner loop runs n times for each outer iteration) is O(n²). If you halve the input at each step (like binary search), you have O(log n) — because log₂(1,000,000) is roughly 20, not 1,000,000. A for-loop that runs 10 times is O(1), regardless of n — it is a constant you can ignore.`,
-        `The real power of Big-O is the dominance principle: only the highest-order term matters. If your algorithm runs 5n² + 3n + 10 operations, it is O(n²) — the n² term grows so much faster than the linear and constant terms that at large n they are noise. This simplification — ignoring constants and lower-order terms — is what makes Big-O such a useful abstraction across different hardware, programming languages, and implementations.`,
+        `Start by counting how many times work repeats as n changes. One loop over all items is O(n). A loop inside a loop over the same data is usually O(n^2). Cutting the remaining search space in half each step is O(log n), because log2(1,000,000) is about 20. Splitting into halves and doing linear merging at each level is O(n log n), the shape behind Merge Sort.`,
+        `Then simplify. Drop constants: 5n becomes O(n). Drop lower-order terms: n^2 + n + 100 becomes O(n^2). This is not because constants are fake; it is because the highest-growth term eventually dominates. The simplification lets you compare algorithms across machines, languages, and implementations without pretending you know the exact hardware timing.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Big-O itself is free; it is just a notation. But the costs it describes are enormous. An O(n) algorithm on 1,000,000 items does about 1,000,000 operations. An O(n²) algorithm on 1,000,000 items does about 1 trillion operations. If your computer does 1 billion operations per second, the O(n) version finishes in 1 second; the O(n²) version takes 1 million seconds (roughly 12 days). That is why the chart matters so much. The space costs are similar: O(n) space means you store n values in memory; O(n²) space means you store a two-dimensional grid, which is feasible at n=1,000 but impossible at n=1,000,000.`,
+        `The numbers get brutal quickly. At n = 1,000,000, an O(n) pass does about one million units of work. O(n log n) with base-2 logs is about 20 million. O(n^2) is one trillion. At one billion operations per second, that is milliseconds versus seconds versus roughly 17 minutes, before real-world memory costs. Space complexity uses the same idea: O(n) space stores one thing per item, while O(n^2) space stores a grid that becomes impossible at large n.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every production system cares about Big-O. Database indexes are O(log n) lookups, not O(n) linear scans. Web servers use hash tables (O(1) lookup) to route requests, not unsorted lists (O(n) search). Sorting pipelines use merge sort (O(n log n)), not bubble sort (O(n²)). Machine learning frameworks use matrix multiplication algorithms that are O(n^2.37) via Strassen's method, not the naive O(n³). When a company's response time jumps from 100ms to 10 seconds overnight, and nothing changed but the data grew from 10,000 items to 1,000,000, you are seeing the O(n²) curve in action — and the fix requires an algorithm redesign, not just faster hardware.`,
+        `Performance incidents often reduce to growth curves. A page that scans every user for every request works in a demo and collapses at production size. Replacing a repeated scan with Hash Table lookup can change a hot path from O(n) to average O(1). Database Indexing uses tree-shaped structures so lookups are logarithmic instead of full-table scans. Binary Heap (Priority Queue) lets schedulers pull the next urgent item in O(log n) instead of sorting everything after every insert.`,
+        `Algorithm choice shows up in product latency. Bubble Sort is fine for a classroom animation and wrong for a million records. Merge Sort and Quick Sort exist because comparison sorting needs about n log n work in the general case. Memoization (Dynamic Programming) can turn repeated recursive subproblems from exponential time into linear or polynomial time by storing answers the first time they are computed.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest misconception is that Big-O is the only thing that matters. It is not; constants matter too. An O(n) algorithm with a coefficient of 1,000 can be slower than an O(n log n) algorithm with a coefficient of 1 at modest input sizes. What Big-O tells you is what happens in the limit — as n grows, the O(n log n) algorithm will eventually outpace the O(n) algorithm.`,
-        `Another pitfall is conflating best-case, average-case, and worst-case Big-O. Linear search has O(1) best-case (the item is first), O(n) worst-case (it is last or missing), and O(n/2) average-case. When you see "O(n) search," you usually mean worst-case. The third pitfall is memorizing Big-O values without understanding where they come from; if you count the loops, you can derive Big-O yourself instead of guessing.`,
+        `The first misconception is that Big-O is the only thing that matters. Constants, memory layout, branch prediction, and I/O can dominate at small and medium sizes. An O(n) algorithm with a huge constant can lose to an O(n log n) algorithm for realistic n. But asymptotically, O(n) grows slower than O(n log n); the linear algorithm eventually wins if the model keeps applying.`,
+        `The second pitfall is mixing best, average, and worst cases. Binary Search has O(1) best case if the target is the first midpoint, but O(log n) worst case. Hash Table has O(1) average lookup but O(n) worst-case collisions. The third pitfall is memorizing labels without deriving them. Count loops, count branching, count how the input shrinks, and the label usually falls out.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Read Recursion and Memoization to see Big-O come alive: exponential algorithms are exponential because of the shape of the recursion tree. Study Binary Search to see O(log n) in action — the simplest and most powerful logarithmic algorithm. Then learn Sorting (Bubble Sort, Merge Sort, Quick Sort) to see how algorithm design directly trades Big-O classes. Hash Table and Tree explain how data structures themselves determine Big-O for lookups and insertions. Finally, Divide and Conquer will teach you how to design algorithms that reach the better curves — O(n log n), O(n), sometimes even O(1).`,
+        `Study Binary Search for logarithmic shrinking, Linear Search for the baseline, and Hash Table for average constant-time lookup. Compare Bubble Sort with Merge Sort to feel the quadratic versus n log n gap. Recursion and Memoization (Dynamic Programming) show why repeated subproblems can be catastrophic or cheap depending on whether you cache them.`,
       ],
     },
   ],
 };
-
