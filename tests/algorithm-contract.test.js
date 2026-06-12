@@ -708,6 +708,15 @@ test('message-queue: nothing lost in either scenario; crash causes one redeliver
   assert.ok(crash.some((s) => /AT-LEAST-ONCE/.test(s.explanation)), 'redelivery semantics taught');
 });
 
+test('ab-testing: same rates flip from noise to signal as n grows', async () => {
+  const topic = await loadTopic('ab-testing');
+  const small = runTopic(topic, { n: '1,000' });
+  assert.ok(small.some((s) => /NOT significant/.test(s.explanation)), 'n=1000 is inconclusive');
+  const large = runTopic(topic, { n: '10,000' });
+  assert.ok(large.some((s) => /VERDICT.*SIGNIFICANT/s.test(s.explanation)), 'n=10000 is significant');
+  assert.ok(!large.some((s) => /NOT significant/.test(s.explanation)), 'no contradiction at n=10000');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

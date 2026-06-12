@@ -299,6 +299,16 @@ export const topics = [
     module: () => import('./topics/reservoir-sampling.js'),
   },
   {
+    id: 'ab-testing',
+    type: 'visualization',
+    buildsOn: ['reservoir-sampling', 'value-iteration'],
+    category: 'Concepts',
+    title: 'A/B Testing & p-values',
+    summary: 'Same conversion rates, two sample sizes — watch "obviously better" turn into noise, and back into signal.',
+    tags: ['statistics', 'p-value', 'experiments', 'significance', 'product'],
+    module: () => import('./topics/ab-testing.js'),
+  },
+  {
     id: 'binary-exponentiation',
     type: 'visualization',
     buildsOn: ['recursion', 'big-o-growth'],
