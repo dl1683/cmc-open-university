@@ -583,6 +583,21 @@ test('edit-distance: computes the canonical distances with a correct edit script
   assert.match(lastText(kitten), /substitute 'k' → 's'.*insert 'g'/s, 'edit script recovered');
 });
 
+test('multi-head-attention: head rows are softmax-normalized and concat preserves shape', async () => {
+  const topic = await loadTopic('multi-head-attention');
+  const steps = runTopic(topic, { view: 'both heads' });
+  for (const title of ['Head 1: a positional specialist', 'Head 2: a semantic specialist']) {
+    const state = steps.find((s) => s.state.title === title).state;
+    for (const row of state.rows) {
+      const sum = state.cells.filter((c) => c.row === row.id).reduce((a, c) => a + c.value, 0);
+      assert.ok(Math.abs(sum - 1) < 1e-9, `${title} row ${row.label} sums to 1`);
+    }
+  }
+  const concat = steps.find((s) => s.state.title.startsWith('Concatenate')).state;
+  assert.equal(concat.rows.length, 4, 'one row per token');
+  assert.equal(concat.columns.length, 4, 'two dims per head, concatenated');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

@@ -696,6 +696,16 @@ export const topics = [
     module: () => import('./topics/transformer-block.js'),
   },
   {
+    id: 'multi-head-attention',
+    type: 'visualization',
+    buildsOn: ['attention', 'transformer-block'],
+    category: 'AI & ML',
+    title: 'Multi-Head Attention',
+    summary: 'Two heads, two different attention patterns, one concatenated answer — parallel relationship detectors.',
+    tags: ['multi-head', 'attention', 'transformers', 'induction heads', 'interpretability'],
+    module: () => import('./topics/multi-head-attention.js'),
+  },
+  {
     id: 'attention',
     type: 'visualization',
     buildsOn: ['tokenization-bpe', 'softmax-temperature', 'embeddings-similarity'],
