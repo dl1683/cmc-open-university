@@ -349,6 +349,16 @@ export const topics = [
     module: () => import('./topics/huffman-coding.js'),
   },
   {
+    id: 'entropy',
+    type: 'visualization',
+    buildsOn: ['huffman-coding', 'softmax-temperature', 'gradient-descent'],
+    category: 'Concepts',
+    title: 'Entropy & Information',
+    summary: 'Information = surprise = −log p. From coin flips to compression floors to the LLM training loss.',
+    tags: ['entropy', 'information theory', 'shannon', 'cross-entropy', 'perplexity', 'KL divergence'],
+    module: () => import('./topics/entropy.js'),
+  },
+  {
     id: 'two-pointers',
     type: 'visualization',
     buildsOn: ['binary-search'],

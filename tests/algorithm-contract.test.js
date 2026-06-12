@@ -805,6 +805,18 @@ test('naive-bayes: posteriors are decisive for clear emails, moderate for mixed'
   assert.ok(mixed > 0.01 && mixed < 0.5, `mixed email is moderate (got ${(mixed * 100).toFixed(1)}%)`);
 });
 
+test('entropy: H values correct and cross-entropy never beats the floor', async () => {
+  const topic = await loadTopic('entropy');
+  const steps = runTopic(topic, { view: 'from surprise to LLM loss' });
+  const hMatrix = steps.find((s) => s.state.title && s.state.title.startsWith('Entropy H')).state;
+  const H = (rid) => hMatrix.cells.find((c) => c.id === `${rid}:H`).value;
+  assert.equal(H('certain'), 0, 'certainty carries zero bits');
+  assert.equal(H('uniform'), 2, 'four equal outcomes need two bits');
+  assert.ok(Math.abs(H('skewed') - 1.257) < 0.01, 'skewed entropy ≈ 1.26 bits');
+  const cross = steps.find((s) => /KL DIVERGENCE/.test(s.explanation));
+  assert.match(cross.explanation, /2\.00 bits per outcome instead of the optimal 1\.26/, 'cross-entropy exceeds entropy');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
