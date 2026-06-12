@@ -376,6 +376,16 @@ export const topics = [
     module: () => import('./topics/kv-cache.js'),
   },
   {
+    id: 'rag-pipeline',
+    type: 'visualization',
+    buildsOn: ['embeddings-similarity', 'attention', 'kv-cache'],
+    category: 'AI & ML',
+    title: 'RAG Pipeline',
+    summary: 'The full retrieval-augmented loop: embed the question, find nearby documents, ground the answer.',
+    tags: ['RAG', 'retrieval', 'vector database', 'hallucination', 'grounding', 'LLM'],
+    module: () => import('./topics/rag-pipeline.js'),
+  },
+  {
     id: 'quantization',
     type: 'visualization',
     buildsOn: ['nn-forward-pass', 'kv-cache'],
