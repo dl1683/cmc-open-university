@@ -625,6 +625,17 @@ test('binary-exponentiation: correct modular results with logarithmic operation 
   assert.match(b.find((s) => /Answer:/.test(s.explanation)).explanation, /= 49, in 4 squarings \+ 2 multiplies/);
 });
 
+test('cdn-request-flow: hit never touches the origin; miss fills the cache for the next user', async () => {
+  const topic = await loadTopic('cdn-request-flow');
+  const hitRun = runTopic(topic, { scenario: 'has the file (hit)' });
+  assert.ok(!hitRun.some((s) => (s.highlight.active ?? []).includes('O1')), 'origin untouched on hit');
+  assert.ok(hitRun.some((s) => /never even heard/.test(s.explanation)));
+  const missRun = runTopic(topic, { scenario: 'is cold (miss)' });
+  assert.ok(missRun.some((s) => (s.highlight.active ?? []).includes('O1')), 'origin reached on miss');
+  assert.ok(missRun.some((s) => /Cache-Control/.test(s.explanation)), 'headers explained');
+  assert.match(lastText(missRun), /20ms HIT/, 'next user benefits');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

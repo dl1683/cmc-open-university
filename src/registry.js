@@ -479,6 +479,16 @@ export const topics = [
     module: () => import('./topics/gossip-protocol.js'),
   },
   {
+    id: 'cdn-request-flow',
+    type: 'visualization',
+    buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
+    category: 'Systems',
+    title: 'CDN Request Flow',
+    summary: 'Follow one HTTP request through DNS, an edge cache, a load balancer, and the origin.',
+    tags: ['CDN', 'caching', 'edge', 'DNS', 'cloudflare', 'composition'],
+    module: () => import('./topics/cdn-request-flow.js'),
+  },
+  {
     id: 'rate-limiter',
     type: 'visualization',
     buildsOn: ['stack', 'hash-table'],
