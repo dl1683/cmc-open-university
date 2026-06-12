@@ -1900,3 +1900,21 @@ test('contour-maps: levels below the pass split into two loops and the barrier d
   assert.ok(paths.some((s) => /right angles/.test(s.invariant ?? '')), 'perpendicularity invariant stated');
   assert.ok(paths.some((s) => /Li et al\. 2018/.test(s.explanation)), 'the famous paper cited');
 });
+
+test('logical-clocks: Lamport jumps to max+1, vectors expose concurrency, TrueTime waits out epsilon', async () => {
+  const topic = await loadTopic('logical-clocks');
+  const lie = runTopic(topic, { view: 'why wall clocks lie' });
+  assert.match(lie[0].state.cells.find((c) => c.id === 'lww:stamp').label, /CORRECTION is silently dropped/, 'the lost-update incident staged');
+  assert.ok(lie.some((s) => /partial order/.test(s.invariant ?? '')), 'happens-before partial order stated');
+  const logical = runTopic(topic, { view: 'logical clocks & TrueTime' });
+  const lamport = logical[0].state;
+  assert.match(lamport.nodes.find((n) => n.id === 'd').note, /max\(1, 2\) \+ 1 = 3/, 'the receive rule computed in the diagram');
+  assert.ok(logical.some((s) => /converse fails|CONVERSE fails/i.test(s.explanation)), 'Lamport limitation stated');
+  const vectors = logical.find((s) => /Vector clocks/.test(s.state.title ?? '')).state;
+  assert.match(vectors.cells.find((c) => c.id === 'v1:vsZ').label, /CONCURRENT/, 'X and Z provably concurrent');
+  assert.match(vectors.cells.find((c) => c.id === 'v2:vsX').label, /X → Y/, 'componentwise dominance ordered');
+  assert.ok(logical.some((s) => /COMMIT-WAIT/.test(s.explanation)), 'TrueTime commit-wait explained');
+  const toolbox = logical[logical.length - 1].state;
+  assert.equal(toolbox.rows.length, 5, 'five tools in the ordering toolbox');
+  assert.match(toolbox.cells.find((c) => c.id === 'hlc:gives').label, /64 bits/, 'hybrid logical clocks included');
+});

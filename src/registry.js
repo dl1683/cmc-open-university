@@ -789,6 +789,16 @@ export const topics = [
     module: () => import('./topics/backpressure.js'),
   },
   {
+    id: 'logical-clocks',
+    type: 'visualization',
+    buildsOn: ['distributed-tracing', 'raft-election', 'isolation-levels'],
+    category: 'Systems',
+    title: 'Clocks & Ordering: Lamport to TrueTime',
+    summary: 'Wall clocks lie across machines — order events by causality instead, or buy atomic truth and wait out its error bars.',
+    tags: ['logical clocks', 'Lamport', 'vector clocks', 'TrueTime', 'happens-before', 'Spanner', 'distributed'],
+    module: () => import('./topics/logical-clocks.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
