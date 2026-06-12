@@ -476,6 +476,16 @@ export const topics = [
     module: () => import('./topics/backpropagation.js'),
   },
   {
+    id: 'lora',
+    type: 'visualization',
+    buildsOn: ['nn-forward-pass', 'quantization', 'backpropagation'],
+    category: 'AI & ML',
+    title: 'LoRA Fine-Tuning',
+    summary: 'Freeze the giant weight matrix; train a skinny A·B correction on top — 1% of the parameters, most of the effect.',
+    tags: ['LoRA', 'fine-tuning', 'QLoRA', 'adapters', 'low-rank', 'PEFT'],
+    module: () => import('./topics/lora.js'),
+  },
+  {
     id: 'knowledge-distillation',
     type: 'visualization',
     buildsOn: ['softmax-temperature', 'nn-forward-pass', 'quantization'],

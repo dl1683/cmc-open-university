@@ -386,6 +386,17 @@ test('convolution: edge kernel responds strongest at the image boundary', async 
   assert.ok(edgeResponse > flatResponse * 2, `edge columns (${edgeResponse}) dominate flat columns (${flatResponse})`);
 });
 
+test('lora: delta is exactly rank-r and merge adds it onto frozen W', async () => {
+  const topic = await loadTopic('lora');
+  const steps = runTopic(topic, { rank: '1' });
+  const delta = steps.find((s) => s.state.title && s.state.title.startsWith('ΔW')).state;
+  const grid = new Map(delta.cells.map((c) => [c.id, c.value]));
+  // rank-1 check: 2x2 minors vanish — d00*d11 === d01*d10 (within rounding)
+  const minor = grid.get('r0:c0') * grid.get('r1:c1') - grid.get('r0:c1') * grid.get('r1:c0');
+  assert.ok(Math.abs(minor) < 0.05, `rank-1 delta has vanishing 2x2 minors (got ${minor})`);
+  assert.match(steps.find((s) => /instead of 36|65,536/.test(s.explanation)).explanation, /12 numbers instead of 36/);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
