@@ -819,6 +819,16 @@ export const topics = [
     module: () => import('./topics/idempotency.js'),
   },
   {
+    id: 'paxos',
+    type: 'visualization',
+    buildsOn: ['raft-election', 'raft-log-replication', 'two-phase-commit'],
+    category: 'Systems',
+    title: 'Paxos: Consensus Without a Leader',
+    summary: 'Prepare, promise, accept: how five acceptors choose one value that survives crashes — and the dueling-proposers livelock that explains why Raft exists.',
+    tags: ['Paxos', 'consensus', 'quorum', 'ballots', 'Multi-Paxos', 'FLP'],
+    module: () => import('./topics/paxos.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

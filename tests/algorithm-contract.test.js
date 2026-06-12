@@ -2006,3 +2006,18 @@ test('saddle-escape: exact GD parks on the saddle, deterministic SGD noise compo
   assert.match(noise[1].state.cells.find((c) => c.id === 'shallow:time').label, /thousands/, 'shallow saddles read as plateaus');
   assert.equal(noise[2].state.rows.length, 4, 'four escape tools in the toolbox');
 });
+
+test('paxos: chosen value rides quorum intersections, the duel livelocks, Raft mapping holds', async () => {
+  const topic = await loadTopic('paxos');
+  const choose = runTopic(topic, { view: 'choosing one value' });
+  assert.match(choose[2].state.cells.find((c) => c.id === 'a3:note').label, /majority now holds "X"/, 'chosen at the third accept');
+  assert.match(choose[3].state.cells.find((c) => c.id === 'a3:note').label, /I accepted \(1, X\)/, 'the loaded promise carries history');
+  assert.match(choose[3].explanation, /must propose "X"/, 'the adoption rule forces the old value');
+  assert.match(choose[4].state.cells.find((c) => c.id === 'cut:members').label, /never empty/, 'quorum intersection stated');
+  const duel = runTopic(topic, { view: 'duels & the road to Raft' });
+  const rejected = duel[0].state.cells.filter((c) => /REJECTED/.test(c.label));
+  assert.equal(rejected.length, 2, 'both accepts die to higher promises');
+  assert.match(duel[0].explanation, /FLP/, 'livelock tied to the FLP theorem');
+  assert.match(duel[2].state.cells.find((c) => c.id === 'ballot:raft').label, /TERM/, 'ballots map to terms');
+  assert.equal(duel[3].state.rows.length, 5, 'lineage covers VR through today');
+});
