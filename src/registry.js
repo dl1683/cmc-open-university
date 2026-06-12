@@ -124,6 +124,16 @@ export const topics = [
     module: () => import('./topics/trie.js'),
   },
   {
+    id: 'topological-sort',
+    type: 'visualization',
+    buildsOn: ['graph-bfs', 'queue'],
+    category: 'Data Structures',
+    title: 'Topological Sort',
+    summary: 'Order tasks so every prerequisite comes first — and detect circular dependencies for free.',
+    tags: ['DAG', 'kahn', 'build order', 'dependencies', 'npm', 'airflow'],
+    module: () => import('./topics/topological-sort.js'),
+  },
+  {
     id: 'union-find',
     type: 'visualization',
     buildsOn: ['tree-traversals'],

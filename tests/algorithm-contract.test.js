@@ -345,6 +345,19 @@ test('trie: autocomplete returns exactly the words under the prefix', async () =
   assert.match(lastText(absent), /NOTHING in the dictionary/);
 });
 
+test('topological-sort: order respects every edge; cycle variant deadlocks', async () => {
+  const topic = await loadTopic('topological-sort');
+  const steps = runTopic(topic, { scenario: 'valid plan' });
+  const order = lastText(steps).match(/Done: ([A-Z1→ ]+) —/)[1].split(' → ');
+  assert.equal(order.length, 7, 'all 7 courses ordered');
+  const slot = new Map(order.map((id, i) => [id, i]));
+  for (const [from, to] of [['CS1', 'DS'], ['M1', 'AL'], ['DS', 'AL'], ['DS', 'DB'], ['AL', 'ML'], ['DB', 'CAP'], ['ML', 'CAP']]) {
+    assert.ok(slot.get(from) < slot.get(to), `${from} before ${to}`);
+  }
+  const cycle = runTopic(topic, { scenario: 'circular (deadlock!)' });
+  assert.match(lastText(cycle), /DEADLOCK|circular/i);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
