@@ -239,6 +239,16 @@ export const topics = [
     module: () => import('./topics/load-balancer.js'),
   },
   {
+    id: 'rate-limiter',
+    type: 'visualization',
+    buildsOn: ['stack', 'hash-table'],
+    category: 'Systems',
+    title: 'Rate Limiter (Token Bucket)',
+    summary: 'Tokens drip into a bucket; requests spend them — bursts allowed, averages enforced.',
+    tags: ['rate limiting', '429', 'token bucket', 'API', 'systems design'],
+    module: () => import('./topics/rate-limiter.js'),
+  },
+  {
     id: 'bloom-filter',
     type: 'visualization',
     buildsOn: ['hash-table'],
@@ -304,6 +314,16 @@ export const topics = [
     summary: 'How raw model scores become probabilities — and how temperature reshapes them from greedy to creative.',
     tags: ['softmax', 'temperature', 'sampling', 'logits', 'LLM'],
     module: () => import('./topics/softmax-temperature.js'),
+  },
+  {
+    id: 'beam-search',
+    type: 'visualization',
+    buildsOn: ['softmax-temperature'],
+    category: 'AI & ML',
+    title: 'Beam Search vs Greedy',
+    summary: 'Keep k candidate sentences alive instead of one — and watch greedy decoding lose.',
+    tags: ['decoding', 'beam search', 'greedy', 'LLM', 'generation'],
+    module: () => import('./topics/beam-search.js'),
   },
   {
     id: 'attention',
