@@ -646,6 +646,16 @@ test('reservoir-sampling: never exceeds k slots and ends with the scripted fair 
   assert.match(lastText(steps), /Sliding Window/, 'cross-links its streaming cousin');
 });
 
+test('git-internals: unchanged blob is shared by both commits; new edit creates four objects', async () => {
+  const topic = await loadTopic('git-internals');
+  const steps = runTopic(topic, { show: 'two commits, one edit' });
+  const state = steps[0].state;
+  const intoB1 = state.edges.filter((e) => e.to === 'B1').map((e) => e.from).sort();
+  assert.deepEqual(intoB1, ['T1', 'T1b'], 'README blob shared by both root trees');
+  assert.ok(state.edges.some((e) => e.from === 'C2' && e.to === 'C1'), 'commit 2 points at parent commit 1');
+  assert.ok(steps.some((s) => /4 small objects/.test(s.explanation)), 'edit cost counted');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

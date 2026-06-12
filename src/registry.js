@@ -489,6 +489,16 @@ export const topics = [
     module: () => import('./topics/gossip-protocol.js'),
   },
   {
+    id: 'git-internals',
+    type: 'visualization',
+    buildsOn: ['merkle-tree', 'hash-table', 'graph-bfs'],
+    category: 'Systems',
+    title: 'Git Internals',
+    summary: 'Blobs, trees, commits — git as a content-addressed Merkle DAG, where snapshots cost like diffs.',
+    tags: ['git', 'content addressing', 'merkle DAG', 'version control', 'blobs'],
+    module: () => import('./topics/git-internals.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
