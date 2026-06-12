@@ -856,6 +856,16 @@ export const topics = [
     module: () => import('./topics/logistic-regression.js'),
   },
   {
+    id: 'threshold-optimization',
+    type: 'visualization',
+    buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],
+    category: 'AI & ML',
+    title: 'Picking a Threshold with Real Costs',
+    summary: 'Attach a price to each mistake and the threshold debate becomes arithmetic — watch the optimum slide when costs flip.',
+    tags: ['threshold', 'cost-sensitive', 'expected cost', 'decision theory', 'operating point', 'evaluation'],
+    module: () => import('./topics/threshold-optimization.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],

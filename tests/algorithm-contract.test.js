@@ -894,6 +894,20 @@ test('logistic-regression: gradient descent drives loss down and misclassificati
   assert.ok(close.some((s) => /\(p − y\)·x/.test(s.explanation)), 'gradient formula stated');
 });
 
+test('threshold-optimization: optimum slides from 0.65 to 0.3 when the costs flip', async () => {
+  const topic = await loadTopic('threshold-optimization');
+  const invoice = runTopic(topic, { costs:'a junked invoice costs $10' });
+  const sweep = invoice.find((s) => /cheapest threshold/.test(s.explanation));
+  assert.match(sweep.explanation, /t = 0\.65, total damage \$4/, 'strict optimum in invoice world');
+  assert.ok(sweep.state.markers.some((m) => m.x === 0.65), 'minimum marked on the curve');
+  const fraud = runTopic(topic, { costs:'a missed fraud costs $10' });
+  assert.match(fraud.find((s) => /cheapest threshold/.test(s.explanation)).explanation, /t = 0\.3, total damage \$5/, 'permissive optimum in fraud world');
+  const formula = fraud.find((s) => /closed form/.test(s.state.title ?? '')).state;
+  assert.equal(formula.cells.find((c) => c.id === 'formula:value').value.toFixed(2), '0.09', 't* = 1/11 in fraud world');
+  const both = invoice.find((s) => /Both worlds/.test(s.explanation)).state;
+  assert.equal(both.series.length, 2, 'both cost curves plotted together');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
