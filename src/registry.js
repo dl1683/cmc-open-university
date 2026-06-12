@@ -1006,6 +1006,16 @@ export const topics = [
     module: () => import('./topics/gradient-flow.js'),
   },
   {
+    id: 'normalization',
+    type: 'visualization',
+    buildsOn: ['gradient-flow', 'transformer-block', 'lr-schedules'],
+    category: 'AI & ML',
+    title: 'BatchNorm & LayerNorm',
+    summary: 'Re-standardize the signal at every layer — and the BN-vs-LN war is just an argument about which axis.',
+    tags: ['batch normalization', 'layer normalization', 'RMSNorm', 'training stability', 'deep learning'],
+    module: () => import('./topics/normalization.js'),
+  },
+  {
     id: 'loss-landscapes',
     type: 'visualization',
     buildsOn: ['gradient-descent', 'gradient-flow', 'learning-curves'],

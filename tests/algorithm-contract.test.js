@@ -1424,6 +1424,29 @@ test('early-stopping: validation turns at epoch 25 and patience forgives the bli
   assert.ok(pat.some((s) => /restore_best_weights/.test((s.state.rows ?? []).map((r) => r.label).join(' '))), 'the classic footgun flagged');
 });
 
+test('normalization: activations compound without it and the two axes standardize the live batch correctly', async () => {
+  const topic = await loadTopic('normalization');
+  const drift = runTopic(topic, { view: 'the drift and the fix' });
+  const scales = drift[0].state;
+  const at = (id, l) => scales.series.find((ser) => ser.id === id).points.find((p) => p.x === l).y;
+  assert.ok(at('grow', 8) > 40, 'large weights compound past 40x by layer 8');
+  assert.ok(at('shrink', 8) < 0.03, 'small weights fade below 3%');
+  assert.ok(drift.some((s) => /γ and β preserve expressiveness/.test(s.invariant ?? '')), 'learnable re-dress stated');
+  assert.ok(drift.some((s) => /Santurkar/.test(s.explanation)), 'the 2018 re-examination cited');
+  const war = runTopic(topic, { view: 'BatchNorm vs LayerNorm: the axis war' });
+  const bn = war.find((s) => /BatchNorm: normalize each COLUMN/.test(s.state.title ?? '')).state;
+  const f2 = ['s1', 's2', 's3'].map((s) => bn.cells.find((c) => c.id === `${s}:f2`).value);
+  assert.ok(Math.abs(f2[0]) < 1e-9 && Math.abs(f2[1] + 1.2247) < 0.01 && Math.abs(f2[2] - 1.2247) < 0.01, 'feature-2 column standardizes to 0, ±1.22');
+  const ln = war.find((s) => /LayerNorm: normalize each ROW/.test(s.state.title ?? '')).state;
+  for (const s of ['s1', 's2', 's3']) {
+    const row = ['f1', 'f2', 'f3', 'f4'].map((f) => ln.cells.find((c) => c.id === `${s}:${f}`).value);
+    assert.ok(Math.abs(row.reduce((a, b) => a + b, 0)) < 1e-9, `row ${s} has mean zero after LayerNorm`);
+  }
+  assert.ok(war.some((s) => /model\.eval\(\)/.test((s.state.rows ?? []).map((r) => r.label).join(' '))), 'eval-mode bug listed');
+  const settle = war[war.length - 1].state;
+  assert.match(settle.cells.find((c) => c.id === 'rms:home').label, /LLaMA/, 'RMSNorm credited to LLaMA-class LLMs');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
