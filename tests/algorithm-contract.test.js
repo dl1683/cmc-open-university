@@ -1236,6 +1236,26 @@ test('influence-functions: border points carry the influence and the mislabeled 
   assert.ok(hunt.some((s) => /SELF-INFLUENCE/.test(s.explanation)), 'self-influence fingerprint covered');
 });
 
+test('gradient-boosting: four stumps cut MSE 99.5% and the eta curves diverge', async () => {
+  const topic = await loadTopic('gradient-boosting');
+  const fit = runTopic(topic, { view: 'boosting fit, residual by residual' });
+  assert.ok(fit.some((s) => /x < 3\.5/.test(s.explanation)), 'first stump splits at 3.5');
+  assert.ok(fit.some((s) => /x < 7\.5/.test(s.explanation)), 'second stump finds the other plateau edge');
+  assert.ok(fit.some((s) => /99\.5% reduction/.test(s.explanation)), 'four stumps cut MSE 99.5%');
+  assert.ok(fit.some((s) => /residual = −∂loss\/∂prediction/.test(s.invariant ?? '')), 'gradient identity stated');
+  const f4 = fit.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'f4')).state;
+  const pred = f4.series.find((ser) => ser.id === 'f4').points;
+  assert.ok(Math.abs(pred[0].y - 3.23) < 0.2 && Math.abs(pred[9].y - 12.07) < 0.2, 'staircase lands on the plateaus');
+  const knobs = runTopic(topic, { view: 'the knobs, and bagging vs boosting' });
+  const curves = knobs[0].state;
+  const at = (id, r) => curves.series.find((ser) => ser.id === id).points.find((p) => p.x === r).y;
+  assert.ok(at('fast', 4) < 0.1, 'eta 1.0 near zero by round 4');
+  assert.ok(at('slow', 4) > 1, 'eta 0.3 still descending at round 4');
+  const versus = knobs.find((s) => /opposite medicines/.test(s.state.title ?? '')).state;
+  assert.match(versus.cells.find((c) => c.id === 'cuts:bag').label, /VARIANCE/, 'bagging cuts variance');
+  assert.match(versus.cells.find((c) => c.id === 'cuts:boost').label, /BIAS/, 'boosting cuts bias');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

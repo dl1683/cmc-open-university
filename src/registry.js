@@ -1096,6 +1096,16 @@ export const topics = [
     module: () => import('./topics/random-forest.js'),
   },
   {
+    id: 'gradient-boosting',
+    type: 'visualization',
+    buildsOn: ['random-forest', 'gradient-descent', 'learning-curves'],
+    category: 'AI & ML',
+    title: 'Gradient Boosting',
+    summary: `Each tree fits the previous ensemble's mistakes — gradient descent in function space, and the king of tabular data.`,
+    tags: ['gradient boosting', 'XGBoost', 'LightGBM', 'ensembles', 'residuals', 'stumps', 'tabular data'],
+    module: () => import('./topics/gradient-boosting.js'),
+  },
+  {
     id: 'transformer-block',
     type: 'visualization',
     buildsOn: ['attention', 'nn-forward-pass', 'tokenization-bpe', 'softmax-temperature'],
