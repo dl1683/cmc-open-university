@@ -1936,3 +1936,18 @@ test('hessian-curvature: eigensystem computed live, Newton lands in one step whe
   assert.ok(Math.hypot(newton.points[1].x, newton.points[1].y) < 1e-12, 'Newton lands on the minimum in one step');
   assert.match(race[3].state.cells.find((c) => c.id === 'adam:keeps').label, /diagonal/, 'Adam framed as diagonal curvature');
 });
+
+test('crdts: G-counter merges commute and converge to 6, OR-set add wins, LWW drops a write', async () => {
+  const topic = await loadTopic('crdts');
+  const counters = runTopic(topic, { view: 'counters that merge' });
+  const full = counters[2].state.cells.filter((c) => c.row === 'full').map((c) => c.value);
+  assert.deepEqual(full, [2, 1, 3, 6], 'all six likes survive the three-way merge, none double-counted');
+  assert.match(counters[2].explanation, /identical/, 'merge order verified commutative live');
+  assert.match(counters[2].explanation, /verified: true/, 'idempotence verified live');
+  assert.ok(counters.some((s) => /GROW-only/.test(s.explanation)), 'G-counter constraint stated');
+  const laws = runTopic(topic, { view: 'sets, registers & the laws' });
+  assert.match(laws[0].state.cells.find((c) => c.id === 'merged:out').label, /silently gone/, 'LWW data loss shown honestly');
+  assert.match(laws[1].state.cells.find((c) => c.id === 'merged:in').label, /add wins/, 'OR-set concurrent add wins');
+  assert.equal(laws[2].state.rows.length, 3, 'exactly the three semilattice laws');
+  assert.match(laws[3].state.cells.find((c) => c.id === 'when:where').label, /consensus/, 'honest about what CRDTs cannot do');
+});

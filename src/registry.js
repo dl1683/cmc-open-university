@@ -799,6 +799,16 @@ export const topics = [
     module: () => import('./topics/logical-clocks.js'),
   },
   {
+    id: 'crdts',
+    type: 'visualization',
+    buildsOn: ['logical-clocks', 'gossip-protocol', 'sharding'],
+    category: 'Systems',
+    title: 'CRDTs: Conflict-Free Replicated Data Types',
+    summary: 'Counters and sets that replicas can edit concurrently and merge in any order — convergence by algebra, not by coordination.',
+    tags: ['CRDT', 'eventual consistency', 'G-counter', 'OR-set', 'collaborative editing', 'semilattice'],
+    module: () => import('./topics/crdts.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
