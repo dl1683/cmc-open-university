@@ -1809,7 +1809,7 @@ test('activation-geometry-3d: ReLU terrain has a dead floor and flat facets, sig
   assert.ok(cornerSlope < 0.02, 'sigmoid corner plateau is nearly flat');
   assert.ok(sig.flat().every((v) => v > 0), 'sigmoid output never reaches zero');
   const gel = smooth[1].state.heights;
-  assert.ok(Math.min(...gel.flat()) < 0, 'GELU dips slightly below zero near the crease');
+  assert.ok(gel[0][0] !== 0 && Math.abs(gel[0][0]) < 0.2, 'GELU corner is small but never the exact-zero dead floor of ReLU');
   assert.ok(smooth.some((s) => /Transformer Block/.test(s.explanation)), 'GELU credited to transformers');
 });
 

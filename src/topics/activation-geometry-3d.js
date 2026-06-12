@@ -96,7 +96,7 @@ function* smoothCountry() {
       { id: 'soft', x: 0, y: 0, z: layer(gelu)(0, 0), label: 'the rounded crease' },
     ]),
     highlight: { active: ['soft'] },
-    explanation: 'The modern compromise: GELU — the default inside every Transformer Block. Watch its terrain: from a distance it is ReLU\'s origami (linear growth, no saturation ceiling, regions clearly visible), but zoom toward any crease and the fold is ROUNDED — a smooth fillet instead of a sharp edge, and even a slight dip below zero near the crease. The rounding keeps gradients well-defined and non-zero through the transition zone (no abrupt dead-switch like ReLU\'s, which can strand "dead neurons" permanently off), while inheriting ReLU\'s open-ended slope. Origami with sanded edges: the geometry explains the empirical win.',
+    explanation: 'The modern compromise: GELU — the default inside every Transformer Block. Watch its terrain: from a distance it is ReLU\'s origami (linear growth, no saturation ceiling, regions clearly visible), but zoom toward any crease and the fold is ROUNDED — a smooth fillet instead of a sharp edge (the raw GELU curve itself even dips slightly below zero just before its fold, though the dips wash out in this summed terrain). The rounding keeps gradients well-defined and non-zero through the transition zone (no abrupt dead-switch like ReLU\'s, which can strand "dead neurons" permanently off), while inheriting ReLU\'s open-ended slope. Origami with sanded edges: the geometry explains the empirical win.',
     invariant: 'GELU ≈ ReLU with a smooth crease: linear wings, differentiable fold, no saturation ceiling.',
   };
 
