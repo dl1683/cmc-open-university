@@ -50,6 +50,24 @@ function* sharedDoom() {
     highlight: { removed: ['pay:status', 'search:status'], compare: ['recs:threads'] },
     explanation: 'The casualty report, and its perversity: the DECORATIVE feature took down the CRITICAL one. Recommendations holds all 200 threads; payments — whose own downstream is perfectly healthy — cannot get a single worker, so checkout dies site-wide because a "you might also like" widget got slow. This is the failure mode the Titanic\'s designers understood for water and software architects keep relearning for threads: damage that is SURVIVABLE in one compartment is FATAL when the compartments connect. (Honest footnote: the Titanic\'s bulkheads famously weren\'t sealed at the top — half-measures flood over.)',
   };
+
+  yield {
+    state: matrixState({
+      title: 'The drowning, second by second (20 sick calls/s, 30s holds)',
+      rows: [
+        { id: 's0', label: 't = 0s' },
+        { id: 's2', label: 't = 2s' },
+        { id: 's5', label: 't = 5s' },
+        { id: 's10', label: 't = 10s' },
+      ],
+      columns: [{ id: 'held', label: 'threads held by recs' }, { id: 'free', label: 'free for everyone else' }],
+      values: [[0, 200], [40, 160], [100, 100], [200, 0]],
+      format: (v) => String(v),
+    }),
+    highlight: { removed: ['s10:free'], compare: ['s0:free'] },
+    explanation: 'The drowning on a stopwatch: 20 calls per second enter the sick dependency and NONE come back for 30 seconds, so held threads climb by 20 every second — 40 by t=2, 100 by t=5, all 200 by t=10. Nothing dramatic happens at any single moment; the pool just monotonically drains, which is why shared-pool incidents feel like slow-motion suffocation on the dashboards. Note what would NOT have helped: more threads (400 drowns in 20 seconds), faster machines (the holds are waits, not work). The only cures are walls (this page) or fast failure (Circuit Breakers & Deadlines) — and the next view builds the walls.',
+    invariant: 'Held threads grow at (arrival rate) per second until holds release or the pool empties — whichever comes first.',
+  };
 }
 
 function* compartments() {
