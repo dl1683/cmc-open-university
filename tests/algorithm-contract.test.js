@@ -997,6 +997,23 @@ test('imbalanced-classification: accuracy prefers do-nothing and ROC ignores a 1
   assert.match(menu.cells.find((c) => c.id === 'weights:risk').label, /recalibrate/, 'weights warp probabilities');
 });
 
+test('web-workers: render unfreezes when the parse moves threads, and the clone tax is priced', async () => {
+  const topic = await loadTopic('web-workers');
+  const offload = runTopic(topic, { view: 'offloading an 800ms job' });
+  const renderNote = (s) => s.state.nodes.find((n) => n.id === 'render').note;
+  assert.match(renderNote(offload[0]), /FROZEN/, 'blocking parse freezes rendering');
+  assert.match(renderNote(offload[1]), /60fps ✓/, 'worker offload keeps rendering smooth');
+  assert.ok(offload[1].state.nodes.some((n) => n.id === 'parse' && n.x === 8), 'parse now lives in the worker column');
+  assert.ok(offload.some((s) => /WORKERS COMPUTE, MAIN PAINTS/.test(s.explanation)), 'division of labor stated');
+  const caps = offload[offload.length - 1].state;
+  assert.equal(caps.cells.find((c) => c.id === 'dom:ok').value, 0, 'no DOM access in workers');
+  const tax = runTopic(topic, { view: 'the postMessage tax' });
+  const bill = tax[0].state;
+  assert.equal(bill.cells.find((c) => c.id === 'mb50:clone').value, 250, '50MB clone costs ~250ms');
+  const move = tax.find((s) => /Three ways to move/.test(s.state.title ?? '')).state;
+  assert.match(move.cells.find((c) => c.id === 'transfer:catch').label, /neutered/, 'transfer neuters the sender');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

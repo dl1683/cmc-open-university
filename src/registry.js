@@ -609,6 +609,16 @@ export const topics = [
     module: () => import('./topics/virtual-dom.js'),
   },
   {
+    id: 'web-workers',
+    type: 'visualization',
+    buildsOn: ['event-loop', 'browser-rendering', 'message-queue'],
+    category: 'Systems',
+    title: 'Web Workers: A Second Thread',
+    summary: `The event loop's escape hatch: a second thread for heavy work — and the postMessage postage you pay to use it.`,
+    tags: ['web workers', 'threads', 'postMessage', 'structured clone', 'transferable', 'SharedArrayBuffer', 'performance'],
+    module: () => import('./topics/web-workers.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
