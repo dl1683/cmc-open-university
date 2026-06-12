@@ -1988,3 +1988,21 @@ test('natural-gradient: KL rings scale with sigma, GD is coordinate-dependent, F
   assert.ok(nat.some((s) => /TRPO/.test(s.explanation)), 'trust-region RL connection made');
   assert.equal(nat[2].state.rows.length, 4, 'production table covers four systems');
 });
+
+test('saddle-escape: exact GD parks on the saddle, deterministic SGD noise compounds out in 165 steps', async () => {
+  const topic = await loadTopic('saddle-escape');
+  const world = runTopic(topic, { view: 'a world made of saddles' });
+  assert.match(world[0].state.cells.find((c) => c.id === 'dnn:p').label, /2\^1,000,000/, 'the counting argument reaches network scale');
+  const gd = world[1].state.series.find((s) => s.id === 'gd');
+  assert.equal(gd.points.at(-1).y, 0, 'GD started on the stable manifold never gains an escape component');
+  assert.ok(Math.abs(gd.points.at(-1).x) < 1e-2, 'GD converges to the saddle itself');
+  const newton = world[2].state.series.find((s) => s.id === 'newton');
+  assert.deepEqual(newton.points.at(-1), { x: 0, y: 0 }, "Newton's step lands exactly on the saddle");
+  const noise = runTopic(topic, { view: 'noise is the feature' });
+  const sgd = noise[0].state.series.find((s) => s.id === 'sgd');
+  assert.equal(sgd.points.length - 1, 165, 'the LCG-noise escape is deterministic: 165 steps');
+  assert.ok(Math.abs(sgd.points.at(-1).y) >= 3, 'SGD leaves along the negative-curvature direction');
+  assert.match(noise[0].explanation, /-0\.9\d/, 'final loss below the saddle level quoted live');
+  assert.match(noise[1].state.cells.find((c) => c.id === 'shallow:time').label, /thousands/, 'shallow saddles read as plateaus');
+  assert.equal(noise[2].state.rows.length, 4, 'four escape tools in the toolbox');
+});

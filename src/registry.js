@@ -1256,6 +1256,16 @@ export const topics = [
     module: () => import('./topics/natural-gradient.js'),
   },
   {
+    id: 'saddle-escape',
+    type: 'visualization',
+    buildsOn: ['hessian-curvature', 'loss-landscapes', 'gradient-descent'],
+    category: 'AI & ML',
+    title: 'Saddle Points & How SGD Escapes Them',
+    summary: 'Why high-dimensional landscapes are saddles almost everywhere, why exact gradient descent gets parked, and why minibatch noise is the escape mechanism.',
+    tags: ['saddle points', 'SGD', 'noise', 'plateaus', 'high dimensions', 'optimization'],
+    module: () => import('./topics/saddle-escape.js'),
+  },
+  {
     id: 'embedding-space-3d',
     type: 'visualization',
     buildsOn: ['embeddings-similarity', 'tsne-umap', 'loss-surface-3d'],
