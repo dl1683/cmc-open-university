@@ -497,6 +497,21 @@ test('two-phase-commit: commits unanimously, aborts on one no, blocks on coordin
   assert.ok(crash.some((s) => /STUCK|BLOCKED/i.test(s.explanation)), 'blocking flaw shown');
 });
 
+test('pagerank: scores stay a probability distribution and linkless pages stay at the floor', async () => {
+  const topic = await loadTopic('pagerank');
+  const steps = runTopic(topic, { iterations: '10' });
+  for (const step of steps.slice(2)) {
+    const sum = step.state.nodes.reduce((a, n) => a + Number(n.note), 0);
+    assert.ok(Math.abs(sum - 1) < 0.01, `scores sum to 1 (got ${sum.toFixed(3)})`);
+  }
+  const final = steps.at(-1).state;
+  const score = (id) => Number(final.nodes.find((n) => n.id === id).note);
+  for (const leaf of ['B', 'C', 'D']) {
+    assert.ok(score(leaf) <= 0.03, `${leaf} has no inlinks and stays at the random-surfer floor`);
+  }
+  assert.ok(score('E') > score('B'), 'the hub outranks the leaves');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

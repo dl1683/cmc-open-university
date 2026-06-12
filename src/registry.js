@@ -616,6 +616,16 @@ export const topics = [
     module: () => import('./topics/hnsw-search.js'),
   },
   {
+    id: 'pagerank',
+    type: 'visualization',
+    buildsOn: ['graph-bfs', 'k-means'],
+    category: 'AI & ML',
+    title: 'PageRank',
+    summary: `Iterate "important pages are linked to by important pages" until it converges — Google's founding idea.`,
+    tags: ['pagerank', 'google', 'graphs', 'eigenvector', 'random surfer', 'ranking'],
+    module: () => import('./topics/pagerank.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],
