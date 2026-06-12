@@ -924,6 +924,23 @@ test('event-loop: output lands A B C D and the microtask chain starves rendering
   assert.match(fixed.nodes.find((n) => n.id === 'render').note, /✓/, 'rendering breathes again');
 });
 
+test('virtual-dom: diff emits three patches, keys cut four mutations to one', async () => {
+  const topic = await loadTopic('virtual-dom');
+  const diff = runTopic(topic, { view: 'a re-render, node by node' });
+  const patches = diff[diff.length - 1].state;
+  assert.equal(patches.items.length, 3, 'exactly three real-DOM operations');
+  assert.match(patches.items[0].value, /setText/, 'text patch first');
+  assert.ok(diff.some((s) => /different type ⇒ different subtree|DIFFERENT type/.test(s.explanation)), 'type-change rule stated');
+  assert.ok(diff.some((s) => /O\(n³\)/.test(s.explanation) && /O\(n\)/.test(s.invariant ?? s.explanation)), 'heuristic complexity contrast stated');
+  const list = runTopic(topic, { view: 'the list that needed keys' });
+  assert.ok(list.some((s) => /FOUR mutations for one insertion/.test(s.explanation)), 'unkeyed diff rewrites every row');
+  assert.ok(list.some((s) => /One mutation instead of four/.test(s.explanation)), 'keyed diff inserts once');
+  const scorecard = list[list.length - 1].state;
+  assert.equal(scorecard.cells.find((c) => c.id === 'unkeyed:ops').value, 4, 'unkeyed costs 4 ops');
+  assert.equal(scorecard.cells.find((c) => c.id === 'keyed:ops').value, 1, 'keyed costs 1 op');
+  assert.equal(scorecard.cells.find((c) => c.id === 'indexkey:ops').value, 4, 'index-as-key is as bad as no key');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

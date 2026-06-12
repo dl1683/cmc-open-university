@@ -599,6 +599,16 @@ export const topics = [
     module: () => import('./topics/event-loop.js'),
   },
   {
+    id: 'virtual-dom',
+    type: 'visualization',
+    buildsOn: ['browser-rendering', 'event-loop', 'edit-distance'],
+    category: 'Systems',
+    title: 'Virtual DOM Reconciliation',
+    summary: 'Re-render in cheap JS, diff two trees, patch the real DOM minimally — and why list keys are not optional.',
+    tags: ['virtual DOM', 'reconciliation', 'React', 'diffing', 'keys', 'frontend', 'tree diff'],
+    module: () => import('./topics/virtual-dom.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
