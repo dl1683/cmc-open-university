@@ -1526,6 +1526,16 @@ export const topics = [
     module: () => import('./topics/importance-sampling.js'),
   },
   {
+    id: 'doubly-robust',
+    type: 'visualization',
+    buildsOn: ['importance-sampling', 'policy-gradients', 'gradient-boosting'],
+    category: 'Concepts',
+    title: 'Doubly Robust Estimation',
+    summary: 'Predict with the model, correct the prediction with importance-weighted residuals: unbiased if the model OR the weights are right — stress-tested live both ways.',
+    tags: ['doubly robust', 'AIPW', 'off-policy', 'counterfactual', 'causal inference', 'variance reduction'],
+    module: () => import('./topics/doubly-robust.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],

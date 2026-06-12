@@ -2116,3 +2116,18 @@ test('leader-replacement: the fencing store rejects the zombie live, figure-8 wa
   assert.match(c[2].state.cells.find((c2) => c2.id === 'lease:how').label, /clock-drift/, 'leases priced in physics');
   assert.equal(c[3].state.rows.length, 4, 'production epoch examples');
 });
+
+test('doubly-robust: DM bias corrected in case A, weight explosion defused in case B, both live', async () => {
+  const topic = await loadTopic('doubly-robust');
+  const mc = runTopic(topic, { view: 'model + correction' });
+  assert.match(mc[1].state.cells.find((c) => c.id === 'cancel2:role').label, /unbiased estimate of EXACTLY the model/, 'the residual-audit logic stated');
+  const a = mc[2].state.cells;
+  assert.match(a.find((c) => c.id === 'dmRow:est').label, /^4\.24 — off by 1\.16/, 'the distorted model misses by a fixed 1.16');
+  assert.match(a.find((c) => c.id === 'drRow:varr').label, /8\.9× calmer/, 'DR variance beats IPS in case A, computed live');
+  const st = runTopic(topic, { view: 'the stress tests' });
+  const b = st[0].state.cells;
+  assert.match(b.find((c) => c.id === 'drRow:est').label, /^5\.40/, 'DR nails the truth on the bad logger');
+  assert.match(b.find((c) => c.id === 'drRow:varr').label, /30\.6× calmer/, 'weights carrying residuals defuse the explosion');
+  assert.match(st[1].state.cells.find((c) => c.id === 'neither:drCol').label, /biased too/, 'the grid is honest about both-wrong');
+  assert.match(st[2].state.cells.find((c) => c.id === 'causal:where').label, /augmented inverse propensity/, 'AIPW identification');
+});
