@@ -579,6 +579,16 @@ export const topics = [
     module: () => import('./topics/dns-resolution.js'),
   },
   {
+    id: 'browser-rendering',
+    type: 'visualization',
+    buildsOn: ['tree-traversals', 'dns-resolution', 'tcp-congestion'],
+    category: 'Systems',
+    title: 'How a Browser Paints a Page',
+    summary: 'HTML in, pixels out: the parse-style-layout-paint-composite pipeline, and the JS loop that breaks it.',
+    tags: ['browser', 'rendering', 'DOM', 'CSSOM', 'layout', 'reflow', 'compositing', 'frontend performance'],
+    module: () => import('./topics/browser-rendering.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

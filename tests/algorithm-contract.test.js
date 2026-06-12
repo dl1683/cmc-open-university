@@ -846,6 +846,23 @@ test('roc-auc: real classifier scores 0.89, coin flip rides the diagonal', async
   assert.ok(coinRoc.every((p) => Math.abs(p.x - p.y) < 1e-9), 'coin-flip curve lies on the diagonal');
 });
 
+test('browser-rendering: render tree prunes invisibles, thrash forces 3 layouts then batches to 1', async () => {
+  const topic = await loadTopic('browser-rendering');
+  const load = runTopic(topic, { view: 'a page load, HTML to pixels' });
+  const renderTree = load.find((s) => /RENDER TREE/.test(s.explanation));
+  assert.deepEqual(renderTree.highlight.removed.sort(), ['head', 'hidden', 'style'], 'head, style, display:none pruned');
+  const layout = load.find((s) => (s.state.title ?? '').startsWith('Layout')).state;
+  const cell = (id) => layout.cells.find((c) => c.id === id).value;
+  assert.equal(cell('b_p:w'), 268, 'paragraph width = card 300 minus 2×16 padding');
+  assert.ok(load.some((s) => /16\.7ms per frame/.test(s.explanation)), 'frame budget stated');
+  const thrash = runTopic(topic, { view: 'the layout-thrash trap' });
+  assert.ok(thrash.some((s) => s.state.title === 'Forced synchronous layouts so far: 3'), 'three forced layouts accumulate');
+  const batched = thrash.find((s) => /Fix 1/.test(s.state.title ?? '')).state;
+  assert.equal(batched.cells.find((c) => c.id === 'reads:forced').value, 1, 'batching collapses to one layout');
+  const compositor = thrash.find((s) => /Fix 2/.test(s.state.title ?? '')).state;
+  assert.equal(compositor.cells.find((c) => c.id === 'transform:layout').value, 0, 'transform skips layout');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
