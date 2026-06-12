@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { topics } from '../src/registry.js';
+import { topics, searchTopics } from '../src/registry.js';
 import { validateSteps, InputError } from '../src/core/state.js';
 import { hashIndex } from '../src/topics/hash-table.js';
 
@@ -746,6 +746,18 @@ test('distributed-tracing: all spans close, durations nest, culprit identified',
   const ms = (id) => Number(final.frames.find((f) => f.id === id).result.replace('ms', ''));
   assert.ok(ms('f') < ms('p') && ms('p') < ms('o') && ms('o') < ms('g'), 'child durations nest inside parents');
   assert.ok(steps.some((s) => /CRITICAL PATH/.test(s.explanation) && /46%/.test(s.explanation)), 'culprit quantified');
+});
+
+// ------------------------------------------------- layer 2: site search
+
+test('searchTopics: ranked, typo-tolerant, title matches first', () => {
+  assert.equal(searchTopics('binary serch')[0].id, 'binary-search', 'one-typo query still finds Binary Search');
+  const sortTop = searchTopics('sort').slice(0, 3).map((t) => t.id);
+  for (const id of sortTop) assert.match(id, /sort/, `top results are sort topics (got ${sortTop})`);
+  const cassandra = searchTopics('cassandra').slice(0, 5).map((t) => t.id);
+  assert.ok(cassandra.includes('lsm-tree') && cassandra.includes('consistent-hashing'), `cassandra surfaces its topics (got ${cassandra})`);
+  assert.equal(searchTopics('').length, 0, 'empty query returns nothing');
+  assert.equal(searchTopics('zzzqqqxxx').length, 0, 'garbage returns nothing');
 });
 
 // ----------------------------------------------- layer 3: study articles

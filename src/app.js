@@ -1,7 +1,7 @@
 // Page bootstrap: decides between homepage and topic page, wires search,
 // navigation, and the theme toggle. All content comes from the registry.
 
-import { topics, categories } from './registry.js';
+import { topics, categories, searchTopics } from './registry.js';
 import { createTopicRuntime } from './core/visualizer.js';
 
 // ----------------------------------------------------------------- theme
@@ -26,53 +26,54 @@ function entryHref(entry) {
   return entry.type === 'article' ? entry.url : `./topic.html?topic=${entry.id}`;
 }
 
-function entryMatches(entry, query) {
-  if (!query) return true;
-  const haystack = [
-    entry.title, entry.summary, entry.category,
-    ...(entry.tags ?? []), entry.searchText ?? '',
-  ].join(' ').toLowerCase();
-  return query.split(/\s+/).every((word) => haystack.includes(word));
-}
-
 function initHome() {
   const listEl = document.querySelector('[data-topic-list]');
   const searchEl = document.querySelector('[data-search]');
 
-  function render(rawQuery = '') {
-    const query = rawQuery.trim().toLowerCase();
-    listEl.replaceChildren();
-    let shown = 0;
-    for (const category of categories) {
-      const entries = topics.filter((t) => t.category === category && entryMatches(t, query));
-      if (entries.length === 0) continue;
-      shown += entries.length;
-      const section = document.createElement('section');
-      section.className = 'category';
-      const heading = document.createElement('h2');
-      heading.textContent = category;
-      section.appendChild(heading);
-      const grid = document.createElement('div');
-      grid.className = 'card-grid';
-      for (const entry of entries) {
-        const card = document.createElement('a');
-        card.className = 'card';
-        card.href = entryHref(entry);
-        const title = document.createElement('h3');
-        title.textContent = entry.title;
-        const summary = document.createElement('p');
-        summary.textContent = entry.summary;
-        card.append(title, summary);
-        grid.appendChild(card);
-      }
-      section.appendChild(grid);
-      listEl.appendChild(section);
+  function renderSection(heading, entries) {
+    const section = document.createElement('section');
+    section.className = 'category';
+    const h = document.createElement('h2');
+    h.textContent = heading;
+    section.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'card-grid';
+    for (const entry of entries) {
+      const card = document.createElement('a');
+      card.className = 'card';
+      card.href = entryHref(entry);
+      const title = document.createElement('h3');
+      title.textContent = entry.title;
+      const summary = document.createElement('p');
+      summary.textContent = entry.summary;
+      card.append(title, summary);
+      grid.appendChild(card);
     }
-    if (shown === 0) {
-      const empty = document.createElement('p');
-      empty.className = 'empty-results';
-      empty.textContent = `Nothing matches "${rawQuery.trim()}" yet — more topics are on the way.`;
-      listEl.appendChild(empty);
+    section.appendChild(grid);
+    listEl.appendChild(section);
+  }
+
+  function render(rawQuery = '') {
+    const query = rawQuery.trim();
+    listEl.replaceChildren();
+
+    if (query) {
+      // ranked, typo-tolerant results in relevance order
+      const results = searchTopics(query);
+      if (results.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'empty-results';
+        empty.textContent = `Nothing matches "${query}" yet — more topics are on the way.`;
+        listEl.appendChild(empty);
+        return;
+      }
+      renderSection(`Results (${results.length})`, results);
+      return;
+    }
+
+    for (const category of categories) {
+      const entries = topics.filter((t) => t.category === category);
+      if (entries.length > 0) renderSection(category, entries);
     }
   }
 

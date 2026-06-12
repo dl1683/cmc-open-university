@@ -857,3 +857,53 @@ export const topics = [
     module: () => import('./topics/attention.js'),
   },
 ];
+
+// Ranked search over everything in the registry. Title matches beat tag
+// matches beat summary matches; words within one typo of a title word or
+// tag still count (so "binary serch" finds Binary Search).
+function withinOneEdit(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i += 1; j += 1; continue; }
+    edits += 1;
+    if (edits > 1) return false;
+    if (a.length > b.length) i += 1;
+    else if (b.length > a.length) j += 1;
+    else { i += 1; j += 1; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+export function searchTopics(rawQuery) {
+  const query = String(rawQuery ?? '').trim().toLowerCase();
+  if (!query) return [];
+  const words = query.split(/\s+/);
+  const scored = [];
+  for (const entry of topics) {
+    const title = entry.title.toLowerCase();
+    const titleWords = title.split(/[^a-z0-9]+/).filter(Boolean);
+    const tags = (entry.tags ?? []).map((t) => t.toLowerCase());
+    const rest = `${entry.summary} ${entry.category} ${entry.searchText ?? ''}`.toLowerCase();
+    let total = 0;
+    let allMatched = true;
+    for (const word of words) {
+      let score = 0;
+      if (title.startsWith(word)) score = 100;
+      else if (titleWords.some((w) => w.startsWith(word))) score = 70;
+      else if (title.includes(word)) score = 55;
+      else if (tags.some((t) => t.includes(word))) score = 40;
+      else if (word.length >= 5 && (titleWords.some((w) => withinOneEdit(w, word)) || tags.some((t) => withinOneEdit(t, word)))) score = 30;
+      else if (rest.includes(word)) score = 15;
+      if (score === 0) { allMatched = false; break; }
+      total += score;
+    }
+    if (allMatched) scored.push({ entry, score: total });
+  }
+  return scored
+    .sort((a, b) => b.score - a.score || a.entry.title.length - b.entry.title.length)
+    .map((x) => x.entry);
+}
