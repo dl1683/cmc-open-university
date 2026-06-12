@@ -259,6 +259,16 @@ export const topics = [
     module: () => import('./topics/big-o-growth.js'),
   },
   {
+    id: 'huffman-coding',
+    type: 'visualization',
+    buildsOn: ['binary-heap', 'trie', 'tree-traversals'],
+    category: 'Concepts',
+    title: 'Huffman Coding',
+    summary: 'Build the optimal prefix code by always merging the two rarest symbols — compression from a greedy loop.',
+    tags: ['compression', 'huffman', 'zip', 'greedy', 'prefix code', 'entropy'],
+    module: () => import('./topics/huffman-coding.js'),
+  },
+  {
     id: 'two-pointers',
     type: 'visualization',
     buildsOn: ['binary-search'],

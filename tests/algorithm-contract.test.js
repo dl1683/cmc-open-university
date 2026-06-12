@@ -358,6 +358,21 @@ test('topological-sort: order respects every edge; cycle variant deadlocks', asy
   assert.match(lastText(cycle), /DEADLOCK|circular/i);
 });
 
+test('huffman-coding: codes are prefix-free and frequent symbols get shorter codes', async () => {
+  const topic = await loadTopic('huffman-coding');
+  const steps = runTopic(topic, { text: 'beekeepers see bees' });
+  const finalGraph = steps.at(-1).state;
+  const codes = finalGraph.nodes.filter((n) => n.note).map((n) => ({ label: n.label, code: n.note }));
+  assert.ok(codes.length >= 5, 'codes assigned to all leaves');
+  for (const a of codes) {
+    for (const b of codes) {
+      if (a !== b) assert.ok(!b.code.startsWith(a.code), `${a.code} is not a prefix of ${b.code}`);
+    }
+  }
+  const eCode = codes.find((c) => c.label.startsWith('e:')).code;
+  assert.ok(codes.every((c) => eCode.length <= c.code.length), 'most frequent symbol has the shortest code');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
