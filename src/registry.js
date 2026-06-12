@@ -759,6 +759,16 @@ export const topics = [
     module: () => import('./topics/bulkheads.js'),
   },
   {
+    id: 'retries-jitter',
+    type: 'visualization',
+    buildsOn: ['circuit-breakers', 'tail-latency', 'cache-invalidation'],
+    category: 'Systems',
+    title: 'Retries, Backoff & Jitter',
+    summary: 'Three retry policies face the same 10-second outage (simulated live): one melts down, one makes waves, one heals.',
+    tags: ['retries', 'exponential backoff', 'jitter', 'retry budget', 'idempotency', 'metastable failure'],
+    module: () => import('./topics/retries-jitter.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

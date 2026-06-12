@@ -1738,6 +1738,25 @@ test('embedding-space-3d: parallel relationship arrows and the analogy lands nea
   assert.ok(steps.some((s) => /doctor − man \+ woman/.test(s.explanation)), 'bias footnote included');
 });
 
+test('retries-jitter: naive retries triple the load and jitter+budget stays within 16% of normal', async () => {
+  const topic = await loadTopic('retries-jitter');
+  const sim = runTopic(topic, { view: 'one outage, three policies' });
+  const lastLoad = (st, id) => st.series.find((ser) => ser.id === id).points;
+  const naive = lastLoad(sim[0].state, 'naive');
+  assert.equal(Math.max(...naive.map((p) => p.y)), 240, 'naive peaks at triple the 80/s demand');
+  assert.ok(naive.filter((p) => p.x >= 15 && p.y > 100).length >= 3, 'naive storm outlives the outage');
+  const both = sim.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'backoff')).state;
+  const backoff = lastLoad(both, 'backoff');
+  assert.ok(backoff.filter((p) => p.x >= 15 && p.y > 100).length > naive.filter((p) => p.x >= 15 && p.y > 100).length, 'unjittered backoff hangs over even longer');
+  const jit = sim.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'jitter')).state;
+  const jitter = lastLoad(jit, 'jitter');
+  assert.ok(Math.max(...jitter.map((p) => p.y)) <= 116, 'jitter+budget peaks at most 116/s');
+  assert.ok(sim.some((s) => /METASTABLE FAILURE/.test(s.explanation)), 'metastable failure named');
+  const disc = runTopic(topic, { view: 'the discipline' });
+  assert.ok(disc.some((s) => /IDEMPOTENCY KEYS/.test(s.explanation)), 'idempotency keys explained');
+  assert.ok(disc.some((s) => /27 requests|27 database/.test((s.state.cells ?? []).map((c) => c.label).join(' ') + s.explanation)), 'stacked-retry amplification shown');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
