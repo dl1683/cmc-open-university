@@ -783,6 +783,16 @@ test('thompson-sampling: belief in B grows with data and traffic follows it', as
   assert.match(lastText(steps), /distributions instead of point estimates/i);
 });
 
+test('tcp-congestion: slow start doubles, loss halves, sawtooth resumes', async () => {
+  const topic = await loadTopic('tcp-congestion');
+  const steps = runTopic(topic, { view: "one connection's life" });
+  const finalPlot = steps.findLast((s) => s.state.kind === 'plot').state;
+  const ys = finalPlot.series[0].points.map((p) => p.y);
+  assert.deepEqual(ys.slice(0, 6), [1, 2, 4, 8, 16, 32], 'exponential slow start to the threshold');
+  assert.ok(ys.includes(44) && ys[ys.indexOf(44) + 1] === 22, 'loss at 44 halves the window to 22');
+  assert.ok(steps.some((s) => /SAWTOOTH/.test(s.explanation) && /AIMD/.test(s.explanation)), 'AIMD named');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

@@ -549,6 +549,16 @@ export const topics = [
     module: () => import('./topics/message-queue.js'),
   },
   {
+    id: 'tcp-congestion',
+    type: 'visualization',
+    buildsOn: ['sliding-window', 'dns-resolution'],
+    category: 'Systems',
+    title: 'TCP: Handshake & Congestion Control',
+    summary: 'SYN, SYN-ACK, ACK — then the sawtooth: probe gently upward, back off hard, forever.',
+    tags: ['TCP', 'networking', 'AIMD', 'slow start', 'CUBIC', 'BBR'],
+    module: () => import('./topics/tcp-congestion.js'),
+  },
+  {
     id: 'dns-resolution',
     type: 'visualization',
     buildsOn: ['trie', 'lru-cache', 'cdn-request-flow'],
