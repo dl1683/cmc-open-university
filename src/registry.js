@@ -1506,6 +1506,16 @@ export const topics = [
     module: () => import('./topics/policy-gradients.js'),
   },
   {
+    id: 'importance-sampling',
+    type: 'visualization',
+    buildsOn: ['policy-gradients', 'reservoir-sampling', 'bootstrap-ci'],
+    category: 'Concepts',
+    title: 'Importance Sampling & Off-Policy Estimation',
+    summary: 'Reweight samples from the distribution you have by p/q to estimate the one you want — exact in expectation, priced in variance, audited live.',
+    tags: ['importance sampling', 'off-policy', 'counterfactual', 'effective sample size', 'Monte Carlo', 'IPS'],
+    module: () => import('./topics/importance-sampling.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],

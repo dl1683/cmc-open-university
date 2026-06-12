@@ -2085,3 +2085,19 @@ test('byzantine-generals: N=3 worlds indistinguishable, N=4 majority computed un
   assert.match(pb[2].state.cells.find((c) => c.id === 'db:how').label, /CRASH-fault only/, 'datacenters honestly excluded');
   assert.equal(pb[3].state.rows.length, 4, 'the fault-tolerance ladder has four rungs');
 });
+
+test('importance-sampling: estimator audited against the exact 5.4, ESS prices both loggers', async () => {
+  const topic = await loadTopic('importance-sampling');
+  const re = runTopic(topic, { view: 'reweighting the logs' });
+  assert.match(re[1].state.title, /\(5\.4\)/, 'the exact target value appears in the audit title');
+  assert.match(re[1].state.cells.find((c) => c.id === 'w:detail').label, /4\.00/, 'weights are literally p/q');
+  assert.match(re[1].state.cells.find((c) => c.id === 'varr:detail').label, /effective sample size 200 of 500/, 'ESS computed live for the good logger');
+  const series = re[2].state.series;
+  assert.equal(series.find((s) => s.id === 'truthline').points[0].y, 5.4, 'the truth line is the closed form');
+  assert.ok(series.find((s) => s.id === 'ok').points.length === 50, 'running estimate sampled every 10 of 500');
+  const ex = runTopic(topic, { view: 'when the weights explode' });
+  assert.match(ex[0].state.cells.find((c) => c.id === 'ess:detail').label, /ESS 102 of 500/, 'bad logger ESS collapse computed live');
+  assert.match(ex[0].explanation, /silently biased/, 'zero-coverage bias stated');
+  assert.match(ex[1].state.cells.find((c) => c.id === 'mix:move').label, /uniform/, 'defensive logging in the toolbox');
+  assert.match(ex[2].state.cells.find((c) => c.id === 'ppo:where').label, /importance weight/, 'PPO ratio connection made');
+});
