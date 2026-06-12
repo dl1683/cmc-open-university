@@ -124,6 +124,16 @@ export const topics = [
     module: () => import('./topics/dijkstra.js'),
   },
   {
+    id: 'a-star',
+    type: 'visualization',
+    buildsOn: ['dijkstra'],
+    category: 'Data Structures',
+    title: 'A* Search',
+    summary: 'Shortest path with a compass: expand by g + h, and skip everything pointing away from the goal.',
+    tags: ['pathfinding', 'heuristic', 'games', 'GPS', 'graph'],
+    module: () => import('./topics/a-star.js'),
+  },
+  {
     id: 'bubble-sort',
     type: 'visualization',
     category: 'Sorting',
@@ -344,6 +354,16 @@ export const topics = [
     summary: 'Keep k candidate sentences alive instead of one — and watch greedy decoding lose.',
     tags: ['decoding', 'beam search', 'greedy', 'LLM', 'generation'],
     module: () => import('./topics/beam-search.js'),
+  },
+  {
+    id: 'kv-cache',
+    type: 'visualization',
+    buildsOn: ['attention', 'lru-cache'],
+    category: 'AI & ML',
+    title: 'KV Cache',
+    summary: 'Why LLMs pause before the first token and then stream: cached Keys and Values are never recomputed.',
+    tags: ['inference', 'LLM', 'vLLM', 'prefill', 'decode', 'GPU memory'],
+    module: () => import('./topics/kv-cache.js'),
   },
   {
     id: 'random-forest',

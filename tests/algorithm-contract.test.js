@@ -261,6 +261,25 @@ test('lru-cache: evicts least-recently-used, never exceeds capacity', async () =
   assert.deepEqual(final, [4, 1, 3], 'most-recent-first order; 2 was evicted as LRU');
 });
 
+test('a-star: optimal path both ways, heuristic settles fewer nodes', async () => {
+  const topic = await loadTopic('a-star');
+  const withH = runTopic(topic, { heuristic: 'straight-line distance' });
+  const withoutH = runTopic(topic, { heuristic: 'zero (becomes Dijkstra)' });
+  for (const steps of [withH, withoutH]) {
+    assert.match(steps.at(-1).explanation, /cost 11\.5/);
+  }
+  const settledCount = (steps) => Number(steps.at(-1).explanation.match(/settling (\d+)/)[1]);
+  assert.ok(settledCount(withH) <= settledCount(withoutH), 'heuristic never settles more nodes than Dijkstra');
+});
+
+test('kv-cache: cached mode computes O(n) vectors, naive grows quadratically', async () => {
+  const topic = await loadTopic('kv-cache');
+  const fast = runTopic(topic, { mode: 'with KV cache' });
+  assert.match(fast.at(-1).explanation, /5 vector computations/);
+  const slow = runTopic(topic, { mode: 'without cache (naive)' });
+  assert.match(slow.at(-1).explanation, /14 vector computations/);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
