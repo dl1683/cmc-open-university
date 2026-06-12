@@ -836,6 +836,16 @@ export const topics = [
     module: () => import('./topics/roc-auc.js'),
   },
   {
+    id: 'calibration-curves',
+    type: 'visualization',
+    buildsOn: ['roc-auc', 'softmax-temperature'],
+    category: 'AI & ML',
+    title: 'Calibration & Reliability Diagrams',
+    summary: `Does "90% sure" mean right 90% of the time? Plot confidence against reality and find out.`,
+    tags: ['calibration', 'reliability diagram', 'ECE', 'temperature scaling', 'confidence', 'evaluation'],
+    module: () => import('./topics/calibration-curves.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],

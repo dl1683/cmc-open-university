@@ -863,6 +863,21 @@ test('browser-rendering: render tree prunes invisibles, thrash forces 3 layouts 
   assert.equal(compositor.cells.find((c) => c.id === 'transform:layout').value, 0, 'transform skips layout');
 });
 
+test('calibration-curves: overconfidence sags below diagonal, T=2 repairs ECE without touching ranking', async () => {
+  const topic = await loadTopic('calibration-curves');
+  const bad = runTopic(topic, { view: 'the overconfident network' });
+  assert.ok(bad.some((s) => (s.state.title ?? '') === 'Expected Calibration Error: 0.106'), 'ECE = 0.106 before');
+  const diagram = bad.find((s) => /RELIABILITY DIAGRAM/.test(s.explanation)).state;
+  const model = diagram.series.find((ser) => ser.id === 'model').points;
+  assert.ok(model.every((p) => p.y < p.x), 'every bin sits below the diagonal — overconfident');
+  const fixed = runTopic(topic, { view: 'the fix: temperature scaling' });
+  assert.ok(fixed.some((s) => /0\.106 to 0\.008/.test(s.explanation)), 'ECE collapses to 0.008');
+  assert.ok(fixed.some((s) => /AUC are all unchanged/.test(s.invariant ?? '')), 'monotonicity invariant stated');
+  const after = fixed.find((s) => /hugs the diagonal/.test(s.explanation)).state;
+  const pts = after.series.find((ser) => ser.id === 'model').points;
+  assert.ok(pts.every((p) => Math.abs(p.x - p.y) <= 0.01 + 1e-9), 'scaled bins land within 1 point of honest');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
