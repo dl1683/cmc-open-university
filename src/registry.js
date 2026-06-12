@@ -279,6 +279,16 @@ export const topics = [
     module: () => import('./topics/big-o-growth.js'),
   },
   {
+    id: 'finite-state-machine',
+    type: 'visualization',
+    buildsOn: ['graph-bfs', 'trie'],
+    category: 'Concepts',
+    title: 'Finite State Machines',
+    summary: 'Walk a DFA matching the pattern ab*c, one character per step — regex demystified.',
+    tags: ['FSM', 'DFA', 'regex', 'automata', 'lexer', 'TCP'],
+    module: () => import('./topics/finite-state-machine.js'),
+  },
+  {
     id: 'huffman-coding',
     type: 'visualization',
     buildsOn: ['binary-heap', 'trie', 'tree-traversals'],

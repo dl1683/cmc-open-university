@@ -560,6 +560,15 @@ test('kruskal-mst: builds the optimal 6-edge tree, rejects exactly the cycle edg
   assert.match(lastText(clusters), /single-linkage|CLUSTERS/i);
 });
 
+test('finite-state-machine: accepts exactly the ab*c strings', async () => {
+  const topic = await loadTopic('finite-state-machine');
+  for (const [option, ok] of [['abbbc (match)', true], ['ac (match)', true], ['abca (reject)', false], ['bc (reject)', false]]) {
+    const steps = runTopic(topic, { input: option });
+    const verdict = steps.find((s) => /ACCEPTED|REJECTED/.test(s.explanation));
+    assert.match(verdict.explanation, ok ? /ACCEPTED/ : /REJECTED/, option);
+  }
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
