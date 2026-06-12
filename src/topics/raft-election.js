@@ -37,6 +37,9 @@ export function* run(input) {
 
   const roles = new Map(SERVERS.map((s) => [s, 'follower']));
   const alive = new Set(SERVERS);
+  const liveEdgesFrom = (id) => EDGES
+    .filter((e) => (e.from === id || e.to === id) && alive.has(e.from) && alive.has(e.to))
+    .map((e) => e.id);
   let term = 3;
   roles.set('S1', 'leader');
 
@@ -75,7 +78,7 @@ export function* run(input) {
     roles.set('S5', 'candidate');
     yield {
       state: snapshot(),
-      highlight: { active: ['S3', 'S5'], compare: [...edgesFrom('S3').filter((e) => !e.includes('S5')), ...edgesFrom('S5').filter((e) => !e.includes('S3'))] },
+      highlight: { active: ['S3', 'S5'], compare: [...liveEdgesFrom('S3').filter((e) => !e.includes('S5')), ...liveEdgesFrom('S5').filter((e) => !e.includes('S3'))] },
       explanation: `Bad luck: S5's timer fired almost simultaneously — TWO candidates for term ${term}. S2 votes for S3; S4 votes for S5; each candidate has its own vote. Tally: S3 has 2, S5 has 2 — with S1 dead, NOBODY reaches the majority of 3. The election fails… safely. No majority, no leader, no harm.`,
       invariant: 'A term can elect at most one leader, because each server votes once per term.',
     };
@@ -91,14 +94,14 @@ export function* run(input) {
 
   yield {
     state: snapshot(),
-    highlight: { active: ['S3'], compare: edgesFrom('S3') },
+    highlight: { active: ['S3'], compare: liveEdgesFrom('S3') },
     explanation: `RequestVote(term ${term}) goes out. ${splitVote ? 'S2, S4, and S5 are all unvoted in this fresh term — ' : 'S2, S4, and S5 have not voted in this term — '}each grants its single vote to S3. With S3's own vote, that's 4 of 5.`,
   };
 
   roles.set('S3', 'leader');
   yield {
     state: snapshot(),
-    highlight: { found: ['S3'], active: edgesFrom('S3') },
+    highlight: { found: ['S3'], active: liveEdgesFrom('S3') },
     explanation: `MAJORITY (3 of 5 needed): S3 is the leader of term ${term} and immediately starts heartbeating. Now the safety argument, the entire reason this works: a second leader in term ${term} would need its own majority — but two majorities of 5 servers must OVERLAP in at least one server, and that server only had one vote to give. Split-brain isn't unlikely; it is ARITHMETICALLY impossible.`,
     invariant: 'Any two majorities of the same cluster share at least one member.',
   };
