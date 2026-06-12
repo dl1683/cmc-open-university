@@ -1219,6 +1219,23 @@ test('write-caching: write-back is 50x faster but fails the crash test until the
   assert.match(census.cells.find((c) => c.id === 'raid:guard').label, /battery/i, 'RAID battery net included');
 });
 
+test('influence-functions: border points carry the influence and the mislabeled point is unmasked', async () => {
+  const topic = await loadTopic('influence-functions');
+  const taught = runTopic(topic, { view: 'which examples taught this verdict' });
+  const ledger = taught.find((s) => /Leave-one-out/.test(s.state.title ?? '')).state;
+  const dp = (id) => ledger.cells.find((c) => c.id === `${id}:dp`).value;
+  assert.ok(dp('r4') < -0.12, 'removing border spam (2,3) drops the verdict most');
+  assert.ok(dp('r8') > 0.05 && dp('r9') > 0.05, 'border hams prop the verdict up');
+  assert.ok(Math.abs(dp('r5')) < 0.01, 'deep ham (0,1) is dead weight');
+  assert.ok(taught.some((s) => /support vectors/i.test(s.explanation)), 'support-vector connection drawn');
+  assert.ok(taught.some((s) => /Koh & Liang/.test(s.explanation)), 'scaling approximation cited');
+  const hunt = runTopic(topic, { view: 'hunting the mislabeled point' });
+  const table = hunt.find((s) => /Remove each example/.test(s.state.title ?? '')).state;
+  assert.match(table.rows[0].label, /\(1,1\) spam/, 'mislabeled point ranks first');
+  assert.ok(table.cells.find((c) => c.id === `${table.rows[0].id}:val`).value < 0.14, 'its removal cuts clean-set loss to ~0.13');
+  assert.ok(hunt.some((s) => /SELF-INFLUENCE/.test(s.explanation)), 'self-influence fingerprint covered');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

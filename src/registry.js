@@ -1036,6 +1036,16 @@ export const topics = [
     module: () => import('./topics/lime.js'),
   },
   {
+    id: 'influence-functions',
+    type: 'visualization',
+    buildsOn: ['lime', 'logistic-regression', 'cross-validation'],
+    category: 'AI & ML',
+    title: 'Influence: Which Training Data Did This?',
+    summary: 'Delete one training example, retrain, watch the prediction move — exact influence, and the mislabeled point it catches.',
+    tags: ['influence functions', 'data valuation', 'leave-one-out', 'mislabeled data', 'data debugging', 'TracIn'],
+    module: () => import('./topics/influence-functions.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],
