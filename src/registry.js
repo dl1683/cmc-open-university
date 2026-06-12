@@ -329,6 +329,16 @@ export const topics = [
     module: () => import('./topics/power-analysis.js'),
   },
   {
+    id: 'multiple-testing',
+    type: 'visualization',
+    buildsOn: ['ab-testing', 'power-analysis', 'data-leakage'],
+    category: 'Concepts',
+    title: 'Multiple Testing & False Discoveries',
+    summary: 'Twenty metrics at α = 0.05 and a false "win" is near-certain — Bonferroni, Holm, and BH are the antidotes.',
+    tags: ['multiple testing', 'Bonferroni', 'Benjamini-Hochberg', 'FDR', 'family-wise error', 'forking paths'],
+    module: () => import('./topics/multiple-testing.js'),
+  },
+  {
     id: 'binary-exponentiation',
     type: 'visualization',
     buildsOn: ['recursion', 'big-o-growth'],

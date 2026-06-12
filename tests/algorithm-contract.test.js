@@ -1646,6 +1646,23 @@ test('circuit-breakers: the FSM trips and heals, and the deadline refuses doomed
   assert.equal(kit.rows.length, 5, 'five-guard resilience kit');
 });
 
+test('multiple-testing: twenty tests lie 64% of the time and BH accepts four where Bonferroni takes two', async () => {
+  const topic = await loadTopic('multiple-testing');
+  const lie = runTopic(topic, { view: 'twenty metrics, one lie guaranteed' });
+  const table = lie[0].state;
+  assert.ok(Math.abs(table.cells.find((c) => c.id === 'k20:p').value - 64.2) < 0.1, 'k=20 family-wise error 64.2%');
+  assert.ok(Math.abs(table.cells.find((c) => c.id === 'k100:p').value - 99.4) < 0.1, 'k=100 near-certain');
+  assert.ok(lie.some((s) => /GARDEN OF FORKING PATHS/.test(s.explanation)), 'forking paths named');
+  const fixes = runTopic(topic, { view: 'the corrections, applied live' });
+  assert.ok(fixes.some((s) => /0\.0025/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'Bonferroni bar at alpha/k shown');
+  const bh = fixes.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'bhline'));
+  const ps = bh.state.series.find((ser) => ser.id === 'pvals').points;
+  const passing = ps.filter((pt) => pt.y <= (pt.x / 10) * 0.05);
+  assert.equal(passing.length, 4, 'BH accepts exactly four discoveries');
+  assert.ok(ps.filter((pt) => pt.y <= 0.005).length === 2, 'Bonferroni would accept only two');
+  assert.ok(fixes.some((s) => /PRE-REGISTRATION/.test(s.explanation)), 'pre-registration crowned');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
