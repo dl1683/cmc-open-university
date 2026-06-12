@@ -548,6 +548,18 @@ test('transformer-block: layer norm rows have mean zero and shape is preserved',
   }
 });
 
+test('kruskal-mst: builds the optimal 6-edge tree, rejects exactly the cycle edges', async () => {
+  const topic = await loadTopic('kruskal-mst');
+  const steps = runTopic(topic, { mode: 'full run' });
+  const done = steps.find((s) => /Done:/.test(s.explanation)).explanation;
+  assert.match(done, /6 edges/);
+  assert.match(done, /total cost 19/);
+  const rejections = steps.filter((s) => /REJECTED/.test(s.explanation));
+  assert.deepEqual(rejections.map((s) => s.explanation.slice(0, 2)), ['AB', 'BG'], 'AB and BG close cycles');
+  const clusters = runTopic(topic, { mode: 'stop at 3 clusters' });
+  assert.match(lastText(clusters), /single-linkage|CLUSTERS/i);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

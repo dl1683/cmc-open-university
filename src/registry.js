@@ -194,6 +194,16 @@ export const topics = [
     module: () => import('./topics/a-star.js'),
   },
   {
+    id: 'kruskal-mst',
+    type: 'visualization',
+    buildsOn: ['union-find', 'dijkstra', 'binary-heap'],
+    category: 'Data Structures',
+    title: "Kruskal's Minimum Spanning Tree",
+    summary: 'Connect every node at minimum total cost: cheapest edges first, cycles vetoed by Union-Find.',
+    tags: ['MST', 'kruskal', 'greedy', 'clustering', 'network design'],
+    module: () => import('./topics/kruskal-mst.js'),
+  },
+  {
     id: 'bubble-sort',
     type: 'visualization',
     category: 'Sorting',
