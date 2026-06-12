@@ -322,6 +322,19 @@ test('write-ahead-log: recovery yields the committed state in both scenarios', a
   assert.deepEqual(final.state.items.map((i) => i.value), ['A: $35', 'B: $115'], 'both transactions applied');
 });
 
+test('union-find: ends as one set, detects the cycle, compression shortens paths', async () => {
+  const topic = await loadTopic('union-find');
+  const steps = runTopic(topic, { compression: 'on' });
+  assert.match(steps.at(-2).explanation, /CYCLE/, 'connected pair flagged as a cycle');
+  const finalGraph = steps.at(-1).state;
+  const roots = finalGraph.nodes.filter((n) => n.note.startsWith('root'));
+  assert.equal(roots.length, 1, 'all elements merged into one set');
+  const compressed = steps.find((s) => /Compressed/.test(s.explanation));
+  assert.ok(compressed, 'path compression step present when on');
+  const off = runTopic(topic, { compression: 'off' });
+  assert.ok(!off.some((s) => /Compressed/.test(s.explanation)), 'no compression step when off');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

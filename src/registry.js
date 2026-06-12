@@ -114,6 +114,16 @@ export const topics = [
     module: () => import('./topics/b-tree.js'),
   },
   {
+    id: 'union-find',
+    type: 'visualization',
+    buildsOn: ['tree-traversals'],
+    category: 'Data Structures',
+    title: 'Union-Find (Disjoint Sets)',
+    summary: 'Merge groups and test connectivity in near-constant time — parent pointers plus two sly tricks.',
+    tags: ['disjoint sets', 'kruskal', 'connectivity', 'path compression', 'inverse ackermann'],
+    module: () => import('./topics/union-find.js'),
+  },
+  {
     id: 'skip-list',
     type: 'visualization',
     buildsOn: ['linked-list', 'binary-search'],
