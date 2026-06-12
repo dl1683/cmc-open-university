@@ -369,6 +369,16 @@ export const topics = [
     module: () => import('./topics/raft-election.js'),
   },
   {
+    id: 'raft-log-replication',
+    type: 'visualization',
+    buildsOn: ['raft-election', 'write-ahead-log'],
+    category: 'Systems',
+    title: 'Raft Log Replication',
+    summary: 'How a leader copies its log to followers, and why committed entries can never be lost.',
+    tags: ['raft', 'consensus', 'replication', 'commit', 'etcd', 'distributed systems'],
+    module: () => import('./topics/raft-log-replication.js'),
+  },
+  {
     id: 'rate-limiter',
     type: 'visualization',
     buildsOn: ['stack', 'hash-table'],

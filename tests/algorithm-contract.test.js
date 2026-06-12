@@ -419,6 +419,19 @@ test('cap-theorem: CP refuses during partition, AP serves stale, both heal to 9'
   }
 });
 
+test('raft-log-replication: logs converge identically in both scenarios', async () => {
+  const topic = await loadTopic('raft-log-replication');
+  for (const scenario of ['steady replication', 'leader crash + conflict']) {
+    const steps = runTopic(topic, { scenario });
+    const final = steps.at(-1).state;
+    const rowsOf = (rowId) => final.cells.filter((c) => c.row === rowId).map((c) => c.value);
+    assert.deepEqual(rowsOf('s0'), rowsOf('s1'), `${scenario}: S1 matches S2`);
+    assert.deepEqual(rowsOf('s1'), rowsOf('s2'), `${scenario}: S2 matches S3`);
+  }
+  const crash = runTopic(topic, { scenario: 'leader crash + conflict' });
+  assert.ok(crash.some((s) => /DELETED and overwritten/.test(s.explanation)), 'conflict resolution shown');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
