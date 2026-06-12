@@ -2217,3 +2217,17 @@ test('difference-in-differences: both naive comparisons lie, the 2x2 recovers +3
   assert.equal(pt[1].state.rows.length, 3, 'three failure stories');
   assert.match(pt[2].state.cells.find((c) => c.id === 'did:bet').label, /parallel trends/, 'the bet named in the toolkit');
 });
+
+test('sparse-table: doubling build, two overlapping windows answer -3 in O(1)', async () => {
+  const topic = await loadTopic('sparse-table');
+  const b = runTopic(topic, { view: 'build: doubling windows' });
+  assert.equal(b.length, 4, 'array + three levels for n=8');
+  assert.deepEqual(b[2].state.items.map((x) => x.value), [-1, -1, -1, -3, -3], 'level 2: mins of every length-4 window');
+  assert.match(b[3].explanation, /17 stored values/, 'n log n memory counted live');
+  const q = runTopic(topic, { view: 'query: two windows, one answer' });
+  assert.match(q[1].explanation, /min = -1/, 'left window lookup');
+  assert.match(q[2].explanation, /min = -3/, 'right window lookup');
+  assert.ok(q[2].highlight.compare.length === 2, 'the overlap is highlighted');
+  assert.match(q[3].state.title, /min\(-1, -3\) = -3/, 'two lookups, one answer');
+  assert.match(q[3].state.cells.find((c) => c.id === 'sparse:needs').label, /idempotent/, 'the algebra named');
+});

@@ -184,6 +184,16 @@ export const topics = [
     module: () => import('./topics/segment-tree.js'),
   },
   {
+    id: 'sparse-table',
+    type: 'visualization',
+    buildsOn: ['segment-tree', 'fenwick-tree', 'binary-exponentiation'],
+    category: 'Data Structures',
+    title: 'Sparse Table: O(1) Range Minimum',
+    summary: 'Precompute power-of-two windows once, answer every range-min in exactly two overlapping lookups — idempotence makes the double-count free.',
+    tags: ['sparse table', 'range minimum query', 'RMQ', 'idempotent', 'static data', 'preprocessing'],
+    module: () => import('./topics/sparse-table.js'),
+  },
+  {
     id: 'graph-bfs',
     type: 'visualization',
     buildsOn: ['queue', 'tree-traversals'],
