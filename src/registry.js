@@ -104,6 +104,16 @@ export const topics = [
     module: () => import('./topics/binary-heap.js'),
   },
   {
+    id: 'b-tree',
+    type: 'visualization',
+    buildsOn: ['binary-search-tree', 'binary-search'],
+    category: 'Data Structures',
+    title: 'B-Trees (How Databases Read)',
+    summary: 'Nodes hold multiple keys and split upward as they fill — the index behind Postgres and MySQL.',
+    tags: ['b-tree', 'database index', 'postgres', 'mysql', 'disk', 'balanced'],
+    module: () => import('./topics/b-tree.js'),
+  },
+  {
     id: 'graph-bfs',
     type: 'visualization',
     buildsOn: ['queue', 'tree-traversals'],

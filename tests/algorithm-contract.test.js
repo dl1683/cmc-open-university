@@ -280,6 +280,26 @@ test('kv-cache: cached mode computes O(n) vectors, naive grows quadratically', a
   assert.match(slow.at(-1).explanation, /14 vector computations/);
 });
 
+test('b-tree: stays balanced — every leaf at the same depth, all keys present', async () => {
+  const topic = await loadTopic('b-tree');
+  const steps = runTopic(topic, { values: '30, 10, 50, 40, 20, 60, 15, 45, 5', target: '45' });
+  const finalGraph = steps.findLast((s) => s.state.kind === 'graph').state;
+  const children = new Map(finalGraph.nodes.map((n) => [n.id, []]));
+  const hasParent = new Set();
+  for (const e of finalGraph.edges) { children.get(e.from).push(e.to); hasParent.add(e.to); }
+  const rootId = finalGraph.nodes.find((n) => !hasParent.has(n.id)).id;
+  const leafDepths = [];
+  (function walk(id, depth) {
+    const kids = children.get(id);
+    if (kids.length === 0) { leafDepths.push(depth); return; }
+    for (const kid of kids) walk(kid, depth + 1);
+  })(rootId, 0);
+  assert.equal(new Set(leafDepths).size, 1, `all leaves at one depth (got ${leafDepths.join(',')})`);
+  const allKeys = finalGraph.nodes.flatMap((n) => n.label.split('·').filter(Boolean).map(Number)).sort((a, b) => a - b);
+  assert.deepEqual(allKeys, [5, 10, 15, 20, 30, 40, 45, 50, 60], 'every inserted key present exactly once');
+  assert.ok(anyFound(steps), 'search finds 45');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
