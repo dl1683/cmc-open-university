@@ -809,6 +809,16 @@ export const topics = [
     module: () => import('./topics/crdts.js'),
   },
   {
+    id: 'idempotency',
+    type: 'visualization',
+    buildsOn: ['retries-jitter', 'message-queue', 'crdts'],
+    category: 'Systems',
+    title: 'Idempotency & Exactly-Once Delivery',
+    summary: 'Why no protocol can deliver a message exactly once — and how an idempotency key turns retries from double-charges into safety.',
+    tags: ['idempotency', 'exactly-once', 'two generals', 'outbox pattern', 'dedup', 'payments'],
+    module: () => import('./topics/idempotency.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

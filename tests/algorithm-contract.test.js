@@ -1951,3 +1951,21 @@ test('crdts: G-counter merges commute and converge to 6, OR-set add wins, LWW dr
   assert.equal(laws[2].state.rows.length, 3, 'exactly the three semilattice laws');
   assert.match(laws[3].state.cells.find((c) => c.id === 'when:where').label, /consensus/, 'honest about what CRDTs cannot do');
 });
+
+test('idempotency: at-least-once double-charges on lost acks, keys make it exactly 6', async () => {
+  const topic = await loadTopic('idempotency');
+  const imp = runTopic(topic, { view: 'why exactly-once is impossible' });
+  assert.match(imp[0].state.cells.find((c) => c.id === 'world2:retry').label, /DOUBLE CHARGE/, 'the two-worlds dilemma staged');
+  const amo = imp[1].state.cells.filter((c) => c.column === 'charged').map((c) => c.value);
+  assert.deepEqual(amo, [0, 1, 1, 1, 1, 1], 'fire-and-forget loses exactly one charge on this drop pattern');
+  const alo = imp[2].state.cells.filter((c) => c.column === 'charged').map((c) => c.value);
+  assert.equal(alo.reduce((s, v) => s + v, 0), 8, 'retry-until-acked produces 8 charges for 6 requests');
+  assert.equal(alo.filter((v) => v > 1).length, 2, 'exactly the two lost-ack requests double-charge');
+  assert.match(imp[3].state.cells.find((c) => c.id === 'eo:verdict').label, /IMPOSSIBLE/, 'exactly-once delivery named impossible');
+  const keys = runTopic(topic, { view: 'idempotency keys' });
+  const dedup = keys[0].state.cells.filter((c) => c.column === 'charged').map((c) => c.value);
+  assert.deepEqual(dedup, [1, 1, 1, 1, 1, 1], 'idempotency keys: same network, exactly one charge each');
+  assert.match(keys[1].state.cells.find((c) => c.id === 'inc:twice').label, /needs a key/, 'relative updates flagged non-idempotent');
+  assert.ok(keys.some((s) => /OUTBOX/.test(s.explanation)), 'transactional outbox covered');
+  assert.match(keys[3].state.cells.find((c) => c.id === 'ttl:detail').label, /window/, 'finite dedup window caveat present');
+});
