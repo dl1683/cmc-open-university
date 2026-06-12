@@ -739,6 +739,16 @@ export const topics = [
     module: () => import('./topics/pca.js'),
   },
   {
+    id: 'svd',
+    type: 'visualization',
+    buildsOn: ['pca', 'lora', 'embeddings-similarity'],
+    category: 'AI & ML',
+    title: 'SVD & Low-Rank Approximation',
+    summary: 'Any matrix = a stack of rank-1 layers sorted by loudness — keep a few, and you have compression, PCA, and LoRA.',
+    tags: ['SVD', 'low-rank', 'matrix factorization', 'compression', 'LoRA', 'Eckart-Young', 'recommenders'],
+    module: () => import('./topics/svd.js'),
+  },
+  {
     id: 'activation-functions',
     type: 'visualization',
     buildsOn: ['gradient-descent'],

@@ -1466,6 +1466,25 @@ test('hot-rows: the queue grows 100/sec without bound and the four designs trade
   assert.match(card.cells.find((c) => c.id === 'ram:loss').label, /unflushed window/, 'RAM design pays in crash loss');
 });
 
+test('svd: the live power iteration finds one dominant layer and rank-2 keeps 96% in half the storage', async () => {
+  const topic = await loadTopic('svd');
+  const compress = runTopic(topic, { view: 'compressing a picture, rank by rank' });
+  const scree = compress.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'scree')).state;
+  const sigmas = scree.series[0].points.map((p) => p.y);
+  assert.ok(sigmas[0] > 10 * sigmas[1], 'sigma-1 dominates the spectrum by over 10x');
+  assert.ok(sigmas[1] > sigmas[2] && sigmas[2] > sigmas[3], 'singular values sorted descending');
+  const ledger = compress.find((s) => /compression ledger/.test(s.state.title ?? '')).state;
+  const cell = (id) => ledger.cells.find((c) => c.id === id).value;
+  assert.equal(cell('k2:store'), 34, 'rank 2 stores 34 numbers');
+  assert.ok(cell('k1:cap') > 91 && cell('k2:cap') > 95.5, 'rank 1 keeps ~92%, rank 2 ~96%');
+  assert.ok(compress.some((s) => /Eckart–Young/.test(s.explanation)), 'optimality theorem cited');
+  const everywhere = runTopic(topic, { view: 'one decomposition, everywhere' });
+  const lora = everywhere.find((s) => /LoRA/.test(s.state.title ?? '')).state;
+  assert.equal(lora.cells.find((c) => c.id === 'lora:params').value, 65536, 'rank-8 LoRA trains 65,536 numbers');
+  assert.ok(everywhere.some((s) => /rotate · stretch · rotate/.test(s.state.title ?? '')), 'geometric reading staged');
+  assert.ok(everywhere.some((s) => /Netflix/.test(s.state.title ?? '')), 'recommender application staged');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

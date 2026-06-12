@@ -60,43 +60,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A stack is an abstract data type that enforces Last-In-First-Out (LIFO) access: the last element you push is the first one you can pop. Picture a stack of plates in a cafeteria — you add plates to the top and remove from the top. You never dig into the middle or bottom. This simplicity makes stacks one of the most fundamental and efficient data structures in computing.`,
-        `A stack has only two main operations: push (add to the top) and pop (remove from the top). You can also peek at the top element without removing it. That is the entire interface. There is no search, no removal from the middle, no iteration — just top-of-stack access. This constraint is not a limitation; it is the whole point.`,
+        `A stack is a Last-In, First-Out container: the newest item is the first one you can remove. Think of cafeteria plates, browser back history, or a pile of sticky notes on your desk. You add to the top, remove from the top, and deliberately ignore everything below it until the newer work is gone. That narrow rule is what makes the structure useful.`,
+        `The public interface is tiny: push adds an item, pop removes and returns the newest item, and peek reads the newest item without removing it. There is usually an isEmpty check too, because popping from an empty container is an underflow error. You do not search, sort, or delete from the middle. If you need keyed lookup, use Hash Table; if you need arrival order, use Queue. The value here is disciplined reversal: the last unfinished thing gets handled first.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Push adds a new element to the top. If you are using an array, this is an unshift operation at the front (or append at the back if you reverse your indexing). Either way, the operation touches only the top slot and runs in O(1). Pop removes the top element and returns it — again, O(1), because you only touch the top slot.`,
-        `Peek returns the top element without removing it — also O(1). Behind the scenes, a stack can be implemented as a linked list (where the head is the top) or as an array (where one end is designated as the top). Both achieve O(1) push and pop. The key insight is that you only ever touch one end, so resizing or pointer updates are never required.`,
+        `In JavaScript, the natural array implementation treats the end of the array as the top. Array push appends at the end, and pop removes from the end, so neither operation shifts the other elements. That gives amortized O(1) behavior: most pushes are one write, with an occasional resize when the backing storage grows. Using unshift and shift at the front is the classic mistake, because those operations must re-index the array and can cost O(n).`,
+        `A pointer implementation is just as simple. With Linked List, make the head node the top: push creates a new head, pop moves the head pointer to the next node, and peek reads the head value. Each operation rewires one pointer. This is why stacks pair so naturally with Recursion: every function call pushes a frame containing local variables and a return address, and every return pops that frame.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Push, pop, and peek are all O(1) operations. Space complexity is O(n) where n is the number of elements stored. There are no hidden costs because the stack never searches, never sorts, and never shifts. This makes stacks one of the fastest, most predictable data structures. The trade-off is that you can only access the top — if you need to check if a specific value is in the stack, you must pop every element until you find it or exhaust the stack.`,
+        `Push, pop, and peek are O(1) in the intended implementation. Array-backed push is amortized O(1); linked-list push is worst-case O(1) but allocates a node per item. Space is O(n), where n is the number of stored items, plus small overhead for array capacity or node pointers. Searching is O(n) because the interface gives you no shortcut to older entries. Big-O Growth Rates matters here because the structure earns its speed by refusing operations that would require scanning.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Stacks power undo/redo systems: each action is pushed onto the undo stack, and pressing Undo pops the last action and pushes it to the redo stack. Programming language implementations use stacks to manage function calls — each function call pushes a frame onto the call stack, and return pops it. Web browsers use stacks for navigation history. Compilers use stacks for syntax parsing and expression evaluation. The Ethereum Virtual Machine and JavaScript engines both rely on the call stack. Any system that needs to reverse order or maintain a LIFO sequence uses a stack.`,
+        `Undo systems usually keep one history stack for actions and a second one for redo. Expression evaluators use stacks for operators and operands; Dijkstra's shunting-yard algorithm turns infix math like 3 + 4 * 5 into an order a machine can execute. Compilers and interpreters use call stacks, parsers use stacks to match nested parentheses, and depth-first Tree Traversals often use an explicit stack instead of recursive calls. Web navigation also looks stack-shaped: each page visit pushes a location, and Back pops toward the previous one.`,
+        `Systems code leans on the same idea. The JavaScript engine uses the call stack beside The Event Loop; the event loop schedules callbacks, while the call stack records what is currently executing. Graph algorithms also choose between structures: Graph BFS uses Queue for level order, while depth-first search uses a stack when it wants to chase one path deeply before backing up.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest mistake is trying to access a middle element or search the stack without popping. If you need to search for a value or access elements in any order, a stack is the wrong data structure — use a Hash Table or array. Another misconception is that stacks are slow because they are abstract; they are actually faster than most structures because operations are guaranteed O(1) with no exceptions. Stack overflow (exceeding memory limits on the call stack) is a real issue in recursion-heavy programs, but that is an implementation detail of the call stack, not a flaw in the stack concept itself. Finally, mixing up stack vs. queue is common — stacks are LIFO, queues are FIFO; if you need to process things in the order they arrived, use a queue.`,
+        `The first pitfall is choosing the wrong end of an array. In JavaScript, push/pop is the fast stack pair; unshift/shift is the slow pair for this purpose. The second is treating the structure like a general list. If you keep popping just to inspect older values, your design probably wants Hash Table, Linked List, or an array instead. The third is ignoring overflow: recursive code can exhaust the call stack long before it exhausts heap memory, especially in browsers with relatively shallow stack limits.`,
+        `Another interview trap is confusing LIFO and FIFO. A stack reverses order; a Queue preserves it. That one distinction explains why undo, parsing, and depth-first search feel natural here, while print jobs and request scheduling do not.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Learn Queue to see the opposite access pattern (FIFO). Explore how Recursion internally uses the call stack. Understanding Linked List will deepen your appreciation for why pointer-based implementations of stacks are efficient. Study Tree Traversals and Graph BFS, both of which use stacks (or queues) as auxiliary data structures to track which nodes to visit next.`,
+        `Study Queue to see the opposite access rule, then revisit Recursion with the call stack in mind. Linked List shows the pointer version of the same operations. Tree Traversals and Graph BFS make the choice between stack and queue visible in traversal order, and Big-O Growth Rates explains why O(1) push and pop are such a strong primitive.`,
       ],
     },
   ],
 };
-
