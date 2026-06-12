@@ -2050,3 +2050,23 @@ test('quorums: overlapping sets surface version 2, disjoint sets silently serve 
   assert.equal(dial[2].state.rows.length, 3, 'three healing mechanisms');
   assert.match(dial[3].state.cells.find((c) => c.id === 'tie:story').label, /LWW|sibling/, 'concurrent-write resolution named');
 });
+
+test('policy-gradients: estimator audited against the closed form, baseline cuts variance 3.6x, PPO clip flatlines', async () => {
+  const topic = await loadTopic('policy-gradients');
+  const re = runTopic(topic, { view: 'REINFORCE & the variance tax' });
+  const cells = re[1].state.cells;
+  assert.equal(cells.find((c) => c.id === 'truth:mean').label, '0.500', 'closed-form gradient is the audit target');
+  assert.match(cells.find((c) => c.id === 'raw:mean').label, /^0\.5/, 'raw estimator unbiased');
+  assert.match(cells.find((c) => c.id === 'ratio:variance').label, /3\.6×/, 'variance ratio computed live');
+  const curves = re[2].state.series;
+  assert.ok(curves.every((s) => s.points.at(-1).y > 0.95), 'both runs learn the +3 action');
+  assert.ok(curves[0].points.length === curves[1].points.length, 'same horizon, same seed');
+  const ppo = runTopic(topic, { view: 'trust regions & PPO' });
+  const pos = ppo[1].state.series.find((s) => s.id === 'apos');
+  const beyond = pos.points.filter((p) => p.x > 1.21).map((p) => p.y);
+  assert.ok(beyond.every((y) => Math.abs(y - 1.2) < 1e-9), 'A=+1 objective flatlines at 1+eps');
+  const neg = ppo[1].state.series.find((s) => s.id === 'aneg');
+  const atTwo = neg.points.at(-1);
+  assert.ok(atTwo.y <= -2 + 1e-9, 'A=-1 correction gradient never clips above r=1');
+  assert.match(ppo[3].state.cells.find((c) => c.id === 'grpo:gave').label, /group mean|mean of sampled/i, 'GRPO baseline lesson included');
+});

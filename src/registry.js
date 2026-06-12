@@ -1486,6 +1486,16 @@ export const topics = [
     module: () => import('./topics/value-iteration.js'),
   },
   {
+    id: 'policy-gradients',
+    type: 'visualization',
+    buildsOn: ['value-iteration', 'natural-gradient', 'multi-armed-bandits'],
+    category: 'AI & ML',
+    title: 'Policy Gradients: REINFORCE to PPO',
+    summary: 'The score-function trick that differentiates through sampling, the variance it pays, the baseline that rescues it, and the PPO clip running modern RLHF.',
+    tags: ['policy gradient', 'REINFORCE', 'PPO', 'RLHF', 'advantage', 'reinforcement learning'],
+    module: () => import('./topics/policy-gradients.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],
