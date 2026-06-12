@@ -1196,6 +1196,16 @@ export const topics = [
     module: () => import('./topics/loss-surface-3d.js'),
   },
   {
+    id: 'contour-maps',
+    type: 'visualization',
+    buildsOn: ['loss-surface-3d', 'gradient-descent', 'adam-optimizer'],
+    category: 'Concepts',
+    title: 'Loss Landscapes from Above: Contour Maps',
+    summary: 'The 3D terrain flattened the way papers draw it: nested rings, the figure-eight pass, and optimizer paths crossing lines.',
+    tags: ['contour maps', 'level sets', 'loss landscape', 'saddle', 'conditioning', 'visualization'],
+    module: () => import('./topics/contour-maps.js'),
+  },
+  {
     id: 'embedding-space-3d',
     type: 'visualization',
     buildsOn: ['embeddings-similarity', 'tsne-umap', 'loss-surface-3d'],

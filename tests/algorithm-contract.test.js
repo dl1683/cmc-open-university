@@ -1879,3 +1879,24 @@ test('backpressure: AIMD sawtooths around capacity while deaf clients pin at 240
   assert.ok(wild.some((s) => /the queue itself is the wire/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'bounded queue as the wire');
   assert.ok(wild.some((s) => /delayed feedback oscillates/i.test(s.explanation)), 'control-theory delay lesson stated');
 });
+
+test('contour-maps: levels below the pass split into two loops and the barrier draws one figure-eight', async () => {
+  const topic = await loadTopic('contour-maps');
+  const reading = runTopic(topic, { view: 'reading the map' });
+  const fullMap = reading[1].state;
+  const loopsAt = (prefix) => fullMap.series.filter((ser) => ser.id.startsWith(prefix));
+  assert.equal(loopsAt('L1_60').length, 2, 'level 1.6 cuts two separate basins');
+  assert.equal(loopsAt('L0_90').length, 1, 'level 0.9 exists only in the deep basin');
+  assert.equal(loopsAt('L2_20').length, 1, 'level 2.2 encloses both basins as one ring');
+  const barrier = loopsAt('L1_73');
+  assert.equal(barrier.length, 1, 'the barrier level is a single pinched curve');
+  assert.ok(reading.some((s) => /FIGURE-EIGHT/.test(s.explanation)), 'the figure-eight named');
+  const paths = runTopic(topic, { view: 'optimizer paths on the map' });
+  const withBoth = paths.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'mom')).state;
+  const gd = withBoth.series.find((ser) => ser.id === 'gd').points;
+  const mom = withBoth.series.find((ser) => ser.id === 'mom').points;
+  assert.ok(gd.at(-1).x > 1.5, 'GD path ends in the shallow basin');
+  assert.ok(mom.at(-1).x < -1.5, 'momentum path ends in the deep basin');
+  assert.ok(paths.some((s) => /right angles/.test(s.invariant ?? '')), 'perpendicularity invariant stated');
+  assert.ok(paths.some((s) => /Li et al\. 2018/.test(s.explanation)), 'the famous paper cited');
+});
