@@ -76,43 +76,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Quantization shrinks neural network weights by storing them in tiny integers instead of 32-bit floats. A trained 7-billion-parameter model weighs about 28 GB in full precision — too large for most laptops and consumer GPUs. The same model at 4-bit precision fits in 3.5 GB, and at 8-bit in 7 GB, because 4 bits can represent only 16 distinct values instead of billions. The core insight: networks are robust to noise and slightly-wrong weights because they average millions of small errors across billions of parameters, much like a Random Forest averages its trees' mistakes. Quantization exploits that robustness to trade tiny accuracy loss for massive memory and speed gains.`,
-        `Three regimes exist: 8-bit quantization is nearly lossless (networks cannot detect the error amid their inherent noise), 4-bit introduces small but measurable quality drops that add up to tiny model degradation, and 2-bit destroys structure (only four distinct values exist, so the weight distribution collapses). Most deployed quantized models live in the 4-bit to 8-bit zone. Real-world schemes like GPTQ, AWQ, and llama.cpp's Q4 formats use group-wise quantization (quantizing small weight groups separately) to contain outliers and prevent a single large weight from coarsening the scale for everyone else, a problem you see clearly in the visualization when the 0.91 outlier dominates the quantization range.`,
+        `Quantization stores neural-network numbers with fewer bits. A float32 weight uses 32 bits; int8 uses 8 bits, and int4 uses 4 bits. That gives roughly 4x and 8x raw weight compression before metadata. A 7B-parameter model needs about 28 GB in float32, about 14 GB in float16, about 7 GB in int8, and about 3.5 GB in int4. The trade is precision: fewer representable values means each weight is rounded to a nearby bucket.`,
+        `The surprise is that trained networks tolerate a lot of rounding. Millions or billions of weights share the work, so small independent errors often average out. Real systems exploit that tolerance with post-training quantization, quantization-aware training, and mixed precision. GPTQ, AWQ, bitsandbytes, TensorRT, ONNX Runtime, and llama.cpp's GGUF formats all live in this family.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `The algorithm is simple: find the largest magnitude (maxAbs) in the weights, then divide the representable range into equal steps. For b bits, you get 2^(b-1) - 1 steps (one step is the scale): scale = maxAbs / (2^(b-1) - 1). Round every weight to its nearest integer step: q = round(w / scale). Each q now fits in b bits. To use the model, dequantize back: w' = q × scale. The error is the difference |w - w'|.`,
-        `In the visualization: the original 32-bit weights become quantized integers, which then dequantize to their closest representable values. Notice how the error heatmap darkens in the corners — small weights (0.08, 0.06, -0.05) suffer larger relative error because the scale is set by the largest magnitude. This is the first practical problem: a single outlier (the 0.91 in position [2,0]) forces a coarse scale that wastes precision on smaller weights. The real-world fix is group-wise or channel-wise quantization: quantize different groups of weights with different scales, so small weights in their group maintain precision. This is exactly what GPTQ and AWQ do to make 4-bit inference practical for production LLMs like Llama.`,
+        `The simplest symmetric scheme finds the largest absolute weight in a group, sets scale = max_abs / max_integer, rounds q = round(w / scale), then stores q as a small integer. To use the model, it dequantizes with w_approx = q * scale or uses kernels that multiply quantized values directly. Group-wise quantization is the practical version: use separate scales for blocks of 32, 64, or 128 weights so one outlier does not ruin precision for an entire matrix.`,
+        `Different methods choose scales differently. GPTQ uses second-order information to minimize output error layer by layer. AWQ protects activation-important channels. Quantization-aware training inserts fake quantization during training so Gradient Descent learns weights that survive rounding. QLoRA combines Quantization with LoRA Fine-Tuning: keep the base model in 4-bit form, but train small full-precision adapters.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Memory: 8-bit quantization is roughly 4× compression (32 bits → 8 bits). 4-bit is 8× (28 GB → 3.5 GB). 2-bit is 16× but unusable for most networks. Inference speed also improves because low-precision arithmetic is faster on GPUs and TPUs, and you fit more activations in cache. The computational cost of quantization itself is trivial — a few passes to find maxAbs, scale, and round. KV Cache quantization (storing attention key-value vectors at 8 bits or 4 bits instead of 32) unlocks long-context inference; a 4K-token context with quantized KV cache costs less memory than a 512-token context at full precision. The big remaining challenge is training quantized models end-to-end or fine-tuning them: QLoRA (Quantized LoRA) solves this by keeping the base model at 4-bit but adapting it with full-precision low-rank updates, so you train an 8B model on a consumer GPU by freezing the quantized backbone.`,
+        `Memory savings are the obvious win, but speed depends on hardware and kernels. Int8 matrix multiplication is fast on many CPUs, GPUs, and TPUs. Int4 can be faster still, but only when packing, dequantization, and memory access are optimized; otherwise a small model may run slower despite using less RAM. Scales and zero-points add overhead, usually small compared with weights. KV Cache quantization attacks a different bottleneck: long-context inference stores keys and values per layer per token, so reducing cache precision can decide whether 32k-token serving fits at all.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `llama.cpp (runs Llama on CPU and GPU) ships pre-quantized weights in Q4, Q5, and Q8 formats — these are the quantized model files you download. GPTQ and AWQ are research frameworks that optimize quantization for specific hardware and target bit widths; the quantized models are shipped on HuggingFace and run with specialized kernels for speed. QLoRA enabled fine-tuning of 13B and 70B parameter models on a single 24GB GPU, democratizing LLM adaptation. Inference engines like TensorRT and ONNXRuntime natively support quantized inference. Mobile deployment (phone LLMs, edge AI) relies entirely on quantization — 8-bit and 4-bit models run where full precision would never fit. Long-context systems quantize the KV Cache to avoid memory explosion; a system processing 32k-token documents uses 4-bit KV caches, cutting cache memory 8×. Even transformer architectures themselves are being redesigned with quantization in mind (mixed-precision schemes, learnable quantization ranges per layer), because quantization is no longer a deployment afterthought but a core design constraint.`,
+        `Quantization is how large models fit on ordinary machines. llama.cpp popularized CPU-friendly 4-bit and 5-bit Llama inference. Mobile inference stacks use int8 for speech, vision, and keyboard models. NVIDIA TensorRT and ONNX Runtime deploy quantized models for low-latency serving. Apple Neural Engine, Qualcomm Hexagon, and Google TPU paths all reward reduced precision. In retrieval systems, vector quantization compresses Embeddings & Similarity indexes; in training stacks, bf16 and fp16 mixed precision are standard even before integer quantization is considered.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Misconception: quantization is a magic free lunch at all bit widths. False. 8-bit is nearly free. 4-bit works surprisingly well empirically, but task-specific quality loss is real and cumulative (especially on math-heavy or highly specialized domains). Below 4 bits, output quality degrades sharply. Another trap: a single global scale wastes precision on small weights and constrains large ones. Solution: group-wise quantization (GPTQ, AWQ) quantizes layers, channels, or blocks separately. Pitfall: naive post-training quantization (just quantizing trained weights) underperforms compared to quantization-aware training (training with quantization in mind) because the model never learned to be quantization-robust. Many papers show 4-bit QAT beats 8-bit post-training quantization. Final pitfall: assuming 4-bit models are interchangeable regardless of how they were quantized — GPTQ and AWQ use different algorithms, produce different weight distributions, and have different accuracy-speed tradeoffs. Always validate quantization on your target task.`,
+        `Quantization is not automatically lossless. Int8 is often close to free for mature models, but 4-bit can hurt math, code, safety classifiers, and narrow domain tasks. Two methods with the same bit width can behave differently because calibration data, group size, outlier handling, and kernel layout matter. Another misconception is that smaller weights always mean lower end-to-end latency. If generation is bottlenecked by memory bandwidth, quantization helps; if it is bottlenecked by dequantization or unsupported kernels, it may not.`,
+        `The hardest cases are outliers and activations. A few very large channels can dominate the scale, while small but important weights collapse to zero. That is why SVD & Low-Rank Approximation, Knowledge Distillation, and quantization are often combined: different compression tools remove different kinds of redundancy.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Quantization is about compressing trained weights; to understand what those weights learned, study Neural Network Forward Pass and Embeddings & Similarity to see how weights transform inputs. KV Cache describes the memory bottleneck that quantization alleviates in long-context models. Gradient Descent shows how weights are learned in the first place; quantization-aware training modifies that process. Random Forest illustrates the averaging principle behind quantization robustness — many small errors averaging to tiny loss.`,
+        `Read Neural Network Forward Pass to see where quantized weights are used, KV Cache for long-context memory pressure, LoRA Fine-Tuning for QLoRA, and SVD & Low-Rank Approximation for a different compression lens. Knowledge Distillation explains how to train a smaller model before quantizing it, and Embeddings & Similarity shows where vector quantization appears outside model weights.`,
       ],
     },
   ],
 };
-

@@ -92,45 +92,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Gradient descent is the algorithm that trains neural networks. Given a loss function that measures how wrong a model is, gradient descent repeatedly computes the slope (gradient) of the loss with respect to the model's weights and takes a step in the opposite direction — downhill. After thousands or millions of steps, the loss becomes small (the model becomes accurate), and training stops. The mechanism is elegantly simple: follow the steepest downhill direction until you reach a valley.`,
-        `The core update rule is just one line: new_weight = old_weight - learning_rate * gradient. The learning rate is a scalar that controls how big each step is. Too small and training is slow. Too large and the algorithm bounces around the valley and diverges. This one hyperparameter, tuned by hand or by second-order methods, is the difference between convergence and collapse.`
-      ]
+        `Gradient descent is the workhorse update rule behind modern machine learning: define a loss, measure how each weight changes that loss, then nudge the weights downhill. The one-line rule is w = w - learning_rate * gradient. Backpropagation supplies the gradient efficiently; gradient descent chooses the step. That distinction matters. Backprop is bookkeeping through the computation graph, while the optimizer decides how aggressively to change the model.`,
+        `The demo uses a friendly parabola, but real training lives on a high-dimensional surface with ridges, saddles, flat basins, and noisy minibatches. Neural networks rarely train with full-batch descent over the entire dataset. They use stochastic or minibatch gradient descent, so each step is a cheap, noisy estimate of the true slope. That noise is not merely tolerated; it often helps the optimizer escape sharp traps and settle into flatter regions that generalize better.`,
+      ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Gradient descent requires three ingredients: a loss function (measuring error), a way to compute its gradient with respect to each weight (backpropagation via the chain rule), and a learning rate to scale the step. In the demo, the loss is the simple parabola (w - 3)^2 + 1, with a global minimum at w = 3 and gradient 2(w - 3). In real neural networks, the loss is a function of billions of weights, computed via billions of operations, but the gradient is computed automatically by frameworks like PyTorch and TensorFlow using reverse-mode autodiff (backpropagation).`,
-        `The algorithm is iterative: compute the loss and gradient for the current weights, take a step opposite the gradient, and repeat. Early in training, far from the minimum, gradients are large and steps are large. Near the minimum, gradients are small and steps shrink automatically, allowing fine-grained convergence. If the learning rate is well-tuned, the trajectory spirals into the valley and loss monotonically decreases. If the learning rate is too large (like 1.05 in the demo), the algorithm bounces across the valley, overshooting repeatedly, and loss diverges to infinity.`
-      ]
+        `A training step has three phases. First, the Neural Network Forward Pass turns inputs into predictions and a scalar loss. Second, reverse-mode autodiff applies the chain rule from the loss back to every parameter. Third, the optimizer updates the parameters. Plain SGD uses the raw gradient. Momentum, RMSProp & Adam adds memory: momentum averages velocity, RMSProp tracks squared gradients, and Adam combines both with bias correction.`,
+        `The learning rate is the dangerous dial. Too low wastes compute; too high overshoots and can make loss explode. Learning-Rate Schedules & Warmup solves this by starting cautiously, rising to a useful step size, then decaying so training can settle. Early Stopping & Patience adds a validation signal: stop when held-out loss stops improving, even if training loss keeps falling.`,
+      ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Gradient descent's cost per iteration is one forward pass (computing loss) and one backward pass (computing gradients). For a neural network with P parameters on a batch of N inputs, backpropagation costs roughly 2-3x the forward pass (one multiply-accumulate per weight and operation, done twice — once forward, once backward). Modern neural networks have P in the billions, and datasets have N in the millions, so each training step costs billions of floating-point operations. The total cost of training is iterations x cost_per_iteration: a modern language model might run 300 billion steps at 10^11 FLOPs per step, totaling ~10^21 FLOPs (petaflop-days of compute). Convergence speed depends on the loss surface geometry (steep early, plateau later) and the learning rate choice.`
-      ]
+        `Each step costs roughly one forward pass plus one backward pass; the backward pass is often about 2x the forward compute because it must propagate gradients and save or recompute activations. A useful language-model rule of thumb is about 6 * parameters * training tokens floating-point operations. That puts GPT-3's 175B-parameter, 300B-token training run near 3e23 FLOPs, not because the update rule is complex but because the loop is repeated over enormous data. Memory also matters: optimizer state for Adam stores two extra moment tensors per parameter, which is why large training jobs fight memory as much as arithmetic.`,
+      ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Gradient descent, or variants of it, trains every neural network in production: GPT models, image classifiers (ResNets, Vision Transformers), speech models, recommendation systems, everything. The variants matter: stochastic gradient descent (SGD) uses one or a small batch of examples per step instead of the full dataset, trading gradient accuracy for speed and is now standard. Momentum-based methods (SGD with momentum, Adam) accumulate past gradients to accelerate convergence in the face of plateaus and oscillations. Adam is especially popular because it adapts the per-parameter learning rate automatically, reducing the need for manual tuning.`,
-        `Beyond supervised learning, gradient descent applies to any problem where you can define a loss. Reinforcement learning uses policy gradients. Generative models use adversarial losses. Contrastive learning (SimCLR, CLIP) uses distance losses on embeddings. The core loop — compute gradient, step opposite it — is universal.`
-      ]
+        `Every production neural model is trained by some descendant of this loop: ResNet image classifiers, BERT encoders, GPT-style language models, speech recognizers, diffusion models, recommenders, and CLIP-like contrastive systems. The details vary. Computer vision often uses SGD with momentum and weight decay. Transformers commonly use AdamW with warmup and cosine or linear decay. Reinforcement-learning systems may optimize policy-gradient losses, while retrieval models optimize contrastive losses over learned embedding spaces.`,
+        `The same idea also appears outside deep nets: logistic regression, matrix factorization, and differentiable physics all choose parameters by descending a loss. The Loss Landscape, in 3D is the right mental model once the demo parabola feels too clean.`,
+      ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A widespread misconception: gradient descent always finds the global optimum. It does not. In high-dimensional loss surfaces (billions of dimensions), there are many local minima, saddle points, and plateaus. The algorithm converges to whatever local minimum it finds first, which depends on the initialization and learning rate schedule. Recent research suggests that in neural networks, many local minima are equally good (have similar loss), so this is less catastrophic than it sounds, but it is not a global guarantee.`,
-        `Another pitfall: confusing the learning rate with the gradient magnitude. A large gradient does not require a large learning rate — the learning rate is a separate tuning dial. If the gradient is large, the step is large; if you also set a large learning rate, the step becomes huge, causing divergence. Frameworks often use adaptive methods (Adam) to mitigate this, but manual learning rate scheduling (starting large, decaying over time) is still needed in practice.`,
-        `Finally, gradient descent does not work without a differentiable loss. If you want to train a neural network for something discrete (like discrete choice problems or combinatorial optimization), you need to relax the problem to a continuous approximation first, or use reinforcement learning (policy gradients) instead.`
-      ]
+        `The biggest misconception is that the algorithm guarantees the global optimum. It does for some convex losses under careful step-size conditions; deep networks are non-convex, so there is no such general promise. Another error is expecting loss to decrease every minibatch. With stochastic gradients, short-term loss can rise while the long-term trend improves. That is normal; watch validation curves and moving averages.`,
+        `A second trap is blaming the optimizer for data or model problems. If features leak labels, if targets are noisy, or if the architecture cannot represent the task, more steps only polish the wrong objective. Regularization: L1 & L2, dropout, and better data splits often matter more than changing optimizers.`,
+      ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Explore Activation Functions next to understand why gradients vanish or explode in deep networks — a problem gradient descent must solve through careful architecture. Learn about Softmax & Temperature to see how loss functions are designed for classification (cross-entropy with softmax). If you want to understand modern optimization, research adaptive methods like Adam, momentum, and learning rate schedules — they all extend this core idea. For a deeper look at loss surfaces, study loss landscape visualization papers or experiment with varying the loss function shape. When you are ready, study Attention Mechanism to see what modern neural networks look like beyond simple MLPs, and read about Embeddings & Similarity to understand how neural networks learn representations that gradient descent optimizes.`
-      ]
-    }
-  ]
+        `Read Backpropagation for the gradient engine, then Momentum, RMSProp & Adam for practical optimizer variants. Learning-Rate Schedules & Warmup and Early Stopping & Patience explain the control loop around training. Activations as 3D Origami shows why nonlinear layers reshape the surface, while The Loss Landscape, in 3D shows the terrain these updates actually cross.`,
+      ],
+    },
+  ],
 };

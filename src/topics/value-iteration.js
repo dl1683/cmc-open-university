@@ -101,42 +101,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Value iteration is reinforcement learning's most direct attack on the problem: given a map of the world, how do you compute the value of standing in each square without being told the right moves? The answer is recursive: a square's value is the immediate cost of living there, plus a discounted (0.9×) echo of its neighbor's value. That recursive definition, run backward from the goal, solves itself.`,
-        `The algorithm fills a table where each entry V(s) is the expected total reward you can collect by starting in state s and then acting optimally. The goal yields +10, the pit yields −10, and every step costs something (−0.4 or −0.04, your choice). The agent learns nothing about moves — only values. But from values, the optimal move crystallizes instantly: step toward the neighbor with the highest value, greedily, and you get the best path for free.`,
+        `Value iteration is dynamic programming for a Markov decision process: if you know the states, actions, rewards, transition probabilities, and discount factor, compute how good each state is under optimal play. Bellman's 1957 recurrence says a state's value equals the best immediate reward plus discounted future value. Run that recurrence repeatedly and the values converge.`,
+        `In the grid demo, the goal is positive, the pit is negative, and every move has a small living cost. The agent is not copying a demonstrated path. It is backing up consequences from terminal states until every square contains a number summarizing the future. Once those numbers are accurate, the policy is simple: choose the action leading to the highest expected value.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `You begin with initial guesses: the goal is worth +10, the pit −10, all others are 0. Then you sweep through the grid repeatedly. In each sweep, you update every non-terminal square using the Bellman equation: V(s) ← max over neighbors of [cost + 0.9 × V(neighbor)]. This says: stand in s, pay the living cost, then move to the neighbor with the highest value. The 0.9 multiplier (gamma) says: next step's reward is worth 90% of this step's. This discounting is crucial — it prevents infinite loops and reflects that distant futures matter less.`,
-        `Each sweep propagates value one step backward from the terminals. Squares touching the goal and pit change immediately. Their neighbors see those changes next sweep. By sweep three, the pit's negative value repels its neighbors while the goal's positive value attracts — a landscape of hills and valleys emerges. After seven or so sweeps, the values stabilize: each square now holds the sum of all discounted rewards reachable by optimal play. The algorithm converges because it is finding the fixed point of the Bellman recurrence, just like PageRank finds a fixed point by iterating.`,
-        `Once values converge, the policy is trivial: from any square, look at your neighbors' values and step toward the one with the highest value, avoiding the pit without being told. That greedy choice IS optimal because the values encode all future consequences. If steps are cheap (−0.04), the agent wanders; if urgent (−0.4), it takes the shortest path, because the cost of delay competes with the length of the route.`,
+        `Initialize V(s), often to zero except for terminal states. Then sweep over states. For each state, compute every action's expected return: immediate reward plus gamma times the value of possible next states, weighted by transition probability. Replace V(s) with the maximum action return. Gamma between 0 and 1 discounts distant rewards and makes the Bellman operator a contraction, which is the mathematical reason repeated sweeps converge.`,
+        `The deterministic grid is the easiest case because each action leads to one next square. In stochastic worlds, moving north might go north 80% of the time and slip sideways 20%, so the update must average over outcomes. This is where Markov Chains & Steady States becomes useful background: future state distributions matter. PageRank is another fixed-point iteration, though it ranks graph nodes instead of choosing reward-maximizing actions.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Value iteration runs O(S × A) per sweep, where S is the number of states and A is the average number of actions (neighbors). With a 3×4 grid, that is roughly 60 operations per sweep. You typically need O(log(1/ε) / (1 − γ)) sweeps to converge within ε error; with γ = 0.9, that is about 20–100 sweeps depending on precision, yielding thousands of updates to solve a tiny world perfectly. The space cost is O(S) to store the value table — one number per square. This scales well to moderate state spaces (millions of states) but is useless for problems with enormous or continuous state spaces (chess, robotics, Atari), where the state table does not fit or is impossible to enumerate.`,
+        `For a sparse MDP, one sweep costs O(number of transition edges), often written O(S * A * next) for S states, A actions, and a small number of next states per action. A dense transition table can cost O(S * S * A) per sweep. Convergence to epsilon accuracy scales roughly with log(1/epsilon) / (1 - gamma), so gamma close to 1 makes planning slower. Space is O(S) for values, or O(S * A) if you store action-values. This is excellent for small grids and impossible for raw Atari frames or open-ended robotics without approximation.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Value iteration is the theoretical foundation of modern reinforcement learning. In practice, the world rarely hands you a perfect map: you must learn values by trial and error. Q-learning replaces the Bellman update with samples from real transitions, so an agent playing a game can learn values on the fly. Neural Q-networks (DQN, 2013) replace the discrete table with a neural network that predicts Q-values from pixels, opening Atari and beyond. AlphaGo (2016) combines a learned value function with Monte Carlo tree search, and modern large language models are tuned using reinforcement learning from human feedback, where the value function measures how much humans prefer one response over another. Every step of that scaling preserves the core Bellman equation you see here: V(s) = max[action of (reward + γ × V(next_state))].`,
+        `Exact value iteration is used in small planning domains, inventory models, queueing examples, grid navigation, and teaching reinforcement learning. Larger systems preserve the Bellman idea while replacing tables with samples or function approximators. Q-learning learns action values from experience. DQN used a Neural Network Forward Pass to approximate Q-values from Atari pixels in 2013. AlphaGo and later systems combine learned value functions with search, while robotics planners often use approximate dynamic programming when the state space is too large to enumerate.`,
+        `The same explore-versus-exploit question appears in Multi-Armed Bandits, but bandits remove state transitions. Value iteration handles sequential consequences: today's action changes tomorrow's state.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The algorithm converges to the optimal value table for the environment you model — but only if that model is correct. A wrong map leads to a wrong solution, no matter how many sweeps you run. In the real world, the agent must explore to discover rewards, transitions, and even the state space structure. Value iteration assumes you already know all of that. Also, gamma = 0.9 is arbitrary — changing it reshapes the entire landscape, favoring short-term wins (gamma near 0) or long-term returns (gamma near 1). There is no universal "right" gamma; it encodes how much you care about the future relative to now. Finally, the greedy policy (step to the best neighbor) is optimal under the assumption that you already have the optimal values; if you use greedy during learning instead of exploration, you may lock into a suboptimal route before values converge.`,
+        `The algorithm is only as correct as the model. If rewards are wrong, transition probabilities are wrong, or important state variables are missing, value iteration converges confidently to the wrong policy. It also assumes full knowledge of the environment. Reinforcement learning in the wild often starts without that model and must explore to learn it. Greedy action selection is optimal only after the values are accurate; using greed too early can block discovery.`,
+        `Gamma is not a harmless constant. Low gamma makes the agent short-sighted; gamma near 1 values long-term reward but slows convergence and can make reward design mistakes severe. Also, do not confuse value backup with Gradient Descent. Value iteration repeatedly applies a Bellman max operator; neural RL may train value networks with gradients, but the table algorithm itself is not following a differentiable loss surface.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `If you want to see how values guide choices, trace through Gradient Descent to see how neural networks minimize loss by following gradients — the same intuition of "slide toward the valley." Read about PageRank to understand fixed-point iteration on a graph: PageRank and value iteration are structural twins. For the statistical foundation, learn Memoization (Dynamic Programming), where subproblems are solved once and reused — value iteration is dynamic programming applied to Markov decision processes. To see values fed into a neural net, study Neural Network Forward Pass. Finally, if you want to plan paths with estimated costs, explore A* Search, which uses a heuristic value (like an estimated distance to the goal) to prune the search space intelligently, complementing value iteration's exhaustive approach.`,
+        `Read Memoization (Dynamic Programming) for the reuse pattern, Markov Chains & Steady States for transition dynamics, and PageRank for another fixed-point iteration. A* Search gives a graph-planning contrast with heuristic costs. Neural Network Forward Pass explains function approximation for deep RL, while Multi-Armed Bandits isolates exploration without the complication of changing states.`,
       ],
     },
   ],

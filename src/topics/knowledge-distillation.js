@@ -104,41 +104,42 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Knowledge distillation is the idea of training a small, fast neural network (the student) by learning from a large, accurate one (the teacher). Instead of training the student on the same raw data and hard labels that humans provide, you feed it the teacher's full probability distribution — the soft, fuzzy, calibrated judgments the teacher makes. The reason: a teacher's confidences encode patterns you can't recover from one-hot labels alone.`,
-        `Consider a photo of a cat. A hard label says: "this is a cat, period." But the teacher's distribution might say: "78% cat, 13% dog, 6% fox, 2% car, 1% tree." That structure is the signal. It reveals which mistakes are plausible — dogs and foxes share features with cats; cars don't. Teaching a student those relationships accelerates learning and improves generalization. This hidden knowledge is called dark knowledge, and it is why distillation works.`,
+        `Knowledge distillation trains a smaller student model to imitate a stronger teacher model. Hinton, Vinyals, and Dean popularized the recipe in the 2015 paper "Distilling the Knowledge in a Neural Network": the teacher's full probability distribution contains more information than a one-hot label. A label says "cat." A teacher might say 0.78 cat, 0.13 dog, 0.06 fox, and near zero for truck. Those near-misses are useful structure.`,
+        `The goal is compression without merely deleting weights. The student has fewer layers, narrower hidden states, or a simpler architecture, but it learns the teacher's behavior. This can make inference cheaper, reduce latency, and fit models onto phones, browsers, or high-throughput servers. Unlike Quantization, which changes number precision, distillation changes the model being trained.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The teacher is trained normally on your task and frozen. You then create a student model — much smaller, maybe 10× fewer parameters — and train it to mimic the teacher's outputs. The training happens in two steps. First, both models' logits (pre-softmax numbers) are passed through a softened softmax with a temperature parameter, typically T=2 to 4. Temperature stretches the probability distribution, smoothing sharp peaks into gentler curves. A hard label [1, 0, 0, 0, 0] stays a spike no matter what; but [0.78, 0.13, 0.06, 0.02, 0.01] with T=3 becomes much flatter and richer in information. Second, the student's loss is computed against these soft targets, and backpropagation (Gradient Descent) updates the student to match.`,
-        `The student gradually absorbs the teacher's entire worldview — not just which answer is correct, but the teacher's calibrated confidence in alternatives. After training, you can use the student alone in production. It runs 3–10× faster and uses a fraction of the memory, while retaining most of the teacher's quality. Many production systems do this: serve the distilled student and retire the teacher. For a dataset-scale example, today's frontier small language models like Llama 3.2B are trained on outputs from GPT-4o and Claude 3.5, inheriting reasoning patterns that training from scratch alone could never produce in a 3B model.`,
+        `First train or choose a teacher. Then run training examples through the teacher and capture logits or probabilities. Softmax & Temperature is the key trick: a temperature T greater than 1 softens the distribution so non-winning classes carry visible signal. The student is trained with a mixture of losses: match the teacher's softened outputs and, often, match the original hard labels. Gradient Descent updates only the student.`,
+        `Distillation can happen at several levels. Logit distillation matches final predictions. Feature distillation matches hidden representations. Sequence-level distillation for language models trains on teacher-generated answers. TinyBERT and MiniLM distill transformer internals; DistilBERT removes layers and trains on language-modeling plus distillation objectives. The common theme is that the teacher provides a richer target than the dataset alone.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `The student itself is smaller, so inference is much cheaper. But distillation adds one upfront cost: you must first train the teacher. If the teacher is a huge model like BERT or GPT, that is expensive and slow — though it happens once. The student trains faster than the teacher did, and on the same data. In practice, distillation is applied at three scales: small student, large dataset (e.g., DistilBERT on Wikipedia); small student, student dataset created by the teacher (e.g., Llama 3.2B trained on synthetic reasoning traces from GPT-4o); and stacking, where you quantize the distilled student further, achieving 2–3× compression on top of the 10× baseline. The combined effect can be a model 100× smaller than the original teacher while keeping 95% of quality.`,
+        `The student is cheaper at inference, but training has an extra bill: teacher generation. If the teacher is large, producing logits or synthetic answers can dominate the cost. DistilBERT is the clean reference point: compared with BERT-base's 110M parameters, it uses about 66M parameters, is roughly 40% smaller and 60% faster, and reports about 97% of BERT's GLUE performance. Those numbers are impressive, but not universal; compression ratio depends on task difficulty, student capacity, data volume, and how closely the student architecture matches the teacher.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `The prototypical success is DistilBERT, released in 2019. BERT was a breakthrough but huge — 340M parameters. DistilBERT achieved 97% of BERT's quality on downstream tasks (GLUE benchmark) while being 40% smaller and 60% faster. It is now the default choice for production NLP tasks where inference latency matters. Modern small language models follow the same pattern: Llama 3.2B, Mistral 7B, and Phi 3.5 are all trained partly or wholly on outputs from larger frontier models, compressing reasoning into tiny footprints. Mobile models, edge deployment, real-time chat — everywhere you see a fast, small model that still seems smart, distillation is at work. Quantization stacked on top (int8 or lower) shrinks it further: a distilled-and-quantized model can fit on a phone with room to spare.`,
+        `Distillation is common when a frontier or ensemble model is too expensive to serve directly. Search ranking stacks distill large rankers into fast production models. Vision systems distill ensembles into single CNNs or transformers. Speech and on-device NLP models use distilled students to meet battery and latency budgets. Modern LLM pipelines often use strong models to generate instruction data, critiques, or reasoning traces for smaller open models, though the exact recipe is usually proprietary and must be evaluated rather than assumed.`,
+        `It also pairs well with LoRA Fine-Tuning: a teacher can produce higher-quality task data, then a smaller or adapted student learns from it. Quantization can be applied afterward for another memory cut.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A common mistake is assuming the teacher must be much larger than the student. Not always. A larger teacher helps, but a slightly-larger or equal-size teacher, trained longer or on more data, can also teach well. Another trap: hard labels are not just slower — they are fundamentally different. Flipping between soft and hard targets in your control above shows the dramatic difference. A student trained on hard labels becomes overconfident on easy cases and brittle on ambiguous ones, because it never learned the teacher's calibrated alternatives. Temperature is critical. T=1 collapses the teacher's distribution back toward hard labels; T too high makes everything almost uniform and uninformative. T=2–4 is the sweet spot, balancing smoothness with signal. Finally, distillation does not create knowledge from nothing. The teacher must be accurate to begin with. If the teacher makes systematic errors, the student inherits them, sometimes amplified.`,
+        `Distillation does not create knowledge from nothing. A biased or hallucinating teacher trains a biased or hallucinating student. A weak student may mimic easy cases while losing rare skills, calibration, or safety behavior. Temperature is another sharp edge: T = 1 can hide useful dark knowledge; too high makes targets nearly uniform. Many implementations multiply the soft-target loss by T squared so gradient magnitudes stay comparable as temperature changes.`,
+        `Do not judge a distilled model only by average accuracy. Check tail cases, calibration, latency, memory, and robustness. Dropout and Regularization: L1 & L2 may still be needed because the student can overfit the teacher's artifacts, especially on small synthetic datasets.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `To deepen your intuition: study Softmax & Temperature to understand how temperature smooths distributions; Neural Network Forward Pass to see how logits flow through a model; Gradient Descent to grasp how the student's weights update toward the teacher; Dropout to see another form of regularization that improves generalization; and Quantization to learn how distillation pairs with compression for extreme efficiency.`,
+        `Read Softmax & Temperature for softened targets, Neural Network Forward Pass for logits and hidden states, and Gradient Descent for the student update. Quantization and LoRA Fine-Tuning show two complementary efficiency tools, while Dropout and Regularization: L1 & L2 explain why a smaller student still needs generalization pressure.`,
       ],
     },
   ],
 };
-

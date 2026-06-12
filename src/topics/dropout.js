@@ -93,39 +93,41 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Dropout is a simple but radical regularization technique: during training, randomly silence (set to zero) a fraction of neurons in each layer on every batch. The silence rate p — typically 0.5 for fully-connected layers, 0.1–0.3 for Transformers — means each neuron has p chance of being dropped and 1−p chance of surviving. No neuron knows if it will survive the next batch, so no neuron can lean on its neighbors' outputs. The disease dropout cures is co-adaptation: neurons learning to rely on quirks and errors of their neighbors instead of learning robust features. This is overfitting in mechanism form.`,
-        `The inventor's insight: with n neurons and dropout rate p, you're not training one network — you're training 2^n different sub-networks, all sharing the same weight matrix. Each batch trains a different random sub-network. At inference, the full unscaled network fires, so it approximates an ensemble average of all those sub-networks. This is the Random Forest strategy — average many noisy learners — running inside a single network, with shared parameters.`,
+        `Dropout is regularization by sabotage. During training, it randomly sets a fraction of activations to zero, forcing the network to make a good prediction even when some internal features disappear. Srivastava, Hinton, Krizhevsky, Sutskever, and Salakhutdinov formalized it in the 2014 JMLR paper "Dropout"; AlexNet had already used 50% dropout in its fully connected layers to fight ImageNet overfitting.`,
+        `The intuition is ensemble learning with shared weights. A layer with n units has many possible sub-networks depending on which units survive. Each minibatch trains one sampled sub-network, but all sub-networks reuse the same parameters. At test time, dropout is disabled and the full model approximates an average over those thinned networks, a neural cousin of Random Forest variance reduction.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Training: (1) For each neuron in each batch, flip a coin with probability p. (2) If it lands on dropout, set that neuron's activation to 0. (3) Scale all surviving neurons by 1/(1−p) — this is inverted dropout. The scaling preserves the expected total activation: if p = 0.5, survivors are scaled by 2, so the layer's signal stays the same size on average. (4) Backpropagation treats dropped neurons as gated: both forward activations (the 0 signal) and backward gradients (the blame) are blocked. A dropped neuron gets no gradient, so it cannot learn from that batch.`,
-        `Inference: dropout turns OFF. All neurons fire at their natural strength, unscaled. The scale factor 1/(1−p) was applied during training, so the books are already balanced. The full network now approximates the ensemble vote of the 2^n sub-networks the training saw. With n = 8, that's 256 sub-networks. In AlexNet (2012), researchers used dropout with p = 0.5 on the two largest fully-connected layers to reduce overfitting on ImageNet. Modern Transformers (GPT, BERT) use lower rates — 0.1–0.2 — or skip dropout entirely because vast training datasets provide natural regularization.`,
+        `Most frameworks use inverted dropout. If the drop probability is p, each activation survives with probability 1 - p. Surviving activations are divided by 1 - p during training, so their expected scale matches inference. With p = 0.5, survivors are doubled. With p = 0.1, survivors are multiplied by 1.11. Backpropagation follows the same mask: a dropped unit contributes zero activation and receives zero gradient for that batch.`,
+        `Dropout is usually applied after dense layers, attention or feed-forward projections, and sometimes embeddings. It is not normally applied to normalization statistics or arbitrary input pixels unless the task explicitly benefits from feature masking. In transformers, common rates are 0.0 to 0.1 for large pretraining and 0.1 to 0.3 for smaller fine-tuning runs, because huge datasets already act as a regularizer.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `The computational cost is negligible: sampling binary masks and element-wise multiplication. Memory is also unchanged — you're not storing extra sub-networks. The real cost is training time: dropout adds noise to every batch, so convergence is slower. The payoff is typically 1–5% lower test error (depending on dataset size and model capacity). On massive datasets with modern LLMs (billions of tokens), dropout is often dropped entirely because the data itself prevents overfitting. The trade-off is noise during training for robustness at test time.`,
+        `The direct compute cost is tiny: sample a binary mask and multiply activations elementwise. The indirect cost is noisier optimization. Training may need more steps because the Neural Network Forward Pass changes stochastically from batch to batch. Memory overhead is one mask per dropped tensor during training, often stored compactly. Inference cost is zero when implemented correctly: dropout is off, and the model runs as an ordinary dense network.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Dropout is a foundational technique in computer vision (convolutional and fully-connected layers) and NLP (Transformers use it lightly, around 0.1). You will see it in: medical image classification (high-stakes domains where robustness is critical), recommendation systems (where co-adaptation of neurons is a real risk), and any supervised task where the training set is small relative to model capacity. AlexNet's use of p = 0.5 in 2012 was transformative — it proved overfitting could be controlled without massive datasets, which opened the door to deep learning on resource-constrained problems. Modern LLMs and vision models skip it because their training data is so large that the network cannot overfit even without dropout. But smaller, task-specific models still use it as the first line of defense.`,
+        `Dropout remains standard in small and medium neural systems: medical classifiers with limited labels, recommender models with sparse user histories, tabular neural nets, and fine-tuned language models where the downstream dataset is much smaller than the base pretraining corpus. It also supports uncertainty estimates. Gal and Ghahramani's 2016 MC-dropout view runs dropout at inference multiple times and treats prediction variance as approximate Bayesian uncertainty, which connects directly to Uncertainty: Teaching Models to Say "I Don't Know".`,
+        `Large foundation-model pretraining often uses less dropout than older CNNs because data scale, weight decay, augmentation, and model architecture already provide regularization. That does not make dropout obsolete; it makes it a context-dependent tool rather than a default knob.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Misconception 1: Dropout doubles inference cost. Wrong — inference is unchanged; the scaling happens only in training. Misconception 2: Dropout should be applied to input layers. Almost never — dropping raw input features loses information; it's usually applied only to hidden layers and sometimes the embedding layer. Misconception 3: Dropout replaces other regularization. False — it works alongside L2 weight decay, learning-rate schedules, and data augmentation; they are independent levers. Pitfall 1: forgetting to turn dropout OFF at inference (some frameworks do this automatically, others require explicit eval mode). Pitfall 2: using p = 0.5 uniformly across all layers — deeper networks benefit from lower rates. Pitfall 3: applying dropout during inference by mistake, which injects unnecessary noise into predictions.`,
+        `The classic bug is forgetting evaluation mode. In PyTorch, model.eval() disables dropout; missing that call makes predictions random and depresses accuracy. Another mistake is setting p = 0.5 everywhere. That was useful for AlexNet's dense layers, not a universal law. Attention blocks, convolutional layers, and small datasets need separate validation.`,
+        `Dropout also does not replace Regularization: L1 & L2, data augmentation, or Early Stopping & Patience. It reduces co-adaptation, but it cannot fix leakage, mislabeled data, or a model too small for the problem. Too much dropout causes underfitting: both training and validation loss stay high because the network is repeatedly denied the capacity it needs.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `To deepen your intuition, explore Neural Network Forward Pass to see how activations flow; Backpropagation to understand how gradients are blocked at dropped neurons; Random Forest to recognize the ensemble structure that dropout mimics; and Gradient Descent to see how noise from dropout changes the optimization landscape. Activation Functions pairs naturally with dropout — the shapes of ReLU, sigmoid, and tanh change how dropout's signal scaling affects outputs.`,
+        `Read Neural Network Forward Pass and Backpropagation to see exactly where masks act. Random Forest gives the ensemble analogy; Regularization: L1 & L2 gives the penalty-based alternative. Vanishing & Exploding Gradients explains why masking interacts with depth, and Learning-Rate Schedules & Warmup shows how noisy training is stabilized in practice.`,
       ],
     },
   ],

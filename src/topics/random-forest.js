@@ -119,46 +119,41 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A Random Forest is an ensemble of decision trees that vote. Instead of training one tree to memorize your data (which overfits), you train many shallow trees on different random slices of the data—each sees a random subset of features and a bootstrap sample of rows. Trees disagree where they are biased; their mistakes are independent-ish. Vote on the majority and the errors cancel.`,
-        `This visualization shows three hand-rolled trees: Tree 1 splits on cover (fur → mammal), Tree 2 on legs (4+ legs → mammal), and Tree 3 on weight (weak signal). Alone, Tree 3 might guess wrong; together, the forest votes correctly.`,
+        `A random forest is an ensemble of decision trees. One tree is easy to interpret but unstable: a small change in training data can change its splits and predictions. A forest reduces that variance by training many trees on different bootstrap samples and random feature subsets, then averaging their votes. Leo Breiman introduced the method in 2001, extending his earlier bagging work from 1996.`,
+        `The central bet is diversity. If every tree makes the same mistake, voting does nothing. If trees make partly independent mistakes, the majority vote is more reliable than any one tree. For classification the forest votes; for regression it averages numeric predictions. The demo's three trees are tiny, but production forests often use hundreds of trees.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Build T trees (commonly 50–500). For each tree: bootstrap a random sample of rows (random sampling with replacement), pick a random subset of features, and greedily split on whichever feature reduces impurity best. Stop early to keep trees shallow. Each tree is biased to its random view.`,
-        `At prediction time: run your input through all T trees. For classification, count votes and return the majority. For regression (predicting numbers), average the tree outputs. No coordination between trees—they are trained in parallel, scored in parallel.`,
-        `The magic: independence of errors. Tree 1 might mistake a goldfish for a bird (bad feature weighting); Tree 2 catches it. They agree on hard cases. The ensemble error is a fraction of the single-tree error.`,
+        `For each tree, sample n training rows with replacement from the n-row dataset. About 63.2% of unique rows appear in that bootstrap sample; about 36.8% are left out and can estimate out-of-bag error. At every split, consider only a random subset of features, commonly sqrt(p) features for classification when p total features exist. Pick the split that best reduces impurity, such as Gini impurity or entropy.`,
+        `Trees are usually grown deep unless constrained by max depth, minimum leaf size, or pruning-like settings. Deep individual trees can overfit, but averaging many decorrelated trees controls variance. This differs from Gradient Boosting, where trees are added sequentially to fix the previous ensemble's residual errors. Forests parallelize naturally; boosting is more order-dependent.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Training time: O(T × log N × D × F_try) — T trees, each needing O(log N) to recurse D levels, considering F_try random features per split. With N rows, D ≈ 4–10, F_try = sqrt(F), and T = 100, this is fast on tabular data. Prediction: O(T × D) — linear in tree count and depth, sub-millisecond.`,
-        `Memory: O(T × log N × F_try) at train time, minimal at serve (one copy of all trees).`,
+        `A rough balanced-tree training cost is O(T * n * m_try * log n) after accounting for T trees, n rows, and m_try candidate features per split, though exact cost depends on sorting, split search, depth, and implementation. Prediction costs O(T * depth) decisions per example. Memory stores every split in every tree, so very large forests can be heavy even when each split is cheap. In scikit-learn, 100 to 500 trees is common; more trees reduce variance but eventually hit diminishing returns.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Scikit-learn's RandomForestClassifier and RandomForestRegressor are starter defaults for tabular problems: credit defaults, customer churn, medical diagnosis, fraud detection. Every Kaggle tabular competition has a random forest baseline.`,
-        `Production databases (Cassandra, DynamoDB) use tree-like routing heuristics inspired by ensemble ideas. XGBoost, LightGBM, and CatBoost (gradient boosting variants) dominate industry—they're refined forests that correct each new tree toward the residual error of prior trees, winning faster and more efficiently than vanilla random forests.`,
+        `Random forests are strong tabular baselines for fraud detection, credit risk, churn prediction, medical triage, remote-sensing land cover, bioinformatics, and feature-importance analysis. They handle nonlinear interactions, mixed feature scales, and missing-ish tabular signals better than many linear models. Naive Bayes (Spam Filter) is simpler and faster for bag-of-words text; Gradient Boosting usually wins modern tabular leaderboards; forests remain valuable because they are robust, parallel, and relatively low-tuning.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `"Random forests need many trees." — True: 10 trees is often underfitting; 100–500 is typical. But diminishing returns kick in—adding tree 500 helps less than tree 50. Use out-of-bag error (rows not in a given bootstrap) to estimate accuracy without a held-out test set.`,
-        `"Deeper trees are better." — Wrong. Deep trees overfit. Random forests keep trees shallow (depth ≈ log N), which is the whole point. Deep forests are just stacking noise.`,
-        `"Random forests work on images." — Wrong. They need tabular features. For images, CNN or vision transformers are the right move. Random forests win on spreadsheets, not pixels.`,
+        `A forest is not automatically interpretable just because each tree is. Hundreds of trees are harder to reason about than one tree, and impurity-based feature importance can favor high-cardinality features. Use permutation importance, partial dependence, and held-out metrics. Cross-Validation & Honest Evaluation matters because out-of-bag error is useful but not a replacement for a final untouched test set.`,
+        `Another trap is using forests on raw images, audio, or long text and expecting deep-learning performance. They work best after feature engineering or on structured tables. For imbalanced problems, optimize Precision, Recall & the Confusion Matrix and thresholds, not just accuracy. Regularization: L1 & L2 is not how trees regularize; tree depth, leaf size, feature subsampling, and tree count are the relevant controls.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Explore Decision Trees to understand the building block. Then learn Gradient Boosting to see how chaining trees beats averaging them. For ensemble theory, read up on K-Means Clustering and understand how aggregating independent guesses reduces variance. Finally, jump to neural networks with Attention Mechanism if you want to see how deep learning trades tree interpretability for raw performance on unstructured data.`,
+        `Study Gradient Boosting to see sequential tree ensembles, Cross-Validation & Honest Evaluation to measure generalization, and Precision, Recall & the Confusion Matrix for imbalanced classification. Dropout gives a neural-network analogy for averaging thinned predictors. K-Means Clustering provides a contrasting unsupervised method where there are no labels and no votes.`,
       ],
     },
   ],
 };
-

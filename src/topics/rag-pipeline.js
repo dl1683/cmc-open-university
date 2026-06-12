@@ -89,41 +89,42 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `RAG (Retrieval-Augmented Generation) solves a hard limit: LLMs have a training cutoff. Their knowledge is frozen. Ask them something that happened after training or something from your private company wiki, and they guess fluently instead of knowing. RAG trades the illusion of omniscience for honest lookup: embed the question, fetch relevant documents from a vector database, paste them into the prompt, and let the model answer grounded in real facts. No retraining, no fine-tuning—just real-time retrieval.`,
-        `The core insight is deceptively simple: an LLM is a reasoning engine, not a memory engine. Give it the facts in context and it reasons clearly. Without them, it hallucinates. RAG externalizes memory entirely, making documents the source of truth and the model the reasoning layer. Systems like OpenAI's enterprise assistants, Pinecone's retrieval API, and pgvector on PostgreSQL are all implementations of this idea: different databases, different embedding choices, same contract.`,
+        `A RAG system, short for retrieval-augmented generation, gives a language model a searchable memory. Instead of hoping the model memorized the right fact during pretraining, the system retrieves relevant documents at question time and places them in the prompt. Lewis et al. named the pattern in the 2020 RAG paper, building on dense retrieval work such as DPR. The contract is simple: documents remain the source of truth; the model becomes the reader and writer.`,
+        `The pattern is especially useful when facts are private, fresh, or too numerous to fit in model weights: company policies, product catalogs, legal memos, support tickets, research notes, and codebases. It is not fine-tuning. Fine-tuning changes behavior; retrieval changes context. A good answer depends on both retrieval quality and the model's ability to use the retrieved evidence.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `The pipeline has four steps. First, embed: when a question arrives, encode it with the same embedding model used for your document corpus. Both live in a high-dimensional space (typically 768 to 3072 dimensions). Second, retrieve: a vector database like Pinecone or Weaviate runs approximate-nearest-neighbor (ANN) search using indexes like HNSW or LSH to find the top-k most similar documents without scanning billions. At scale, naive brute-force nearest-neighbor lookup is hopeless; HNSW (Hierarchical Navigable Small World) can find the top 10 matches across 10 million 1536-dimensional vectors in milliseconds.`,
-        `Third, augment: stuff the retrieved chunks (typically 200–1000 tokens each) into the prompt ahead of the question. The model now has facts in its context window. Because of KV caching, prefilling that context is not free, but it is cheap. Fourth, generate: the LLM uses attention to read both question and documents together, producing a grounded answer. Citations come for free because you logged which chunks were retrieved. This pipeline is a race: better retrieval wins; if your top-3 documents do not contain the signal, no generation step recovers it.`,
+        `Offline, documents are cleaned, split into chunks, embedded, and stored with metadata. Chunk sizes commonly land between 200 and 800 tokens, but tables, code, and legal sections often need structure-aware splitting. At query time, the question is embedded with the same model, Embeddings & Similarity scores candidate chunks, and HNSW (Vector Search at Scale) or another ANN index returns the top matches. A reranker may then rescore the top 50 or 100 candidates before the final prompt is built.`,
+        `The prompt usually contains the user question, retrieved passages, source IDs, and instructions to cite only supported claims. Attention Mechanism lets the model compare the question against the evidence token by token. KV Cache makes repeated prefill cheaper during generation, but long contexts still cost money and latency. The hard part is not wiring APIs together; it is making sure the right evidence reaches the context window.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Embedding time: small models (384 dims) cost < 1ms per query; large ones (3072 dims) cost 10–50ms. Retrieval via HNSW is fast (5–20ms); linear scan across millions kills latency. Storage: one vector per chunk (1536 floats ≈ 12 KB); a million documents fit in 12 GB. End-to-end latency is dominated by LLM generation (1–5s), not lookup. The real complexity: garbage in, garbage out. Bad chunking—breaking facts or bundling too much—breaks retrieval even with perfect indexes.`,
+        `Index storage is roughly vectors plus text. One million 1,536-dimensional float32 vectors require about 6.1 GB before graph or metadata overhead; float16 cuts vectors to about 3.1 GB. Retrieval can be 5 to 50 ms with a warm ANN index, while reranking and generation often dominate latency. Ingest is O(number of chunks) embedding calls plus index construction. The expensive operational work is refresh: deleting stale chunks, preserving citations, rebuilding or incrementally updating indexes, and evaluating whether retrieval actually improved answer quality.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Enterprise support: support reps ask questions like "how do we handle refunds?" and get answers from runbooks with citations. News chatbots inject today's articles, staying current without retraining. Medical and legal domains rely on RAG because hallucinating medical or legal citations is malpractice. Pinecone, pgvector on Postgres, and systems at Notion and Stripe all run this pattern. Knowledge updates instantly: add a document, embed and index it—done.`,
+        `RAG powers enterprise assistants over Confluence, Google Drive, Slack, GitHub, Zendesk, and internal databases. Legal and medical products use it to ground answers in source documents. Search systems use it to synthesize over retrieved web pages. Developer tools use it to answer questions over repositories. Common stacks include pgvector, Pinecone, Weaviate, Milvus, Elasticsearch vector search, LanceDB, and FAISS. K-Means Clustering appears in some vector indexes and compression schemes, while graph-based HNSW dominates many low-latency deployments.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Myth: RAG makes a dumb model smart. Reality: it makes a smart model reliable. Bad documents produce bad answers faster. Myth: more chunks is better. Reality: top-3 quality beats top-20 noise. Chunking is hard—split too small and you lose context, too large and you retrieve bloat. Typical size: 256–512 tokens. Embedding mismatch: if the model was trained on finance but your documents are medical, retrieval fails. Retrieval quality bottlenecks everything. Citation hallucination: the model might cite-retrieved-but-unused chunks. Fix: ask it to justify claims with exact phrases from the text.`,
+        `The biggest myth is that RAG prevents hallucination by itself. It only supplies evidence; the generator can still ignore it, overgeneralize it, or cite chunks it did not truly use. Another mistake is retrieving too much. Top-20 noisy chunks can bury the one useful passage, especially when the answer needs an exact policy sentence. Chunking also fails quietly: split too small and definitions separate from conditions; split too large and retrieval returns bloated context.`,
+        `Evaluation must test the whole pipeline. Measure retrieval recall, citation faithfulness, answer correctness, and latency separately. Tokenization (BPE) matters because chunk size and context budget are token budgets, not word counts. Cross-Validation & Honest Evaluation is the right discipline: build a held-out question set and resist tuning on examples you report.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `To build RAG systems, start with Embeddings & Similarity—understand the vector space where retrieval lives. Read about Attention Mechanism to see why LLMs can reason over long context; KV Cache explains why prefilling retrieved documents is efficient. Tokenization (BPE) determines your chunk boundaries and embedding costs. For indexing millions of documents, learn K-Means Clustering, which powers some ANN techniques. At the application level, understand the full generation pipeline and how to design prompts that actually use retrieved facts instead of ignoring them.`,
+        `Start with Embeddings & Similarity, then HNSW (Vector Search at Scale) for retrieval at scale. Tokenization (BPE) explains chunk budgets, Attention Mechanism explains evidence reading, and KV Cache explains context serving cost. K-Means Clustering gives another indexing intuition, especially for partitioning large vector collections before exact or approximate search.`,
       ],
     },
   ],
