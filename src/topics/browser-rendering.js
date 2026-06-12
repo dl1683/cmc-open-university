@@ -179,43 +179,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A browser is a five-stage pipeline. HTML arrives as bytes from the network, gets tokenized and parsed into a DOM tree (parent-child structure like every tree on this site), matched against CSS rules and styled, solved for exact layout geometry, painted into draw commands, and finally composited onto your screen — all five stages, every frame, to turn text and styling into pixels. Understanding this pipeline is how every "make my page faster" technique works. Skip a stage and you save milliseconds. Run a stage you did not mean to and you stutter the frame rate.`,
+        `A browser turns bytes into pixels through a pipeline: parse HTML into the DOM, parse CSS into style rules, build the render tree, compute layout, paint draw commands, and composite layers onto the screen. The visualization starts after How DNS Works and TCP: Handshake & Congestion Control have delivered the bytes. From there, every performance trick is about skipping stages or batching work so the browser does not repeat an expensive pass.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Parse: the tokenizer chops HTML into tags and text, feeding them to a parser that pushes opening tags onto a stack and pops them on close tags — exactly the balanced-parentheses validation from other tree topics. As soon as a tag closes, the node joins the DOM tree; the browser does not wait for the full file. One landmine: if the parser hits a \`<script>\` tag without \`async\` or \`defer\`, it stops dead — scripts can call \`document.write\`, so parsing must pause. This is why "scripts at the bottom" became performance gospel. Meanwhile, CSS gets parsed into the CSSOM (style object model).`,
-        `Style: the browser walks every DOM node, applies CSS rules, and resolves specificity battles. Each property gets a final computed value. In the visualization, the .hidden element gets display:none — that one property decides it vanishes from the next stage.`,
-        `Layout: solve for exact geometry. Every box gets x, y, width, height. The card is 300px wide, so the paragraph inside shrinks to 268px (300 minus 2×16 padding). Text wraps, setting the paragraph's height, which pushes everything below it down. Change one box and ripples cascade through the tree. This is the most expensive stage.`,
-        `Paint and composite: turn geometry into draw commands (fill rectangles, rasterize text), executed back-to-front like a painter layering canvas. Finally, ship layers to the GPU and blend them into the frame. A 60fps page gets 16.7ms per frame for all five stages plus JavaScript.`,
+        `Parsing is a Stack-shaped tree builder: opening tags push, closing tags pop, and the DOM forms as tokens stream in. Tree Traversals explains the later walks over that structure. CSS is matched against the DOM to compute final styles; in the demo, .hidden gets display:none, so it is dropped from the render tree. By contrast, visibility:hidden would still reserve layout space.`,
+        `Layout assigns every visible box x, y, width, and height. The demo uses a 400px viewport and a 300px card, so 16px padding on both sides leaves the paragraph 268px wide. Text wrapping changes height, which can move later boxes. Paint turns boxes into draw commands, and compositing blends layers. At 60 fps the whole page has about 16.7 ms for The Event Loop, style, layout, paint, and composite together.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Parsing is O(N) where N is HTML bytes. Layout is O(DOM nodes) because every node might move — it is the bottleneck. Paint is O(draw commands). Memory: the DOM tree lives in RAM (a few MB for typical pages; JavaScript can read and mutate any node, so trees persist until the page dies). The render tree is ephemeral, recomputed each layout run. Most pages keep DOM node counts under 10,000; a million-node page will stutter on mobile devices.`,
+        `Parsing is roughly O(bytes). Style and layout scale with the number of affected nodes and rules, but layout can become global because one changed size can move everything after it. Paint scales with draw commands and pixels. The second visualization shows the classic footgun: write style.height, then read offsetHeight, then write again. A geometry read while layout is dirty forces synchronous layout inside your JavaScript loop. Three read-write iterations create three layouts where one batched pass would do.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Animations use \`transform: translateY()\` and \`opacity\` because they skip layout and paint — they touch only the compositor, the fastest stage. display:none removes nodes from the render tree entirely; visibility:hidden hides them but keeps space. Libraries like React batch DOM mutations to run layout once instead of thrashing it. Virtual scrolling (render only visible rows) keeps the DOM small. DevTools' Performance panel profiles all five stages; purple blocks flag forced synchronous layout thrashing.`,
+        `Smooth animation usually means changing transform or opacity, because those properties can be handled by the compositor without rerunning layout or paint. Animating height does the opposite. Virtual DOM Reconciliation and other UI libraries batch DOM writes so layout happens once. Virtual scrolling keeps huge lists from becoming huge DOMs. CSS containment and content-visibility can fence off parts of a page so unrelated layout work does not spread as far. Web Workers: A Second Thread helps when the slow part is CPU work, but workers cannot touch the DOM, so final visual updates still return to the main thread.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `"I can fix this page by optimizing JavaScript." False — a slow page usually stalls in layout or paint, not JS. "Visibility:hidden and display:none are the same." No — display:none removes the node; visibility:hidden hides it but leaves space. "Animating height is fine." Wrong — it re-runs layout every frame. Animating \`transform: scaleY()\` is pure composite, smooth.`,
-        `The layout-thrash trap: read a geometry property (offsetHeight, getBoundingClientRect) while layout is dirty and the browser recomputes layout synchronously, right then, inside your loop. A read-write-read-write loop forces layout repeatedly when one would do. The fix: batch all reads first, then all writes. Layout runs once; reads stay clean; writes flag dirty for one batch layout before the next frame.`,
+        `Do not assume JavaScript is the only bottleneck. A page can have fast code and still stall in layout or paint. Do not treat display:none and visibility:hidden as equivalent. Do not read geometry after every write. Batch reads first, then writes; or choose compositor-only properties. DevTools Performance traces make this visible by marking forced layout, paint, and long tasks separately. Measure the stage that is slow before optimizing the wrong layer.`,
+        `Service Workers & Offline-First and CDN Request Flow can make bytes arrive faster, but they cannot rescue a page that spends 80 ms laying itself out after the file arrives. Frontend performance is the full path from URL to pixels, not just network latency.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Tree Traversals teaches the tree-walk algorithms browsers use. How DNS Works and TCP Handshake & Congestion Control cover the network stage before parsing starts. Topological Sort covers layout dependency chains (parent sizes depend on children; sizes bubble up, geometry flows down). CDN Request Flow explains how static assets reach browsers quickly. These five topics form the complete path from URL to pixels.`,
+        `Study Tree Traversals and Stack for the parser and DOM walks, then The Event Loop for when rendering gets a turn. How DNS Works, TCP: Handshake & Congestion Control, and CDN Request Flow cover the network path before parsing. Virtual DOM Reconciliation shows why UI libraries batch writes against this exact pipeline.`,
       ],
     },
   ],
 };
-

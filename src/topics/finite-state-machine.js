@@ -79,43 +79,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A finite state machine is a computational model consisting of a finite set of states, a starting state, one or more accepting states, and a transition function that maps each (state, input symbol) pair to exactly one next state. The two simplest and most useful flavors are DFAs (Deterministic Finite Automata), where every pair has one move and no lookahead, and NFAs (Nondeterministic Finite Automata), where a pair might have zero, one, or multiple moves and can "guess" freely. This visualization focuses on DFAs, which are what actually run inside grep, RE2, and most practical pattern matchers. The machine has no memory beyond which state it's in; it cannot pop a stack, rewind input, or remember how many times something happened. That simplicity is its strength.`,
-        `The DFA for the regex ab*c has four states: S0 (start), S1 (consumed 'a', now reading b*), S2 (the 'c' arrived, accept), and R (trap: a wrong move, no escape). From each state, each input character has exactly one outgoing arrow. Once the machine enters the trap state R, it stays there; the input is doomed. There is one and only one path through the state graph for any given input, and that uniqueness is why DFAs guarantee O(n) matching time — the machine never has to try multiple paths or backtrack.`,
+        `A finite state machine is the smallest useful model of computation: a finite set of states, a start state, accepting states, and a transition rule. The visualization shows a deterministic finite automaton for the pattern ab*c. It has S0 for the start, S1 for "after a, while eating b's," S2 for accept, and R for the trap. At each character there is exactly one next state, so one input string creates one path through the graph.`,
+        `That "exactly one move" rule is what makes DFAs powerful. They have no Stack, no backtracking, and no memory except the current state. They cannot count arbitrary nesting, but they can scan streams at full speed. Finite State Machines are why simple regular expressions, protocol phases, UI flows, and game behaviors can be made predictable instead of ad hoc.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `The matching algorithm is elementary: keep a current state (initially S0), and for each character in the input, look it up in a transition table — one row per state, one column per symbol — and jump to the next state. The table is a nested object or 2D array; lookup is O(1). In the ab*c DFA, reading 'a' from S0 jumps to S1; reading 'b' from S1 stays in S1 (self-loop, the * in b*); reading 'c' from S1 jumps to S2. Reading any 'a', 'b', or 'c' after reaching S2 jumps to trap R. When the input is exhausted, check the current state: if it's an accepting state (S2), the input matches; otherwise, it doesn't.`,
-        `DFA construction usually happens offline, before any matching begins. A regex engine compiles the pattern into this table, then feeds strings through it in linear time. The Trie (Prefix Tree), which you likely know as a dictionary of strings, is secretly a DFA: each node is a state, each edge is labeled with a character, and leaf nodes mark the end of stored words. Both machines export the same interface to the world: given an input stream, accept or reject it, step by step.`,
+        `Implementation is just table lookup. Keep a current state, initially S0. For each character, index transition[state][character], jump, and continue. In this demo, 'a' from S0 goes to S1, 'b' from S1 loops in S1, and 'c' from S1 goes to S2. Anything impossible goes to R, and once R is reached the machine consumes the rest of the input while staying rejected.`,
+        `A Trie (Prefix Tree) is the same shape applied to stored words: nodes are states, letters are transitions, and terminal nodes accept complete keys. Graph BFS becomes useful when you need to explore many possible active states, as in NFA simulation or reachability analysis. Tokenization (BPE) is a richer text pipeline, but it starts from the same discipline: consume a stream and maintain explicit state.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Time complexity is O(n), where n is the length of the input string. Each character triggers one table lookup (O(1)) and one state transition; no character is examined twice, no lookahead, no backtracking. Space for the transition table is O(k²) in the worst case, where k is the number of states, since we must store one entry for each (state, symbol) pair. For small alphabets (like {a, b, c}) and modest state counts (like 4 or 10), this table is tiny and fits in cache. Even a DFA for the full ASCII alphabet (256 symbols) compiled from a modest regex pattern stays compact. By contrast, regex engines that support backreferences (capturing groups and numbered back-references) must abandon the DFA model, use backtracking and recursion instead, and can hit EXPONENTIAL time on crafted inputs — the "catastrophic backtracking" attack. grep and RE2 sidestep this by forbidding backreferences and sticking to pure automata, trading expressiveness for bulletproof performance.`,
+        `Matching costs O(n) for n input characters. Each character is read once, and each step is O(1). Space is O(S times A), where S is the number of states and A is the alphabet size, because every state-symbol pair needs a defined transition. Sparse tables can store only non-default edges. Backtracking regex engines that support features outside regular languages, such as backreferences, can take exponential time on adversarial patterns; automata-based engines like RE2 trade some expressiveness for predictable linear behavior.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Lexical analysis (tokenization) in compilers and interpreters is the canonical use: a compiler's lexer is a single DFA (or a small bank of them) that reads characters and outputs tokens (NUMBER, IDENTIFIER, STRING, PLUS, etc.). When you type code and your editor highlights keywords in blue and strings in green, a DFA is usually doing the heavy lifting. Regular expression engines like grep, awk, and RE2 (Google's regex library, used in products like Kubernetes) compile patterns to DFAs or something DFA-adjacent to guarantee linear-time matching. In network protocols, the TCP connection state machine (CLOSED → LISTEN → SYN_RECEIVED → ESTABLISHED → FIN_WAIT_1 → … → TIME_WAIT) is a famous (if somewhat more complex) FSM: it governs which packets are valid at each phase and prevents illegal transitions. Game AI often uses FSMs: an enemy might be in states IDLE, PATROLLING, CHASING, ATTACKING, DYING, and the transitions depend on proximity and hit points. UI/UX flows — a checkout wizard, a navigation menu, a modal dialog — can be modeled as FSMs to ensure that illegal states are unreachable: you can't confirm an order without filling in an address; the code structure reflects the legal state space.`,
+        `Compilers use FSM-like lexers to turn characters into tokens such as NUMBER, IDENTIFIER, STRING, and PLUS. Editors use related scanners for syntax highlighting. TCP: Handshake & Congestion Control has a connection lifecycle that is a state machine: LISTEN, SYN_SENT, ESTABLISHED, FIN_WAIT, and TIME_WAIT describe which packets are legal. The Event Loop is not an FSM by itself, but browser runtimes use state machines to track timers, promises, worker lifecycles, and network requests.`,
+        `Distributed systems use the idea too. Raft Leader Election moves servers among follower, candidate, and leader states. Topological Sort is not a state machine, but it helps reason about legal ordering when transitions must respect dependencies.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A common beginner mistake is conflating DFAs with NFAs and thinking backtracking is free. It's not: backtracking (trying multiple possible moves) is exponential in the worst case and is why some regex engines are slow on adversarial input. DFAs have no choice to make, so they're fast; the cost is paid at compile time, not match time. Another trap is forgetting the trap state: if the machine has no arrow for a given (state, symbol) pair, it implicitly moves to a silent reject state. In this FSM, the trap state R is explicit and self-loops so the input is consumed even if it's already wrong. Beginners sometimes expect an FSM to "remember" how many times a loop ran or to backtrack if a later part fails; neither is possible. FSMs are memoryless (except for the current state). If you need to count matches or enforce dependencies across distant parts of the input, you need a more powerful model — a stack machine or a Turing machine. Finally, be wary of the term "state machine" in marketing: UI frameworks call their state management "state machines" even when they're really just objects mapping (state, event) to actions. True FSMs are mathematically defined and come with proofs; a loose metaphor is weaker.`,
+        `The trap state matters. If a transition is missing, the machine has not become flexible; it has silently rejected. This demo makes R visible so you can see that a bad prefix cannot be repaired by later characters. Another misconception is that a loop lets the machine count. The b* loop accepts any number of b's, but it does not remember how many there were.`,
+        `Also separate the model from regex marketing. Many practical regex engines mix automata, NFAs, and backtracking features. A pure DFA gives linear matching because it never guesses. Once you add features that require remembering arbitrary text, you have left the finite-state world.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `To deepen your understanding, explore Trie (Prefix Tree), where you'll see FSM structure applied to dictionary storage and prefix search. Study Graph BFS to understand how to traverse state diagrams with multiple states active at once (useful when moving from DFAs to NFAs). Tokenization (BPE) shows how FSMs power text preprocessing in language models. For concurrency and distributed systems, Raft Leader Election is a modern state machine in disguise, coordinating a cluster via state transitions. Topological Sort reveals how to reason about dependencies in DAGs, a close cousin to FSM state ordering. Finally, return to the DFA visualization and watch a few more inputs to build intuition for how tight the O(n) guarantee really is.`,
+        `Study Trie (Prefix Tree) for character-labeled states, Graph BFS for exploring state graphs, and Tokenization (BPE) for a modern text-processing pipeline. TCP: Handshake & Congestion Control and Raft Leader Election show state machines governing systems where illegal transitions can break real networks. Topological Sort rounds out the ordering mindset: not every graph is an FSM, but every explicit state model benefits from clear transition rules.`,
       ],
     },
   ],
 };
-

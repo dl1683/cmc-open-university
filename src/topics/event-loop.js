@@ -155,40 +155,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `JavaScript is single-threaded: one call stack, one line of execution at a time. But the browser keeps promises, timers, and user input waiting in two separate holding areas — the microtask queue and the task queue (also called the macrotask queue). The event loop is the simple rule that decides who goes next: when the stack empties, drain all microtasks, allow one render window if the browser needs it, then run one task, and repeat forever. This rule, implemented in every JavaScript runtime (browsers, Node.js, Deno), is why setTimeout(callback, 0) does not run immediately, why promises jump ahead of timers, and how a tiny function can freeze a page if misused.`,
+        `The Event Loop is the rulebook that lets one JavaScript thread feel asynchronous. There is one call Stack, where currently running functions live, and waiting work sits in queues. Promise reactions go to the microtask queue. Timers, clicks, network callbacks, and messages go to the task Queue. When the stack empties, the browser drains all microtasks, may give rendering a chance, then runs one task and repeats.`,
+        `That rule explains the demo's famous output: A and B print synchronously, C prints from a promise microtask, and D prints later from a zero-delay timer task. "Zero" means the timer is ready, not that it can interrupt running code already on the stack at all.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Synchronous code — a console.log, arithmetic, function calls — executes straight away on the stack. When a callback is scheduled by setTimeout, the browser takes it (setTimeout is a browser API, not JavaScript), sets a timer, and parks the callback in the task queue. When a promise resolves, its .then callback goes to the microtask queue. The stack keeps running until the current script ends. Then comes the event loop's two rules: (1) drain the entire microtask queue, including any microtasks those microtasks spawn, until it is empty; (2) run one task from the task queue, let the browser render if needed, and loop. This is why A B C D is the output every time: the synchronous logs (A and B) print first, then the promise (C, a microtask) before the timer (D, a task).`,
-        `The visualization shows all three buckets side by side: the call stack in the middle-left, the microtask queue above middle, and the task queue above right. Watch how synchronous code builds the stack, watch setTimeout and promise.then deposit callbacks into their respective queues, and watch the event loop drain the microtask queue the moment the stack hits empty — before the task queue gets a turn.`,
+        `Synchronous function calls push and pop on the stack immediately. setTimeout is provided by the host environment; it starts a timer and later places the callback in the task queue. Promise.then places its callback in the microtask queue once the promise settles. The current script keeps running until it finishes. Only then can queued callbacks move onto the stack. Browser and Node.js event loops have different host phases, but this promise-before-timer intuition is the core behavior students need first.`,
+        `The visualization lays out those three buckets side by side. In the starvation view, a microtask schedules another microtask before finishing. Because the runtime must drain microtasks to empty before moving on, the queue never clears. How a Browser Paints a Page shows the damage: no render slot, no click handling, no visible progress, even though each individual callback is small.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `The event loop itself has no cost — it is a scheduling rule, not a data structure. But the queuing itself is real: promises create microtask overhead (small but nonzero per callback), timers incur browser timer machinery (also small). The key risk is starvation: if you queue a microtask that queues another microtask from within itself (like Promise.then(chain) that calls Promise.then(chain) again), the microtask queue never empties, rendering never gets a turn, and the page freezes. The second view of this visualization shows exactly this: the page says "STARVED" while chain() functions accumulate in the microtask queue. The one-line fix is setTimeout(chain, 0) instead of .then(chain), which switches waiting rooms and lets rendering breathe between tasks.`,
+        `Scheduling overhead is tiny compared with the work callbacks do, but responsiveness is bounded by task length. At 60 frames per second a page has about 16.7 ms for JavaScript, style, layout, paint, and composite. A 200 ms task misses roughly 12 frames. A self-refilling microtask chain is worse because it can starve every task and every paint indefinitely. The demo's fix, requeueing with setTimeout instead of Promise.then, moves the next chunk into the task queue so rendering can breathe between chunks. Production code often slices long work into batches for exactly this reason.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Timers (setTimeout, setInterval) belong in the task queue because they can be slow (long animations, polling) and should not starve rendering. Promises, being fast (promise chains are typically a few microseconds), go to the microtask queue so they complete as soon as possible. requestAnimationFrame is custom — it does not queue; the browser syncs it to the next paint, so use it for animation-paced logic. Web Workers handle long computations by running them off the main thread entirely, avoiding blocking altogether. In practice: use .then() for immediate reactions (updating state, resolving dependencies), setTimeout(cb, 0) for batched work that should yield to rendering and user input, and requestAnimationFrame for anything tied to a paint. Heavy lifting goes to workers.`,
+        `Promises are right for immediate follow-up work such as resolving dependencies or updating in-memory state. setTimeout is a yield point for chunked work that should let input and paint interleave. requestAnimationFrame is for work tied to the next frame. Web Workers: A Second Thread moves CPU-heavy work off the main thread entirely. Service Workers & Offline-First use a related event-driven model, but their fetch events live in a worker-like context rather than the page's main thread.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest myth is that setTimeout(cb, 0) executes immediately — it does not; it goes to the task queue and waits. The second myth is that async/await code is somehow immune to the queues — it is not; async functions rely on promises, which use microtasks, so the same starvation risk exists. The starvation trap is real and subtle: a single developer writing Promise.resolve().then(chain) that calls itself looks innocent (no busy loop, tiny functions), but it starves rendering and freezes the page. Another misconception is that microtasks are "better" — they are only better for fast, urgent operations; for long work they starve everything else. Finally, note that the browser is not part of JavaScript — setTimeout, the timer, and the browser's rendering are all outsideJS. The JavaScript runtime talks to them, but does not control them.`,
+        `The main misconception is that "async" means "nonblocking." Awaiting I/O yields; computing for 800 ms does not. Another trap is thinking microtasks are always better. They are higher priority, which is useful for consistency but dangerous for long or self-scheduling work. Virtual DOM Reconciliation also runs inside tasks; a slow diff blocks clicks just like a slow parser. The browser APIs are host machinery around JavaScript, not magic inside the language.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `The event loop is about scheduling, so study Queue (the FIFO data structure it uses for both queues) and Stack (the call stack side). To understand how the browser paints, read How a Browser Paints a Page, which explains the render window the event loop opens up between tasks. For distributed systems that use event loops, study Message Queue and how messages flow between processes. Finally, in production systems that trace async work across many hops (promises, timers, workers), study Distributed Tracing to see how the event loop's queuing becomes visible in logs and metrics.`,
+        `Study Stack and Queue for the two basic data structures on screen. Then read How a Browser Paints a Page, Web Workers: A Second Thread, and Service Workers & Offline-First for the browser consequences. Message Queues and Distributed Tracing show the same scheduling problem after callbacks become cross-service messages instead of in-page functions.`,
       ],
     },
   ],
 };
-

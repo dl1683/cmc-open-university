@@ -103,44 +103,42 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `TCP congestion control is a decentralized agreement between your computer and the network about how fast you are allowed to send data. You do not ask anyone for permission — instead, you probe upward and listen for the network's answer: dropped packets mean back off. The congestion window (cwnd) is a moving slider that caps how many unacknowledged bytes may be in flight at once. Start with 1 packet, grow exponentially during slow start, then linearly during congestion avoidance, and halve brutally when loss arrives. This multiplicative decrease + additive increase (AIMD) sawtooth repeats for the life of the connection.`,
-        `The three-way handshake (SYN, SYN-ACK, ACK) happens first: both sides prove they can send and receive, and both learn where the other's sequence numbers begin. Only after that agreement does the real conversation start. The entire internet runs on this same loop, repeated across trillions of concurrent connections. In 1986, before congestion control existed, the early internet actually collapsed under its own weight, with throughput dropping roughly 1000×. TCP's answer to that catastrophe — this algorithm — has kept the network standing for 40 years.`,
+        `TCP: Handshake & Congestion Control is two lessons in one. First, the three-way handshake, SYN, SYN-ACK, ACK, proves both sides can send and receive and establishes sequence numbers. That happens after How DNS Works finds an IP address. Second, congestion control decides how much data may be in flight. The sender keeps a congestion window, cwnd, which acts like a Sliding Window over unacknowledged bytes.`,
+        `The visualization uses classic Reno-style behavior: start at 1 packet, grow quickly, probe gently, and cut hard when loss appears. This is the sawtooth that kept the internet from repeating the congestion-collapse failures observed in the 1980s, when senders retransmitted aggressively into already overloaded routers.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The journey has three phases. Slow start is exponential: begin at 1 packet and double the window every round trip (RTT). With ssthresh set to 32 in this visualization, you race from 1 to 2 to 4 to 8 to 16 to 32 in six rounds. Exponential growth lets a new connection find the network's capacity in a handful of RTTs rather than minutes. Once you hit ssthresh, congestion avoidance takes over: add just 1 packet per RTT. Linear probing is gentler and safer once you are near the ceiling.`,
-        `When a router's buffer overflows and a packet drops, TCP receives a duplicate ACK and treats it as a screaming alarm: the network is saying no. Immediately halve cwnd (44 becomes 22) and resume the +1 climb. This asymmetry is the engine of stability and fairness. Stability comes because gentle probing rarely overshoots far, and halving instantly relieves congestion. Fairness is automatic: when competing flows share a link, a flow with a larger window loses more packets in each halving, so flows converge toward equal bandwidth without any coordinator, no negotiation, no knowledge of each other.`,
-        `Modern TCP evolved beyond Reno. CUBIC (Linux's default since 2.6.19) reclaims lost bandwidth faster after a drop by following a cubic function rather than a linear one, suiting high-speed, high-latency links. BBR (deployed by Google for YouTube and other services) abandons loss detection entirely and instead directly measures the path's bandwidth and minimum latency, responding to queue buildup before packets drop. This avoids bufferbloat — the condition where deep router buffers hide congestion, so loss arrives too late to guide the sender. cwnd is always a Sliding Window over the unacknowledged bytes, enforcing a hard cap on in-flight data.`,
+        `In the demo, slow start doubles cwnd along the plotted points 1, 2, 4, 8, 16, 32. The name is historical; exponential growth is fast, but it starts cautiously because the path capacity is unknown. At ssthresh, congestion avoidance takes over and adds about one packet per round trip. When the demo reaches 44 packets and marks a loss, cwnd is halved to 22 and the linear climb resumes.`,
+        `That rule is AIMD: additive increase, multiplicative decrease. It is stable because probes are gentle near the ceiling and backoff is large when congestion appears. It is also roughly fair: bigger flows lose more absolute window during halving. Real TCP also respects the receiver's advertised window, so the usable send window is limited by both receiver flow control and sender congestion control.`,
+        `Modern defaults refine the signal. CUBIC, long used by Linux, grows according to a cubic curve that works better on high-bandwidth, high-latency paths. BBR estimates bottleneck bandwidth and round-trip propagation delay instead of waiting only for packet loss. ECN can mark congestion without dropping packets. The visualization is Reno-shaped because it teaches the core feedback loop clearly.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `The CPU cost is almost zero — a few arithmetic operations per RTT. The memory cost is negligible: a single counter (cwnd) and a timer per connection. The real cost is delay: to be conservative and discover capacity safely, congestion avoidance's linear probing wastes time. On a fresh connection, slow start's exponential climb is fast, but probing beyond a router's true capacity and then halving creates a sawtooth that you must live with. If you know the network's capacity in advance, you could start at the right window immediately — but you do not know, and TCP refuses to assume.`,
+        `The CPU cost is tiny: a few counters, timers, acknowledgments, and arithmetic per connection. The cost users feel is latency and underfilled bandwidth while the sender discovers capacity. On a 100 ms round trip, every window adjustment takes at least a tenth of a second to observe. On a 100 Gbps path with a 100 ms RTT, the bandwidth-delay product is about 1.25 GB, or roughly 850,000 full-size 1460-byte packets in flight, so naive +1-per-RTT probing would be far too slow without modern algorithms.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Every TCP socket uses this algorithm implicitly. Your web browser, SSH session, file downloads, video streaming — all use congestion control. Most internet traffic is TCP (or QUIC, which runs the same or similar control algorithms). Streaming services rely on it to share WiFi with your email and video calls without making all three unusable. Data centers use it between servers, and it is why a clogged link does not simply stop — it distributes pain fairly. CDN edge servers (see CDN Request Flow) use congestion control to manage inbound requests from peers without overwhelming any one path. Load balancers and Message Queues depend on TCP's backpressure: if the receiver cannot keep up, the sender's window closes, and the sender is forced to slow down.`,
+        `Browsers, SSH, database clients, CDNs, and API calls rely on congestion control whenever they use TCP. QUIC runs over UDP but still needs similar congestion-control ideas. CDN Request Flow depends on it between user and edge and again between edge and origin. Load Balancer, Message Queues, and Backpressure & Flow Control all build higher-level reliability on top of the same pressure signal: if the downstream path cannot keep up, the sender must slow down or shed work.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Myth: TCP is slow. Reality: TCP is slow on high-latency, high-capacity links (satellites, transcontinental fiber) because congestion avoidance's +1 per RTT becomes a crawl. Slow start's exponential phase is actually fast. A 100ms RTT and 100 Gbps capacity means you need roughly 10 million packets in flight to saturate the link — and linear probing would take millions of RTTs to reach that. CUBIC and BBR address this.`,
-        `Myth: packet loss is bad. Reality: loss is TCP's only signal that the network is congested, so it must happen. Zero loss means you are underutilizing the link. The goal is to lose packets at exactly the right rate to stay fair and stable.`,
-        `Myth: congestion control is negotiated. Reality: there is no negotiation. The receiver does not tell the sender what to do. The sender unilaterally decides its window size and prays the packets make it through. Loss is the only feedback. This decentralization is why TCP scales — no centralized controller is needed.`,
+        `Do not say "TCP is slow" without naming the path. Slow start is fast; high-latency, high-bandwidth links are hard because feedback arrives late. Do not say loss is always required. Classic Reno treats loss as a signal, but ECN and BBR-style models can react before loss. Do not confuse congestion control with receiver flow control: the receiver advertises how much it can buffer, while congestion control estimates what the network can carry.`,
+        `Rate Limiter (Token Bucket) and Circuit Breakers & Deadlines are application-level protections; they do not replace TCP. They decide whether to admit work. TCP decides how quickly admitted bytes cross a path.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Understand Sliding Window to see how cwnd bounds the unacknowledged bytes over a stream. Learn How DNS Works to appreciate that the TCP handshake happens after DNS completes, so the latency cost is always paid. Explore Message Queues and Rate Limiter (Token Bucket) to see active flow control — where the receiver or a middle agent explicitly limits the sender. Study CDN Request Flow to see congestion control in action across multiple links. Finally, revisit this topic: the sawtooth you are watching here repeats every day across billions of connections, and it is one of humanity's most elegant decentralized algorithms.`,
+        `Study Sliding Window for the byte-stream mechanic, How DNS Works for the step before the handshake, and CDN Request Flow for the multi-hop delivery path. Then compare TCP's implicit feedback with Rate Limiter (Token Bucket), Message Queues, Backpressure & Flow Control, and Circuit Breakers & Deadlines, where systems make throttling and failure policy explicit.`,
       ],
     },
   ],
 };
-

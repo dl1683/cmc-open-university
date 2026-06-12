@@ -103,42 +103,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A CDN places cached copies of files in data centers near users. Instead of serving every request from a single origin server 13,000 km away, a CDN spreads "edge" locations worldwide: Mumbai, Frankfurt, São Paulo, Sydney. Your browser asks the nearest edge first. If the file is there, it answers in 10–20 milliseconds. If not, the edge fetches from the origin and stores the copy, warming the cache for the next user in that city. Cloudflare, Akamai, Fastly, and AWS CloudFront run this pattern globally, handling trillions of requests per month.`,
+        `A CDN puts cached copies of content at edge locations near users. The visualization follows a user in Mumbai requesting cat.jpg while the origin servers live in Virginia. A direct origin trip is slow because physics matters. The CDN tries the nearby Mumbai edge first. If the edge has the file, the origin is not involved. If the edge is cold, it fetches the file once, stores it, and the next local user gets the fast path.`,
+        `This page composes several systems topics into one everyday request: How DNS Works chooses an edge, TCP: Handshake & Congestion Control carries bytes across each path, and the edge cache decides whether the request stops nearby or continues to origin.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `DNS routes you to the nearest edge: a GeoDNS server answers with different edge IPs for different client locations. Consistent Hashing ensures the right cache machine in that cluster owns your file. At the edge lives an LRU Cache (1–500 TB) holding the hottest files. A cache lookup completes in microseconds. Hit: you're served in ~20 ms total (10 ms network + 10 ms at the edge). Production CDNs serve 90–95% of requests this way.`,
-        `A miss sends the edge upstream. It asks a Load Balancer which origin server is freest, then a Rate Limiter (Token Bucket) gate prevents a thundering herd from flattening the origin. The origin replies "Cache-Control: max-age=86400" (keep this for 24 hours), the edge stores it (evicting the least-recently-used file if full), and you pay ~110 ms. The next Mumbai user in that 24-hour window pays 20 ms. One slow request warmed the cache for a city.`,
+        `Step 1 is DNS steering. GeoDNS can return the Mumbai edge to one user and Frankfurt to another. Inside an edge cluster, Consistent Hashing can choose which cache machine owns a URL. The cache behaves like an LRU Cache for hot objects. A hit in the demo is served in about 20 ms, and the Virginia origin never sees the request.`,
+        `On a miss, the edge becomes a client. It crosses the long path to a Load Balancer, which selects an origin. A Rate Limiter (Token Bucket) protects the origin from stampedes when many edges miss at once. The origin responds with Cache-Control: max-age=86400, so the edge may keep the file for 24 hours. The first Mumbai user pays roughly 110 ms; later local users pay the hit latency.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `CDNs cost billions to run: hundreds of data centers, land, fiber, power. Cloudflare and Fastly are expensive because they're everywhere; more edges mean lower latency but higher sunk cost. Invalidation is the hard part: when cat.jpg changes, every edge holds the stale copy until Cache-Control max-age expires or a purge API broadcasts invalidation. That broadcast takes seconds to propagate globally. Safer: low max-age (5–30 minutes) for dynamic assets and high max-age (days or versioned URLs) for static files. Stale-while-revalidate headers let edges serve old copies while fetching fresh ones in the background.`,
+        `The data-structure cost of a hit is tiny; the infrastructure cost is enormous: edge sites, storage, network contracts, monitoring, and purge systems. Hit ratio is the business metric. Static assets can reach very high hit rates; personalized or uncacheable responses may miss constantly. Tail Latency & p99 Thinking matters because users feel the misses and slow purges, not the average hit.`,
+        `Invalidation is the hard part. When cat.jpg changes, every edge may hold the old copy until max-age expires or a purge propagates. Cache Invalidation & Versioning gives the safer pattern: version immutable files, use shorter TTLs for changeable data, and reserve emergency purges for mistakes.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every major site hides behind a CDN. Netflix streams via Akamai. Shopify absorbs Black Friday spikes via Cloudflare. GitHub Pages sits behind CloudFront. CDNs also cache personalized content: by tagging cache keys with session tokens, the same URL returns different content (your feed vs. mine) because the cache key includes your session token. Instagram does this at scale. Without a CDN, the origin answers every request; with one, 95% answer from the edge in geographic-local latency.`,
+        `Static sites, software downloads, images, video segments, fonts, and JavaScript bundles are CDN classics. Large platforms may run their own edge networks or use providers such as Cloudflare, Akamai, Fastly, or CloudFront. Personalized content can be cached only when the cache key includes the right variation, such as language, device class, or authorization scope; otherwise private data can leak. Service Workers & Offline-First uses similar strategy inside one browser, while a CDN does it for the planet.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `A CDN is not a magic latency eraser. If your origin is slow (2-second database query), a cache miss pays the full 2 seconds plus network round trip. Optimize the origin first; use a CDN to amortize its cost across a city. If every asset is unique or max-age=0, 100% of traffic hits the origin and you've paid for a CDN you're not using. Stale copies are real: if you deploy a security patch and forget to invalidate, every edge serves vulnerable code until max-age expires. Test purge logic before you need it.`,
+        `A CDN is not magic. A miss still pays origin latency, database time, and the ocean crossing. If every response has max-age=0 or a unique cache key, the CDN becomes an expensive proxy. If you cache private responses without varying correctly, it becomes a security bug. If you deploy a security patch without purging or versioning, stale vulnerable code can keep serving until TTL expiry.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `This flow combines five topics: Consistent Hashing (which cache machine owns your file), LRU Cache (the data structure that decides hits and eviction), Load Balancer (how the edge picks an origin server), Rate Limiter (Token Bucket) (how the origin avoids stampede), and DNS (the geographic router). Consistent Hashing lets you add edges without recomputing lookups. LRU Cache is what Postgres, Redis, and your CPU use to keep hot data close. A Load Balancer with least-connections beats round-robin. A Rate Limiter (Token Bucket) leaks requests at steady pace, smoothing bursty traffic.`,
+        `Study How DNS Works for edge selection, Consistent Hashing for cache ownership, LRU Cache for eviction, Load Balancer for origin selection, and Rate Limiter (Token Bucket) for stampede protection. TCP: Handshake & Congestion Control explains the transport cost on each leg. Cache Invalidation & Versioning and Tail Latency & p99 Thinking are the production follow-ups once the basic flow works.`,
       ],
     },
   ],
 };
-

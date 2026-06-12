@@ -142,39 +142,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A virtual DOM is the core abstraction of modern web frameworks: re-render the entire UI as cheap JavaScript objects, diff the old and new trees to find changes, then patch the real DOM minimally. UI = f(state) becomes mechanical. The virtual DOM is not faster than careful hand-written mutations — it is faster than naive rebuilds, while letting you code as if you rebuilt everything. One render pass, one diff pass, one batched patch to the real DOM, so the browser lays out and paints once instead of thrashing.`,
+        `Virtual DOM Reconciliation is a bargain: describe the whole UI as cheap JavaScript objects, compare the old and new trees, then mutate the real DOM only where needed. The visualization starts with a todo app. State changes from two items to three, and a button becomes a link. The virtual tree is rebuilt completely, but the browser receives only three real mutations. That matters because How a Browser Paints a Page makes real DOM changes expensive once they trigger style, layout, paint, and composite.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Three steps: RENDER (rebuild the entire tree as virtual objects), DIFF (walk old and new side-by-side), and PATCH (mutate the real DOM). During diff, if two nodes have the same type, compare properties and emit patches like setText. If types differ (button → link), unmount the whole subtree; do not salvage it. This single heuristic turns O(n³) tree edit distance into O(n) — one pass. For lists, match by position and you get four mutations from one insertion at the front; add stable KEYS (database IDs, never indices) and matching goes by identity, dropping it to one mutation. The checkmark stays with the right row because the key glues identity across renders.`,
+        `The algorithm has three passes: render, diff, patch. Render produces a new tree. Diff walks old and new side by side, a Tree Traversals problem with a practical heuristic: same type means reuse the node and compare props; different type means replace the subtree. That heuristic avoids the general tree-edit problem behind Edit Distance (DP Table), which is too expensive for every click.`,
+        `Lists need identity. Without keys, children are matched by position, so inserting "Pay rent" at the top looks like every row changed. Worse, real DOM state such as a checked box can stay attached to the wrong row. With stable keys, usually looked up through a Hash Table, the diff matches "dog" to the old dog row wherever it moved. One insertion becomes one insertion, and state stays with the correct item.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Rendering is O(n) per tree. Diffing is O(n) — a single pass. Patching is O(p) where p is the number of changes (usually much smaller than n). The catch: render, diff, and patch all run inside one event-loop task (see The Event Loop), so a slow diff blocks clicks. This is why Svelte and SolidJS compile away the diff and generate direct mutations — trade mental simplicity for guaranteed O(1) efficiency.`,
+        `Rendering the virtual tree is O(n), diffing with the usual heuristics is O(n), and patching is O(p), where p is the number of real DOM changes. The important cost is not just asymptotic. Render, diff, and patch run inside one task on The Event Loop, so a 40 ms diff can block input and miss frames. Big-O Growth Rates explains the curve; frame budgets explain why constants still hurt.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `React, Vue, Preact, Angular, Ember, Flutter — all embrace this pattern because it decouples "what the UI should be" from "how to update the DOM." Developers think declaratively (render a snapshot) instead of imperatively (mutate, then mutate, then mutate). That mental shift is worth as much as the performance gain.`,
+        `React and Preact popularized this model, and Vue uses a related virtual-node system. The appeal is declarative UI: write a render function of state, let reconciliation choose the mutations. Frameworks that compile fine-grained updates, such as Svelte or Solid, avoid much of the runtime diff, but they keep the same lesson about identity, batching, and minimal real DOM work.`,
+        `The identity part is not cosmetic. Inputs, focus, media playback, scroll position, animation state, and component-local state all live outside the text you render. Stable keys tell the framework which old real node should survive under a new description. Without them, a list can look visually close while silently moving state to the wrong row.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Virtual DOM does not make rendering fast — it saves DOM mutations. Rendering a thousand nodes is still slow; what is saved is expensive reflow and repaint. Never use key={index}; it is indistinguishable from no key, because the index IS the position. Keys must be stable (database IDs, slugs, UUIDs). And do not assume virtual DOM is the only path — Svelte proves the alternative: compile the state changes to direct mutations at build time.`,
+        `Virtual DOM is not automatically faster than hand-written DOM code. It is faster than naive full rebuilds while making code easier to reason about. Large virtual trees still cost CPU. key={index} is not a stable key when items can move; it preserves position, not identity. Random keys are worse because they force remounts every render. Memoization (Dynamic Programming) can help cache derived view data, but it does not remove the cost of reconciling nodes that really changed. The right fix depends on the measured bottleneck.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Learn Edit Distance to understand the tree-diff problem the heuristic solves. Study Tree Traversals for the dual-walk during diff. The Event Loop explains why a slow diff hangs the browser. How a Browser Paints a Page shows why batching saves time. And LRU Cache teaches the same identity-matching logic as keyed lists.`,
+        `Study Tree Traversals for the dual walk, Edit Distance (DP Table) for the harder general diff problem, and The Event Loop for why slow reconciliation blocks clicks. How a Browser Paints a Page shows why batched patches are valuable. Hash Table, Memoization (Dynamic Programming), and LRU Cache round out the identity and caching patterns that make large interfaces tractable.`,
       ],
     },
   ],
 };
-

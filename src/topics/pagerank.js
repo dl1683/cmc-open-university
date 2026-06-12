@@ -90,46 +90,43 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `PageRank answers a 1998 question: on a web of linked pages, which ones matter most? Naive counting — tally incoming links — is gameable: create a thousand junk pages that all point to you and fake importance. PageRank's fix is beautifully circular: a page matters if important pages link to it. This self-referential definition looks circular, but iteration breaks the circularity and finds a fixed point.`,
-        `The algorithm models a random web surfer: follow links 85% of the time (the damping factor d = 0.85), jump to a random page 15% of the time. This "random surfer model" prevents rank from vanishing into a dead-end corner of the graph. The result is a probability distribution: each page gets a score between 0 and 1, and all scores sum to exactly 1.0.`,
+        `PageRank is the 1998 insight that helped make web search work: links are votes, but a vote from an important page should count more than a vote from an obscure one. The visualization shows a six-page web with nine directed links. Everyone starts equal at 1/6, then the scores are redistributed again and again until the ranking stops moving. This is Markov Chains & Steady States in search-engine clothing: the score of a page is the long-run probability that a random surfer is standing there.`,
+        `The random surfer follows a link 85% of the time and jumps to a random page 15% of the time. That damping factor, usually written d = 0.85, keeps rank from getting trapped in dead ends or tight cycles. The result is not a raw popularity count. It is a probability distribution, so all page scores sum to 1.0 after every sweep.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Start: give every page equal score. In a six-page web, each begins at 1/6.`,
-        `Each iteration does two things: (1) Each page divides its current score equally among the pages it links to — a vote split among endorsements. (2) Every page keeps a base 15% share from the random surfer model, giving pages with no incoming links a floor. Iterate until scores stabilize (typically 50 sweeps at Google's billion-page scale).`,
-        `The payoff: pages linked by important pages rank higher. A single link from a hub outweighs three links from obscure pages. Link spam from unimportant sources earns almost nothing. Mathematically, this process finds the dominant eigenvector of the link-transition matrix — the power method in action.`,
+        `Each iteration starts every page with the base teleport share, (1 - d) / N. Then every page divides its current score evenly across its outgoing links. In the demo, page E is a hub that receives many votes, then pours its entire high score into F. That is why F can rise on one link while B, C, and D remain weak even though they cast several links.`,
+        `The loop is power iteration. Multiply the rank vector by the link-transition matrix, normalize through the damping term, and repeat. After 5 or 10 visible sweeps the numbers are already settling; at web scale the classic implementation ran dozens of sweeps until changes fell below a tolerance. Eigenvalues & Eigenvectors explains why the fixed point is the dominant eigenvector.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Each iteration touches every link once, so one sweep is O(L) where L is the link count. To converge (typically 50 iterations on real graphs), PageRank costs O(50 × L). On today's web with trillions of links, this requires distributed computation and is run as a background batch process, not on every search. Modern engines combine PageRank with other signals — anchor text, click-through data — to rank results.`,
+        `One sweep touches every edge once, so the sparse cost is O(L), where L is the number of links. Dense matrix multiplication would be wasteful; real web graphs store outgoing links like adjacency lists, the same representation you meet in Graph BFS. Total cost is O(kL) for k sweeps. Memory is O(N + L), and the work is embarrassingly parallel because each page can contribute rank to its neighbors independently before a reduce step sums the incoming mass.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `PageRank powered Google's search results from 1998 onward and remains a component of their ranking. Beyond search, the same skeleton applies everywhere: rank scientific papers by citation flow (a citation from Nature outweighs one from a blog), find influential Twitter accounts by follower network structure, detect essential proteins in biological networks by interaction graph, and identify central nodes in any directed graph by importance flow.`,
+        `Search engines no longer rank by PageRank alone, but link analysis is still one signal among freshness, content quality, spam detection, and user intent. The same idea ranks papers by citation flow, finds central accounts in social graphs, and scores proteins in biological interaction networks. It also shows up in recommendation and reinforcement-learning intuition: Value Iteration (Reinforcement Learning) is another case where repeated local updates propagate global importance through a graph.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Pitfall 1: Thinking PageRank is a ranking. It is not. It is one signal among many; Google combines it with content quality, freshness, and user engagement.`,
-        `Pitfall 2: "Link farms" — pages created solely to boost rank of a target page. Because PageRank only flows from important sources, fabricated links from new pages contribute nothing.`,
-        `Pitfall 3: Assuming convergence is instant. It is not. Graph diameter (longest shortest path) and link structure affect convergence rate. The damping factor (0.85) is a tuning choice; higher values (more link-following) converge slower but preserve more information.`,
+        `The first trap is treating PageRank as the whole search algorithm. It is a graph signal, not a judgment of truth, usefulness, or freshness. The second is thinking any inbound link helps equally. A link farm made of unimportant pages mostly passes around unimportant score. The third is assuming convergence is instant. It depends on graph structure and the spectral gap; a higher damping factor preserves link information but generally mixes more slowly.`,
+        `PageRank is also not a shortest-path algorithm. A shortest-path search answers one route question from one source; PageRank diffuses probability from everywhere to everywhere. The visualization's fixed point is closer to K-Means Clustering than to one-shot search: repeat a simple update until the system stops changing.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Graph BFS to understand how the link graph itself is crawled and stored. K-Means Clustering to see another "iterate a simple rule to convergence" pattern. Dijkstra's Shortest Path for single-source graph traversal (PageRank is all-sources importance diffusion). Embeddings & Similarity to model pages and links in vector space. HNSW (Vector Search at Scale) to see how importance scores are retrieved at internet scale.`,
+        `Study Markov Chains & Steady States for the probability model, then Eigenvalues & Eigenvectors for the linear algebra that proves the fixed point exists. Graph BFS explains how crawlers discover link graphs. Consistent Hashing and LRU Cache show the distributed storage and caching patterns needed once scores serve real traffic. Embeddings & Similarity and HNSW (Vector Search at Scale) are modern companions: they rank by vector meaning rather than link authority.`,
       ],
     },
   ],
 };
-

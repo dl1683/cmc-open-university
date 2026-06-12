@@ -160,40 +160,41 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A service worker is JavaScript code running in its own thread, sitting between your page and the network as a programmable proxy. You write the rules; every request flows through code you authored before reaching the internet. Once installed, it answers from cache, network, or thin air. This is offline-first: why PWAs like Twitter Lite and Starbucks work when airplanes land with no WiFi. Service workers enforce HTTPS (tamper-proof), persist across reloads, and control every request in their scope — they are powerful, with unusual ceremonies (register, install, activate), but your app's architecture becomes yours to shape, not the network's.`,
+        `A service worker is a programmable proxy that sits between a page and the network. It is worker-like, isolated from the DOM like Web Workers: A Second Thread, but it has a special privilege: fetch events for every request inside its scope pass through your code first. Your handler can answer from the Cache Storage API, try the network, synthesize a response, or queue work for later. That is the core of offline-first web apps. Browsers require HTTPS, except for localhost development, because this much control over traffic must be tamper-resistant.`,
+        `The visualization shows the proxy moving in. Before installation, a page request depends on How DNS Works, TCP: Handshake & Congestion Control, and the network being reachable. After activation, the service worker can serve the app shell from cache even in airplane mode.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Lifecycle: First, REGISTRATION — your page calls \`navigator.serviceWorker.register("sw.js")\`. Second, INSTALL — the browser fires an install event; you precache the shell (HTML, CSS, JS, logos). Install fails if precache fails; the old worker survives. The new worker waits until every old tab closes — why "close all tabs to update" exists. Third, ACTIVATE — once old tabs are gone, activate fires; clean up stale caches and take the wheel.`,
-        `From activation, every fetch fires a fetch event inside the worker. You call \`event.respondWith(response)\` to choose the answer: \`caches.match(request)\` hits cache in 2–5 ms; \`fetch(request)\` tries the network; synthesize from IndexedDB or stale data offline. The network is one source among many; your code decides priority. Cache keeps the app alive; background sync queues mutations for when connectivity returns.`,
+        `The lifecycle has three gates. Registration calls navigator.serviceWorker.register("sw.js"). Install is where the worker precaches the shell: HTML, CSS, JavaScript, icons, and other versioned assets. If that promise fails, the new worker is not installed. Activate is where old caches are cleaned and the new worker takes control, often after old tabs close unless you deliberately skip waiting. Scope matters: a worker controls only URLs below its registration path.`,
+        `Once active, fetch events call event.respondWith. Cache-first checks cache before network, ideal for immutable shell files. Network-first tries fresh data and falls back when offline. Stale-while-revalidate answers immediately from cache and refreshes in the background. The second visualization compares exactly these strategies and their freshness-latency trade-offs.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Installation: O(S) where S is the shell size (500 KB–2 MB typical). Fetch: cache hits cost 2–5 ms and zero bytes; misses cost the full network round-trip. Network-first with timeout adds 100–3000 ms latency while waiting. Stale-while-revalidate costs background bandwidth but buys instant responses every time. Storage quota is browser-enforced: ~50 % disk on desktop, ~4–6 % on mobile. Your cache is a fast maybe — browsers evict under pressure. Testing offline is hard; debugging requires DevTools and manual unregistration. Ship a robust PWA in 1–2 weeks.`,
+        `Install cost is O(S) in the size of the precached shell. A cache hit is usually milliseconds and no network bytes; a miss pays the full network path. Network-first can add timeout latency before fallback. Stale-while-revalidate spends background bandwidth to make the visible response instant. Storage quota is browser-specific and eviction can happen under pressure, so the cache is a fast maybe, not permanent storage. LRU Cache explains the eviction idea; browsers manage the final policy.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Twitter Lite precaches the shell, network-first on API calls with stale fallback, background-syncs tweets written offline. Starbucks orders the same way. Google Docs precaches the editor, network-first on loads, SWR on comments — draft offline, sync later. All need to survive subway rides and planes. Beyond offline: precaching shell cuts first-contentful-paint from 600 ms (CDN round-trip) to 2 ms (cache). Enable instant navigation by deferring non-critical assets. Power web push notifications (wake the worker even when no tab is open). Financial apps enforce request signing at the proxy layer before the page sees it. Defend against man-in-the-middle: once the shell is cached, attackers cannot inject code because the worker answers from cache, not the network.`,
+        `PWAs precache their shell so repeat visits start without a network round trip. News apps use network-first for feeds with stale fallback. Documentation sites and education sites can use cache-first for versioned assets and stale-while-revalidate for images. CDN Request Flow is the same pattern at global scale: answer close to the user when safe, refresh or miss to the origin when needed. A service worker is the edge cache you can program inside the browser.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Deadliest: treat cache as a guarantee. Browsers evict when full; users clear it. Degrade gracefully — show "synced 2 hours ago" on stale data. Versioning trap: if you cache app.js then deploy a new version, old workers in old tabs serve old code until those tabs close. Unversioned caches pile up forever — always delete obsolete caches in activate. Testing pitfall: workers persist across reloads; you must manually unregister or debug against stale code. SWR for sensitive data is a bug: never use it for balances, auth, or real-time state — one version behind is wrong. Storage quota: unbounded caches evict themselves; implement eviction policy for large media.`,
+        `The hardest bug class is stale code. If you cache app.js without versioning, old tabs may keep serving the old shell. Cache Invalidation & Versioning is not optional: version files, version cache names, delete obsolete caches in activate, and test update paths. Do not use stale-while-revalidate for balances, auth, payments, or anything where "one version old" is wrong.`,
+        `Testing is also tricky because workers persist across reloads. DevTools unregister and update controls are part of the workflow. The Event Loop still matters: fetch, install, sync, and push handlers are events, and long handlers can delay later work.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `IndexedDB queues mutations offline and holds stale fallbacks. Background sync wakes the worker to retry queued updates. Web Workers: A Second Thread shows the threading model. Cache-first, network-first, and SWR mirror what CDN Request Flow teaches at internet scale — pattern recognition at your edge. LRU Cache underlies Cache API eviction. The Event Loop explains the queue workers consume events from. How DNS Works explains why HTTPS is mandatory — workers are so powerful they must be tamper-proof.`,
+        `Study Web Workers: A Second Thread for isolation, The Event Loop for worker events, and LRU Cache for eviction intuition. How DNS Works, TCP: Handshake & Congestion Control, and CDN Request Flow explain the network path a worker may skip. Cache Invalidation & Versioning is the production follow-up, and Message Queues gives the server-side version of offline mutation retry.`,
       ],
     },
   ],
 };
-

@@ -97,41 +97,42 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `DNS (Domain Name System) is the distributed database that translates human-readable domain names like www.example.com into IP addresses like 93.184.216.34. Rather than storing all domains in one place — impossible given billions of domains and the traffic load — DNS distributes authority using a hierarchy mirroring the domain name's right-to-left structure: (root) → .com (TLD) → example.com (authoritative). This is a Trie (Prefix Tree) carved into the internet itself.`,
-        `At each level, a nameserver knows only its immediate children. The root knows "ask .com's servers"; .com knows "ask example.com's servers"; only example.com's authoritative server knows the answer. The query walks down this tree in milliseconds because caches sit at every layer — browser, OS, ISP resolver, and the recursive resolver's own LRU Cache — each equipped with TTL expiry timers that enforce freshness. The result: one slow walk (50–100ms) pays for an hour of ~1ms cached answers for the entire neighborhood.`,
+        `DNS is the distributed database that turns a name such as www.example.com into an IP address. It is not one global phonebook. Authority is delegated down a hierarchy that mirrors the domain name from right to left: root, then com, then example.com, then a host record. That makes DNS feel like a Trie (Prefix Tree) spread across organizations instead of memory.`,
+        `The visualization follows a resolver through that tree. The root does not know the final answer; it knows where com lives. The com TLD does not know the address; it knows the authoritative nameserver for example.com. The authoritative server finally returns the record and a TTL. Then caches make the next lookup cheap.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `A cold lookup (no cache hit) begins at a root server. There are 13 root server identities (a through m, run by operators like Verisign and ISC), but each is actually hundreds of machines sharing a single IP via anycast routing — a trick that lets packets automatically find the geographically nearest copy. The root answers "I don't know example.com, but these are the .com servers." Next, your resolver contacts a .com TLD server (Verisign runs the authoritative .com registry, handling trillions of queries daily), which responds with referrals to example.com's nameservers. Finally, the authoritative server (run by the domain owner or a provider like Route 53 or Cloudflare) returns the actual record: an A record mapping the domain to an IP, together with a TTL — say, 3600 seconds (one hour). The resolver caches this and every referral along the way, then returns the IP to your browser. The entire cold walk costs three to four round trips, roughly 50–100ms in practice.`,
-        `Warm caches (the common case) skip almost all of this. A resolver seeing the same domain a second time (within the TTL window) returns the cached IP in a single network hop, ~1ms, without ever consulting root or TLD servers. This efficiency — caches absorbing ~99% of the load — is why the planetary DNS hierarchy survives. Operators play a careful trade-off with TTL: high TTLs (24 hours) mean fewer queries but slow propagation if you move your server; low TTLs (60 seconds) enable agility and traffic steering (GeoDNS can redirect users to the nearest data center, but requires sub-minute caches everywhere) but force re-queries constantly. CDNs and failover systems use low TTLs; static sites use high ones.`,
+        `A cold lookup starts after browser and OS caches miss. The recursive resolver asks a root server. There are 13 root identities, named a through m, but each identity is served by many machines using anycast. The root returns a referral to the com servers. The resolver asks com, receives a referral to the domain's authoritative servers, then asks one of those for the A or AAAA record. The demo uses 93.184.216.34 and TTL 3600, meaning the answer may be reused for one hour.`,
+        `A warm lookup skips the tree. The resolver returns the cached answer in one network hop, often around a millisecond on a local network. That is why DNS scales. Browser caches, OS caches, ISP or public resolvers, and authoritative-side caches all absorb repeat traffic. LRU Cache explains the capacity side; TTL explains the freshness side.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `DNS's genius is its efficiency despite scale. The hierarchical design ensures that no single server needs to know all domains — authority is delegated downward, load is distributed horizontally across 13 root identities and thousands of TLD and authoritative servers. Caching is the multiplier: every cache miss cascades into one query path, but a single cache hit serves hundreds of clients. The protocol itself (primarily UDP, fast and stateless) assumes some packets are lost and tolerates it. The architectural cost is consistency: if you change your domain's IP, it doesn't propagate instantly to the entire internet. Resolvers and browsers hold onto the old IP until the TTL expires, a delay measured in minutes to hours. This isn't a bug — it's the trade-off you've chosen by setting your TTL.`,
+        `A cold recursive lookup is usually three or four resolver round trips before TCP: Handshake & Congestion Control can even start the connection. A warm lookup is O(1) from the client's point of view. DNS mostly uses UDP for speed, but TCP, DoT, and DoH are common for large responses, privacy, or policy. The architectural cost is consistency: if an IP changes, caches may keep the old answer until TTL expiry. Low TTLs improve agility and raise query load; high TTLs reduce load and slow failover.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every URL you type goes through DNS. Every email address, every mobile app, every API call first asks "what's the IP?" Your browser caches answers for seconds; your OS caches them for longer; your ISP's resolver (or public resolvers like Google's 8.8.8.8 or Cloudflare's 1.1.1.1) cache globally. CDNs exploit DNS's low TTLs to steer traffic: a user in London gets a different IP than a user in Tokyo, both resolving the same domain, because the authoritative server can return location-aware answers. Route 53 (AWS's DNS provider) and Cloudflare do this constantly, measuring your geographic location and routing you to the nearest server. Failover systems use the same trick — detect a server down, rotate the IP to a backup, and rely on low TTLs to propagate the change. Distributed denial-of-service attacks often target DNS itself; one of the internet's critical points despite its distributed design.`,
+        `Every browser page, mobile API call, email route, and CDN Request Flow begins with DNS. CDN providers use GeoDNS and short TTLs to steer users toward nearby edges. Consistent Hashing may then choose a cache machine inside that edge, and a Load Balancer may choose an origin on a miss. Service Workers & Offline-First can skip some network requests after the page has been installed, but the first visit still depends on name resolution.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `New engineers often assume DNS answers are globally consistent and instantaneous. Neither is true. A domain's TTL can hide changes from users for hours; DNS can be spoofed (DNS-over-HTTPS and DNSSEC protect against this); and caching at multiple layers (browser, OS, resolver) means the same query asked milliseconds apart might get different answers. If a resolver's cache expires and the authoritative server is down, lookups fail — DNS failures are invisible until something can't find the domain. The 2016 Dyn outage (October 21, attacking the DNS provider's infrastructure) illustrates the single point of failure: though Dyn wasn't a root or TLD server, its authoritative nameservers handled millions of domains. Twelve hours of downtime silently dropped Twitter, Spotify, GitHub, and Airbnb off the internet without any packets reaching their servers — the DNS blackout meant no IP address to send packets to. The lesson: DNS is decentralized in architecture but concentrated in practice; most domains use the same few providers (Route 53, Cloudflare, Dyn itself), so a single provider's outage cascades.`,
+        `DNS answers are not globally instant. Different users can see different answers because caches expire at different times or because authoritative servers intentionally steer by location. DNSSEC can validate signed data; DNS-over-HTTPS encrypts the path to a resolver; neither removes the need to trust the resolver's policy. Cache Invalidation & Versioning is the operational heart of DNS changes.`,
+        `The 2016 Dyn outage showed the concentration risk. Dyn was not a root or TLD operator, but many major domains depended on its authoritative nameservers. When those nameservers were attacked, users could not discover IP addresses for sites whose servers were otherwise healthy.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `DNS's core patterns appear everywhere in computer science. Explore Trie (Prefix Tree) for the hierarchical organization at the heart of domain names and prefix-matching algorithms. Understand LRU Cache to see how caches evict stale data and enforce capacity bounds — the same pattern your resolver uses. Study CDN Request Flow to see how DNS steering (GeoDNS) routes users and how content delivery networks rely on short TTLs. Dive into Consistent Hashing to understand how nameservers and other distributed services balance load without coordination. And finally, Load Balancer shows how traffic is split across multiple servers — the same problem DNS solves at the application level, the same trade-offs apply.`,
+        `Study Trie (Prefix Tree), LRU Cache, and Cache Invalidation & Versioning for the local patterns inside DNS. Then follow CDN Request Flow, Consistent Hashing, and Load Balancer to see how the returned IP becomes an actual path to content. TCP: Handshake & Congestion Control is the next packet-level step after the name resolves.`,
       ],
     },
   ],

@@ -105,44 +105,43 @@ function fibValue(k) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Memoization is the first and simplest technique in dynamic programming: when you compute an answer, write it down. Before computing anything, check if you have already solved that exact problem — if so, reuse the answer instead of recomputing it. A recursive function plus a cache, where the cache is a lookup table (usually a hash table) that maps input values to their results.`,
-        `The name is a play on "memo" — you are writing a memo to your future self, saying "I already solved this problem, and the answer was 42." The result is that instead of exploring an exponential tree of sub-problems, you compute each unique sub-problem exactly once, and every repeat call hits the cache in O(1) time.`,
+        `Memoization is Recursion plus memory. When a function solves a subproblem, it stores the answer in a cache. The next time the exact same subproblem appears, the function returns the cached value instead of growing another subtree. In the visualization, plain Fibonacci repeats the same work again and again; memoized Fibonacci turns those repeated calls into instant cache hits. The cache display grows alongside the call tree so you can see exactly when reuse becomes possible.`,
+        `The cache is usually a Hash Table from input to output, which is why lookup is expected O(1). This is the top-down form of dynamic programming: start from the big question, recurse into smaller questions, and remember each answer the first time it is discovered.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `When you call fib(7) with memoization, it opens a frame and immediately checks: have I already computed fib(7)? If yes, return that answer instantly. If no, compute it the normal way — call fib(6) and fib(5). But now when computing fib(6), it calls fib(5) again. However, fib(5) was already computed (as the second sub-call of fib(6)), so the cache hits and that entire subtree disappears. No frame opens, no child calls are made — you just return the stored value.`,
-        `The animation shows the call tree shrinking in real-time. Plain recursive fib(7) would make 41 calls; memoized fib(7) makes 13 calls — each unique input from 1 to 7 is computed exactly once. The cache is built up gradually as the recursion unwinds, so later calls (and recursive branches that hit those cached values) skip all the work.`,
+        `For the default fib(7), the first path computes fib(6), fib(5), and so on down to the base cases. As the recursion unwinds, fib(1), fib(2), fib(3), and later values are stored. When a later branch asks for fib(5), the cache already has it, so the whole subtree disappears. The call frame returns immediately with the stored number.`,
+        `The demo's counters make the collapse visible. With this Fibonacci definition, naive fib(7) needs 25 calls. The memoized run makes 11 calls, including 4 cache hits, because each unique input from 1 through 7 is computed once and repeated requests are answered from memory. Big-O Growth Rates is the reason that small-looking gap becomes decisive as n grows.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Memoized fib(n) is O(n) time and O(n) space. You compute fib(1), fib(2), ..., fib(n) once each — n operations, each doing one addition and one cache lookup (both O(1)). The space is O(n) because you store n values in the cache, plus O(n) call depth on the stack. Plain recursion is O(2^n) time and O(n) space — so memoization trades a small constant space for an exponential time collapse. For large n the gain is enormous: fib(50) plain is 2.5 trillion calls; memoized is 50 calls.`,
+        `Memoized fib(n) is O(n) time and O(n) cache space, plus O(n) call-stack depth in this recursive version. Plain recursive Fibonacci is exponential because the same subtrees are rebuilt. Memoization trades memory for time: store n answers and remove the recomputation. More generally, the runtime becomes "number of distinct subproblems" times the cost of solving each one after its children are known. A bottom-up table can keep the same O(n) time while reducing stack usage; for Fibonacci specifically, two rolling variables reduce extra space to O(1).`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Memoization powers dynamic programming solutions in spell-checkers (edit distance — the minimum edits to change one word into another), route planning (shortest path — explore all states once, cache the best cost to reach each state), machine learning (dynamic time warping for sequence alignment), compiler optimization, and game-playing engines (chess evaluators memoize position evaluations to prune redundant branches). Any problem that naturally breaks into overlapping sub-problems is a memoization candidate. The key is recognizing when the same sub-problem recurs — if every sub-problem is unique, memoization adds overhead for no gain.`,
+        `Memoization powers Edit Distance (DP Table), sequence alignment, parsing, compiler optimization, and game search. Chess engines store evaluated positions in transposition tables so the same board reached by a different move order is not analyzed twice. Value Iteration (Reinforcement Learning) uses the same "reuse solved subproblems" instinct when values are updated across states. Dijkstra's Shortest Path is not memoized recursion, but it shares the discipline of recording the best known answer for a state instead of rediscovering it.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The first pitfall is assuming memoization is a free win. It helps only if you reuse sub-problem results; if every input is unique, memoization just adds cache overhead and memory cost. The second pitfall is weak cache invalidation: if your function has side effects or if its inputs change meaning without changing shape, the cache can return stale answers. The third is the false equivalence between memoization and dynamic programming — memoization is the simplest DP technique, but DP includes many others (bottom-up iteration, matrix chain multiplication, travelling salesman heuristics).`,
-        `A common misconception is that memoization is only for pure functions (functions with no side effects). It is safest with pure functions, but you can memoize stateful functions if you are careful about when the cache is valid. Another misconception: memoization requires a global cache. Many implementations use a local cache per function call, or store it in a closure — the strategy depends on the problem structure.`,
+        `Memoization helps only when subproblems overlap. If every input is unique, the cache adds lookup overhead and memory pressure without saving work. It is safest for pure functions; if hidden state, time, randomness, permissions, or external files affect the answer, the cache key must include those facts or the result can go stale.`,
+        `The cache also needs a size story. Long-running programs cannot memoize forever. LRU Cache shows the usual production answer: keep the most useful entries and evict old ones. Memoization (Dynamic Programming) is a technique, not a guarantee that memory is free.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Learn Recursion first to see why re-computation is a problem. Then explore Big-O Growth Rates to feel why O(n) beats O(2^n). Hash Table shows you the O(1) lookup that makes the cache fast. For deeper dynamic programming, study how problems can be solved bottom-up (computing small answers first, building toward the final answer) instead of top-down (memoized recursion), which trades memory for clearer structure. Lastly, LRU Cache shows how to cap the size of your memoization cache when memory runs tight — a critical detail in real systems.`,
+        `Study Recursion first, then Hash Table and Big-O Growth Rates to understand why the cache changes the curve. Edit Distance (DP Table) shows the bottom-up table version of the same idea. LRU Cache explains bounded caches, and Value Iteration (Reinforcement Learning) shows dynamic programming after the subproblems become states in a decision process.`,
       ],
     },
   ],
 };
-
