@@ -1182,6 +1182,25 @@ test('lime: the local surrogate tracks the gradient and the story flips across t
   assert.match(box.cells.find((c) => c.id === 'grad:needs').label, /internals/, 'gradients need the model');
 });
 
+test('loss-landscapes: GD settles in the shallow basin and the sharp minimum pays 4x under shift', async () => {
+  const topic = await loadTopic('loss-landscapes');
+  const walk = runTopic(topic, { view: 'walking the terrain' });
+  const gd = walk.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'path')).state;
+  const settled = gd.series.find((ser) => ser.id === 'path').points.at(-1);
+  assert.ok(Math.abs(settled.x - 1.86) < 0.05, 'GD from w=3 settles near the shallow minimum at 1.86');
+  assert.ok(walk.some((s) => /2⁻ᵈ/.test(s.invariant ?? '')), 'saddle probability argument stated');
+  const saddle = walk.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'axisDown')).state;
+  const up = saddle.series.find((ser) => ser.id === 'axisUp').points;
+  const down = saddle.series.find((ser) => ser.id === 'axisDown').points;
+  assert.ok(up.at(-1).y > up[30].y && down.at(-1).y < down[30].y, 'opposite curvature along the two axes');
+  const sf = runTopic(topic, { view: 'sharp valleys vs flat ones' });
+  const shifted = sf.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'test'));
+  const label = (id) => shifted.state.markers.find((m) => m.id === id).label;
+  assert.match(label('sharpPay'), /2\.59/, 'sharp minimum pays 2.59 under shift');
+  assert.match(label('flatPay'), /0\.65/, 'flat minimum pays 0.65');
+  assert.ok(sf.some((s) => /Keskar/.test(s.explanation)), 'large-batch finding cited');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

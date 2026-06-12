@@ -946,6 +946,16 @@ export const topics = [
     module: () => import('./topics/gradient-flow.js'),
   },
   {
+    id: 'loss-landscapes',
+    type: 'visualization',
+    buildsOn: ['gradient-descent', 'gradient-flow', 'learning-curves'],
+    category: 'AI & ML',
+    title: 'Loss Landscapes & Optimization Geometry',
+    summary: 'The terrain under gradient descent: trapping basins, stalling saddles, and why flat minima generalize.',
+    tags: ['loss landscape', 'saddle points', 'flat minima', 'non-convex', 'SGD', 'optimization', 'SAM'],
+    module: () => import('./topics/loss-landscapes.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],
