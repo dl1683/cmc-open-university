@@ -966,6 +966,16 @@ export const topics = [
     module: () => import('./topics/loss-landscapes.js'),
   },
   {
+    id: 'adam-optimizer',
+    type: 'visualization',
+    buildsOn: ['gradient-descent', 'loss-landscapes', 'regularization'],
+    category: 'AI & ML',
+    title: 'Momentum, RMSProp & Adam',
+    summary: 'Three optimizers race a ravine: GD zigzags and starves, momentum remembers, Adam adapts per-coordinate.',
+    tags: ['Adam', 'momentum', 'RMSProp', 'AdamW', 'optimizers', 'learning rate', 'training'],
+    module: () => import('./topics/adam-optimizer.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],

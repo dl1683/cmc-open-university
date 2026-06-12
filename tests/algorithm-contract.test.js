@@ -1256,6 +1256,26 @@ test('gradient-boosting: four stumps cut MSE 99.5% and the eta curves diverge', 
   assert.match(versus.cells.find((c) => c.id === 'cuts:boost').label, /BIAS/, 'boosting cuts bias');
 });
 
+test('adam-optimizer: GD zigzags and crawls while Adam cuts diagonally to a 20x lower loss', async () => {
+  const topic = await loadTopic('adam-optimizer');
+  const race = runTopic(topic, { view: 'three optimizers, one ravine' });
+  const gdState = race[0].state;
+  const gdPath = gdState.series.find((ser) => ser.id === 'gd').points;
+  assert.ok(gdPath[1].y * gdPath[2].y < 0, 'GD zigzags: consecutive steps flip sign in the steep direction');
+  assert.ok(gdPath.at(-1).x < -2.5, 'GD barely advances along the ravine floor in 30 steps');
+  const final = race.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'adamLoss')).state;
+  const lossAt = (id, t) => final.series.find((ser) => ser.id === id).points.find((p) => p.x === t).y;
+  assert.ok(lossAt('gdLoss', 20) / lossAt('adamLoss', 20) > 20, 'Adam beats GD by over 20x at step 20');
+  assert.ok(race.some((s) => /1\/\(1−β\)/.test(s.explanation)), 'momentum amplification factor stated');
+  assert.ok(race.some((s) => /GENERALIZES slightly better/.test(s.explanation)), 'SGD generalization caveat included');
+  const inside = runTopic(topic, { view: 'inside Adam, knob by knob' });
+  const bias = inside.find((s) => /bias correction/.test(s.state.title ?? '')).state;
+  assert.ok(Math.abs(bias.cells.find((c) => c.id === 't1:raw').value - 0.1) < 1e-9, 'raw EMA reads 0.10 at step 1');
+  assert.equal(bias.cells.find((c) => c.id === 't1:fixed').value, 1, 'correction restores the true value');
+  const tree = inside[inside.length - 1].state;
+  assert.match(tree.cells.find((c) => c.id === 'adamw:home').label, /transformer/i, 'AdamW credited as the LLM default');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
