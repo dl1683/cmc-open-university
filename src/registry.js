@@ -916,6 +916,16 @@ export const topics = [
     module: () => import('./topics/cross-validation.js'),
   },
   {
+    id: 'learning-curves',
+    type: 'visualization',
+    buildsOn: ['cross-validation', 'regularization', 'uncertainty-quantification'],
+    category: 'AI & ML',
+    title: 'Learning Curves & Bias–Variance',
+    summary: 'More data, or a better model? Plot the learning curve and the gap (or its absence) prescribes the treatment.',
+    tags: ['learning curves', 'bias', 'variance', 'overfitting', 'underfitting', 'double descent', 'diagnosis'],
+    module: () => import('./topics/learning-curves.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],

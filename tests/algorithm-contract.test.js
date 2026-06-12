@@ -1106,6 +1106,28 @@ test('saliency-maps: gradient and occlusion agree on the culprit, and the sanity
   assert.match(sanity.cells.find((c) => c.id === 'grad:verdict').label, /PASSES/, 'plain gradient passes');
 });
 
+test('learning-curves: the variance gap narrows, the bias curves fuse, and the U bottoms at complexity 6', async () => {
+  const topic = await loadTopic('learning-curves');
+  const dx = runTopic(topic, { view: 'the learning-curve diagnosis' });
+  const varState = dx.find((s) => /gap = variance/.test((s.state.markers ?? []).map((m) => m.label).join(''))).state;
+  const series = (st, id) => st.series.find((ser) => ser.id === id).points;
+  const gapAt = (st, i) => series(st, 'train')[i].y - series(st, 'val')[i].y;
+  assert.ok(gapAt(varState, 0) > 30, 'huge gap with 50 examples');
+  assert.ok(gapAt(varState, 5) < 10, 'gap narrows with 1600 examples');
+  const biasState = dx.find((s) => /converged at 74%/.test((s.state.markers ?? []).map((m) => m.label).join(''))).state;
+  assert.ok(Math.abs(gapAt(biasState, 5)) < 1, 'bias curves fuse at the ceiling');
+  const pad = dx[dx.length - 1].state;
+  assert.match(pad.cells.find((c) => c.id === 'flat:rx').label, /bigger model/, 'bias treatment is capacity');
+  const anatomy = runTopic(topic, { view: 'the bias–variance anatomy' });
+  const u = anatomy.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'valErr')).state;
+  const valErr = series(u, 'valErr');
+  const min = valErr.reduce((a, p) => (p.y < a.y ? p : a));
+  assert.equal(min.x, 6, 'validation U bottoms at complexity 6');
+  const dd = anatomy.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'modern')).state;
+  const modern = dd.series.find((ser) => ser.id === 'modern').points;
+  assert.ok(modern.at(-1).y < modern[1].y, 'second descent past the interpolation peak');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
