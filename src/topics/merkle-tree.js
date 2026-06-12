@@ -131,41 +131,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `A Merkle tree is a tree of hashes where every leaf is the hash of a data block, every parent is the hash of its children's hashes concatenated, and the root is a fingerprint that commits to the entire dataset. Invented by Ralph Merkle in 1979, it solves a deceptively hard problem: proving two massive datasets are identical without transmitting all the data.`,
-        `Think of it as a nested chain of responsibility. Any change to any byte in any block changes that block's hash, which changes its parent's hash, which propagates all the way up to the root. The root is therefore a compact cryptographic commitment to everything beneath it — a few hundred bits that could represent terabytes of data.`,
+        `A Merkle Tree is a tree of hashes. Leaves hash data blocks; parents hash the concatenation of child hashes; the root commits to everything below it. Ralph Merkle proposed the idea in 1979. The visualization uses eight toy blocks, hashes each one, then hashes upward to one root. If replica B changes block 5 or block 2, the leaf hash changes, then every hash on the path to the root changes.`,
+        `The important word is "commits," not "compresses." A cryptographic hash such as SHA-256 is not a lossless fingerprint; collisions are theoretically possible. The security claim is that finding a collision is computationally infeasible. The demo uses a tiny teaching hash so the numbers fit on screen, but real systems rely on collision-resistant hashes.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Build a Merkle tree bottom-up: hash each data block to create leaf nodes, then pair adjacent leaves and hash their concatenation to create the parent, repeat pairwise until a single root remains. To compare two datasets, compute both trees and compare roots (one hash comparison). If roots match, every block is provably identical. If they differ, descend the tree comparing children: hashes that match prune their entire subtree from further inspection, mismatched hashes point the way down. For n blocks, a full mismatch requires only log₂(n) comparisons — for 8 billion blocks, that is 33 hashes.`,
-        `When a mismatch is found at a leaf, you have identified exactly one different block and can heal the replica by sending only that block, not all the data. The algorithm exploits a key insight: a hash is a lossless fingerprint, so identical hashes prove identical contents, and you never need to inspect a subtree whose root hash matches.`,
+        `Build bottom-up in pairs. To compare replicas, first compare roots. If roots match, the datasets are equal for practical cryptographic purposes. If roots differ, compare the two child hashes. A matching child hash prunes that entire subtree; a mismatching child hash points downward. With eight blocks, the demo finds the bad leaf in three levels. With about 8 billion blocks, log2(n) is roughly 33 levels, so the proof path is tiny compared with the dataset.`,
+        `Merkle proofs use the same path in the other direction. To prove a leaf belongs under a root, send the leaf plus the sibling hashes needed to recompute the root. That proof is O(log n) hashes. Updating one block also costs O(log n) hash recomputations up to the root, while building the whole tree costs O(n).`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Building the tree costs O(n) hash operations and O(n) space. Comparing two complete trees costs one root hash comparison. Finding a difference costs O(log n) hash comparisons plus O(log n) network round trips to exchange intermediate hashes. Transmitting the differing data block costs the block size, independent of dataset size. A real-world example: comparing two 8-billion-block datasets (imagine a petabyte database) requires 33 hash comparisons at most, whereas naive comparison requires transmitting every block. With SHA-256, each comparison is 32 bytes; with Merkle tree you learn the damage from less than 2 kilobytes of hashing, then send only the difference.`,
+        `Construction takes O(n) hash operations and O(n) space if the tree is stored. Equality checking is one root comparison when both roots are already known. Locating one differing block is O(log n) comparisons in a balanced tree, plus the network messages needed to exchange sibling hashes. A Hash Table also uses hashes, but for bucket lookup; a Merkle tree uses hashes to authenticate a hierarchy. Bloom Filter is another compact probabilistic structure, but it answers membership with false positives rather than proving data integrity.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Distributed databases use Merkle trees constantly: Cassandra and DynamoDB run background anti-entropy repair by comparing replica roots after a network partition heals, then descending the tree to exchange only changed blocks. Version control systems (notably Git) store every commit as the root of a Merkle tree over your files, so cloning detects corruption instantly and two developers with identical repositories never need to re-sync identical objects. BitTorrent peers verify downloaded pieces using a Merkle tree built by the torrent tracker. Blockchains embed Merkle trees in block headers so a light client can verify a transaction was included in a block without downloading the whole block. Certificate Transparency logs use Merkle trees to let you prove a certificate is in a public log of millions without downloading millions of entries.`,
+        `Git Internals is a Merkle-DAG story: blobs, trees, and commits are named by content hashes, so identical content has identical object IDs. Distributed databases use Merkle trees for anti-entropy repair after replicas diverge, a practical response to the tension described by CAP Theorem and Consistent Hashing. Blockchains put Merkle roots in block headers so light clients can verify transaction inclusion. Certificate Transparency logs use Merkle proofs for append-only auditability. BitTorrent v2 uses Merkle trees for piece verification; older torrents used flat piece-hash lists.`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `Merkle trees prove integrity but not privacy; an observer sees every block hash. Cryptographic hash functions (SHA-256, BLAKE2) are essential — toy hashes like CRC-32 collide too easily and defeat the tree. The tree requires balanced pairing (usually powers of two blocks); implementations that handle irregular counts either pad with dummy blocks or use more complex tree shapes. Merkle trees are not a replacement for cryptographic signatures; they prove no one has tampered with the data, but not who created it. Finally, tree construction order matters: two identical datasets with blocks in different order produce different roots, so merkle trees detect reordering as a difference (usually intentional, sometimes a surprise).`,
+        `Merkle trees prove integrity, not privacy. Anyone who sees block hashes may learn patterns unless blocks are encrypted or salted appropriately. They also do not prove authorship; signatures or consensus rules do that. Block order matters: the same blocks in a different order produce a different root. Implementations must define odd-leaf handling, hash domain separation, and serialization carefully. A toy hash is fine for this visualization, but production systems use SHA-256, BLAKE3, or another vetted cryptographic hash.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Merkle trees depend on hash collisions being vanishingly rare (read Hash Table to understand why hashing works). Understanding tree construction requires Tree Traversals. Merkle trees shine in distributed systems: learn CAP Theorem to see why consistency is hard, Consistent Hashing to see how databases partition data, and Bloom Filter to see a complementary space-efficient data structure. Blockchain applications combine Merkle trees with cryptographic signatures to guarantee consensus across strangers.`,
+        `Read Hash Table for hashing intuition, then Git Internals for content-addressed storage. CAP Theorem and Consistent Hashing explain why replicas drift and how data is placed. Bloom Filter gives a contrasting space-saving probabilistic tool. Write-Ahead Log (WAL) shows a different durability mechanism: logs recover recent writes, while Merkle trees compare stored state after the fact. Tree Traversals helps with proof paths and subtree reasoning.`,
       ],
     },
   ],
 };
-

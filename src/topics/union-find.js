@@ -116,42 +116,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `Union-Find, also called Disjoint-Set Union (DSU), maintains a dynamic partition of elements into groups. It answers two core questions: (1) Are two elements in the same group? (2) Merge two groups into one. The data structure uses a forest of parent-pointer trees, where each tree represents one group, and the root of each tree is the canonical representative—the "name" of that group. Every element remembers its parent until it reaches a root.`,
-        `The genius of Union-Find lies in two techniques that keep trees shallow. Union by size attaches smaller trees under larger ones, ensuring height grows only when a tree doubles in size—this alone guarantees O(log n) per operation. Path compression flattens trees as a side effect: whenever you walk up to a root, you repoint every node on that path directly to the root. Trees self-repair as you use them.`,
+        `Union-Find, also called disjoint-set union, maintains a changing collection of groups. It supports two operations: find(x), which returns the representative root of x's group, and union(a, b), which merges two groups. The representation is deliberately small: a parent array says where each node points, and a size array says how large each root's tree is. The visualization starts with eight elements, then performs unions such as (0,1), (2,3), and (1,5) so you can watch separate sets become one component.`,
+        `This data structure is about connectivity, not distance. If two nodes have the same root, they are connected somehow. If roots differ, no known connection joins them yet. That is why Union-Find (Disjoint Sets) is the engine inside Kruskal's Minimum Spanning Tree: every candidate road asks one question, "would this edge connect two different groups, or close a cycle?"`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `The structure is minimal: one array for parent pointers, one for the size of each tree. find(x) follows parent pointers until it hits a root (parent[r] === r). With compression, the walk back rewires all intermediate nodes to point at the root, flattening the tree. union(a, b) finds both roots, then attaches the smaller tree's root under the larger—this rule is the secret to logarithmic depth.`,
-        `Why union by size works: When you attach a small tree to a large tree, the height of the large tree can only increase if the trees are equal size, which means the merged tree at least doubled. Since you start at size 1, a tree of size n has maximum height log₂(n). Path compression makes this even tighter in practice. After m operations mixing unions and finds with both optimizations active, the amortized cost approaches O(1)—the inverse Ackermann function α(n) factors in, and it is at most 4 for any n that fits in your computer.`,
-        `Cycle detection, Union-Find's killer application: If elements represent cities and edges represent roads, you can build a minimum spanning tree by sorting roads by cost and asking Union-Find for each road, "Do these cities already have a path between them?" If find(a) === find(b), adding the road creates a cycle—skip it. This greedy algorithm is Kruskal's Minimum Spanning Tree, and it runs in O(m log m) time where m is the number of roads, dominated by sorting, not connectivity checks.`,
+        `find(x) follows parent pointers until it reaches a root, where parent[root] equals root. union(a, b) first finds both roots. If they already match, the merge would do nothing. If they differ, union by size attaches the smaller tree's root under the larger one. A tree's height only grows when its component at least doubles, so union by size alone gives logarithmic height.`,
+        `Path compression is the second trick. During find, after walking from x up to the root, repoint every node on that path directly to the root. The demo's toggle shows the difference: with compression on, a later lookup over the same path becomes nearly flat. Together, union by size and path compression give amortized O(alpha(n)) operations, where alpha is the inverse Ackermann function. For any realistic n, alpha(n) is at most 4 or 5, which is effectively constant for Big-O Growth Rates at human scale.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `find(x) without compression: O(h) where h is tree height; with compression: amortized O(α(n)) across all finds. union(a, b): O(find(a) + find(b)). For m mixed operations on n elements, total time is O(m α(n)), where α(n) ≤ 4 in practice—effectively constant. With union by size alone but no compression: still O(log n) per operation. With compression alone but no union by size: worst case O(log n), but worst case is rare. Together they are nearly optimal.`,
+        `For m operations on n elements, union by size plus path compression costs O(m alpha(n)) total time and O(n) space. With union by size but no compression, each operation is O(log n). Without these rules, a careless implementation can build a chain and make find O(n). Union-Find is faster than Graph BFS when you repeatedly ask connectivity questions after edges are added, but it cannot answer shortest paths; Dijkstra's Shortest Path and Binary Heap (Priority Queue) solve a different problem.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Kruskal's Minimum Spanning Tree: sort edges by cost, iterate through them, and ask Union-Find "Does adding this edge close a cycle?" If not, add it; if yes, skip it. When you have added n-1 edges, you have a tree connecting all n cities with minimum total cost. Compilers use Union-Find to track variable equivalence: "Are variables x and y aliased?"—if yes, propagate type information and constraints to the whole group. Image editors use it for flood fill: every pixel in a connected region is in the same group; painting one repaints the whole component instantly. Network routing tables group nodes by connectivity. Graph connectivity and dynamic connectivity queries rely on Union-Find to test whether two nodes are in the same connected component.`,
+        `Kruskal's Minimum Spanning Tree is the classic application, but the pattern appears anywhere equivalence classes grow over time. Compilers use related union structures for type unification and alias analysis. Image processing can label connected components by unioning neighboring pixels. Percolation simulations union open grid cells to ask whether a path spans the system. Offline graph algorithms answer batches of connectivity queries quickly after sorting or grouping events. Hash Table often appears beside Union-Find when elements are names or objects rather than dense integer IDs.`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `Forgetting that union by size is essential: without it, a linear chain of 2→1→3→4→5 can form if you always attach the second root under the first, making find(5) walk the whole chain. Union by size prevents this. Path compression alone is not enough to guarantee fast amortized time; both techniques are needed for the O(m α(n)) bound. Misconception: "Path compression makes trees a single level." It does not—you still walk from x to root, then repoint. On the second find you still walk to root, but it is one hop instead of many. The benefit accumulates across repeated operations. Another pitfall: ignoring that Union-Find only knows about connectivity, not edge weights or distances; for shortest path, you need Dijkstra's or another algorithm.`,
+        `The biggest pitfall is unioning nodes instead of roots. Always find both roots first, then attach one root to the other. Another misconception is that path compression instantly makes the whole forest flat. It only compresses paths touched by find; untouched branches remain as they were until queried. Also remember the limitation: Union-Find handles incremental connectivity. It does not naturally support deleting edges, and it does not know weights, routes, or counts inside a component unless you store extra metadata at roots.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Union-Find shines in graph algorithms. Learn Graph BFS to explore all reachable nodes in unweighted graphs, then Dijkstra's Shortest Path to find shortest paths in weighted graphs—both use connectivity heavily. Priority queues (Binary Heap (Priority Queue)) are the engine inside Dijkstra. Study Tree Traversals to understand how to walk any hierarchical structure, then move to Tree data structures themselves. Finally, Hash Table covers the other workhorse of dynamic grouping and membership testing, complementing Union-Find's connectivity angle.`,
+        `Study Kruskal's Minimum Spanning Tree next, because it uses this exact cycle check. Then compare Graph BFS and Dijkstra's Shortest Path: both explore graphs, but they answer reachability and shortest-path questions rather than dynamic grouping. Review Tree Traversals for parent-pointer intuition, Hash Table for mapping arbitrary labels to integer IDs, and Binary Heap (Priority Queue) for the other graph-algorithm workhorse.`,
       ],
     },
   ],
 };
-

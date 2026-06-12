@@ -127,41 +127,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `Huffman coding is a greedy algorithm that builds the optimal prefix-free code — a set of variable-length binary codes where no code is the start of another, so you can decode a bitstream without separators. It assigns short codes to frequent symbols and long codes to rare ones, squeezing redundancy out of data. David Huffman invented it in 1952 while a graduate student; it became the backbone of modern compression, living inside ZIP archives, PNG images, JPEG encoders, and HTTP/2 header compression (HPACK). Frequency-aware encoding beats fixed-width codes whenever symbols appear with uneven probability.`,
-        `The core insight: if symbol 'e' appears in 40% of English text and 'z' in 0.1%, why use 8 bits for both? Huffman fixes this by building a tree where the path from root to leaf defines each symbol's code. Frequent symbols end up shallow (short codes), rare ones deep (long codes). The algorithm is optimal among all prefix-free codes — no other method can produce a shorter average code length for the same input, a fact provable through exchange arguments.`,
+        `Huffman Coding is a greedy compression algorithm for building an optimal prefix-free binary code for known symbol frequencies. Prefix-free means no symbol's code is the beginning of another symbol's code, so a decoder can read the bitstream without separators. David Huffman invented the method in 1952. The visualization counts characters in inputs such as "beekeepers see bees" and shows why frequent symbols deserve short codes while rare symbols can afford longer ones.`,
+        `The goal is not magic compression; it is better average code length. Fixed-width coding spends the same number of bits on every symbol. Huffman spends bits according to frequency, approaching the lower bound explained by Entropy & Information when probabilities are skewed. With uniform frequencies, the tree becomes balanced and Huffman mostly ties fixed-width coding, aside from file-format overhead.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Start with frequency counts. "beekeepers" gives 'e' a count of 4, 'k' a count of 2, 'b' a count of 1, and so on. Each symbol becomes a leaf node in a forest, weighted by its frequency. The algorithm then enters a loop: extract the two lightest trees (normally via a Binary Heap (Priority Queue)), merge them under a new parent whose weight is their sum, and repeat until a single tree remains. Rare symbols get merged early — they sink deep. Frequent ones stay high. The greedy choice to always merge minimums guarantees optimality.`,
-        `Once the tree is built, assign codes by traversing from root to leaf: left branches are 0, right branches are 1. A symbol's code is the sequence of bits along its path. Because every symbol is a leaf, no code can be a prefix of another — the prefix-free property means the decoder never has to ask 'is my reading done yet?' In a string like "beekeepers", 'e' might get code "01", 'b' might get "1010", and every bit in the compressed stream belongs unambiguously to exactly one symbol, just like following a path down a Trie (Prefix Tree).`,
+        `Count symbol frequencies, then put every symbol into a forest as a one-node tree. Repeatedly extract the two lightest roots, merge them under a new parent whose weight is their sum, and put that parent back. A Binary Heap (Priority Queue) is the usual way to perform those repeated minimum extractions efficiently. The demo highlights the two lightest trees at each merge, then shows the parent weight that returns to the forest.`,
+        `Once one tree remains, assign 0 to left edges and 1 to right edges. Each leaf's path becomes that symbol's code. Because symbols live only at leaves, the code is prefix-free. This resembles a Trie (Prefix Tree) used in reverse: a trie stores existing strings by shared prefixes; Huffman builds the prefix tree that minimizes weighted path length. Tree Traversals then extract the final code table.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Building the tree costs O(n log n) time, where n is the number of distinct symbols. Assigning codes costs O(n) traversals. Encoding the text costs O(m) per symbol, where m is the text length — one table lookup per character. Decoding costs O(m × h), where h is the tree height, since you descend the tree one bit at a time. In the worst case (a skewed tree), h can reach O(n), but typical cases give h ≈ log n. Storage cost for the tree itself is O(n) nodes. The compressed bitstring is O(total bits), which is always smaller than O(m × 8) when frequencies are lopsided; with uniform frequencies, Huffman matches fixed-width codes and saves nothing.`,
+        `For n distinct symbols, heap-based construction costs O(n log n). Assigning codes is O(n). Encoding m input symbols is O(m) after the table is built. Decoding is O(number of compressed bits) by walking the tree, or faster with lookup tables used in production decoders. The tree itself needs O(n) space. Big-O Growth Rates explains why the heap matters: repeated sorting can drift toward O(n^2 log n), while priority-queue extraction keeps the merge loop clean.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `DEFLATE (ZIP, gzip, gzip compression over HTTP) is the workhorse. PNG images use Huffman coding on filtered pixel data. JPEG applies it to quantized DCT coefficients. HTTP/2 header compression (HPACK) uses a static Huffman table for common header values. When you download a .zip file or a .png, Huffman's greedy loop is running in the decompressor right now. Modern uses favor arithmetic coding (which can pack tighter) or range coding, but Huffman remains standard because it is fast, simple, and good enough — and the tree structure ties naturally to hardware decoders.`,
+        `DEFLATE, used by ZIP, gzip, and PNG, combines LZ77 back-references with Huffman codes. Baseline JPEG commonly uses Huffman tables for quantized frequency coefficients, though arithmetic coding variants exist. HTTP/2 HPACK includes a static Huffman code for headers. Compression systems often pair Huffman with earlier modeling steps: Tokenization (BPE) changes the symbols, while Huffman changes the bit lengths assigned to those symbols.`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `Huffman only works on static frequency distributions. If symbols change distribution mid-stream (like switching from English to JSON), you must send a new tree header or use adaptive methods. Many people assume "greedy = fast but suboptimal," but Huffman is a rare exception — greedy IS optimal for prefix codes. Another trap: confusing Huffman with arithmetic or range coding; the latter can save 1–5% more bits because they bypass the discrete bit boundary, but Huffman's simplicity makes it preferred in real systems. Finally, uniform frequencies are the worst case — if every symbol appears the same number of times, Huffman produces a balanced tree identical to fixed-width coding, yielding zero compression. The algorithm is a perfect match to skewed, real-world data.`,
+        `Huffman is optimal only within the class of prefix-free codes with whole-bit codewords for the given frequencies. Arithmetic and range coding can beat it by using fractional-bit averages, especially on very skewed distributions. Another trap is ignoring the cost of storing or agreeing on the code table; small inputs can grow after headers are included. Finally, deterministic tie-breaking matters for reproducible files. If two symbols have equal counts, different valid trees can produce different bit patterns with the same compressed length.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `To deepen your understanding, learn how a Binary Heap (Priority Queue) accelerates the merge loop from O(n²) to O(n log n). Study Trie (Prefix Tree) to see the relationship between tree structure and prefix-free codes — Huffman builds codes that follow the same branching discipline. Walk through Tree Traversals to understand how to extract codes from leaves. Explore Tokenization (BPE) to see a modern relative: Byte-Pair Encoding builds codes greedily by merging, just like Huffman, but for variable-length symbols instead of fixed characters. And study Big-O Growth Rates to understand why log n trees beat linear ones — that difference is why Huffman with a heap beats naive repeated sorting.`,
+        `Study Binary Heap (Priority Queue) for the merge loop, Trie (Prefix Tree) for prefix-free decoding, and Tree Traversals for extracting the code table. Entropy & Information gives the theoretical compression floor. Tokenization (BPE) shows another greedy merge idea used before neural models see text. Hash Table is useful for frequency counting, and Big-O Growth Rates explains why the data structure choice inside the loop changes performance.`,
       ],
     },
   ],
 };
-

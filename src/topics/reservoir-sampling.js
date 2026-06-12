@@ -90,41 +90,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `Reservoir sampling is an algorithm for building a perfectly fair random sample of k items from a stream of unknown or infinite length, using only k slots of memory. You see data flow past — click requests, log lines, sensor readings, tweet IDs — and must maintain a representative subset without knowing when (or if) the stream ends. Classical sampling (collect all data, then shuffle and pick k) is impossible when the stream is unbounded or too large to fit in memory. Reservoir sampling solves this in a single pass.`,
-        `The algorithm achieves fairness through an elegant probabilistic balance: the first k items fill the reservoir unconditionally; each subsequent item i is admitted with probability k/i, evicting a uniformly random earlier item if accepted. This means item 10 has a 30% chance of entering (if k = 3), item 100 has 3%, item 1,000,000 has 0.0003%. The cost? Only k memory slots, forever, no matter how long the stream lasts.`,
+        `Reservoir Sampling keeps a fair random sample of k items from a stream whose length is unknown, possibly enormous, or never-ending. You cannot store every log line, click, packet, or sensor reading and shuffle later. The demo fixes k = 3 and streams A through J. The first three items fill the reservoir; each later item is considered with probability k/i, where i is the number of items seen so far.`,
+        `The fairness target is precise: after seeing i items, every item seen so far has probability k/i of being in the reservoir. The visualization freezes the random decisions so the lesson is reproducible, but the displayed probabilities are the real algorithm. Sliding Window keeps recent items; Reservoir Sampling keeps an unbiased sample across all items ever seen.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `The first k items go straight into the reservoir—no choice needed. For item i (where i > k), generate a random number from 1 to i. If that number is ≤ k, the item enters the reservoir; otherwise it passes through and is discarded. When an item is accepted, pick a uniformly random slot (0 to k−1) and replace whatever was there. The algorithm terminates naturally when the stream ends, and at that moment, every item ever seen has identical probability of being in your sample.`,
-        `The magic is the telescoping induction: item i enters with probability k/i. Given item i is in, an earlier item (say item j < i) survives round i only if (a) item i is rejected, or (b) item i is accepted but the random slot is not j. Probability = (1 − k/i) + (k/i)(1 − 1/k) = (1 − k/i)(1 + k/i − 1/k) = (i−1)/i. So item j's cumulative survival chance after seeing all n items = (k/k) · (k/(k+1)) · ((k+1)/(k+2)) · ... · ((n−1)/n) = k/n. Early items and late items: same fairness guarantee.`,
+        `For item i <= k, store it. For item i > k, generate a random integer from 1 to i. If it is greater than k, discard the item. If it is at most k, keep the item and evict one uniformly random reservoir slot. The accepted item does not always replace the oldest item, the newest item, or the weakest item; it replaces a uniformly chosen slot so every survivor remains symmetric.`,
+        `The proof is a short induction. A new item i enters with probability k/i. An old reservoir item survives round i with probability 1 - 1/i: either the new item is rejected, or it is accepted but evicts a different one of the k slots. Multiplying survival probabilities from i = k+1 to n telescopes to k/n. Early items face more eviction rounds; late items enter less often. The two effects exactly balance.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Time: O(n), where n is the length of the stream. You process each item exactly once. Space: O(k), constant in the stream length — the defining win of the algorithm. You hold k items in memory and a few scalar variables (loop counter, random numbers); nothing scales with stream size. For a 1-billion-item stream where k = 1,000, you use ~8KB of memory while a classical approach would need gigabytes. Vitter's Algorithm R (1985) formalized this for computer science; the core technique predates modern computing.`,
+        `Processing n stream items costs O(n) time and O(k) memory. Memory does not depend on n, which is the whole point. If k = 1,000 and each stored ID is 8 bytes, the reservoir's raw item storage is about 8 KB, while storing a billion IDs would require about 8 GB before overhead. Big-O Growth Rates explains why bounded memory changes what is possible for streaming data.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Request tracing in production systems: log collectors sample incoming HTTP requests to feed into tracing databases. Storing every request is prohibitive; reservoir sampling keeps a fair cross-section (all endpoints, all response times equally represented) without needing to know traffic volume in advance. BigQuery and Apache Spark use reservoir sampling internally for one-pass statistical sampling of massive datasets. A/B testing platforms apply it to select users from a live user stream for experiment enrollment, ensuring each user sees randomization at the moment they arrive—no need to buffer. Music shufflers use it to shuffle from playlists of unknown or newly-updated length. Any system that must hold a representative sample across unknown data arrival patterns is a home for reservoir sampling.`,
+        `Telemetry systems keep representative traces when full retention is too expensive. Data platforms use reservoir-style one-pass sampling for previews, approximate statistics, and audits. A/B Testing & p-values and Confidence Intervals & the Bootstrap depend on samples being representative; reservoir sampling is one way to avoid favoring early or late arrivals. K-Means Clustering can use stream samples to initialize or inspect massive datasets without loading all points. Hash Table may track sampled IDs, while Queue belongs to recent-window sampling instead.`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `The probability k/i *decreases* as i grows; students often think later items are penalized. They are, individually—but they arrive later so each has fewer rounds to be evicted. The two effects cancel exactly, which is why the induction works. Another pitfall: confusing "fair" with "uniform." A reservoir sample of k items from n is fair (each item has k/n chance) but not uniform in the order they appear—it is a random *subset*, not a random permutation. If you need the subset in shuffled order, shuffle the final reservoir. Finally, do not discard items before deciding: the algorithm needs to *see* item i to compute its k/i probability; if you filter before sampling, you bias toward items that match your filter, breaking fairness across the full stream.`,
+        `Later items are not unfairly punished. Their entry probability is lower, but they have fewer chances to be evicted. Another mistake is filtering before sampling when the goal is a sample of the original stream; that changes the population. A reservoir is also not a shuffled permutation. It is a random subset, and its internal order is just slot order unless you shuffle afterward. Finally, use good randomness. Biased random integers or modulo bias can distort the guarantee.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Explore Sliding Window to contrast: sampling keeps a fair sample of *all* items; sliding window keeps only the *recent* items. Study Two Pointers and Big-O Growth Rates to deepen intuition for how O(k) memory elegantly sidesteps unbounded data. Bloom Filter is another probabilistic data structure for bounded memory on infinite streams—it trades exact counting for false-positive rates. For ML contexts, K-Means Clustering uses sampling (including reservoir methods) to initialize on large unlabeled datasets, ensuring clusters do not drift toward whatever biases arrived first in the training stream.`,
+        `Compare Reservoir Sampling with Sliding Window: one samples all history, the other keeps recency. Bloom Filter is another bounded-memory streaming tool, trading exactness for false positives. Big-O Growth Rates explains O(k) memory, while A/B Testing & p-values, Confidence Intervals & the Bootstrap, and Multiple Testing & False Discoveries show why sampling quality matters once statistics enter the picture.`,
       ],
     },
   ],
 };
-

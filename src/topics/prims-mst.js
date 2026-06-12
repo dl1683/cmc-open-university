@@ -87,42 +87,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `Prim's algorithm finds a minimum spanning tree by growing one connected blob outward from a starting node. Unlike Kruskal (which sorts every edge globally and stitches scattered fragments), Prim maintains a single growing tree and always reaches across its boundary on the cheapest available edge. The result is identical — the same minimum total cost — but the journey is completely different.`,
-        `Named after Robert C. Prim's 1957 publication (though Vojtěch Jarník discovered the same method in 1930), the algorithm answers the question: what is the cheapest way to connect all nodes if I must grow the tree piece by piece, starting from one place? This matters in real practice because Prim's greedy local choice at each step builds on decisions already made, unlike Kruskal's complete edge sort.`,
+        `Prim's Algorithm builds a minimum spanning tree by growing one connected tree outward from a chosen start node. Kruskal's Minimum Spanning Tree sorts every edge globally and merges scattered components; Prim keeps one component and repeatedly crosses its frontier on the cheapest edge. The visualization uses the same seven-city, eleven-edge graph as Kruskal, with a start choice of A or D, so the order changes but the final minimum cost remains 19.`,
+        `The algorithm is usually credited to Robert Prim's 1957 paper, though Vojtech Jarnik described the idea in 1930 and Edsger Dijkstra rediscovered it in 1959. It is a cut-property algorithm: at any moment, split the graph into nodes already in the tree and nodes outside it. The cheapest edge crossing that split is safe to add to some MST.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Start with a single node in the tree. At each step, look at the frontier: every edge that has one endpoint inside the tree and one outside. Pick the cheapest frontier edge, add the outside endpoint to the tree, and repeat until all nodes are included. The cut property guarantees safety — the cheapest edge across any partition (inside versus outside the tree) belongs in SOME minimum spanning tree, so greedily picking it cannot trap you in a local optimum.`,
-        `A priority queue (min-heap) makes this efficient. Instead of scanning all frontier edges from scratch each iteration, insert them into the heap once their inside endpoint joins the tree. The heap pops the minimum in O(log V) time. Dead edges (those now entirely inside the tree after the new node joins) are ignored; they never bubble out of the heap, a lazy-deletion pattern called "let the heap forget."`,
+        `Start with one node marked inside the tree. The frontier is every edge with exactly one endpoint inside. Pick the lightest frontier edge, add the outside endpoint, and repeat until all vertices are inside. In the demo, each step highlights the current frontier, then marks the cheapest cable as active before adding the new city. Edges that become fully internal stop mattering, because adding them would create a cycle.`,
+        `Efficient implementations keep frontier edges in a min-priority queue. A Binary Heap (Priority Queue) pops the cheapest candidate in O(log V), while lazy deletion ignores stale edges whose endpoints are already both inside. This makes Prim feel like Dijkstra's Shortest Path: both pop the best frontier item. The ranking differs. Dijkstra ranks by total distance from the source; Prim ranks by single edge weight across the cut.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `With a binary heap, Prim runs in O(E log V): each of the V nodes is extracted once (V × log V), and each edge is pushed onto the heap at most once (E × log V). On dense graphs where E approaches V², this is faster than Kruskal's O(E log E) sort (which can degrade to O(E log V) with Union-Find, but the constant overhead is higher). On sparse graphs (E ≈ V), Kruskal's simpler sorting beats Prim's heap bookkeeping. Prim also never inspects edges far from the growing tree, making it cache-friendly on real hardware.`,
+        `With adjacency lists and a binary heap, Prim runs in O(E log V) time and O(E) space for queued edges. With an adjacency matrix and no heap, it can run in O(V^2), which is attractive for dense graphs where E is close to V^2. With Fibonacci heaps, the textbook bound improves to O(E + V log V), though constants make that rarer in ordinary code. Kruskal's sorting cost is also O(E log V), so real choice depends on graph representation, density, and implementation simplicity.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Network design: connecting cities by cheapest roads, or routing cables across a dense city block where you already have the map and know every cable length. Prim's locality advantage shows when infrastructure already exists and you are solving the problem from one end. Clustering and image processing use MST algorithms to decide which groups to merge; Prim's tree-growing nature fits nicely into incremental hierarchical clustering. Any greedy MST solver (both Prim and Kruskal) appears inside higher-level algorithms; the choice between them is a runtime/density tuning knob, not a correctness distinction.`,
+        `Prim fits problems where the graph is already local to a growing region: laying cable from an existing hub, expanding a road plan outward, or connecting points in a dense geometric graph. Image segmentation and clustering sometimes use MSTs as an intermediate structure; K-Means Clustering is a different centroid-based view of grouping. In network design, a pure MST is a cost baseline, not a complete production plan, because real systems also need redundancy, capacity, and failure tolerance. Big-O Growth Rates matters here because dense and sparse graphs push you toward different MST implementations.`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `Prim and Kruskal find the same optimal cost but in different orders — neither is "more correct." The misconception that one is fundamentally better ignores the input: dense graphs favor Prim, sparse graphs favor Kruskal. Another pitfall: forgetting that the frontier grows as the tree grows; edges that were invisible on iteration 1 become candidates by iteration 5. A naive reimplementation that re-scans all edges each step degrades to O(V³) and defeats the algorithm entirely.`,
-        `Prim's kinship to Dijkstra's Shortest Path is a one-line difference: both maintain a frontier, both pop the minimum, but Dijkstra ranks by total distance-from-source while Prim ranks by edge cost alone. Mixing them up in implementation (or testing) is a silent bug — the code will compile and run, but solve the wrong problem.`,
+        `Prim and Kruskal both find an optimal MST; neither is more correct. Equal weights can produce different valid trees, and the start node can change the growth order without changing the minimum total cost. Another common bug is using total path distance by accident, which turns the implementation into Dijkstra's Shortest Path and solves the wrong problem. Also remember that Prim assumes an undirected connected graph. If the graph is disconnected, it builds a minimum spanning forest only if you restart it from each component.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Compare Prim side by side with Kruskal's Minimum Spanning Tree — same problem, different algorithm philosophy. Then explore Binary Heap (Priority Queue) to see why the min-extraction is fast. For the cut property's full proof, review Union-Find (Disjoint Sets), which Kruskal uses. Finally, see Dijkstra's Shortest Path for the moment when "frontier ranked by edge cost" becomes "frontier ranked by distance" — two siblings born from the same greedy skeleton.`,
+        `Compare Prim's Algorithm directly with Kruskal's Minimum Spanning Tree on this site's shared graph. Then study Binary Heap (Priority Queue), because the heap is the usual frontier engine. Union-Find (Disjoint Sets) explains Kruskal's cycle checks, while Graph BFS gives the simpler unweighted frontier pattern. Finish with Dijkstra's Shortest Path to see how changing one priority rule turns an MST algorithm into a shortest-route algorithm.`,
       ],
     },
   ],
 };
-

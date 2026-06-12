@@ -83,45 +83,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `Binary exponentiation (also called binary squaring or exponentiation by squaring) is an algorithm for computing enormous powers of the form a^n mod m in roughly log(n) operations instead of n. The trick: read the exponent as a binary number, and for each bit, either square your result or square-then-multiply-by-the-base. You never actually compute a^n directly — modular arithmetic keeps intermediate values tiny, bounded by (m-1)², no matter how astronomically large a^n truly is.`,
-        `This single technique makes modern cryptography practical. RSA encryption uses exponents that are 2048 bits long. The naive "multiply a into the result n times" approach would need roughly 2^2048 multiplications — more operations than there are atoms in the observable universe. Binary exponentiation needs only ~4000. That difference is why your HTTPS handshake completes in milliseconds instead of never.`,
+        `Binary Exponentiation computes a^n quickly by reading n in binary. Instead of multiplying by a exactly n times, it repeatedly squares and sometimes multiplies by the base. The visualization computes 7^45 mod 100 or 3^10 mod 50. For 45, the bits are 101101, so only a handful of square-and-multiply steps are needed. Taking the modulus after every operation keeps values small enough to display.`,
+        `The idea is divide-and-conquer for powers. If you know a^k, then squaring gives a^(2k). If the next exponent bit is 1, multiply once more by a. This is the same broad family of thinking as Binary Search: represent the problem in bits, then discard linear repetition. Big-O Growth Rates turns that intuition into the formal drop from O(n) multiplications to O(log n).`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Start by converting the exponent to binary. For example, 45 in binary is 101101. Now process each bit from left to right. At every step, square the result. If the current bit is 1, also multiply by the base (and take modulo to stay small). The key insight: if you have computed a^k, then a^(2k) is just (a^k)^2, which you get by squaring. This is the square-and-multiply pattern.`,
-        `As you walk through each bit, you maintain an invariant: after processing the first k bits, your result equals the base raised to the power formed by those k bits, all taken modulo m. Because you reduce modulo m after every single operation, intermediate values never exceed m^2, which keeps everything numerically stable and fast. By the time you finish reading all bits, you have a^n mod m.`,
-        `The algorithm generalizes beautifully to matrices. If you want the 100th Fibonacci number, you can represent the Fibonacci recurrence as matrix multiplication: multiply a fixed 2×2 matrix by itself n times. Use binary exponentiation on matrices — same algorithm, matrices instead of numbers — and you compute it in O(log n) matrix multiplies instead of O(n). That gives you Fibonacci(n) in O(log n) time, exponentially faster than memoization.`,
+        `In the left-to-right version shown here, start with result = 1. For each exponent bit, square result. If the bit is 1, multiply by the base. Reduce modulo m after each square and multiply. The invariant is precise: after processing the first k bits, result equals base raised to the integer represented by those k bits, modulo m. The demo prints the exponent-so-far after every bit so the invariant is visible rather than abstract.`,
+        `There is also a right-to-left version that keeps a moving power of the base and consumes low bits first. Both rely on associativity, so the method works beyond ordinary numbers: matrices, permutations, polynomials, and group elements can all be exponentiated this way if multiplication is associative.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Time complexity: O(log n) multiplications and modular reductions, where n is the exponent. In the worst case (when the exponent is all 1-bits in binary), you do roughly log(n) squarings plus log(n) multiplications, for ~2·log(n) operations total. Compare this to the naive approach: a^n requires n-1 multiplications, which is exponential in the bit-length of n. For RSA with 2048-bit exponents, naive costs ~2^2048 operations; binary exponentiation costs ~4000. The logarithmic complexity makes cryptography feasible.`,
-        `Space complexity: O(log n) if you store the binary representation of the exponent, or O(1) if you generate bits on the fly. Matrix exponentiation adds O(k²) space for a k×k matrix, but the time remains O(log n) multiplies of k×k matrices, which is still exponentially better than naive iteration.`,
+        `If n has b bits, binary exponentiation performs b squarings and at most b extra multiplications. That is O(log n) arithmetic operations. For a 2048-bit private exponent in RSA-style modular arithmetic, the worst-case loop is about 4096 modular multiplications, not 2^2048. Space is O(1) if bits are streamed, or O(log n) if the bit string is stored. Real cryptographic libraries also account for big-integer multiplication cost, but the exponent loop is still logarithmic.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `RSA encryption and decryption both rely entirely on modular exponentiation. When you connect to a website over HTTPS, the TLS handshake includes an RSA step where both client and server compute a^n mod m with n being 2048 bits. Without binary exponentiation, this step would be computationally infeasible. The same applies to Diffie–Hellman key exchange, which also uses modular exponentiation to agree on a shared secret.`,
-        `Fast Fourier transforms and many cryptographic primitives (elliptic-curve operations, hash-based signatures) all reduce to exponentiation at their core. In practice, cryptographic libraries use even further optimizations — Montgomery multiplication for faster modular reduction, Chinese Remainder Theorem to parallelize RSA — but they all sit on top of binary exponentiation. This is the foundation stone.`,
+        `Modular exponentiation powers RSA decryption and signatures, classic Diffie-Hellman key exchange, and many number-theory protocols. Elliptic-curve systems use the related double-and-add pattern for scalar multiplication. Matrix powers appear in Markov Chains & Steady States, PageRank, and fast Fibonacci computation. With the standard 2 by 2 Fibonacci matrix, exponentiation gives Fibonacci(n) in O(log n) matrix multiplies, while Memoization (Dynamic Programming) gives O(n) and naive Recursion is exponential.`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `Mistake: thinking you need to compute the entire exponent before starting. You don't — binary exponentiation processes one bit at a time and works left-to-right. Mistake: forgetting to take modulo after every operation. If you postpone the modulo until the end, intermediate results will overflow. In practice, keep every intermediate number below m² by taking modulo after every multiply and every square. Mistake: assuming the algorithm only works for numbers. The exact same code works for matrices, group elements, or any structure with an associative multiplication operator.`,
-        `Misconception: that the speed comes from the modulo operation itself. It doesn't — the speed comes from needing far fewer operations because you read the exponent in binary. The modulo is just arithmetic hygiene to keep numbers bounded. Misconception: that this is only for cryptography. Binary exponentiation is a general-purpose technique for any "compute a^n" problem, whether the numbers are modular, floating-point, matrices, or even polynomial rings.`,
+        `The speedup does not come from the modulus; it comes from reading the exponent in binary. The modulus prevents overflow and keeps arithmetic bounded. Another mistake is postponing modulo until the end, which creates enormous intermediate numbers and breaks fixed-width languages. For security code, timing matters too: branching on secret exponent bits can leak information, so production libraries use constant-time variants. Hash Table is related only in the broad sense that both use modular arithmetic; hashing is not exponentiation.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `To deepen your understanding: explore Recursion to see how expressing exponentiation as a recursive algorithm helps intuition. Learn Memoization (Dynamic Programming) to speed up naive Fibonacci computation. Study Big-O Growth Rates to internalize why log(n) versus n is such a dramatic difference at scale. Matrix exponentiation combines all of these: you recursively express it, memoize intermediate powers (though the algorithm naturally avoids redundant work), and apply Big-O analysis to see the logarithmic speedup emerge. For cryptographic context, Hash Table shows how modular arithmetic and hash functions are cousins; Binary Search uses similar bit-by-bit logic to divide and conquer.`,
+        `Study Recursion for the divide-and-conquer form, then Big-O Growth Rates for the logarithmic payoff. Memoization (Dynamic Programming) is the next comparison point for Fibonacci. Binary Search builds the same "use bits to skip work" instinct. For matrix-heavy applications, read Markov Chains & Steady States, PageRank, Eigenvalues & Eigenvectors, and SVD & Low-Rank Approximation.`,
       ],
     },
   ],
 };
-

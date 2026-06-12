@@ -120,43 +120,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `A skip list is a sorted linked list that borrows the divide-and-conquer speed of binary search without needing rotations or tree rebalancing. Every node lives on the bottom level; a coin flip (50% chance at each level) promotes it upward into faster lanes. Level 1 has roughly half the nodes, level 2 a quarter, and so on — exponentially sparse the higher you climb. Think of it as a highway with express lanes: all traffic travels the same route at ground level, but some cars are on ramps that skip entire sections.`,
-        `The skip list was invented in 1990 (William Pugh) as a simpler alternative to balanced binary search trees. Instead of rebalancing operations that require rotations and color swaps, skip lists rely on randomness: the coin flips keep the structure balanced *on average*, which turns out to be good enough. This shift from deterministic structure to probabilistic balance is the core insight.`,
+        `A skip list is a Linked List with probabilistic express lanes. Every value appears on the bottom level in sorted order. Then coin flips promote some values to higher levels: with probability 1/2 a node appears one level up, with probability 1/4 two levels up, and so on. The top is sparse, the bottom is complete. The demo shows exactly that shape with eight values, a -infinity sentinel at each level, and promoted nodes such as 7, 19, and 42 acting as shortcuts.`,
+        `William Pugh introduced skip lists in 1990 as a simpler alternative to balanced trees. The structure chases the same goal as Binary Search and Binary Search Tree lookup: discard large parts of the search space quickly. The difference is maintenance. AVL Tree Rotations enforce balance by pointer surgery; a skip list gets expected balance from random promotion. No rotations, no color rules, just forward pointers and levels.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Search starts at the topmost level and greedy-descends: check if the next node in the current lane is ≤ your target; if yes, jump forward; if no, drop down one level at your current position. This is exactly what binary search does—halving the remaining range—but expressed in pointer hops instead of array indices. You never backtrack: the sorted invariant guarantees your target is ahead or at the current position.`,
-        `Insertion slots the new node at level 0, flips coins to decide how many levels it rises through, and links it into each level's lane. Deletion splices it out. Both are O(log n) on average and require no rebalancing code whatsoever: if a coin flip happened to promote the last 10 insertions all to level 3, that is bad luck but not a crisis—the structure degrades to a linked list, which is the worst case, but the expected case remains O(log n). Balanced trees, by contrast, guarantee O(log n) in the worst case because they must actively prevent imbalance; skip lists accept imbalance gracefully and bet on probability.`,
+        `Search starts at the highest lane. If the next value is less than or equal to the target, move right. If the next value would overshoot, drop down one level at the same position. You never move left. In the visualization, searching for 31 rides across coarse lanes, drops when a lane would overshoot, and finally lands on the bottom level only when the range is narrow. Searching for absent 30 proves absence when the bottom-level next value has passed the target.`,
+        `Insertion first finds the predecessor path, inserts the node on level 0, flips coins for its height, and splices it into each promoted lane. Deletion uses the same predecessor path and removes the node from every level. The expected number of forward pointers per item is constant: with promotion probability p = 1/2, the expected tower height is 1/(1-p) = 2 levels. That is why total space is expected O(n), not O(n log n).`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Search, insert, and delete are all O(log n) on average—the same as a balanced binary search tree—but O(n) in the absolute worst case (e.g., if the coin flip gods decide to leave every coin heads, creating a single-level structure). Space is O(n) expected because each node is promoted E[log n] levels on average. Why accept the worst case? Because it is vanishingly unlikely: the coin flip would have to go the same way billions of times in a row. Balanced trees trade implementation complexity for a deterministic guarantee; skip lists trade a small worst-case risk for simplicity and concurrency.`,
+        `Search, insert, and delete are expected O(log n). The absolute worst case is O(n), because random choices could leave too few useful express lanes or create awkward towers. That possibility is usually acceptable because the probability falls exponentially with height. Space is expected O(n). Big-O Growth Rates helps explain the bargain: a logarithmic search path with constant expected pointer overhead is close to a balanced tree's performance, but the code is often shorter and friendlier to concurrent updates.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Redis uses skip lists internally for sorted sets (ZSET), the data structure that powers leaderboards, priority queues, and scored membership. Google's LevelDB (and RocksDB) use skip lists for the in-memory memtable, the initial write buffer before data is compacted into the LSM tree. The concurrency advantage is decisive here: multiple threads can insert into a skip list with minimal locking because each level is independent, whereas balancing a tree requires global synchronization. ConcurrentSkipListMap is part of the Java standard library for this exact reason.`,
-        `HNSW (Hierarchical Navigable Small-World), the vector search algorithm behind Pinecone and Milvus, borrowed the layered structure directly from skip lists. HNSW adds distance-based navigation on top of the hierarchy, but the topology—sparse upper levels, dense lower levels—is the same insight: you navigate the coarse structure first, then refine.`,
+        `Redis sorted sets combine a Hash Table for direct member lookup with a skip list for ordered score ranges and leaderboards. LevelDB uses a skip-list memtable before flushing sorted data into LSM Trees (How Cassandra Writes). Java's ConcurrentSkipListMap is a standard-library example where predictable sorted maps and concurrent access matter. HNSW (Vector Search at Scale) borrows the same hierarchy idea for approximate nearest-neighbor search: sparse upper layers navigate broadly, dense lower layers refine locally.`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `Misconception 1: "Skip lists are slower than balanced trees because they use probabilistic structure." False—in practice they are faster: no rotation overhead, better cache locality, and locks are shorter. Misconception 2: "The worst case O(n) is a show-stopper." Not in real systems: with 8 levels (one million nodes), the probability of all coins landing the same way is 2^−20, about one in a million—far less likely than a hardware error. Misconception 3: "You need careful tuning of the promotion probability." Skip lists are robust: 50% is standard and works well; even 25% or 75% would still be O(log n) on average.`,
-        `Pitfall: blind insertion into a skip list without understanding the code. The pointer-chasing and level-based indexing are easy to get wrong. Most real implementations use a sentinel node (a HEAD pointer at all levels) and careful bookkeeping of which level you are on. The visualization here shows that sentinel as −∞; it simplifies the loop invariant.`,
+        `The main misconception is that randomness means unreliability. Skip lists are probabilistic, but their expected behavior is mathematically tight and easy to test. Another mistake is saying they are always faster than trees. They can be simpler and more concurrent, but cache layout, allocator behavior, and key distribution decide real performance. A practical pitfall is level bookkeeping: insertion needs the predecessor at every level, and off-by-one errors silently lose nodes. The sentinel head shown as -infinity in the demo is not decoration; it keeps every lane's search loop uniform.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `To deepen your intuition: (1) study Binary Search to see how halving ranges works in arrays, then return here and notice that skip lists do the same thing in a linked structure. (2) Read about Linked List basics to ground the pointer manipulation. (3) Explore Binary Search Tree and its balance challenges (rotations, color invariants) to understand why skip lists' probabilistic approach is so attractive. (4) Dive into HNSW (Vector Search at Scale) to see how the layered idea scales to nearest-neighbor problems. (5) Study LSM Trees (How Cassandra Writes) to see skip lists in a production compaction pipeline.`,
+        `Read Linked List for the pointer foundation, then Binary Search for the range-halving intuition. Compare Skip List with Binary Search Tree and AVL Tree Rotations to see probabilistic balance versus deterministic repair. For systems context, study LSM Trees (How Cassandra Writes), Hash Table, and HNSW (Vector Search at Scale). For the math tradeoff, revisit Big-O Growth Rates and ask why expected O(log n) is often good enough.`,
       ],
     },
   ],
 };
-

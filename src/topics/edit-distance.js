@@ -112,45 +112,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `Edit distance (also called Levenshtein distance, after Vladimir Levenshtein who formalized it in 1965) is the minimum number of single-character edits — insertion, deletion, or substitution — required to transform one string into another. Turn kitten into sitting: substitute k→s, substitute e→i, insert g, and you have three edits. This distance metric quantifies how different two sequences are, and it drives spell-checkers, search fuzzing, plagiarism detection, and genomic alignment.`,
-        `The problem is solved not by enumerating all possible edit sequences (exponential explosion) but by filling a table where each cell (i, j) answers a smaller version of the same question: what is the minimum cost to transform the first i characters of the source string into the first j characters of the target? That is memoization on a 2D grid — dynamic programming. Cell (i, j) never computes twice; there are only O(m·n) cells, each fills in O(1) time.`,
+        `Edit Distance (DP Table) measures how many single-character insertions, deletions, and substitutions are needed to turn one string into another. Vladimir Levenshtein formalized this unit-cost version in 1965. The visualization offers kitten to sitting, sunday to saturday, and cat to cat. For kitten to sitting, the answer is 3: substitute k with s, substitute e with i, and insert g.`,
+        `This is a sequence comparison problem. Recursion gives the natural definition: the distance between two suffixes is the best of delete, insert, or substitute, plus the distance of the smaller suffixes. But raw recursion recomputes the same suffix pairs exponentially many times. Memoization (Dynamic Programming) stores every subproblem in a grid, so each cell answers one prefix-pair question once.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Build an (m+1) × (n+1) table where m and n are the lengths of the two strings. The rows represent prefixes of the first string (starting with the empty string), and columns represent prefixes of the second. Base cases are the edges: row 0 represents building any prefix of the target from nothing (j insertions), and column 0 represents deleting all i characters from the source (i deletions).`,
-        `For each interior cell (i, j), look at what character is being added in each string. If they match, copy the diagonal value — no edit is needed for this pair. If they don't match, take the minimum of three neighboring cells (diagonal for substitution, above for deletion, left for insertion), add 1 for the operation cost, and store that value. This greedy choice is optimal because subproblems are independent: the cost to fix the first k characters is never affected by what you do later.`,
-        `After filling the table, the bottom-right cell (m, n) holds the answer. To recover the actual sequence of edits, traceback: start at (m, n) and walk backward, following the neighbor that was chosen at each step — match implies moving diagonally without an operation, and a mismatch implies moving along whichever neighbor was minimum (choosing the direction reveals the edit type).`,
+        `Build a table with m + 1 rows and n + 1 columns. Row i means the first i characters of the source; column j means the first j characters of the target. The first column is i deletions to reach the empty string. The first row is j insertions from the empty string. Then each interior cell looks at three already-computed neighbors: diagonal for substitution or match, above for deletion, and left for insertion.`,
+        `If the two current characters match, copy the diagonal cost. If they differ, store 1 + min(diagonal, above, left). The demo fills the grid row by row and highlights exactly those three dependencies. The bottom-right cell is the distance. A traceback then walks backward to recover an edit script, not just the number. This is why the table is more informative than a greedy scan with Two Pointers or a simple Sliding Window.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Time complexity is O(m·n): you fill a table of (m+1) × (n+1) cells, each in O(1). Space complexity is O(m·n) for the table itself, though space can be optimized to O(min(m, n)) if you only keep one or two rows at a time. The traceback phase is O(m+n) — you walk back through at most m+n cells. For practical strings (words, genes), O(m·n) is fast: comparing two 1000-character strings is a million operations, which modern hardware executes in microseconds.`,
+        `The standard dynamic program costs O(mn) time and O(mn) space. If you only need the distance, not the edit script, you can store two rows and reduce space to O(min(m, n)). Traceback takes O(m + n) after the full table is stored. For two 1,000-character strings, the table has about one million cells, which is practical; for millions of characters, production systems use banding, indexes, or problem-specific approximations.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Spell-checking: when you type "teh", a spell-checker computes edit distance to every word in the dictionary, suggests those within distance 1 or 2, and ranks by frequency. Git diff (version control) uses a variant that also considers whole-line insertions and deletions. DNA sequence alignment (Needleman–Wunsch for global alignment, Smith–Waterman for local alignment) uses the exact same DP table, but with biological-domain scoring: matches get +5, substitutions get -4, and gap penalties reflect mutation likelihood.`,
-        `Plagiarism detection uses edit distance on tokenized documents. Fuzzy search in databases allows approximate matching. Machine translation systems use variants to measure similarity between reference and candidate translations. The core insight — tabling subproblems instead of recomputing them — is universally applicable; what changes is the scoring function and whether you traceback the path.`,
+        `Spell-checkers compare a typo against dictionary candidates, often after a Trie (Prefix Tree) narrows the search. Fuzzy search, record linkage, OCR cleanup, and DNA alignment all use variants. Git-style text diff is related, though many diff tools use Myers' shortest-edit-script algorithm rather than this exact table. Tokenization (BPE) matters in modern language systems because distance can be computed over characters, bytes, tokens, or words, and the choice changes the meaning of "one edit."`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `First: assuming the three operations (insert, delete, substitute) have equal cost. In reality, they often don't. DNA alignment might penalize substitution differently than deletion. Spelling apps weight uncommon edits higher. If you change the cost function, the recurrence rule changes accordingly: substitute costs c_sub, delete costs c_del, insert costs c_ins, and you take 1 + min(T[i-1][j-1]+c_sub, T[i-1][j]+c_del, T[i][j-1]+c_ins).`,
-        `Second: confusing edit distance with longest common subsequence (LCS). LCS counts the longest matching characters in order but ignores mismatches; edit distance counts the edits needed to align everything. They are related — edit distance = m + n - 2 × LCS length — but they answer different questions. If you care about insertions and deletions only (no substitutions), use LCS; if edits have a true cost, use edit distance.`,
-        `Third: forgetting that the table is for a specific pair of strings. Edit distance is symmetric in math (distance from A to B equals B to A) but the DP table fills differently. Always be clear about which string is rows and which is columns. Also: the answer is in (m, n), not (n, m) — row m, column n.`,
+        `Equal costs are a model, not a law. DNA alignment may reward matches and penalize gaps differently; keyboard typo correction may make nearby-key substitutions cheaper. The recurrence then becomes min(diagonal + substitutionCost, above + deletionCost, left + insertionCost), with match cost often zero. Another common mistake is quoting the longest-common-subsequence formula as Levenshtein distance. m + n - 2 * LCS length is the insert/delete distance when substitutions are not allowed as a one-step edit.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Edit distance is a canonical example of Memoization (Dynamic Programming) — the art of tabling subproblems on a grid. Understand Two Pointers to see how some sequence problems solve in O(n) without tabling. Revisit Recursion to see edit distance as a recursive function (cost(i, j) = cost of s1[i:] → s2[j:]) before you optimize it. If you go deeper into string algorithms, Trie (Prefix Tree) enables fast dictionary lookups for spell-checking, and Tokenization (BPE) is how modern language models break text before computing distances.`,
+        `Study Memoization (Dynamic Programming) for the general grid pattern, then Recursion for the exponential version this table replaces. Compare with Two Pointers and Sliding Window to learn when sequence problems collapse to O(n) instead of needing O(mn). For applications, read Trie (Prefix Tree), Tokenization (BPE), and Big-O Growth Rates so you can reason about dictionary scale and text length before choosing an approach.`,
       ],
     },
   ],
 };
-

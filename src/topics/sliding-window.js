@@ -75,49 +75,40 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `A sliding window is a stretchy range [left, right] that glides across a sequence, growing on the right and shrinking on the left. You move the right edge forward to expand the window, and only when an invariant breaks (sum exceeds a budget, a character repeats, latency spikes) do you advance the left edge to shrink. The beauty: each element enters the window exactly once and leaves at most once, giving you O(n) total work instead of the O(n²) cost of checking every possible range manually.`,
-        `The constraint is typically a sum budget, a character uniqueness rule, or a rate limit. As long as your problem can express its constraint in a monotonic way—if you add an element and violate the rule, removing elements from the left will always fix it—the sliding window applies.`,
+        `Sliding Window is a Two Pointers pattern for contiguous ranges. Instead of checking every subarray, keep a live window from left to right. Grow right to include new data; shrink left when the invariant breaks. The demo asks for the longest consecutive stretch whose sum stays under a budget. It accepts only non-negative values because the sum must grow predictably when the right edge expands.`,
+        `The important promise is accounting: each item enters the window once and leaves at most once. That converts an O(n^2) enumeration of all ranges into O(n) movement. Big-O Growth Rates is visible in the first explanation: for ten values there are 55 possible stretches, but the sliding window only performs a small number of edge moves.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Start with both pointers at the beginning. Advance the right pointer to include the next element, updating your running state (sum, set of characters, byte count). Check the invariant: if violated, shrink from the left by advancing the left pointer until valid again. Record any milestone—longest valid window, minimum cost configuration, whatever your problem asks for—then repeat. The left pointer never retreats, only moves forward, so you never re-scan.`,
-        `The non-negativity requirement is crucial: if all elements are non-negative, expanding the window always grows the sum monotonically. That monotonicity guarantees: if the window [left, right] violates the sum budget, then shrinking from the left will eventually restore it. In problems with negative values, the monotonicity breaks and sliding window fails—you need a different tool like a segment tree or a heap.`,
-        `Think of it geometrically: your right edge is a horizon scanning forward, and your left edge is a gate sweeping closed just behind it, keeping a buffer of interest in between. That buffer is the only place the answer can hide.`,
+        `Initialize left = 0 and sum = 0. For each right index, add values[right]. If the sum is within the limit, the window is legal and may be a new best. If the sum exceeds the limit, repeatedly subtract values[left] and advance left until the window is legal again. The visualization highlights the active range, marks removed items during shrink steps, and records a new best whenever the current legal range is longer than the previous one.`,
+        `This works because non-negative numbers make the invariant monotonic. Adding more items cannot reduce the sum, and removing items from the left cannot increase it. With negative numbers, a too-large window might become legal by expanding farther, so the simple shrink rule is no longer sound. Then you may need prefix sums, Binary Search over answers, a heap, or another dynamic structure.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Time: O(n). Each of the n elements enters the window once (through the right edge) and leaves at most once (through the left edge), for a total of 2n edge operations. Within each operation, your state update is O(1) amortized, assuming your invariant check is O(1). Space: O(1) if you only track the window pointers and aggregate state (sum, count); O(k) if you store the window contents or maintain a character frequency map.`,
+        `Time is O(n) because right advances n times and left advances at most n times. Space is O(1) for a sum budget. If the invariant tracks distinct characters, the space becomes O(k) for a Hash Table or map of counts. If the window is time-based, a Queue of timestamps can drop expired events from the front. The technique is small, but the invariant check must be O(1) or amortized O(1) for the whole method to stay linear.`,
       ],
     },
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Longest substring without repeating characters: a sliding window over character positions, where the invariant is character uniqueness. Real HTML parsers and compilers use this to tokenize efficiently.`,
-        `Per-minute request rate counting: slide a window over time and keep the count of requests inside. When a new request arrives, advance the window to drop old requests outside the minute boundary. This is how Rate Limiter (Token Bucket) strategies enforce rate caps without recomputing from scratch.`,
-        `TCP congestion control: the Internet itself uses a sliding window. TCP's congestion window is a limit on unacknowledged bytes in flight. The sender advances the right edge as it transmits, and shrinks from the left as acknowledgments arrive. A sustained flow of acknowledgments expands the window (more throughput); a timeout shrinks it (safety under congestion). This single idea, running billions of times per second, keeps the Internet from collapsing under load.`,
+        `String problems use sliding windows for longest substring without repeats, minimum covering substring, and rolling counts. Observability systems keep recent errors or latency samples in a time window. Rate Limiter (Token Bucket) is not the same algorithm, but it solves the same resource-control family; exact sliding-window limiters often use timestamp queues. TCP: Handshake & Congestion Control uses a real network window over unacknowledged bytes, and Backpressure & Flow Control is the broader systems principle behind slowing producers when buffers fill.`,
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        `Pitfall: using sliding window on problems where the invariant is not monotonic. If removing an element from the left can make a violation worse (negative values, non-monotonic constraints), the algorithm fails silently—you'll miss valid windows. Always confirm monotonicity first.`,
-        `Misconception: the window must contain the final answer. It doesn't. The answer is a property (longest length, minimum sum, best configuration) that you track across all valid windows as you slide. The window is the *mechanism*, not the *answer*.`,
-        `Implementation trap: forgetting to advance the left pointer often enough, leaving the window over-extended and the invariant violated. Always shrink until valid; a lazy shrink introduces bugs. Similarly, confusing window size (right - left + 1) with window bounds is off-by-one central.`,
+        `Do not apply sliding window just because a problem mentions "subarray." The invariant must be monotonic enough that moving left repairs violations. Another bug is recording the answer before the window is legal; always shrink first, then update best. Off-by-one mistakes are common: window length is right - left + 1 for inclusive bounds. Finally, a window is the mechanism, not necessarily the answer. The answer may be a length, sum, count, or saved copy of bounds.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Two Pointers covers the broader family of algorithms where two indices scan the array. Sliding window is a specialized case, but understanding the general pattern helps you spot new sliding window problems in the wild.`,
-        `Rate Limiter (Token Bucket) applies sliding window concepts to time-based resource allocation, key for protecting services from overload.`,
-        `Binary Search solves a different family of budget-based problems: not *find the longest run within a budget*, but *find the minimum budget to achieve a goal*. Both are useful; know when each applies.`,
-        `Queue and Big-O Growth Rates ground the intuition: queues power many real-world sliding window implementations (draining expired items), and Big-O Growth Rates explain why O(n) beats O(n²) at scale.`,
+        `Start with Two Pointers, then compare Sliding Window against Binary Search for budget problems. Queue explains time-window implementations, Hash Table explains uniqueness and frequency maps, and Big-O Growth Rates explains the win over all-subarray scans. For systems context, read Rate Limiter (Token Bucket), TCP: Handshake & Congestion Control, and Backpressure & Flow Control.`,
       ],
     },
   ],
 };
-
