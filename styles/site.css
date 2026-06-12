@@ -292,6 +292,7 @@ h1, h2, h3 { line-height: 1.2; }
 .player-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .speed-label { font-size: 0.82rem; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 .progress-area { flex: 1 1 220px; max-width: 380px; }
+.export-area { display: flex; gap: 8px; align-items: center; }
 .progress-text { margin: 0 0 2px; font-size: 0.82rem; color: var(--muted); }
 .step-slider { width: 100%; accent-color: var(--accent); }
 

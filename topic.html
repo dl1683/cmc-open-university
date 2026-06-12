@@ -51,6 +51,16 @@
               <p class="progress-text" data-progress-text>Step 1</p>
               <input class="step-slider" type="range" min="0" max="0" value="0" data-slider aria-label="Step position">
             </div>
+            <div class="export-area">
+              <label class="speed-label">Export at
+                <select data-export-speed>
+                  <option value="1" selected>1×</option>
+                  <option value="2">2×</option>
+                  <option value="4">4×</option>
+                </select>
+              </label>
+              <button class="btn" data-action="export">⬇ Export video</button>
+            </div>
           </div>
         </aside>
         <div class="vis-panel" data-visualization aria-live="off"></div>

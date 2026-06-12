@@ -3,6 +3,7 @@
 // Topic modules never reach in here: they yield steps, we draw them.
 
 import { validateSteps, collectSteps, InputError } from './state.js';
+import { supportsVideoExport, exportVideo, downloadBlob } from './exporter.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 
@@ -487,6 +488,7 @@ export function createTopicRuntime({ root, topic }) {
 
   buildControls(form, topic.controls);
   let player = null;
+  let currentSteps = [];
 
   function onStep(step, index, total) {
     renderStep(vis, step);
@@ -511,6 +513,7 @@ export function createTopicRuntime({ root, topic }) {
     try {
       errorBox.hidden = true;
       const steps = validateSteps(collectSteps(topic.run(input), topic.id), topic.id);
+      currentSteps = steps;
       if (player) player.pause();
       player = createPlayer(steps, { onStep, onPlayState });
       player.reset();
@@ -537,6 +540,31 @@ export function createTopicRuntime({ root, topic }) {
   root.querySelector('[data-speed]').addEventListener('change', (event) => {
     if (player) player.setSpeed(event.target.value);
   });
+  const exportBtn = root.querySelector('[data-action="export"]');
+  if (!supportsVideoExport()) {
+    exportBtn.disabled = true;
+    exportBtn.title = 'Video export is not supported by this browser.';
+  }
+  exportBtn.addEventListener('click', async () => {
+    if (currentSteps.length === 0 || exportBtn.disabled) return;
+    const speed = Number(root.querySelector('[data-export-speed]').value);
+    const originalLabel = exportBtn.textContent;
+    exportBtn.disabled = true;
+    if (player) player.pause();
+    try {
+      const blob = await exportVideo({
+        steps: currentSteps,
+        title: topic.title,
+        speed,
+        onProgress: (message) => { exportBtn.textContent = message; },
+      });
+      downloadBlob(blob, `${topic.id}-${speed}x.webm`);
+    } finally {
+      exportBtn.textContent = originalLabel;
+      exportBtn.disabled = false;
+    }
+  });
+
   root.addEventListener('keydown', (event) => {
     if (['INPUT', 'SELECT', 'TEXTAREA'].includes(event.target.tagName)) return;
     if (event.key === 'ArrowRight') { event.preventDefault(); player && player.next(); }
