@@ -2174,3 +2174,16 @@ test('fenwick-tree: query walk tiles the prefix, update cascades, verification r
   assert.match(outside.at(-1).explanation, /unchanged from 19/, 'updates outside the prefix leave the query alone');
   assert.throws(() => runTopic(topic, { values: '1, 2, 3', prefixUpTo: '9', addAmount: '1', addAt: '1' }), /between 1 and 3/, 'prefix bound validated');
 });
+
+test('instrumental-variables: naive OLS reads 5.92, the Wald ratio recovers exactly 3.00', async () => {
+  const topic = await loadTopic('instrumental-variables');
+  const lot = runTopic(topic, { view: 'the lottery in the data' });
+  assert.match(lot[0].state.cells.find((c) => c.id === 'naive:detail').label, /slope = 5\.92/, 'the confounded regression overshoots, computed live');
+  assert.match(lot[1].state.cells.find((c) => c.id === 'c1:detail').label, /2\.0 years/, 'the first stage computed from the groups');
+  assert.match(lot[2].state.cells.find((c) => c.id === 'ratio:calc').label, /6\.0 \/ 2\.0 = 3\.00/, 'the Wald ratio recovers the truth exactly');
+  assert.match(lot[1].explanation, /cannot be tested from data/i, 'exclusion honestly flagged untestable');
+  const fp = runTopic(topic, { view: 'famous instruments & fine print' });
+  assert.equal(fp[0].state.rows.length, 5, 'five famous instruments');
+  assert.match(fp[1].state.cells.find((c) => c.id === 'weak:math').label, /0\.5 \/ 0\.1 = 5\.0/, 'weak-instrument amplification arithmetic');
+  assert.match(fp[2].state.cells.find((c) => c.id === 'late:detail').label, /FOR COMPLIERS/, 'LATE honesty');
+});

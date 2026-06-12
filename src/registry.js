@@ -1566,6 +1566,16 @@ export const topics = [
     module: () => import('./topics/causal-graphs.js'),
   },
   {
+    id: 'instrumental-variables',
+    type: 'visualization',
+    buildsOn: ['causal-graphs', 'ab-testing', 'doubly-robust'],
+    category: 'Concepts',
+    title: 'Instrumental Variables & Natural Experiments',
+    summary: 'A synthetic world with a hidden confounder and a known true effect: naive regression overshoots, the Wald ratio recovers the truth exactly — live.',
+    tags: ['instrumental variables', 'natural experiments', 'Wald estimator', 'LATE', 'weak instruments', 'econometrics'],
+    module: () => import('./topics/instrumental-variables.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],
