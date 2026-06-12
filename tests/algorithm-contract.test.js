@@ -523,6 +523,17 @@ test('value-iteration: converges and the greedy path reaches the goal avoiding t
   assert.ok(policy.highlight.found.length <= 7, 'urgent cost takes an efficient route');
 });
 
+test('saga-pattern: failure compensates in reverse; success commits all four', async () => {
+  const topic = await loadTopic('saga-pattern');
+  const fail = runTopic(topic, { scenario: 'step 3 fails' });
+  const undos = fail.filter((s) => /Compensate step/.test(s.explanation));
+  assert.deepEqual(undos.map((s) => s.explanation.match(/Compensate step (\d)/)[1]), ['2', '1'], 'compensations run in reverse order');
+  assert.ok(/nothing happened/.test(fail.find((s) => /saga ends/.test(s.explanation)).explanation));
+  const ok = runTopic(topic, { scenario: 'all steps succeed' });
+  const done = ok.find((s) => /All four steps committed/.test(s.explanation));
+  assert.equal(done.highlight.found.length, 4, 'all steps committed');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

@@ -409,6 +409,16 @@ export const topics = [
     module: () => import('./topics/two-phase-commit.js'),
   },
   {
+    id: 'saga-pattern',
+    type: 'visualization',
+    buildsOn: ['two-phase-commit', 'write-ahead-log', 'cap-theorem'],
+    category: 'Systems',
+    title: 'Saga Pattern',
+    summary: 'A chain of local transactions plus compensating undos — distributed consistency without holding locks.',
+    tags: ['saga', 'microservices', 'compensating transactions', 'eventual consistency', 'orchestration'],
+    module: () => import('./topics/saga-pattern.js'),
+  },
+  {
     id: 'rate-limiter',
     type: 'visualization',
     buildsOn: ['stack', 'hash-table'],
