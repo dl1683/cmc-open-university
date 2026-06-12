@@ -114,6 +114,16 @@ export const topics = [
     module: () => import('./topics/b-tree.js'),
   },
   {
+    id: 'skip-list',
+    type: 'visualization',
+    buildsOn: ['linked-list', 'binary-search'],
+    category: 'Data Structures',
+    title: 'Skip List',
+    summary: 'A linked list with probabilistic express lanes — O(log n) search without any rebalancing.',
+    tags: ['skip list', 'redis', 'probabilistic', 'sorted set', 'express lanes'],
+    module: () => import('./topics/skip-list.js'),
+  },
+  {
     id: 'graph-bfs',
     type: 'visualization',
     buildsOn: ['queue', 'tree-traversals'],
@@ -438,7 +448,7 @@ export const topics = [
   {
     id: 'hnsw-search',
     type: 'visualization',
-    buildsOn: ['embeddings-similarity', 'graph-bfs', 'rag-pipeline'],
+    buildsOn: ['embeddings-similarity', 'graph-bfs', 'skip-list'],
     category: 'AI & ML',
     title: 'HNSW (Vector Search at Scale)',
     summary: 'Greedy-hop a sparse highway layer, then finish in the dense layer — nearest neighbor without a full scan.',
