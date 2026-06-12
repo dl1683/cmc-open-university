@@ -426,6 +426,16 @@ export const topics = [
     module: () => import('./topics/quantization.js'),
   },
   {
+    id: 'hnsw-search',
+    type: 'visualization',
+    buildsOn: ['embeddings-similarity', 'graph-bfs', 'rag-pipeline'],
+    category: 'AI & ML',
+    title: 'HNSW (Vector Search at Scale)',
+    summary: 'Greedy-hop a sparse highway layer, then finish in the dense layer — nearest neighbor without a full scan.',
+    tags: ['vector database', 'ANN', 'HNSW', 'similarity search', 'pinecone', 'FAISS'],
+    module: () => import('./topics/hnsw-search.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],
