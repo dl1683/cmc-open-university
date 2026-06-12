@@ -626,6 +626,16 @@ export const topics = [
     module: () => import('./topics/pagerank.js'),
   },
   {
+    id: 'value-iteration',
+    type: 'visualization',
+    buildsOn: ['gradient-descent', 'pagerank', 'memoization'],
+    category: 'AI & ML',
+    title: 'Value Iteration (Reinforcement Learning)',
+    summary: 'Watch value flow backward from the goal until the best route to act simply falls out of the numbers.',
+    tags: ['reinforcement learning', 'bellman', 'Q-learning', 'grid world', 'DQN', 'policy'],
+    module: () => import('./topics/value-iteration.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],

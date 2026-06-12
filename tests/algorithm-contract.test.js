@@ -512,6 +512,17 @@ test('pagerank: scores stay a probability distribution and linkless pages stay a
   assert.ok(score('E') > score('B'), 'the hub outranks the leaves');
 });
 
+test('value-iteration: converges and the greedy path reaches the goal avoiding the pit', async () => {
+  const topic = await loadTopic('value-iteration');
+  const steps = runTopic(topic, { living: '-0.4 (urgent)' });
+  assert.ok(steps.some((s) => /CONVERGED/.test(s.explanation)), 'reaches a fixed point');
+  const policy = steps.find((s) => s.state.title && s.state.title.startsWith('The policy'));
+  assert.ok(policy.highlight.found.includes('r0:c3'), 'path ends at the goal');
+  assert.ok(!policy.highlight.found.includes('r1:c3'), 'path never enters the pit');
+  assert.ok(policy.highlight.found.includes('r2:c0'), 'path starts at the start');
+  assert.ok(policy.highlight.found.length <= 7, 'urgent cost takes an efficient route');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
