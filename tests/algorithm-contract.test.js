@@ -1402,6 +1402,28 @@ test('pca: the live eigendecomposition finds the 39-degree spine holding 99.4% o
   assert.ok(fails.some((s) => /768-D → 50-D/.test((s.state.rows ?? []).map((r) => r.label).join(' '))), 'PCA-then-tSNE pipeline staged');
 });
 
+test('early-stopping: validation turns at epoch 25 and patience forgives the blips', async () => {
+  const topic = await loadTopic('early-stopping');
+  const turn = runTopic(topic, { view: 'the turn, caught in the act' });
+  const marked = turn.find((s) => (s.state.markers ?? []).some((m) => m.id === 'turn'));
+  assert.equal(marked.state.markers.find((m) => m.id === 'turn').x, 25, 'validation minimum at epoch 25');
+  const val = marked.state.series.find((ser) => ser.id === 'val').points;
+  const train = marked.state.series.find((ser) => ser.id === 'train').points;
+  assert.ok(val[40].y > val[25].y + 0.3, 'validation gives back loss after the turn');
+  assert.ok(train[40].y < train[25].y, 'training loss still falling at epoch 40');
+  assert.ok(turn.some((s) => /time-as-λ/.test(s.invariant ?? '')), 'implicit L2 equivalence stated');
+  assert.ok(turn.some((s) => /DOUBLE DESCENT/.test(s.explanation)), 'epoch-wise double descent caveat included');
+  const pat = runTopic(topic, { view: 'patience & the checkpoint' });
+  const blips = pat[0].state;
+  const valSeries = blips.series.find((ser) => ser.id === 'val').points;
+  assert.ok(valSeries[9].y > valSeries[8].y, 'epoch 9 blip rises');
+  assert.ok(valSeries[10].y < valSeries[9].y, 'and the curve dives back down');
+  const walkthrough = pat.find((s) => /Patience = 5/.test(s.state.title ?? '')).state;
+  assert.match(walkthrough.cells.find((c) => c.id === 'e30:note').label, /restore epoch 25/, 'stop at 30 restores 25');
+  assert.match(walkthrough.cells.find((c) => c.id === 'e9:ctr').label, /1\/5/, 'blip ticks the counter to 1/5');
+  assert.ok(pat.some((s) => /restore_best_weights/.test((s.state.rows ?? []).map((r) => r.label).join(' '))), 'the classic footgun flagged');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

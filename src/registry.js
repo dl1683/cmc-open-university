@@ -1036,6 +1036,16 @@ export const topics = [
     module: () => import('./topics/lr-schedules.js'),
   },
   {
+    id: 'early-stopping',
+    type: 'visualization',
+    buildsOn: ['learning-curves', 'regularization', 'hyperparameter-search'],
+    category: 'AI & ML',
+    title: 'Early Stopping & Patience',
+    summary: 'Validation turns while training keeps falling — quit at the turn, with a patience counter to ignore the noise.',
+    tags: ['early stopping', 'patience', 'checkpoints', 'overfitting', 'regularization', 'training'],
+    module: () => import('./topics/early-stopping.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],
