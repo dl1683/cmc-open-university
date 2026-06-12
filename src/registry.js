@@ -549,6 +549,16 @@ export const topics = [
     module: () => import('./topics/message-queue.js'),
   },
   {
+    id: 'dns-resolution',
+    type: 'visualization',
+    buildsOn: ['trie', 'lru-cache', 'cdn-request-flow'],
+    category: 'Systems',
+    title: 'How DNS Works',
+    summary: 'Root → TLD → authoritative: the hierarchical lookup behind every URL, and the caches that skip it.',
+    tags: ['DNS', 'resolver', 'TTL', 'root servers', 'networking', 'anycast'],
+    module: () => import('./topics/dns-resolution.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

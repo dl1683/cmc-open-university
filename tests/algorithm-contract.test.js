@@ -760,6 +760,16 @@ test('searchTopics: ranked, typo-tolerant, title matches first', () => {
   assert.equal(searchTopics('zzzqqqxxx').length, 0, 'garbage returns nothing');
 });
 
+test('dns-resolution: cold cache walks the full hierarchy, warm cache skips it', async () => {
+  const topic = await loadTopic('dns-resolution');
+  const cold = runTopic(topic, { cache: 'cold (full walk)' });
+  const touched = (steps, id) => steps.some((s) => (s.highlight.active ?? []).includes(id));
+  for (const server of ['ROOT', 'TLD', 'AUTH']) assert.ok(touched(cold, server), `cold walk queries ${server}`);
+  const warm = runTopic(topic, { cache: 'warm (cached)' });
+  for (const server of ['ROOT', 'TLD', 'AUTH']) assert.ok(!touched(warm, server), `warm cache never queries ${server}`);
+  assert.ok(cold.some((s) => /93\.184\.216\.34/.test(s.explanation)), 'the record is resolved');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
