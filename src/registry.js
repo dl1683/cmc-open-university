@@ -1246,6 +1246,16 @@ export const topics = [
     module: () => import('./topics/hessian-curvature.js'),
   },
   {
+    id: 'natural-gradient',
+    type: 'visualization',
+    buildsOn: ['hessian-curvature', 'eigenvectors', 'entropy'],
+    category: 'Concepts',
+    title: 'Natural Gradient & Fisher Information',
+    summary: 'Why the same parameter step can be a huge or tiny change in distribution space — and the F⁻¹∇ correction that makes optimization coordinate-free.',
+    tags: ['natural gradient', 'Fisher information', 'KL divergence', 'TRPO', 'K-FAC', 'information geometry'],
+    module: () => import('./topics/natural-gradient.js'),
+  },
+  {
     id: 'embedding-space-3d',
     type: 'visualization',
     buildsOn: ['embeddings-similarity', 'tsne-umap', 'loss-surface-3d'],

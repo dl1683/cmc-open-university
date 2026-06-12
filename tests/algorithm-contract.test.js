@@ -1969,3 +1969,22 @@ test('idempotency: at-least-once double-charges on lost acks, keys make it exact
   assert.ok(keys.some((s) => /OUTBOX/.test(s.explanation)), 'transactional outbox covered');
   assert.match(keys[3].state.cells.find((c) => c.id === 'ttl:detail').label, /window/, 'finite dedup window caveat present');
 });
+
+test('natural-gradient: KL rings scale with sigma, GD is coordinate-dependent, F-inverse rescues the sharp start', async () => {
+  const topic = await loadTopic('natural-gradient');
+  const lies = runTopic(topic, { view: 'distance lies in parameter space' });
+  const big = lies[0].state.series.find((s) => s.id === 'big');
+  const small = lies[0].state.series.find((s) => s.id === 'small');
+  const width = (ring) => Math.max(...ring.points.map((p) => p.x)) - Math.min(...ring.points.map((p) => p.x));
+  assert.ok(Math.abs(width(big) / width(small) - 2.4 / 0.5) < 1e-9, 'equal-KL ball width scales exactly with sigma');
+  const gd = lies[1].state.series.find((s) => s.id === 'gd');
+  const log = lies[1].state.series.find((s) => s.id === 'log');
+  assert.notEqual(gd.points.length, log.points.length, 'same objective, same lr, different coordinates: different paths');
+  const nat = runTopic(topic, { view: 'the natural gradient' });
+  const sharpGd = nat[1].state.series.find((s) => s.id === 'gd');
+  assert.match(sharpGd.label, /lost/, 'plain GD never recovers from the sigma=0.12 start within 400 steps');
+  const sharpNat = nat[1].state.series.find((s) => s.id === 'nat');
+  assert.match(sharpNat.label, /15 steps/, 'natural gradient converges from the same start at the same lr');
+  assert.ok(nat.some((s) => /TRPO/.test(s.explanation)), 'trust-region RL connection made');
+  assert.equal(nat[2].state.rows.length, 4, 'production table covers four systems');
+});
