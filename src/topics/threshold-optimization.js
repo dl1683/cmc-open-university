@@ -114,40 +114,39 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A threshold is the score you cut off: if the model says "probability of spam = 0.7" and you set threshold t = 0.65, you flag it. But where should you cut? The debate "should t be 0.5 or 0.8?" makes no sense until you price the mistakes. Every misclassification has a cost. Wrongly flag an invoice as junk ($10 gone because a customer disputes it) or let fraud through ($10 lost to the thief) — these are not the same. A threshold is a knob outside the model that lets you trade off false positives against false negatives. Once you nail down what each mistake costs, the threshold falls out mechanically: it becomes an arithmetic problem, not a judgment call.`,
+        `Picking a Threshold with Real Costs turns a model score into an action by pricing mistakes. A classifier may score an email 0.65 spam or a transaction 0.30 fraud, but the model does not know whether a false alarm costs pennies or a missed case costs thousands. The threshold is a deployment knob outside the model: above it, flag; below it, pass. ROC Curves & AUC gives the menu of possible trade-offs. Cost minimization chooses the item on the menu.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Start with a cost-loss function: cost(t) = cFP × FP(t) + cFN × FN(t). For the invoice world, cFP = $10, cFN = $1. For fraud, flip it: cFP = $1, cFN = $10. The demo sweeps the threshold t over the same 20 scored emails used in ROC, computing the cost at each stop. In the invoice world, the optimum lands at t = 0.65 costing $4; in the fraud world, at t = 0.3 costing $5. The curve dips to a minimum — that is your sweet spot.`,
-        `The magic: the model's internals never change. You do not retrain or touch the weights. The ROC curve remains identical; what shifts is which point on it minimizes your dollar loss. Same model, same scores, completely different operating points — driven purely by cost structure. When probabilities are calibrated, there is a closed-form solution: t* = cFP / (cFP + cFN). But real models are miscalibrated, and the gap between the formula and the empirical sweep is your miscalibration fingerprint — how much the scores drift from their true meaning.`,
+        `The demo reuses the same 20 scored emails from the ROC topic: 10 spam and 10 ham. Define cost(t) = cFP * FP(t) + cFN * FN(t). In the invoice world, a false positive means junking a real invoice and costs $10, while missed spam costs $1. Sweeping thresholds finds t = 0.65 with four missed spam and zero false positives, total cost $4. In the fraud world the prices flip: false positives cost $1 and missed fraud costs $10. The best threshold becomes t = 0.30, with five false positives and no missed fraud, total cost $5. Same model, same scores, different economics.`,
+        `If probabilities are perfectly calibrated and the costs are correct, the algebraic cutoff is t* = cFP / (cFP + cFN). Flag when p * cFN, the expected cost of passing, exceeds (1 - p) * cFP, the expected cost of flagging. The empirical sweep can disagree with that formula because the demo has discrete scores, only 20 examples, and scores that may not be calibrated. Calibration & Reliability Diagrams is what makes the formula trustworthy.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Assign a dollar cost to each mistake by interviewing domain experts. Gather a test set labeled with true classes. Sweep the threshold: for each candidate t, count FP(t) and FN(t) and compute cost(t), then find the minimum. Computationally, O(T × N) where T is thresholds tried (trivial) and N is test set size. The hard cost is figuring out cFP and cFN — that is a business conversation. But once you have those numbers, the threshold is free: the scientist raises the AUC, the business prices the mistakes, and algebra picks the threshold. No retraining, no new data, just arithmetic.`,
+        `Threshold search is cheap. Sort candidate scores, count false positives and false negatives at each cutoff, and compute the bill. The hard part is not computation; it is pricing the mistakes honestly with domain owners. A bank, hospital, and email provider may deploy the same Logistic Regression or Gradient Boosting model at different thresholds because their costs differ. No retraining is required, so threshold changes are reversible and easy to A/B test. That reversibility is why threshold tuning should usually happen before rebuilding the model.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Credit card fraud: set cFN >> cFP, lower the threshold, catch more fraud. Email spam: set cFP >> cFN, raise it, err permissive. Medical screening: set cFN >> cFP, cast a wider net for disease. Loan approval: costs depend on profit margins and default risk — different banks deploy the same model at different thresholds. The threshold is a deployment lever: a fraud detector at a startup runs at t = 0.3, at a mature bank at t = 0.6. Neither retrains the model. The choice is pure economics.`,
+        `Fraud systems lower thresholds when missing fraud is expensive. Spam systems raise thresholds when junking real mail is unacceptable. Medical screening often lowers thresholds to protect recall, then sends positives to a human review queue. Imbalanced Data: When 99% Is One Class makes thresholding unavoidable because a default 0.5 cutoff can ignore the rare class. Precision, Recall & the Confusion Matrix supplies the counts behind the cost ledger.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Arguing about thresholds in the abstract is a trap. "The threshold should be 0.5" only works if cFP = cFN, rare in practice. Worse, reverse-engineering from "I want FP < 5 percent" gets the costs backward — ask "what does it cost?" not "what percent can we tolerate?" Another misconception: a probability of 0.9 does not mean "I am 90 percent sure"; it means "on average, 90 percent of cases scoring 0.9 are true" — only if the model is calibrated. Miscalibrated models need empirical sweeps, not algebra. Finally, raising the AUC makes every threshold better; lowering the threshold just trades one mistake type for another. If the model is bad, moving the threshold cannot save it.`,
+        `A 0.5 threshold is only natural when false positives and false negatives cost the same and probabilities are calibrated. That is rare. Do not set a threshold by vibes, by accuracy alone, or by the training set. Do not confuse improving a model with moving a threshold: a better AUC improves the menu, while a threshold picks one operating point. A bad ranker cannot be saved by clever thresholding. Data Leakage & Contamination can also make a threshold look cheap offline and fail in production.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `The threshold lives on the ROC Curves & AUC — study that first to understand the trade-off landscape. Precision, Recall & the Confusion Matrix develops the terminology (FP, FN) that cost functions depend on. Calibration & Reliability Diagrams explains why the closed-form formula works (and when it does not). When you deploy thresholds and need to measure if your choice was right, run A/B Testing & p-values to distinguish signal from noise. And if you want to set thresholds dynamically as data arrives, learn Thompson Sampling, which is an online version of the same cost-minimization logic.`,
+        `Study ROC Curves & AUC for the full trade-off curve, Precision, Recall & the Confusion Matrix for the FP and FN counts, and Calibration & Reliability Diagrams for when the closed-form threshold is valid. A/B Testing & p-values helps verify that a new threshold actually improves user outcomes after deployment. Naive Bayes (Spam Filter) is a simple score factory to practice on.`,
       ],
     },
   ],
 };
-

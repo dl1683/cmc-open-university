@@ -120,39 +120,39 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Calibration is making a model's stated confidence match reality. When your spam filter says "95% sure," is it actually right 95 times out of 100? For most modern neural networks, no — they sag well below the honesty line. A reliability diagram plots stated confidence on the x-axis and observed accuracy on the y-axis; a perfectly calibrated model lands on the diagonal (70% confidence = 70% correct). The Expected Calibration Error (ECE) compresses this into one number: the average gap between stated and observed probability, measuring how much a model lies about its own uncertainty.`,
+        `Calibration asks whether a model's probabilities mean what they say. If a classifier says 90% confident on 100 similar cases, about 90 should be correct. Calibration & Reliability Diagrams plots stated confidence on the x-axis and observed accuracy on the y-axis. The diagonal is honesty. This is separate from discrimination: ROC Curves & AUC can be strong even when probabilities are exaggerated. The demo's network ranks reasonably, but its high-confidence bins sit far below the diagonal. That separation is the central lesson of this entire page.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Divide test predictions into confidence bins (50–60%, 60–70%, etc.) and count how many in each bin were actually correct. Plot bin confidence on the x-axis, observed accuracy on the y-axis. Our demo uses 100 predictions in 5 bins of 20 each: the 95% bin shows only 78% accuracy, a 17-point gap. ECE averages these gaps: |0.55−0.52| + |0.65−0.58| + |0.75−0.64| + |0.85−0.7| + |0.95−0.78|, divided by 5 = 0.106. The model overstates confidence by 11 points on average. Temperature scaling fixes this: divide logits by T=2 before softmax. This monotone transformation slides every point onto the diagonal without reordering, dropping ECE to 0.008. Accuracy and AUC stay the same — only stated confidence changes. The 2017 paper "On Calibration of Modern Neural Networks" (Guo et al.) found this single scalar beats fancier methods like Platt scaling or isotonic regression.`,
+        `The visualization groups 100 test predictions into five bins of 20. In the 50-60% bin, average stated confidence is 55% and observed accuracy is 52%. The lie grows with confidence: the 90-100% bin claims 95% but is correct only 78%. Expected Calibration Error averages the absolute gaps, weighted by bin size. Here the gaps are 3, 7, 11, 15, and 17 points, so ECE is 0.106.`,
+        `Temperature scaling is the one-parameter repair shown in the second view. Divide every logit by T = 2 before Softmax & Temperature turns logits into probabilities. Because division by a positive constant is monotone, the top class, ranking, and AUC do not change. The confidences deflate to 52%, 59%, 65%, 71%, and 79%, almost exactly matching observed accuracies, and ECE falls to 0.008. You fit T on a validation set, not on the final test set.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Measuring calibration is free: sort predictions by confidence, bin them, compute gaps. Temperature scaling fits one number on a validation set and applies it to all future predictions. No retraining, no backpropagation, milliseconds to run.`,
+        `Measuring calibration is linear in the number of predictions after you choose bins. Temperature scaling fits one scalar, so it is cheap: no retraining of the base model, no new features, and almost no inference overhead. Platt scaling fits a two-parameter sigmoid. Isotonic regression fits a flexible monotone staircase, which can work but needs more validation data or it overfits the calibration step itself. Cross-Validation & Honest Evaluation supplies the held-out discipline. In practice, teams keep a calibration set separate from both training and final testing, because choosing T on the same examples used for the report would make the report optimistic.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Downstream consumers need honest probabilities. A doctor on "95% benign" asks "how much should I trust this?" not "which class is more likely." An overconfident 95% expects 1-in-20 errors but lands 1-in-5. A self-driving stack fusing sensor beliefs (camera 98% pedestrian, lidar 60%) breaks if the camera is actually 85% but claims 98%. An LLM router deciding whether to admit "I don't know" fails when miscalibrated. Medical triage, sensor fusion, RAG, and uncertainty quantification all rest on honest probabilities.`,
+        `Calibration matters whenever a probability drives an action. Picking a Threshold with Real Costs can use a closed-form cutoff only if probabilities are honest. Medical triage, fraud queues, sensor fusion, recommender abstention, and model routers all consume confidence. Uncertainty: Teaching Models to Say "I Don't Know" goes further by separating different kinds of doubt, but even a simple classifier must first make its stated probabilities match observed frequencies. A well-calibrated model can still be wrong on an individual case; calibration is a population promise, not a personal guarantee.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `High accuracy does not imply high calibration. The demo model makes correct predictions; the lie is in stated confidence. Calibration and discrimination are separate: AUC measures ordering; calibration measures whether probabilities mean what they say. A softmax output of 0.95 is a normalized score, not genuine 95% unless calibrated. Modern training (deep networks, large batches, label smoothing) pushes toward overconfidence. Do not confuse calibration (fixing existing outputs) with uncertainty quantification (building genuine estimates from scratch).`,
+        `High accuracy does not imply good calibration. A model can rank cases well, classify most cases correctly, and still overstate confidence by 15 points. Precision, Recall & the Confusion Matrix counts decisions after a threshold; calibration checks the score before the threshold. Do not trust a softmax number just because it sums to one. Do not tune temperature on the test set. Watch binning choices too: too few bins hide structure, too many bins make noisy estimates. A/B Testing & p-values can verify whether a calibration change improves downstream decisions, not just the diagram.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Explore Softmax & Temperature to understand logit scaling. Run A/B Testing & p-values to verify calibration improvements. Study Entropy & Information to ground probability in self-information. ROC Curves & AUC measure discrimination orthogonal to calibration — learn both. Precision, Recall & the Confusion Matrix ground all metrics in the true positives, false positives, and negatives that ECE depends on.`,
+        `Study Softmax & Temperature for the logit-scaling mechanism, ROC Curves & AUC for discrimination, and Picking a Threshold with Real Costs for why calibrated probabilities make deployment arithmetic possible. Then use Precision, Recall & the Confusion Matrix to see how calibrated scores become concrete decisions.`,
       ],
     },
   ],
 };
-

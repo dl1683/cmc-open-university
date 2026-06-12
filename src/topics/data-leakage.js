@@ -153,39 +153,39 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Data leakage is the silent bug that makes your model look smarter than it is: target information sneaks into training data, so the model cheats instead of learning to generalize. The result is a metric so good it becomes suspicious — 0.99 AUC on a hard problem, or 94 percent offline but only 76 percent in production. Leakage does not crash; it rewards you, wins model selection, and gets deployed. Only after users meet the broken model does the true cost appear. Data science rests on honest measurement, and leakage is the only bug that corrupts measurement while making everything look fine.`,
+        `Data Leakage & Contamination is the bug where information that should be unavailable at prediction time sneaks into training or evaluation. It is dangerous because it improves the dashboard. The demo's pneumonia model reaches 0.99 AUC because one feature, took_antibiotics, carries 96% importance, but that value exists after diagnosis. The model did not learn pneumonia; it learned that doctors prescribe antibiotics to people already diagnosed. Leakage is an answer key stapled to the exam.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `First, TARGET LEAKAGE: a feature gets its value after or because of the label. A pneumonia predictor scores 0.99 learning "patients on antibiotics have pneumonia" — but antibiotics are prescribed AFTER diagnosis, so the feature is tautology at prediction time. Second, SPLIT CONTAMINATION: augment data (flip photos, paraphrase text) then split randomly; near-duplicates land on both sides of the wall. The test set contains answers the model memorized. Cross-Validation's machinery measures nothing true. Third, TIME TRAVEL: split time-series randomly and the model trains on future data to predict the past, or a rolling average injects future values into past rows. Fourth, BENCHMARK CONTAMINATION: large language models train on trillions of web tokens, including benchmark answers. The exam lives in the textbook.`,
+        `The visualization shows four leak types. Target leakage is a feature caused by the label, like antibiotics after diagnosis. Split contamination happens when near-duplicates straddle train and test: an original photo in training and its mirrored version in test. Time travel happens when random time-series splits let Friday train a model graded on Tuesday, or when a rolling average was computed over the whole future. Benchmark contamination is the LLM-era version: public benchmark questions and answer discussions appear in pretraining crawls, so evaluation becomes memorization.`,
+        `Detection starts with suspicion. A hard problem producing 0.99 ROC Curves & AUC on the first attempt deserves an audit. A single feature dominating importance deserves a timestamp check. A model that reports 94% offline and 76% in production likely measured a contaminated process. Influence: Which Training Data Did This? can surface duplicated or unusually influential training examples. Saliency Maps & Feature Attribution can remove a suspect feature and show whether the score collapses back to reality.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Leakage costs trust. Production reveals the truth: a model that promised 94 percent offline delivers 76 percent online. The defense is not expensive — deduplication is O(n log n), splitting and fitting preprocessing inside the training loop add only discipline, not asymptotic cost. The ritual question, "would this value exist at prediction time?" — scales with feature count (usually small). Teams that institutionalize this in code review catch leaks before shipping; teams that do not catch them in incident review, after users have met failure.`,
+        `Leak prevention is mostly ordering, not heavy computation. Deduplicate and group by entity before splitting. Split before augmentation. Fit scalers, imputers, feature selectors, and oversamplers only inside each training fold. Audit every feature with one question: would this exact value exist at the moment of prediction? The computational costs are small compared with a failed deployment. The organizational cost is discipline in code review, dataset versioning, and experiment logs. A written data contract is often more valuable than another model checkpoint, because it fixes what information the model is allowed to know.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Medical models published on leaky data have collapsed in real hospitals. Stock-price benchmarks that beat experts were later found to train on future close prices. Kaggle competitions have been won then voided for leakage. Click-through-rate models showed 94 percent offline accuracy until Influence: Which Training Data Did This? revealed duplicated examples the model had memorized. Fraud detection systems brilliant on past fraud failed on new fraud because a feature summed "lifetime fraud probability" — a label, not a predictor. The pattern: leakage is found last, after deployment, because everything looks fine beforehand.`,
+        `Medical models, fraud systems, stock predictors, content moderation, Kaggle competitions, and LLM benchmarks have all been burned by leakage. Cross-Validation & Honest Evaluation can only protect you if contamination has not already happened before the split. Early Stopping & Patience also relies on a sealed validation set; peeking and retuning repeatedly wears it out. Imbalanced Data: When 99% Is One Class adds another trap: oversampling before splitting can copy rare positives into both train and validation. The same pattern appears in text when paraphrases or duplicated web pages cross the split boundary.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Do not trust a 0.99 AUC — celebrate five minutes, then audit. Misconception: "if Cross-Validation passes, the model is honest" — but if contamination happened before the split, every fold inherits the poison. Another: a feature correlating with the label must be leaky — correlation is not proof. Use Saliency Maps & Feature Attribution to delete the suspect and watch the model collapse if it just memorized. The deepest danger: leakage is the only bug that improves your dashboard. Nothing crashes; metrics shine; the cheater wins model selection because it cheats better than honest competitors.`,
+        `Correlation is not proof of leakage. A feature can be genuinely predictive without cheating, so audit timing and construction rather than deleting every strong signal. Conversely, a clean codebase is not proof of a clean dataset. Leakage often lives upstream: joins, augmentation, snapshots, deduplication, or benchmark collection. Do not trust a test set after repeated peeks; that is just slower training. Do not assume A/B Testing & p-values will rescue a contaminated offline model, because the online experiment may be the first honest evaluation users ever see.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Cross-Validation & Honest Evaluation teaches ensuring folds are independent and metrics trustworthy — the chain of custody that catches contamination. Early Stopping & Patience seals the validation set and resists peeking (another form of leakage). Influence: Which Training Data Did This? highlights wildly-influential training examples that betray the leak. Saliency Maps & Feature Attribution interrogates suspect features — delete them and watch the model collapse if it just memorized. A/B Testing & p-values measures whether improvements are real, not illusion.`,
+        `Study Cross-Validation & Honest Evaluation for split discipline, Early Stopping & Patience for validation-set hygiene, Influence: Which Training Data Did This? for forensic examples, and Saliency Maps & Feature Attribution for suspect-feature audits. Then revisit ROC Curves & AUC with a healthier instinct: too-good-to-be-true performance is a bug report until proven otherwise.`,
       ],
     },
   ],
 };
-

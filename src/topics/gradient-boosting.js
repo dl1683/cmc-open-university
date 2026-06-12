@@ -176,40 +176,39 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Gradient boosting is the sequential ensemble strategy: fit a weak learner (a decision stump — one split, two predictions) to data, measure what it missed, then fit the NEXT learner to correct those specific mistakes, and repeat. Unlike Random Forest, which trains many trees in parallel and averages them to kill variance, boosting trains trees ONE AFTER ANOTHER, each a specialist in the previous ensemble's errors. A staircase of stumps — individually barely better than guessing — compounds into a powerful function. Each new tree patches the remaining residuals, and the sum of all patches fits the data with remarkable accuracy.`,
+        `Gradient Boosting builds an ensemble sequentially. A Random Forest trains many trees independently and averages them; boosting trains the next tree on what the current ensemble still gets wrong. In this demo the weak learner is a decision stump: one split, two constant predictions. Four stumps are enough to recover the three plateaus in the ten-house price example. The idea is powerful because each tree only needs to be useful on the remaining error. The sum of weak corrections becomes a strong model.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Start with F₀, the mean. On the demo's ten houses with three price plateaus, F₀ predicts $${(MEAN * 10).toFixed(0)}k for every house, missing the structure by MSE 11.8. Compute residuals — the gap between real and predicted price — and fit a stump to them. The best split is x < 3.5: predict one constant left, another right. Add this correction to F₀ and you have F₁. Repeat: fresh residuals on F₁, fit a new stump to them, add it. The key invariant: each round fits to the PREVIOUS ensemble's mistakes, not the original labels.`,
-        `The gradient connection: when loss is squared error, the negative gradient of loss with respect to prediction is exactly the residual (y − ŷ). So "fit a tree to residuals and add it" is a gradient descent step in function space, not weight space. This reframing (Friedman, 2001) generalizes: swap the loss and the same machine handles classification, ranking, anything differentiable. The learning rate η controls step size: η = 1 is greedy (eats training error fast); η = 0.3 or less forces tiny increments, preventing overfitting because slow, overlapping corrections average out noise.`,
+        `The first model predicts the mean price for every house: 7.83 in units of $10k, or about $78k. Its mean squared error is 11.80. Boosting computes residuals, y - F(x), and fits a stump to those residuals. The first split is x < 3.5, separating the small houses from the rest; the second round recomputes residuals and picks x < 7.5. After four rounds the demo's MSE falls to 0.06, a 99%+ reduction, even though no individual stump can represent three plateaus alone.`,
+        `The word gradient is literal. For squared error, the negative gradient with respect to the prediction is the residual, so fitting a tree to residuals is Gradient Descent in function space. For classification, libraries use the same recipe with log-loss gradients, which is why Logistic Regression and boosted trees share evaluation tools even though their model shapes differ. The learning-rate view shows shrinkage: eta = 1.0 fixes the clean training set quickly, while eta = 0.3 needs more rounds but is safer on noisy data.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Training: each round fits one stump in O(n log n), so M rounds cost O(M × n log n). Bottleneck is M, not data size — hundreds of stumps train fast on millions of rows. The demo: four stumps, MSE fell from 11.8 to 0.06 (99.5% cut). Testing: O(M) tree traversals per sample. Storage: M stumps, each just a split value and two leaves — very compact. XGBoost and LightGBM add histogram binning to reduce split search from O(n) to O(bins), speeding training 10× on wide datasets.`,
+        `Training cost is roughly rounds times the cost of fitting one small tree. For sorted numeric features, stump search is near linear per feature; real gradient-boosted trees add depth, histograms, and second-order approximations. Prediction costs O(M * depth) for M trees, usually fast enough for production APIs. Storage is the list of tree splits and leaf values. The demo stores only four splits and eight leaf corrections. The chart makes that speed visible. Regularization: L1 & L2 appears in XGBoost as penalties on leaf weights and tree complexity, not just on linear coefficients.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Gradient boosting dominates tabular data: spreadsheets, fraud tables, credit risk, medical records. XGBoost (2016) won Kaggle for years and remains the default first model. LightGBM and CatBoost add categorical features, GPU training, and optimization. On fraud, churn, and risk, boosted trees beat deep learning at a fraction of tuning cost — the spreadsheet kingdom never fell. Deep learning owns text and images; boosting owns tables. Most industry data scientists spend more time deploying boosted models than neural nets.`,
+        `Gradient Boosting is a default weapon for tabular data: fraud tables, churn prediction, pricing, credit risk, insurance, ranking, and medical records. It handles nonlinear interactions, missing values, mixed feature types, and messy scales better than many hand-built feature pipelines. Cross-Validation & Honest Evaluation is essential because boosted models have many knobs: learning rate, rounds, depth, subsampling, regularization, and early stopping. Modern libraries also exploit sorted columns and histogram bins, which is why boosted trees can stay practical on millions of rows.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Boosting and Random Forest are OPPOSITE medicines: bagging (RF) builds in parallel, each tree independent, variance cancels via averaging — hard to overfit. Boosting is sequential and will memorize noise if you train too long. The recipe: low learning rate (η ≤ 0.1), monitor validation error on a hold-out set, stop when validation error rises (early stopping, the U-curve from learning curves). Without validation, boosting overfits. Another trap: small depth helps (stumps are standard), but is still a tuning choice. Finally, boosting is greedy: each stump minimizes current-round residuals, not the global objective — fast but not optimal.`,
+        `Boosting is not bagging with a different logo. It is greedy, sequential, and happy to chase noise if you keep adding trees after validation stops improving. Learning Curves & Bias–Variance explains the diagnosis: boosting often reduces bias first, then raises variance as it memorizes. Early Stopping & Patience is the practical brake. Data Leakage & Contamination is especially dangerous here because a leaky feature will look like a perfect residual fixer and be rewarded round after round.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Gradient boosting is sequential; Random Forest is parallel — go learn Random Forest to see the opposite ensemble strategy and the variance-bias tradeoff. Study Gradient Descent to see the weight-space version of what boosting does in function space. Learning Curves & Bias–Variance explains the error budget (variance vs bias) that tells you which medicine to reach for. Regularization: L1 & L2 covers the λ penalty that XGBoost and LightGBM bake into their objective. Cross-Validation & Honest Evaluation teaches proper generalization measurement, critical for tuning boosting's many knobs.`,
+        `Study Random Forest to see the parallel ensemble strategy, Gradient Descent for the function-space analogy, and Regularization: L1 & L2 for why penalties keep boosted trees from overfitting. Picking a Threshold with Real Costs matters once a boosted classifier emits scores and the business must choose which errors to buy.`,
       ],
     },
   ],
 };
-

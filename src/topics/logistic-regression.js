@@ -155,40 +155,39 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Logistic regression is the simplest probabilistic classifier in machine learning: given a data point, compute a weighted sum, squeeze it through a sigmoid (an S-shaped curve), and out comes a probability. It answers the question every classifier must answer: how confident should I be that this email is spam? Unlike hard rules (block if five exclamation marks), logistic regression gives a nuanced answer—0.8 means "pretty sure," 0.5 means "toss a coin," 0.1 means "almost certainly ham." The entire model is just three numbers: two weights (how much does each feature matter?) and a bias (the baseline vote). It is the foundation of modern probabilistic thinking: every deep neural network is built from stacked versions of this same cell.`,
-        `The visualization shows logistic regression learning in real time on ten emails: five spam (upper right), five ham (lower left), each described by two features—exclamation marks and ALL-CAPS words. Watch the decision boundary (the line where the model is 50/50 uncertain) rotate and settle as gradient descent drags it toward the true separating direction. The boundary is not arbitrary; it is exactly the set of points where the weighted sum equals zero, and the sigmoid is 0.5.`,
+        `Logistic Regression is a linear classifier that returns a score you can interpret as a probability once it has been checked. The model takes a weighted sum, z = w1*x1 + w2*x2 + b, and passes it through the sigmoid curve so negative evidence moves toward 0, positive evidence moves toward 1, and z = 0 means 0.5. The visualization uses ten emails with two features: exclamation marks and ALL-CAPS words. Spam points cluster toward the upper right, ham toward the lower left, and the learned line is the p = 0.5 boundary.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Start with three unknowns: weights w₁ and w₂ (how much each feature votes) and bias b (baseline). For any email, compute evidence score z = w₁·x + w₂·y + b. The sigmoid function σ(z) = 1/(1 + e^(−z)) squashes this into a probability between 0 and 1. At z=0, σ(z)=0.5 (uncertainty). Deep positive gives near 1 (spam), deep negative near 0 (ham). The sigmoid saturates—differences out in the tails are invisible, like "I was already sure." Training tunes weights using gradient descent, paired with cross-entropy loss: −log(p) punishes wrong predictions, especially confident ones. Being unsure costs 0.69; being confidently wrong costs 3.0. The gradient is simple: (p − truth)·feature. Mislabel far from boundary? Move hard. Barely wrong? Small nudge. The visualization shows the model starting at zeros (every email gets 0.5), then learning over 200 epochs: epoch 1 boundary appears pointing right; epoch 15 most points correct; epoch 60 all correct but weights grow (loss keeps punishing under-confidence); epoch 200 boundary settled with strong probabilities. The learning process is convex—one global valley, no local traps. Sigmoid + cross-entropy = gradient becomes (p−y)·x, and the loss surface is a bowl. This is why logistic regression is the universal baseline.`,
+        `The model starts with all weights at zero, so every email receives p(spam) = 0.5. Gradient Descent then updates the three parameters using cross-entropy loss. With sigmoid plus cross-entropy, the gradient simplifies to (p - truth) times the feature, so a badly wrong confident prediction pushes hard and a nearly right one nudges. In the demo, epoch 1 creates a rough boundary, epoch 15 has most points on the correct side, epoch 60 classifies all ten emails correctly, and epoch 200 mostly sharpens confidence. The boundary itself is exactly the line where w*x + b = 0.`,
+        `The close-up view shows why the sigmoid matters. Near z = 0 it is steep, so small evidence changes can flip an uncertain decision. In the tails it saturates: z = 6 and z = 60 both mean almost certain. Entropy & Information explains the -log(p) penalty behind cross-entropy, and Softmax & Temperature extends the same idea to many classes. Neural Network Forward Pass is built from this weighted-sum-then-nonlinearity pattern, stacked many times.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Training: O(N × epochs) where N is data points. On ten emails and 200 epochs, that is 2000 forward passes—instant. Storage: three floats (w₁, w₂, b). Testing: O(1) per prediction, microseconds, no matrix multiplications, deterministic. Compare: deep networks need massive memory, GPUs, and minutes to train. Logistic regression runs on a sheet of paper.`,
+        `For N examples, d features, and E epochs, batch training costs O(E * N * d). This demo has d = 2 and N = 10, so even 200 epochs are tiny. Storage is d weights plus one bias, and prediction costs O(d): multiply, add, apply sigmoid. The simplicity is why Logistic Regression remains a baseline in fraud, ads, medicine, and search. It is also easy to inspect: each coefficient changes log-odds, not vague feature importance. That makes failure analysis concrete: if all-caps gets a large positive weight, you can see exactly which cue moved the boundary.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Spam filters, fraud detection (every credit-card learns this boundary), medical diagnosis (patient labs → disease risk), ad prediction, loan approval. The killer strength: every weight is readable. w₁=0.5 for exclamation marks means "one exclamation raises spam odds by 0.5 bits"—explainable to regulators and customers. A 10-million-weight network tells you nothing. Logistic regression tells the story. Still the baseline at every major tech desk.`,
+        `Teams use it anywhere a transparent probability score is valuable: credit risk, churn, spam, medical triage, and ad click prediction. ROC Curves & AUC compares how well those scores rank positives above negatives. Precision, Recall & the Confusion Matrix turns the scores into concrete errors after a threshold is chosen. Calibration & Reliability Diagrams checks whether a displayed 80% behaves like 80% in reality.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest trap: assuming a straight line separates your data. If classes scatter randomly, logistic regression gives 0.5 everywhere—maximum confusion. Plot first; if classes don't separate, engineer better features or reach for a nonlinear model. Confusion two: probability ≠ confidence. A 0.8 prediction means "calibrated 80 percent," not "I'm 80 percent sure"—verify with Calibration & Reliability Diagrams. Overfitting is near-impossible (only three parameters), but weights can grow chasing noisy features—regularization keeps them reasonable. Finally, on tiny data (10 samples), a 0.99 probability is fantasy. Do not trust high confidence from low data.`,
+        `The line is both the strength and the limit. If the classes need a curve, interactions, or a tree-shaped rule, this model underfits unless you add better features. Perfectly separable data also creates a subtle failure: without Regularization: L1 & L2, cross-entropy keeps rewarding bigger weights forever because 0.999 is still better than 0.99. High probabilities on tiny data can be fantasy, and correlated features can make individual weights look unstable even when predictions are good. Cross-Validation & Honest Evaluation is how you test the model without grading its homework.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Logistic regression sits on Gradient Descent—study that to see how the algorithm converges. The sigmoid is a single-neuron activation; scale it to many layers with Neural Network Forward Pass. To verify your probability predictions are honest, study ROC Curves & AUC and Calibration & Reliability Diagrams. For multi-class problems (not just spam/ham), explore Softmax & Temperature. For the information theory behind cross-entropy, read Entropy & Information—the −log(p) penalty is the surprise measure from physics and coding theory.`,
+        `Study Gradient Descent for the optimizer moving the line, Regularization: L1 & L2 for the leash that stops runaway weights, and Calibration & Reliability Diagrams before treating sigmoid outputs as trustworthy probabilities. Then use ROC Curves & AUC and Precision, Recall & the Confusion Matrix to evaluate the score and choose an operating threshold.`,
       ],
     },
   ],
 };
-

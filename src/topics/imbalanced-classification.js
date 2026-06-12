@@ -129,39 +129,39 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Imbalanced classification is when one class vastly outnumbers the other. Fraud is 1% of transactions; disease is 0.1% of screenings; defects are rare in manufacturing. In these problems, accuracy — "percentage correct" — is a lie: a model predicting "never fraud" on 1000 transactions with 10 real frauds scores 99.0% by doing nothing. A model catching 6 frauds at the cost of 20 false alarms scores 97.6% — worse — and gets discarded. Accuracy is dominated by the majority class, so the rare class becomes a rounding error. Worse: the same 20 false positives yield two honest metrics with opposite answers: a 2.0% false-positive rate (dividing by 990 negatives) and a 23% precision (dividing by 26 alarms raised). ROC is base-rate blind; precision is not. This topic teaches you to see through these deceptions and apply practical fixes.`,
+        `Imbalanced classification is the regime where one class overwhelms the other: fraud is 1% of transactions, defects are rare, and many diseases are absent in most screenings. In the demo, 1,000 card transactions contain 10 frauds and 990 legitimate payments. A do-nothing model approves everything and scores 99.0% accuracy. A useful model catches 6 of the 10 frauds, misses 4, and creates 20 false alarms; its accuracy is only 97.6%. Accuracy prefers the useless model because the majority class dominates the arithmetic.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The demo shows 1000 card transactions: 10 fraud, 990 legitimate. A do-nothing model scores 99.0% accuracy. A model catching 6 frauds at the cost of 20 false alarms scores 97.6% accuracy (worse) but is actually useful — it recalls 60% of fraud. The deception: accuracy sums TP and TN on a scale dominated by TN. Now the same 20 false positives: ROC divides by 990 negatives (FPR = 2.0%), while precision divides by 26 alarms (23% = 6/26). Same number; opposite denominators; opposite stories. ROC tells analysts "only 2% of legit transactions wrongly flagged"; precision tells investigators "77 of every 100 alarms are false." Scale the legits 10×, and ROC stays at 2.0% FPR (base-rate blind), but precision collapses to 2.9% because the denominator explodes. The honest fix: re-price mistakes. Class weights (99× fraud penalty) make gradient descent hunt for the rare class. Moving the threshold from 0.5 to 0.01 raises alarms more eagerly, catching more fraud. Resampling (copy frauds or discard legits) rebalances training but memorizes duplicates or discards data. Evaluate on the PR curve for rare-positive problems.`,
+        `The same counts tell different stories depending on the denominator. The useful model's recall is 6/10 = 60%. Its false-positive rate is 20/990 = 2.0%, which looks excellent on ROC Curves & AUC. But precision is 6/(6+20) = 23.1%, meaning about three out of four alarms are false. Now multiply legitimate traffic by ten while keeping the same 2% false-positive rate: false alarms rise to 200 and precision collapses to 6/206 = 2.9%. The ROC point does not move because FPR ignores prevalence; the precision-recall view changes immediately.`,
+        `The fixes all re-price mistakes. Class weights make a fraud error count about 99 times more than a legitimate error in the loss. Oversampling copies or synthesizes rare examples; undersampling discards many majority examples. The cheapest first move is often thresholding: Picking a Threshold with Real Costs shows that if a missed fraud costs 99 times a false alarm, the calibrated cutoff is around 0.01, not 0.5.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Threshold shifts cost nothing: no retraining, instant to deploy, fully reversible. Class weights cost one retraining pass — negligible. Resampling costs data preparation; SMOTE generates synthetic examples. The real cost: if you reweight or resample, probabilities are skewed and need recalibration on held-out data. Metric cost: accuracy is broken on imbalanced data. Use the PR curve instead of ROC for rare positives.`,
+        `Moving a threshold costs almost nothing and requires no retraining. Class weights require one retraining run. Oversampling increases the training set; undersampling throws data away; SMOTE adds synthetic examples and preprocessing complexity. The hidden cost is probability distortion: weighted and resampled models no longer see the real class distribution during training, so Calibration & Reliability Diagrams should be run on untouched validation data before anyone treats scores as probabilities. Operational cost matters too: a 23% precision fraud queue may be acceptable with automation and impossible with human investigators.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Fraud detection (0.1%–1% of transactions) costs missing fraud far more than investigating false alarms. Credit-card processors live on the PR curve. Disease screening: 99% of results are negative, but missing one can cost a life. Manufacturing: 99.9% of parts are fine; catch the 0.1% defects. Cybersecurity: most traffic is normal; malicious is rare and crucial. Churn prediction: most customers renew; catch the few who leave. In all cases, the cost of missing a rare positive far exceeds investigating false alarms. The model must be re-priced to match reality, or it optimizes for accuracy — the wrong thing.`,
+        `Fraud detection, medical screening, cybersecurity alerts, rare manufacturing defects, churn rescue, abuse detection, and legal discovery all live here. Investigators care about alarm budgets, not just model elegance. Team capacity, not elegance, sets the limit. Precision, Recall & the Confusion Matrix gives the operational vocabulary. Cross-Validation & Honest Evaluation must usually be stratified or grouped so each fold contains enough rare positives to measure anything. Focal Loss & Hard Examples is a deep-learning response to the same problem: easy majority examples should not drown the gradient.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `"My model ignores the rare class" often means "I evaluated on accuracy" or "left the threshold at 0.5" — not that the model is broken. Try threshold sweep first. Another trap: using ROC for rare-positive problems. ROC is base-rate blind; use the PR curve instead. Oversampling tempts memorization of duplicates; undersampling discards data; class weights are principled. Do not trust reweighted probabilities without recalibration. Finally, the threshold is a deployment knob you turn to match your cost structure — leaving it at 0.5 wastes learned information.`,
+        `The phrase my model ignores the minority class often means the metric or threshold is wrong, not that learning failed. Check the confusion matrix before changing algorithms. Do not report accuracy alone. Do not trust ROC alone when positives are rare. Do not oversample before splitting; that creates Data Leakage & Contamination by putting duplicates or synthetic neighbors on both sides. Do not assume class weights solve deployment costs; the final threshold still has to match the real cost of false positives and false negatives.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Start with Precision, Recall & the Confusion Matrix. Then ROC Curves & AUC to see why ROC is base-rate blind. Picking a Threshold with Real Costs teaches t* = cost(FP) / (cost(FP) + cost(FN)). Calibration & Reliability Diagrams tests if probabilities match reality. Finally, Logistic Regression shows where class weights and thresholds live in the algorithm.`,
+        `Study Precision, Recall & the Confusion Matrix first, then ROC Curves & AUC to understand why ROC can flatter rare-event models. Use Picking a Threshold with Real Costs to deploy the score, Calibration & Reliability Diagrams to repair probability meaning, and Focal Loss & Hard Examples when neural training itself is dominated by easy negatives.`,
       ],
     },
   ],
 };
-
