@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Topic — Visualized</title>
+  <link rel="stylesheet" href="./styles/site.css">
+</head>
+<body data-page="topic">
+  <div class="topic-layout" data-page="topic">
+    <nav class="topic-nav" data-topic-nav aria-label="All topics">
+      <a class="home-link" href="./index.html">← All topics</a>
+    </nav>
+
+    <main class="topic-main">
+      <header class="topic-header">
+        <div class="header-row">
+          <h1 data-topic-title>Loading…</h1>
+          <button class="btn" data-theme-toggle aria-label="Toggle dark or light theme">◐ Theme</button>
+        </div>
+        <p class="topic-summary" data-topic-summary></p>
+      </header>
+
+      <form class="controls" data-topic-controls></form>
+      <p class="error-box" data-error hidden></p>
+
+      <section class="learn-grid">
+        <div class="vis-panel" data-visualization aria-live="off"></div>
+        <aside class="explain-panel">
+          <p class="progress-text" data-progress-text>Step 1</p>
+          <input class="step-slider" type="range" min="0" max="0" value="0" data-slider aria-label="Step position">
+          <p class="explanation" data-explanation aria-live="polite"></p>
+          <p class="invariant" data-invariant hidden></p>
+          <div class="player-controls" data-player-controls>
+            <button class="btn" data-action="reset" aria-label="Back to first step">⏮ Reset</button>
+            <button class="btn" data-action="prev" aria-label="Previous step">◀ Prev</button>
+            <button class="btn btn-primary" data-action="toggle" aria-pressed="false">▶ Play</button>
+            <button class="btn" data-action="next" aria-label="Next step">Next ▶</button>
+            <label class="speed-label">Speed
+              <select data-speed>
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+              </select>
+            </label>
+          </div>
+          <p class="fine-print">Keyboard: ←/→ step, space plays.</p>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
