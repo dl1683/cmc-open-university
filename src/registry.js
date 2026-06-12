@@ -1156,6 +1156,16 @@ export const topics = [
     module: () => import('./topics/loss-landscapes.js'),
   },
   {
+    id: 'loss-surface-3d',
+    type: 'visualization',
+    buildsOn: ['loss-landscapes', 'gradient-descent', 'adam-optimizer'],
+    category: 'AI & ML',
+    title: 'The Loss Landscape, in 3D',
+    summary: 'A real two-basin surface in WebGL: gradient descent gets trapped, momentum vaults the ridge — computed live, draped in 3D.',
+    tags: ['3D', 'WebGL', 'loss landscape', 'gradient descent', 'momentum', 'optimization'],
+    module: () => import('./topics/loss-surface-3d.js'),
+  },
+  {
     id: 'adam-optimizer',
     type: 'visualization',
     buildsOn: ['gradient-descent', 'loss-landscapes', 'regularization'],

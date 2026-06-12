@@ -21,6 +21,7 @@ export const STATE_KINDS = [
   'plot',
   'scatter',
   'graph',
+  'surface3d',
 ];
 
 export const HIGHLIGHT_KEYS = [
@@ -239,6 +240,26 @@ export function scatterState({ axes, points = [], centroids = [] }, meta = {}) {
   };
 }
 
+
+// True-3D surface (rendered with vendored Three.js when available).
+// heights: 2D array of z-values over a regular grid spanning the axes.
+// paths: [{id, label, points: [{x, y, z}]}] — trajectories draped on the
+// surface. markers: [{id, x, y, z, label}].
+export function surface3dState({ axes, heights, paths = [], markers = [] }, meta = {}) {
+  return {
+    kind: 'surface3d',
+    axes: {
+      x: { ...axes.x },
+      y: { ...axes.y },
+      z: { ...(axes.z ?? {}) },
+    },
+    heights: heights.map((row) => [...row]),
+    paths: paths.map((p) => ({ id: p.id, label: p.label ?? '', points: p.points.map((q) => ({ ...q })) })),
+    markers: markers.map((m) => ({ ...m })),
+    meta: { ...meta },
+  };
+}
+
 // ------------------------------------------------------- step contract
 
 export function collectStateIds(state) {
@@ -275,6 +296,11 @@ export function collectStateIds(state) {
       return [
         ...state.nodes.map((n) => n.id),
         ...state.edges.map((e) => e.id),
+      ];
+    case 'surface3d':
+      return [
+        ...state.paths.map((p) => p.id),
+        ...state.markers.map((m) => m.id),
       ];
     default:
       return [];

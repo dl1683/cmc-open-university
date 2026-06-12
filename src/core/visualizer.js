@@ -2,6 +2,7 @@
 // This is the only module that touches the visualization DOM.
 // Topic modules never reach in here: they yield steps, we draw them.
 
+import { renderSurface3d } from './three-renderer.js';
 import { validateSteps, collectSteps, InputError } from './state.js';
 import { supportsVideoExport, exportVideo, downloadBlob } from './exporter.js';
 
@@ -398,6 +399,7 @@ const RENDERERS = {
   plot: renderPlot,
   scatter: renderScatter,
   graph: renderGraph,
+  surface3d: renderSurface3d,
 };
 
 // FLIP "magic move": record where every [data-id] element sat in the old

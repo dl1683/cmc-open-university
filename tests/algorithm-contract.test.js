@@ -1696,6 +1696,23 @@ test('permutation-tests: 200 live shuffles put the observed +5.4 in the top 1.5%
   assert.equal(kit.rows.length, 4, 'four-tool resampling shelf');
 });
 
+test('loss-surface-3d: GD settles in the shallow basin while momentum crosses to the deep one', async () => {
+  const topic = await loadTopic('loss-surface-3d');
+  const steps = runTopic(topic, { view: 'watch the optimizers race' });
+  assert.ok(steps.every((s) => s.state.kind === 'surface3d'), 'every step renders the 3D surface');
+  const grid = steps[0].state.heights;
+  assert.equal(grid.length, 36, '36 grid rows');
+  assert.ok(grid.every((row) => row.length === 36), '36 grid columns');
+  const final = steps[steps.length - 1].state;
+  const path = (id) => final.paths.find((p) => p.id === id).points;
+  const gdEnd = path('gd').at(-1);
+  assert.ok(gdEnd.x > 1.5 && Math.abs(gdEnd.z - 1.48) < 0.05, 'GD rests in the shallow basin at ~1.48');
+  const momEnd = path('mom').at(-1);
+  assert.ok(momEnd.x < -1.5 && momEnd.z < 0.6, 'momentum crosses the ridge to the deep basin');
+  assert.ok(path('mom').every((q) => Math.abs(q.z - (((q.x * q.x - 4) ** 2) / 22 + q.x / 4 + 1 + 1.5 * q.y * q.y)) < 1e-9), 'path z-values sit exactly on the surface');
+  assert.ok(final.markers.some((m) => m.id === 'deep') && final.markers.some((m) => m.id === 'shallow'), 'both minima marked');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
