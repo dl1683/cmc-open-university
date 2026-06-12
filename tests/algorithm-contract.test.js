@@ -670,6 +670,18 @@ test('positional-encoding: fingerprints are unique, bounded, and multi-frequency
   assert.ok(fast > slow, `low dimension oscillates faster (${fast} vs ${slow} sign changes)`);
 });
 
+test('database-indexing: scan touches all rows, index touches few, covering skips the table', async () => {
+  const topic = await loadTopic('database-indexing');
+  const scan = runTopic(topic, { query: 'WHERE age = 41 (no index)' });
+  const scanStep = scan.find((s) => /FULL TABLE SCAN/.test(s.explanation));
+  assert.equal(scanStep.highlight.compare.length, 8, 'scan checks every row');
+  const indexed = runTopic(topic, { query: 'WHERE age = 41 (indexed)' });
+  assert.ok(indexed.some((s) => /Binary Search/.test(s.explanation)), 'index seek explained');
+  const covering = runTopic(topic, { query: 'covering index' });
+  assert.ok(covering.some((s) => /NEVER touched/.test(s.explanation)), 'covering index skips the table');
+  assert.match(lastText(covering), /write amplification/i, 'write-time cost taught');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

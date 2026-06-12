@@ -489,6 +489,16 @@ export const topics = [
     module: () => import('./topics/gossip-protocol.js'),
   },
   {
+    id: 'database-indexing',
+    type: 'visualization',
+    buildsOn: ['b-tree', 'binary-search', 'hash-table'],
+    category: 'Systems',
+    title: 'Database Indexing',
+    summary: 'Full scan vs index lookup vs covering index — the same query at three wildly different costs.',
+    tags: ['index', 'SQL', 'EXPLAIN', 'covering index', 'postgres', 'query performance'],
+    module: () => import('./topics/database-indexing.js'),
+  },
+  {
     id: 'git-internals',
     type: 'visualization',
     buildsOn: ['merkle-tree', 'hash-table', 'graph-bfs'],
