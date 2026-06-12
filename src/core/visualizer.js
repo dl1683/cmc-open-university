@@ -281,8 +281,10 @@ export function renderStep(container, step) {
 // --------------------------------------------------------------- player
 
 // 1× is deliberately slow: people must be able to READ the explanation while
-// the animation moves. Learners can speed up; a too-fast default teaches no one.
-const READING_PACE_MS = 2000;
+// the animation moves — there is text AND a picture at every step. Learners
+// can always speed up; below a certain pace they cannot slow down, so the
+// default errs slow. (Devansh's rule: slower is better than faster.)
+const READING_PACE_MS = 5000;
 
 export function createPlayer(steps, hooks) {
   let index = 0;
