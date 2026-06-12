@@ -279,6 +279,16 @@ export const topics = [
     module: () => import('./topics/two-pointers.js'),
   },
   {
+    id: 'sliding-window',
+    type: 'visualization',
+    buildsOn: ['two-pointers'],
+    category: 'Concepts',
+    title: 'Sliding Window',
+    summary: 'Find the longest run under a budget in one pass — grow the window right, shrink it left.',
+    tags: ['sliding window', 'technique', 'O(n)', 'TCP', 'substring'],
+    module: () => import('./topics/sliding-window.js'),
+  },
+  {
     id: 'memoization',
     type: 'visualization',
     buildsOn: ['recursion', 'hash-table'],

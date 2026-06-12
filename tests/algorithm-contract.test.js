@@ -397,6 +397,14 @@ test('lora: delta is exactly rank-r and merge adds it onto frozen W', async () =
   assert.match(steps.find((s) => /instead of 36|65,536/.test(s.explanation)).explanation, /12 numbers instead of 36/);
 });
 
+test('sliding-window: finds the true longest window under the budget', async () => {
+  const topic = await loadTopic('sliding-window');
+  const steps = runTopic(topic, { values: '4, 2, 1, 7, 8, 1, 2, 8, 1, 0', limit: '8' });
+  assert.match(lastText(steps), /length 3/, 'longest legal window is [4, 2, 1]');
+  assert.deepEqual(steps.at(-1).highlight.found, ['i0', 'i1', 'i2']);
+  assert.throws(() => runTopic(topic, { values: '3, -1, 4' }), InputError, 'negatives rejected');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
