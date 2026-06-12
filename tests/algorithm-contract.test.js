@@ -481,6 +481,22 @@ test('avl-tree: sorted input yields a balanced tree, not a chain', async () => {
   assert.ok(balanced(final.rootId), 'every node satisfies the AVL property');
 });
 
+test('two-phase-commit: commits unanimously, aborts on one no, blocks on coordinator crash', async () => {
+  const topic = await loadTopic('two-phase-commit');
+  const happy = runTopic(topic, { scenario: 'all vote yes' });
+  const happyFinal = happy.at(-1).state;
+  for (const id of ['P1', 'P2', 'P3']) {
+    assert.equal(happy.at(-2).state.nodes.find((n) => n.id === id).note, 'committed ✓');
+  }
+  assert.ok(happyFinal.nodes.some((n) => n.id === 'C'), 'coordinator alive in happy path');
+  const veto = runTopic(topic, { scenario: 'one votes no' });
+  assert.ok(veto.some((s) => /ABORT/.test(s.explanation)), 'abort broadcast');
+  assert.ok(veto.at(-1).state.nodes.filter((n) => n.id.startsWith('P')).every((n) => n.note === 'rolled back'));
+  const crash = runTopic(topic, { scenario: 'coordinator crashes' });
+  assert.ok(crash.at(-1).state.nodes.every((n) => n.id !== 'C'), 'coordinator gone');
+  assert.ok(crash.some((s) => /STUCK|BLOCKED/i.test(s.explanation)), 'blocking flaw shown');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

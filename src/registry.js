@@ -399,6 +399,16 @@ export const topics = [
     module: () => import('./topics/merkle-tree.js'),
   },
   {
+    id: 'two-phase-commit',
+    type: 'visualization',
+    buildsOn: ['write-ahead-log', 'raft-log-replication', 'cap-theorem'],
+    category: 'Systems',
+    title: 'Two-Phase Commit (2PC)',
+    summary: 'Atomic transactions across machines: prepare, vote, commit — and the blocking flaw that motivated consensus.',
+    tags: ['2PC', 'distributed transactions', 'XA', 'sagas', 'spanner', 'atomicity'],
+    module: () => import('./topics/two-phase-commit.js'),
+  },
+  {
     id: 'rate-limiter',
     type: 'visualization',
     buildsOn: ['stack', 'hash-table'],
