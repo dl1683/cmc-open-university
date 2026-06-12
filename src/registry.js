@@ -1586,6 +1586,16 @@ export const topics = [
     module: () => import('./topics/instrumental-variables.js'),
   },
   {
+    id: 'difference-in-differences',
+    type: 'visualization',
+    buildsOn: ['instrumental-variables', 'causal-graphs', 'ab-testing'],
+    category: 'Concepts',
+    title: 'Difference-in-Differences',
+    summary: 'Subtract across time to kill place effects, subtract across places to kill time effects: a known policy effect recovered live, plus the parallel-trends bet.',
+    tags: ['difference-in-differences', 'natural experiments', 'parallel trends', 'Card-Krueger', 'panel data', 'causal inference'],
+    module: () => import('./topics/difference-in-differences.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],

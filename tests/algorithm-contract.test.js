@@ -2203,3 +2203,17 @@ test('segment-tree: canonical decomposition, lazy tags, and push-on-pass all ver
   assert.ok(lz[2].highlight.active.length >= 2, 'tags visibly pushed during the walk');
   assert.ok(lz[3].highlight.active.length >= 1, 'unsettled tags remain — deferred work that may never come due');
 });
+
+test('difference-in-differences: both naive comparisons lie, the 2x2 recovers +3 exactly', async () => {
+  const topic = await loadTopic('difference-in-differences');
+  const t = runTopic(topic, { view: 'the 2×2 that cancels twice' });
+  assert.match(t[0].state.cells.find((c) => c.id === 'naive1:verdict').label, /77 − 78 = -1/, 'before/after carries the recession');
+  assert.match(t[0].state.cells.find((c) => c.id === 'naive2:verdict').label, /77 − 88 = -11/, 'cross-section carries the level gap');
+  assert.match(t[1].state.cells.find((c) => c.id === 'diff:delta').label, /= \+3 — the policy effect, exactly/, 'two subtractions recover the truth');
+  const cf = t[2].state.series.find((s) => s.id === 'cf');
+  assert.equal(cf.points[1].y, 74, 'the counterfactual is treated start + control slope');
+  const pt = runTopic(topic, { view: 'parallel trends & where it breaks' });
+  assert.match(pt[0].state.cells.find((c) => c.id === 'nice:detail').label, /need not be similar/, 'levels may differ — only slopes must match');
+  assert.equal(pt[1].state.rows.length, 3, 'three failure stories');
+  assert.match(pt[2].state.cells.find((c) => c.id === 'did:bet').label, /parallel trends/, 'the bet named in the toolkit');
+});
