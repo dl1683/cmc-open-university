@@ -299,6 +299,16 @@ export const topics = [
     module: () => import('./topics/write-ahead-log.js'),
   },
   {
+    id: 'raft-election',
+    type: 'visualization',
+    buildsOn: ['write-ahead-log', 'consistent-hashing'],
+    category: 'Systems',
+    title: 'Raft Leader Election',
+    summary: 'How a cluster agrees on one leader after a crash — terms, votes, and the majority that prevents split-brain.',
+    tags: ['raft', 'consensus', 'etcd', 'kubernetes', 'distributed systems', 'split-brain'],
+    module: () => import('./topics/raft-election.js'),
+  },
+  {
     id: 'rate-limiter',
     type: 'visualization',
     buildsOn: ['stack', 'hash-table'],
