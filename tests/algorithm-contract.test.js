@@ -1276,6 +1276,26 @@ test('adam-optimizer: GD zigzags and crawls while Adam cuts diagonally to a 20x 
   assert.match(tree.cells.find((c) => c.id === 'adamw:home').label, /transformer/i, 'AdamW credited as the LLM default');
 });
 
+test('isolation-levels: three anomalies stage correctly and the ladder retires them rung by rung', async () => {
+  const topic = await loadTopic('isolation-levels');
+  const anomalies = runTopic(topic, { view: 'the classic anomalies' });
+  assert.match(anomalies[0].state.title, /DIRTY READ/, 'dirty read staged first');
+  assert.ok(anomalies[0].state.cells.some((c) => /ROLLBACK/.test(c.label)), 'rollback makes the read dirty');
+  assert.match(anomalies[1].state.title, /NON-REPEATABLE/, 'non-repeatable read second');
+  assert.match(anomalies[2].state.title, /PHANTOM/, 'phantom read third');
+  assert.ok(anomalies.some((s) => /predicate/.test(s.invariant ?? '')), 'range-lock distinction stated');
+  const lad = runTopic(topic, { view: 'the isolation ladder & MVCC' });
+  const grid = lad[0].state;
+  const cell = (id) => grid.cells.find((c) => c.id === id);
+  assert.equal(cell('ru:dirty').value, 1, 'read uncommitted permits dirty reads');
+  assert.equal(cell('rc:dirty').value, 0, 'read committed blocks them');
+  assert.deepEqual([cell('ser:dirty').value, cell('ser:nonrep').value, cell('ser:phantom').value], [0, 0, 0], 'serializable blocks all three');
+  assert.ok(lad.some((s) => /WRITE SKEW/.test(s.explanation) && /doctors/.test(s.explanation)), 'write skew doctors example present');
+  assert.ok(lad.some((s) => /MVCC/.test(s.explanation) && /NEITHER BLOCKING/.test(s.explanation)), 'MVCC non-blocking reads explained');
+  const guide = lad[lad.length - 1].state;
+  assert.match(guide.cells.find((c) => c.id === 'oracle:ser').label, /snapshot isolation/, 'Oracle serializable caveat included');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
