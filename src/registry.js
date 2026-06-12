@@ -349,6 +349,16 @@ export const topics = [
     module: () => import('./topics/write-ahead-log.js'),
   },
   {
+    id: 'cap-theorem',
+    type: 'visualization',
+    buildsOn: ['raft-election', 'consistent-hashing'],
+    category: 'Systems',
+    title: 'CAP Theorem',
+    summary: 'When the network splits, a replicated system must choose: refuse to answer, or answer possibly-stale.',
+    tags: ['CAP', 'distributed systems', 'consistency', 'availability', 'PACELC', 'eventual consistency'],
+    module: () => import('./topics/cap-theorem.js'),
+  },
+  {
     id: 'raft-election',
     type: 'visualization',
     buildsOn: ['write-ahead-log', 'consistent-hashing'],

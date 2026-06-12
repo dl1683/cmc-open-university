@@ -405,6 +405,20 @@ test('sliding-window: finds the true longest window under the budget', async () 
   assert.throws(() => runTopic(topic, { values: '3, -1, 4' }), InputError, 'negatives rejected');
 });
 
+test('cap-theorem: CP refuses during partition, AP serves stale, both heal to 9', async () => {
+  const topic = await loadTopic('cap-theorem');
+  const cpRun = runTopic(topic, { choice: 'consistency (CP)' });
+  assert.ok(cpRun.some((s) => /REFUSES/.test(s.explanation)), 'CP refuses the read');
+  const apRun = runTopic(topic, { choice: 'availability (AP)' });
+  assert.ok(apRun.some((s) => /STALE/.test(s.explanation)), 'AP serves stale');
+  for (const steps of [cpRun, apRun]) {
+    const healed = steps.find((s) => /HEALS/.test(s.explanation)).state;
+    for (const id of ['N1', 'N2']) {
+      assert.equal(healed.nodes.find((n) => n.id === id).note, 'x = 9', `${id} reconciled`);
+    }
+  }
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
