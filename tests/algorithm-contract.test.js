@@ -1319,6 +1319,27 @@ test('tsne-umap: clusters converge from random scatter and the reading contract 
   assert.ok(['size', 'gaps', 'axes'].every((id) => contract.cells.find((c) => c.id === `${id}:trust`).value === 0), 'everything else is artifact');
 });
 
+test('hyperparameter-search: random probes 9 distinct lrs to grid\'s 3 and lands a whisker from the peak', async () => {
+  const topic = await loadTopic('hyperparameter-search');
+  const race = runTopic(topic, { view: 'grid vs random, fairly raced' });
+  const grid = race.find((s) => s.state.kind === 'scatter');
+  const gridLrs = new Set(grid.state.points.map((p) => p.x.toFixed(3)));
+  assert.equal(gridLrs.size, 3, 'grid collapses to 3 distinct learning rates');
+  const board = race[race.length - 1].state;
+  const cell = (id) => board.cells.find((c) => c.id === id).value;
+  assert.equal(cell('grid:distinct'), 3, 'grid distinct count');
+  assert.equal(cell('random:distinct'), 9, 'random distinct count');
+  assert.ok(cell('random:best') > cell('grid:best'), 'random finds the better config');
+  assert.ok(cell('random:best') > 0.899, 'random lands a whisker from 0.9');
+  assert.ok(race.some((s) => /Bergstra & Bengio/.test(s.explanation)), 'the 2012 result cited');
+  const smart = runTopic(topic, { view: 'smarter: Bayesian & Hyperband' });
+  assert.ok(smart.some((s) => /Thompson Sampling/.test(s.explanation)), 'bandit connection drawn');
+  const halving = smart.find((s) => /Successive halving/.test(s.state.title ?? '')).state;
+  assert.ok(halving.cells.filter((c) => c.column === 'cost').every((c) => c.value === 27), 'every rung costs the same 27 epochs');
+  assert.equal(halving.cells.find((c) => c.id === 'rung1:configs').value, 27, '27 configs screened at rung one');
+  assert.ok(smart.some((s) => /test set stays sealed/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'protocol seals the test set');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

@@ -956,6 +956,16 @@ export const topics = [
     module: () => import('./topics/cross-validation.js'),
   },
   {
+    id: 'hyperparameter-search',
+    type: 'visualization',
+    buildsOn: ['cross-validation', 'thompson-sampling', 'gradient-boosting'],
+    category: 'AI & ML',
+    title: 'Hyperparameter Search',
+    summary: 'Grid wastes its budget, random embarrassingly wins, and Bayesian search plays bandits over configurations.',
+    tags: ['hyperparameters', 'grid search', 'random search', 'Bayesian optimization', 'Hyperband', 'AutoML'],
+    module: () => import('./topics/hyperparameter-search.js'),
+  },
+  {
     id: 'learning-curves',
     type: 'visualization',
     buildsOn: ['cross-validation', 'regularization', 'uncertainty-quantification'],
