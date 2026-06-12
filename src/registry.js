@@ -719,6 +719,16 @@ export const topics = [
     module: () => import('./topics/tsne-umap.js'),
   },
   {
+    id: 'pca',
+    type: 'visualization',
+    buildsOn: ['tsne-umap', 'embeddings-similarity', 'gradient-descent'],
+    category: 'AI & ML',
+    title: 'PCA: Principal Component Analysis',
+    summary: 'Find the axes the data actually varies along — computed live — and keep only the loud ones.',
+    tags: ['PCA', 'dimensionality reduction', 'eigenvectors', 'covariance', 'explained variance', 'compression'],
+    module: () => import('./topics/pca.js'),
+  },
+  {
     id: 'activation-functions',
     type: 'visualization',
     buildsOn: ['gradient-descent'],

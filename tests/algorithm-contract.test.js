@@ -1381,6 +1381,27 @@ test('mvcc-vacuum: each snapshot sees exactly one version and the idle transacti
   assert.ok(trap.some((s) => /idle in transaction/.test(s.explanation)), 'the classic incident named');
 });
 
+test('pca: the live eigendecomposition finds the 39-degree spine holding 99.4% of the variance', async () => {
+  const topic = await loadTopic('pca');
+  const live = runTopic(topic, { view: 'finding the principal axis, live' });
+  const cov = live.find((s) => /covariance matrix/.test(s.state.title ?? '')).state;
+  const cell = (id) => cov.cells.find((c) => c.id === id).value;
+  assert.ok(Math.abs(cell('f1:c2') - 5.43) < 0.01, 'off-diagonal covariance ~5.43');
+  assert.equal(cell('f1:c2'), cell('f2:c1'), 'covariance matrix is symmetric');
+  const eig = live.find((s) => (s.state.vectors ?? []).some((v) => v.id === 'pc1'));
+  assert.match(eig.explanation, /39°/, 'PC1 angle reported at 39 degrees');
+  assert.ok(live.some((s) => /99\.4%/.test(s.explanation)), 'explained variance 99.4% stated');
+  const projStep = live.find((s) => s.state.kind === 'scatter' && s.state.points.some((p) => p.id === 'q0')).state;
+  const q = projStep.points.filter((p) => p.id.startsWith('q'));
+  const dir = Math.tan((38.8 * Math.PI) / 180);
+  q.forEach((p) => assert.ok(Math.abs((p.y - 4.3) - dir * (p.x - 5.25)) < 0.05, 'projections lie on the PC1 line'));
+  const fails = runTopic(topic, { view: 'when PCA wins, when it fails' });
+  assert.ok(fails.some((s) => /antipodal points/i.test(s.explanation) && /ON TOP OF EACH OTHER/.test(s.explanation)), 'ring failure shown');
+  const versus = fails[0].state;
+  assert.match(versus.cells.find((c) => c.id === 'invert:pcaCol').label, /YES/, 'PCA is invertible');
+  assert.ok(fails.some((s) => /768-D → 50-D/.test((s.state.rows ?? []).map((r) => r.label).join(' '))), 'PCA-then-tSNE pipeline staged');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
