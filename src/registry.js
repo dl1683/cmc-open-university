@@ -719,6 +719,16 @@ export const topics = [
     module: () => import('./topics/tail-latency.js'),
   },
   {
+    id: 'circuit-breakers',
+    type: 'visualization',
+    buildsOn: ['tail-latency', 'finite-state-machine', 'distributed-tracing'],
+    category: 'Systems',
+    title: 'Circuit Breakers & Deadlines',
+    summary: 'A three-state machine that fails fast when a dependency sickens — plus deadlines that travel with the request.',
+    tags: ['circuit breaker', 'deadline propagation', 'cascading failure', 'resilience', 'fallbacks', 'gRPC', 'Hystrix'],
+    module: () => import('./topics/circuit-breakers.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

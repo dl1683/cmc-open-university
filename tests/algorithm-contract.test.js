@@ -1627,6 +1627,25 @@ test('markov-chains: both starts converge to (0.476, 0.381, 0.143) and the funne
   assert.ok(abs.some((s) => /ENGINEERS a chain/.test(s.explanation)), 'MCMC inversion explained');
 });
 
+test('circuit-breakers: the FSM trips and heals, and the deadline refuses doomed work', async () => {
+  const topic = await loadTopic('circuit-breakers');
+  const fsm = runTopic(topic, { view: 'the breaker state machine' });
+  const machine = fsm[1].state;
+  assert.deepEqual(machine.nodes.map((n) => n.id).sort(), ['closed', 'half', 'open'], 'three breaker states');
+  assert.ok(machine.edges.some((e) => e.from === 'half' && e.to === 'closed') && machine.edges.some((e) => e.from === 'half' && e.to === 'open'), 'half-open can heal or relapse');
+  const incident = fsm.find((s) => /minute by minute/.test(s.state.title ?? '')).state;
+  assert.match(incident.cells.find((c) => c.id === 't2:event').label, /TRIPS/, 'breaker trips at the threshold');
+  assert.match(incident.cells.find((c) => c.id === 't4:event').label, /CLOSED/, 'probe success closes the breaker');
+  assert.ok(fsm.some((s) => /microsecond failure/.test(s.invariant ?? '')), 'fast-fail invariant stated');
+  const dl = runTopic(topic, { view: 'deadlines that travel' });
+  const doomed = dl[0].state;
+  assert.equal(doomed.cells.find((c) => c.id === 'c:left').label, 'GONE — user already saw the error', 'doomed work flagged');
+  const propagate = dl.find((s) => /budget travels/.test(s.state.title ?? '')).state;
+  assert.match(propagate.cells.find((c) => c.id === 'cBad:act').label, /REFUSE instantly/, 'short budget refused at the door');
+  const kit = dl[dl.length - 1].state;
+  assert.equal(kit.rows.length, 5, 'five-guard resilience kit');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
