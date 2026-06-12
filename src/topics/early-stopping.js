@@ -141,40 +141,41 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Early stopping is the only regularizer that returns compute. Watch validation loss bottom at epoch 25, then climb to 0.63 by epoch 40, while training loss keeps falling as if nothing is wrong. That climb is called the turn — the moment the model starts memorizing instead of learning. Stop at the turn, restore the weights from that epoch, and you prevent overfitting without a penalty term. You save the 15+ epochs you did not need. No other regularizer does that.`,
+        `Early stopping is a regularizer built from the validation curve. In the demo, training loss keeps falling for all 40 epochs, but validation loss bottoms at epoch 25, about 0.44, then rises to about 0.82 by epoch 40. That split is the turn: the model is still improving at memorizing the training set while getting worse at the job you care about. Learning Curves & Bias–Variance shows the same train-validation gap across dataset sizes; here it opens inside one run, across time.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The naive rule — "stop the moment validation rises" — fails on noise. The visualization shows noise blips at epochs 9 and 15: validation jumps up, then dives back down. Fire on the first rise and you abandon a model 16 epochs short of the true optimum. The production rule uses a patience counter: keep a best-so-far validation score and increment a counter each epoch with no improvement. At patience (say, 5), stop and restore the checkpoint. The blips tick the counter and are forgiven; the true turn at epoch 25 survives the patience window and triggers stop at epoch 30.`,
-        `Why does stopping early regularize? The weight-norm plot shows norms grow with every epoch. Stopping at epoch 25 caps the norm there — the model never acquired the huge weights overfitting requires. For linear models, this is exact: early stopping at step t equals an L2 penalty with strength time-dependent. Same leash, different handle, and this leash is free.`,
+        `The naive rule, stop on the first validation uptick, fails because the curve is noisy. This generator deliberately inserts blips at epochs 9 and 15; quitting there would miss the true minimum by many epochs. Production early stopping keeps the best validation score, saves a checkpoint when it improves, and increments a patience counter when it does not. With patience = 5, the demo forgives the blips, recognizes epoch 25 as best, stops at epoch 30, and restores epoch 25 weights.`,
+        `It regularizes because weight norms tend to grow along the training path. Stopping at time t caps the norm at ||w(t)||. For linear models, that is closely related to an L2 leash from Regularization: L1 & L2; in practice it behaves like a free, time-based penalty. The model never reaches the large, contorted weights that later epochs can use to memorize exceptions.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Training cost: O(1) per epoch (one validation comparison) plus a checkpoint save on improvement (same size as your model). Testing: zero cost. The real win: if training runs 40 epochs, early stopping saves 15 (a 37% speedup), and the result is better. The price list shows L2 costs nothing but needs tuning λ; dropout costs slower convergence; more data costs money. Early stopping is the only row with NEGATIVE cost. The only knob is patience (forgiving: 5 vs. 10 rarely differs, unlike a 10× λ mistake).`,
+        `The cost is one validation evaluation per epoch and checkpoint storage for the best model. The payoff is negative compute: in this 40-epoch demo, patience stops at 30 and keeps the better epoch-25 model. Dropout and weight decay add training friction; early stopping removes wasted epochs. On very large models, validation itself can be expensive, but it is usually cheaper than training through a long overfitting tail.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Every neural network framework (Keras, PyTorch, TensorFlow) has built-in early stopping. It is table stakes in production. Hyperparameter search uses the same idea: early stopping per config, abandoning runs that do not progress, saving wall-clock time. Medical device models, fraud detectors, recommendation systems all use it. One caveat: epoch-wise double descent (very large models) can dip, rise, and dip again — patience must be long enough to not bank the first minimum.`,
+        `Keras, PyTorch Lightning, and most training loops expose early stopping because it is simple and hard to misuse if restore-best-weights is enabled. Hyperparameter Search uses the same instinct at larger scale: abandon configurations whose evidence stops improving. It is also a guardrail during Data Leakage & Contamination reviews, because a suspiciously perfect validation curve should make you inspect the split before celebrating. In small-data projects, it is often the first regularizer to enable.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The classic footgun: restore_best_weights defaulted to FALSE in older frameworks — early stopping halted at the right epoch but kept the degraded final weights, silently discarding the checkpoint. Always set restore_best_weights = TRUE. Monitor validation loss (stable) unless your business metric (Precision-Recall, cost) differs. Patience of 5–10 works for most models; too short fires on noise, too long defeats the purpose. Finally, if you train a 100-billion-parameter model and see double descent, do not assume the first minimum is global.`,
+        `The classic footgun is stopping late but keeping the late weights. Always restore the checkpoint, not the final epoch. Patience that is too short fires on noise; patience that is too long becomes a training budget. Monitor validation loss for stability unless the shipped metric is different, such as Precision, Recall & the Confusion Matrix or cost from Picking a Threshold with Real Costs. Very large models can show epoch-wise double descent, so a tiny patience can bank the first dip and miss a later one.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Learning Curves & Bias–Variance shows how the train-validation gap widens across dataset sizes — early stopping stops at the moment the gap opens within a single run. Regularization: L1 & L2 teaches the weight penalty early stopping implicitly applies. Hyperparameter Search shows how early stopping per config is the first strategy for efficient tuning. Cross-Validation & Honest Evaluation uses multiple splits to estimate true optimality. Learning-Rate Schedules & Warmup shows how the learning path itself shapes the turn.`,
+        `Study Cross-Validation & Honest Evaluation for the validation signal and Learning-Rate Schedules & Warmup for shaping the path to the turn. The key habit is to treat training time as another capacity control: more epochs are useful only until validation evidence says the extra capacity is being spent on memorization.`,
+        `In code reviews, look for three settings together: the monitored metric, min_delta, and restore-best-weights. If any one is missing, the callback may look responsible while silently stopping on noise, ignoring meaningful improvement, or keeping the wrong checkpoint.`,
+        `Also record the epoch that produced the restored checkpoint. Without that provenance, later comparisons can confuse the stopping epoch with the model epoch.`,
       ],
     },
   ],
 };
-

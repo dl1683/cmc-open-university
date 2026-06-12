@@ -139,37 +139,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Gradient flow is the learning signal flowing backward through a neural network. When you train, you compute a loss, then ask: which weight changes lower it? Backpropagation finds the answer by walking backward through every layer, multiplying local derivatives using the chain rule. The problem: a chain of multiplications over many layers can collapse to near-zero (vanishing) or explode to infinity, halting learning. This visualization shows why deep networks seemed impossible for decades — and the three fixes that unlocked them.`,
+        `Gradient flow is the learning signal traveling backward through a network. Backpropagation applies the chain rule, so every layer contributes another multiplier. If those multipliers are mostly below 1, the signal vanishes before it reaches early layers. If they are above 1, it explodes into NaN. The demo plots both diseases over ten layers, making the old deep-learning bottleneck arithmetic rather than mysterious: depth turns small scale errors into exponential effects.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The chain rule: if f(g(h(x))) is your composition, then the derivative is f′ × g′ × h′ — a product of local derivatives. A neural network is exactly that: each layer contributes one factor. A sigmoid derivative σ′(z) is at most 0.25. Multiply it by itself nine times: 0.25⁹ ≈ 0.0000038. Layer 1 receives nearly zero signal — it learns almost nothing. This is vanishing. Flip it: make the per-layer factor 1.5, and 1.5⁹ ≈ 38 — explosive growth to NaN. The safe corridor is razor-thin: each factor must hug 1.0 precisely, across all layers, through all training. Three fixes hold it there: ReLU (derivative exactly 1) plus He/Xavier initialization (0.95⁹ ≈ 0.63, alive), residual connections (d(x + f(x))/dx = 1 + f′, identity highway), LayerNorm/BatchNorm (re-center activations), and gradient clipping (cap the norm). Each works on the same theorem: keep the product near 1.`,
+        `A sigmoid derivative is never bigger than 0.25, the saturation fact you also meet in Logistic Regression. After nine such multiplications, the first layer receives 0.25^9, about 0.0000038, so it is effectively frozen. Change the factor to 1.5 and the same chain becomes 1.5^9, about 38; in deeper nets it becomes a numerical explosion. The safe corridor is narrow: per-layer factors need to stay near 1 throughout training.`,
+        `The fixes all attack that product. Activation Functions such as ReLU have slope 1 on the active side. Careful initialization keeps variance near constant. Residual connections add an identity path, so d(x + f(x))/dx includes a guaranteed 1. BatchNorm & LayerNorm keep activations out of saturated zones, and gradient clipping caps rare explosions. None changes the chain rule; each keeps the factors survivable.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Backward pass is O(n_params), same as forward. The cost is numerical stability, not compute: vanishing means no learning signal reaches early layers, exploding means loss becomes NaN. The fixes cost nearly nothing — ReLU is one max, initialization is one-time, residuals are one add, normalization is O(n), clipping is one norm — yet buy the ability to train 100× deeper networks.`,
+        `The backward pass is still O(parameters). The stability tools are cheap: a max for ReLU, one add for a residual branch, O(activations) normalization, and one global norm for clipping. Their value is not speed per step; it is making the step meaningful. Without flow, Gradient Descent has nothing useful to follow, so the cheapest training loop becomes expensive by wasting epochs.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Every network you have trained depends on these fixes. ReLU with He init (post-2012) enabled the deep-learning breakout. Residual connections (2015) jumped VGG (19 layers, straining) to ResNet (152, stable). Transformers wrap skip connections around every sublayer, allowing 100-layer LLMs where a plain stack would vanish. Batch and Layer normalization keep activations on steep, healthy nonlinearity slopes. Gradient clipping runs in every LLM training loop — inelegant, but one clipped step prevents NaN and saves millions in compute.`,
+        `Modern networks stack the whole armor. The Transformer Block uses GELU-like activations, residual streams, LayerNorm, careful initialization, and gradient clipping. Learning-Rate Schedules & Warmup then controls how hard those stable gradients are used. Momentum, RMSProp & Adam helps with direction and scale, but it cannot invent signal that never reached a layer. When a loss curve plateaus early or prints NaN, per-layer gradient norms are one of the first diagnostics to inspect.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Misconception: vanishing/exploding gradients are inherent to depth. False. They are design failures. Sigmoid + random init + no residuals produces vanishing; that is not depth's fault, it is the architecture's. A properly designed ReLU network or ResNet has alive gradients at 152 layers. Another trap: gradient clipping does not fix explosion, it suppresses symptoms. Good architecture (right activation, initialization, residuals, normalization) should not explode; clipping is a safety net. Finally: a stable gradient is not necessarily useful — a layer with zero updates learns nothing, even if the gradient is alive.`,
+        `Vanishing gradients are not an unavoidable tax of depth; they are usually a bad architecture plus a bad scale. Clipping does not cure an exploding architecture, it limits the damage from a bad batch. A stable gradient is also not automatically useful: if activations are dead, labels are wrong, or the objective is mis-specified, the model may still fail. Look at gradient norms alongside activations and validation behavior before blaming a single component.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Gradient flow comes directly from Backpropagation; learn that first. The signal you flow with is used by Gradient Descent to step downhill. Study Transformer Block to see skip connections, LayerNorm, and attention working together for stable 96+ layer depth. Dropout and Regularization reshape gradient flow too. And when your training plateaus mysteriously, understanding gradient flow — checking per-layer norms — is the first debugging move a real researcher makes.`,
+        `The next step is to connect the math to architecture. Follow the chain rule page for the derivative mechanics, the activation page for slopes, the normalization page for scale control, and the transformer page for the residual stream. Together they explain why stacks that failed in the 1990s train routinely now.`,
+        `When debugging, separate a small gradient from a useless gradient. A small but structured signal may learn with a better rate or longer run; a zeroed signal after saturated activations will not. Layerwise norms, activation histograms, and NaN checks tell you which case you are in.`,
+        `The same distinction matters in research papers. A method that merely clips a bad spike is different from a method that keeps signal alive throughout the stack. That distinction changes whether you lower the rate or redesign the block.`,
       ],
     },
   ],

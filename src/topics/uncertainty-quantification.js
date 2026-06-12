@@ -129,40 +129,41 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Most neural networks predict a single number, as if certainty lives there. In reality, two kinds of doubt hide inside: aleatoric (irreducible noise in the data itself) and epistemic (gaps in what the model has seen). This visualization teaches a model to confess both, turning a point prediction into a band of plausible answers. Tight band = trust it. Wide band = the model is lost and admits it.`,
+        `Uncertainty quantification teaches a model to return more than a point estimate. The demo separates two doubts. Aleatoric uncertainty is noise in the world, such as sensor readings that scatter even inside the training range. Epistemic uncertainty is missing knowledge, such as readings beyond 5 when all training examples lie between 2 and 5. Calibration & Reliability Diagrams asks whether probabilities are honest on familiar data; uncertainty asks whether the model should answer at all.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The visualization trains on nine sensor readings, all from range 2–5. Inside that range, temperatures scatter at the same reading — that is aleatoric uncertainty (sensor noise). Beyond reading 5, the model has never seen anything, so the band explodes from ±1.5° to ±7° at reading 8 — that is epistemic uncertainty (ignorance). The two doubts demand opposite remedies: aleatoric = model the spread; epistemic = collect more data or refuse to answer. A self-driving car in fog (sensor noise) needs to slow down. The same car seeing a kangaroo for the first time (never trained on this) needs to hand over control.`,
-        `Monte Carlo dropout reveals the trick: run the same input eight times through the trained network with dropout left ON (normally dropout shuts off at test time). Each pass uses a different random sub-network, so each gives a slightly different answer. On in-distribution input (reading 3, which training saw), eight answers cluster tight: 22.0 ± 0.2. On out-of-distribution input (reading 8, far outside training), answers scatter wild: 30.7 ± >4. The disagreement IS the doubt, made visible. One network, run stochastically eight times, is an ensemble in disguise — the committee's unanimity tells you whether it should trust itself.`,
+        `The first view draws a prediction band. Inside readings 2 to 5, the band has a floor of about +/-1.5 degrees because the data itself is noisy. Beyond reading 5, the band fans out; at reading 8 it is roughly +/-7 degrees. More data cannot remove aleatoric noise, but it can shrink epistemic ignorance where the new data arrives.`,
+        `The second view uses MC Dropout. Keep Dropout active at inference and run the same input eight times. At reading 3.0, the scripted passes cluster around 22.0 with standard deviation about 0.19. At reading 8.0, they range from 24.1 to 38.2, with standard deviation about 4.29. The sub-networks agree where training constrained them and disagree where they are extrapolating. That disagreement is not a proof of truth, but it is a useful warning light.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `MC dropout: one model, eight forward passes at test time, nearly free. Deep ensembles (the gold standard): train five separate networks and vote; costs 5× training time, far better doubt signal. Conformal prediction wraps any model with a calibration set to output intervals with math-backed coverage guarantees (95% confidence means intervals contain truth at least 95% of the time). In LLMs, self-consistency is the same committee trick: sample the question multiple times and measure agreement. A model that cannot doubt is a model you cannot deploy.`,
+        `MC dropout costs N forward passes through one model. Deep ensembles cost N separately trained models but usually give stronger epistemic signals. Conformal prediction uses a calibration set to return prediction sets with coverage guarantees. These methods complement ROC Curves & AUC and Picking a Threshold with Real Costs because they decide when the score itself is too uncertain to trust. The compute bill is usually acceptable for high-stakes decisions and too expensive for every low-latency request unless batched carefully.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Selective prediction is standard: wire doubt into the decision loop. Loan approval: low uncertainty = auto-decide; high uncertainty = escalate to human. Medical diagnosis: refusing to guess on ambiguous cases is safer than confident mistakes. The doubt band complements calibration: calibration checks if the model's probabilities are honest on familiar data; the doubt flag catches when you face unfamiliar data. Both gauges on the production dashboard. The goal: a model that knows when it is lost.`,
+        `Selective prediction wires uncertainty into action: auto-accept low-doubt cases, escalate high-doubt cases, or collect data in unknown regions. Medical triage, lending, industrial inspection, and autonomous systems all need abstention more than bravado. A/B Testing & p-values can then test whether the abstention policy improves outcomes after deployment. The goal is not a timid model; it is a model whose confidence controls the cost of its own mistakes.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `MC dropout catches out-of-distribution cases (what you've never seen) but can fail silently on distribution shift within the training range (a raccoon to a cat-and-dog model). You need both: doubt quantification AND distribution-shift detection. High uncertainty is not bad — in medical domains, a refusal to guess is the right behavior. Do not confuse the std dev of dropout passes with a true confidence interval; those need calibration or conformal prediction to guarantee coverage.`,
+        `Dropout standard deviation is not automatically a calibrated confidence interval. It is a useful signal that needs validation. High uncertainty is not failure; it can be the correct output. Adversarial Examples & FGSM can still fool uncertainty detectors if the attack adapts, and saliency maps explain different interpretability questions. Thompson Sampling and Multi-Armed Bandits show the positive use of uncertainty: explore when unsure, exploit when confident. Do not collapse all doubt into one number if the response to each kind of doubt differs.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Dropout (the regularizer) works because it stochastically silences neurons; MC dropout repurposes that for uncertainty. Calibration & Reliability Diagrams audits whether reported probabilities match truth on known data. ROC Curves & AUC shows how scores separate true from false positives (selective-prediction thresholds live on the ROC curve). Thompson Sampling uses uncertainty to guide exploration: unsure = experiment, sure = exploit. A/B Testing & p-values verifies that your uncertainty threshold actually improves real outcomes before you deploy.`,
+        `After this, study probability calibration, thresholding, and bandit exploration. The useful deployment pattern is a dashboard with both gauges: one for whether a familiar score is calibrated, and one for whether the input is familiar enough to score at all.`,
+        `For implementation, decide the action before choosing the uncertainty method. A warning banner, a human-review queue, a wider prediction interval, and an active-learning request are different products. The right uncertainty estimate is the one that supports the decision you will actually take.`,
+        `Always validate the abstention threshold on held-out data. A model that refuses too often can be as unusable as one that guesses too boldly or slow to a crawl.`,
       ],
     },
   ],
 };
-

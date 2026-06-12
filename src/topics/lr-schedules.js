@@ -150,40 +150,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A learning rate schedule is a rule that changes your step size as training progresses. Instead of taking the same-sized step for 1000 epochs, you start with a large step (move fast, explore broadly), then gradually shrink it (settle in, refine the answer). The schedule itself is just a function: given the current training step, tell me the learning rate to use now. It is the single most effective lever in training: getting it right often beats weeks of tweaking everything else, because the right step size at the right time is not a constant — it is a PHASE.`,
+        `A learning-rate schedule changes the step size during training. The demo uses the clean bowl loss = w^2/2, where each Gradient Descent step multiplies distance from the optimum by |1 - lr|. With lr = 1.9, the point ricochets across the bottom and shrinks only by 0.9 per step. With lr = 0.05, it never overshoots but crawls by 0.95 per step. A schedule refuses that false choice: start bold when far away, then become careful when close enough that bouncing is waste.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The visualization shows the core dilemma. On a clean bowl (loss = w²/2), a constant learning rate forces a tragic choice: pick 1.9 and you ricochet by ×0.9 per step forever; pick 0.05 and you creep by ×0.95 per step. One number cannot cover both jobs. The solution: START with lr = 1.5 (move aggressively) and DECAY toward 0.05 (small careful steps to finish). This reaches the bottom in ten steps — what neither constant achieves in thirty.`,
-        `The zoo shows three main shapes: STEP DECAY cuts the rate by ~3× at predetermined milestones (classic, battle-tested on vision). COSINE ANNEALING glides smoothly from peak to zero (no milestones to tune, modern default). WARMUP + COSINE adds a linear ramp first: the rate climbs slowly from zero to peak over the first few hundred steps, then decays on a cosine curve. This ramp protects Adam and RMSProp: their per-weight variance estimate is a rumor at step 1 (built from one sample), and a full-size step would amplify that fluke wildly — see the loss spikes in LLM training logs. Warmup keeps strides tiny until the variance estimate has seen enough samples to be trustworthy. Every transformer you have used was trained with warmup + cosine.`,
+        `The scheduled curve opens at lr = 1.5 and decays by 0.85 each step until it reaches 0.05. It reaches roughly 0.00006 distance by step 10, while both constants are still visibly away from the optimum after 30 steps. That is the core lesson: far from a minimum, large steps cover ground and can jump out of sharp pockets in Loss Landscapes & Optimization Geometry; near a good basin, small steps stop rattling and let the model settle.`,
+        `The second view draws the schedule zoo. Step decay holds a rate and cuts it at milestones. Cosine annealing glides smoothly from peak toward zero. Warmup plus cosine starts with a short ramp because Momentum, RMSProp & Adam builds its variance estimate from only a few gradients at the beginning. Bias correction fixes the expectation, but it cannot make one sample a trustworthy statistic. Warmup keeps early strides small until the denominator has seen enough batches.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `A schedule costs nothing at runtime: one function call per training step to ask "what is the lr now?" That call is O(1) — typically a lookup, a multiplication, a max. No extra memory, no gradient computation. The complexity is in picking the schedule in the first place. Use the LR RANGE TEST (Leslie Smith): run one short training sweep while exponentially ramping the learning rate upward, plot training loss as the rate climbs. The curve tells you everything: flat on the left (rate too small to learn), a steep descent in the middle (the productive zone), then explosion above that. Pick the peak just below where the curve bottoms out — that is your maximum learning rate. Five minutes of compute replaces a folk ritual. From there, hand that peak to a cosine schedule (or step-decay if you prefer) and rely on that shape having been battle-tested across millions of models.`,
+        `The runtime cost is O(1) per training step: compute a scalar learning rate. The real cost is choosing the peak. The LR range test sweeps the rate upward in one short run, finds the productive descent band, and chooses a peak just before loss explodes. That is a narrow slice of Hyperparameter Search, but cheaper than searching every knob blindly. It also gives a visible failure boundary, which is more useful than folklore like "try 1e-3."`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Transformers and LLMs: warmup + cosine is the standard, because the architecture is sensitive to unstable early steps. Vision CNNs: step decay (0.97× per epoch, or 1/10 at milestones) because vision tasks are more forgiving. Fine-tuning: reduce-on-plateau (cut the rate 10× when validation loss stalls) is safer when you do not know how many epochs you need. Fast runs: one-cycle policy squeezes maximum from minimal epochs. Every schedule trades exploration (large rate, bounce, skip sharp minima) against exploitation (small rate, settle deep in a basin). The timeline reflects your belief about terrain: far out, move boldly; as you converge, stop bouncing and sink.`,
+        `Transformers usually use linear warmup followed by cosine decay. Classic CNN recipes often use step decay. Fine-tuning often uses reduce-on-plateau, which watches validation loss from Cross-Validation & Honest Evaluation and cuts the rate when progress stalls. Early Stopping & Patience often pairs with schedules: one decides how hard to step, the other decides whether the run has stopped earning compute. In production training, the schedule is part of the recipe, not an afterthought.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The schedule and optimizer are not the same thing. The optimizer (SGD, Adam, etc.) picks the DIRECTION of the step; the schedule picks the MAGNITUDE. You need both. Without a good schedule, even Adam flounders. Another trap: running warmup + cosine straight without an LR range test is a gamble. The peak learning rate matters enormously; if it is 10× too high the whole schedule is ruined. Spend five minutes on the range test — it is free. Do not confuse decay-on-plateau with a guarantee of success: it reacts only to what has already happened (validation loss stalled), so it adapts slowly and will miss sharp phase transitions. Finally, do not over-tune the schedule if you have not tuned the optimizer's other hyperparameters (momentum, β₁, β₂ for Adam); you might be fighting a losing battle. Fix the direction first, then the magnitude.`,
+        `A schedule is not an optimizer. The optimizer picks direction; the schedule picks ambition. A perfect cosine curve with a peak 10x too high still fails, and warmup does not rescue bad labels or leakage. Do not infer success from training loss alone; the schedule may simply overfit faster. The same explore-then-commit idea appears in Thompson Sampling, but here the exploration is motion through parameter space. Decaying too early can trap a model in a mediocre basin; decaying too late leaves it orbiting the floor.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Learning rate schedules are one axis of Gradient Descent: study the foundations of how and why we step downhill, and what "step size" means mathematically. Momentum and RMSProp & Adam show the other half — how optimizers direct the step. To understand the terrain that schedules navigate, read Loss Landscapes & Optimization Geometry and see why flat basins need large learning rates (they filter sharp, overfitting-prone minima) and why small rates are necessary only when settling. The LR range test is a slice of Hyperparameter Search — the broader framework for choosing all the knobs. Thompson Sampling explores a different explore-then-commit arc: it allocates steps to arms with promise and gradually commits to the best; a learning rate schedule does the same thing over time, retreating from exploration as it gains confidence.`,
+        `After this, study adaptive optimizers, validation protocols, and the geometry of sharp versus flat minima. The useful mental model is phase control: early training needs motion and noise, middle training needs productive descent, and late training needs a small enough step that the model can keep the solution it found.`,
+        `A good schedule should be explainable in one sentence before you run it. If you cannot say why the rate starts, peaks, decays, and stops where it does, you probably tuned a curve shape instead of solving the training problem.`,
       ],
     },
   ],
 };
-
