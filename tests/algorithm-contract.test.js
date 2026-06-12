@@ -981,6 +981,22 @@ test('regularization: L2 plateaus the norm and L1 zeroes weak features in order'
   assert.ok(lassoAt('excl', 1) > 1, 'strong feature survives lambda 1');
 });
 
+test('imbalanced-classification: accuracy prefers do-nothing and ROC ignores a 10x negative flood', async () => {
+  const topic = await loadTopic('imbalanced-classification');
+  const deceive = runTopic(topic, { view: 'how the metrics deceive' });
+  assert.ok(deceive.some((s) => /990\/1000 = 99\.0%/.test(s.explanation)), 'do-nothing scores 99%');
+  assert.ok(deceive.some((s) => /accuracy 97\.6%/.test(s.state.title ?? '')), 'useful model scores lower accuracy');
+  const scale = deceive.find((s) => /Scale the negatives/.test(s.state.title ?? '')).state;
+  const cell = (id) => scale.cells.find((c) => c.id === id).value;
+  assert.equal(cell('small:fpr'), cell('big:fpr'), 'FPR identical across base rates');
+  assert.ok(cell('big:prec') < 0.03, 'precision collapses under the negative flood');
+  const fixes = runTopic(topic, { view: 'the fixes, honestly priced' });
+  assert.ok(fixes.some((s) => /t\* = 0\.01/.test(s.explanation)), 'cost formula yields the 0.01 threshold');
+  const menu = fixes[fixes.length - 1].state;
+  assert.equal(menu.rows.length, 4, 'four fixes priced');
+  assert.match(menu.cells.find((c) => c.id === 'weights:risk').label, /recalibrate/, 'weights warp probabilities');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

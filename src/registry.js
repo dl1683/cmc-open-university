@@ -896,6 +896,16 @@ export const topics = [
     module: () => import('./topics/threshold-optimization.js'),
   },
   {
+    id: 'imbalanced-classification',
+    type: 'visualization',
+    buildsOn: ['precision-recall', 'threshold-optimization', 'roc-auc'],
+    category: 'AI & ML',
+    title: 'Imbalanced Data: When 99% Is One Class',
+    summary: 'Fraud is 1% of the data: watch accuracy lie, ROC flatter, and the fixes that make models care about the rare class.',
+    tags: ['imbalanced data', 'class weights', 'oversampling', 'SMOTE', 'undersampling', 'fraud', 'rare events'],
+    module: () => import('./topics/imbalanced-classification.js'),
+  },
+  {
     id: 'uncertainty-quantification',
     type: 'visualization',
     buildsOn: ['dropout', 'calibration-curves'],
