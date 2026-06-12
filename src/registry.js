@@ -886,6 +886,16 @@ export const topics = [
     module: () => import('./topics/threshold-optimization.js'),
   },
   {
+    id: 'uncertainty-quantification',
+    type: 'visualization',
+    buildsOn: ['dropout', 'calibration-curves'],
+    category: 'AI & ML',
+    title: `Uncertainty: Teaching Models to Say "I Don't Know"`,
+    summary: 'Two kinds of doubt live in every prediction — and MC dropout makes a network confess which one it has.',
+    tags: ['uncertainty', 'epistemic', 'aleatoric', 'MC dropout', 'ensembles', 'selective prediction', 'conformal'],
+    module: () => import('./topics/uncertainty-quantification.js'),
+  },
+  {
     id: 'naive-bayes',
     type: 'visualization',
     buildsOn: ['thompson-sampling', 'tokenization-bpe', 'ab-testing'],

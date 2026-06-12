@@ -941,6 +941,25 @@ test('virtual-dom: diff emits three patches, keys cut four mutations to one', as
   assert.equal(scorecard.cells.find((c) => c.id === 'indexkey:ops').value, 4, 'index-as-key is as bad as no key');
 });
 
+test('uncertainty-quantification: band fans out beyond the data and MC dropout spreads on unseen input', async () => {
+  const topic = await loadTopic('uncertainty-quantification');
+  const doubts = runTopic(topic, { view: 'the two kinds of doubt' });
+  const band = doubts.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'upper')).state;
+  const width = (x) => {
+    const at = (id) => band.series.find((ser) => ser.id === id).points.find((p) => p.x === x).y;
+    return at('upper') - at('lower');
+  };
+  assert.equal(width(3), 3, 'aleatoric floor of ±1.5 inside the data');
+  assert.ok(width(8) > 10, 'epistemic fan-out beyond the data');
+  const mc = runTopic(topic, { view: 'MC dropout in action' });
+  assert.ok(mc.some((s) => /ensemble in disguise/.test(s.explanation)), 'MC dropout framed as implicit ensemble');
+  const meter = mc.find((s) => (s.state.title ?? '') === 'The doubt-meter, read out').state;
+  const cell = (id) => meter.cells.find((c) => c.id === id).value;
+  assert.ok(cell('inD:sd') < 0.3, 'tight agreement on seen input');
+  assert.ok(cell('ood:sd') > 3, 'wide disagreement on unseen input');
+  assert.equal(meter.cells.find((c) => c.id === 'ood:call').label, 'ESCALATE to human', 'high doubt escalates');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
