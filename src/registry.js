@@ -379,6 +379,16 @@ export const topics = [
     module: () => import('./topics/raft-log-replication.js'),
   },
   {
+    id: 'merkle-tree',
+    type: 'visualization',
+    buildsOn: ['hash-table', 'tree-traversals', 'cap-theorem'],
+    category: 'Systems',
+    title: 'Merkle Tree',
+    summary: 'A tree of hashes: compare two datasets with one root check, find any difference in log n hops.',
+    tags: ['merkle', 'hashing', 'git', 'blockchain', 'anti-entropy', 'replication'],
+    module: () => import('./topics/merkle-tree.js'),
+  },
+  {
     id: 'rate-limiter',
     type: 'visualization',
     buildsOn: ['stack', 'hash-table'],

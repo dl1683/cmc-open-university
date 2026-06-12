@@ -432,6 +432,17 @@ test('raft-log-replication: logs converge identically in both scenarios', async 
   assert.ok(crash.some((s) => /DELETED and overwritten/.test(s.explanation)), 'conflict resolution shown');
 });
 
+test('merkle-tree: locates each tampered block; identical replicas verify with one comparison', async () => {
+  const topic = await loadTopic('merkle-tree');
+  for (const [choice, leafId] of [['block 5', 'n0_4'], ['block 2', 'n0_1']]) {
+    const steps = runTopic(topic, { tamper: choice });
+    assert.deepEqual(steps.at(-1).highlight.found, [leafId], `${choice} pinpointed`);
+    assert.match(lastText(steps), /3 comparisons/, 'log2(8) = 3 descent comparisons');
+  }
+  const clean = runTopic(topic, { tamper: 'nothing (identical)' });
+  assert.ok(clean.some((s) => /IDENTICAL, all 8 blocks, proven by one comparison/.test(s.explanation)));
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
