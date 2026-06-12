@@ -114,6 +114,16 @@ export const topics = [
     module: () => import('./topics/b-tree.js'),
   },
   {
+    id: 'trie',
+    type: 'visualization',
+    buildsOn: ['hash-table', 'tree-traversals'],
+    category: 'Data Structures',
+    title: 'Trie (Prefix Tree)',
+    summary: 'Words stored letter by letter, prefixes shared — autocomplete is just a subtree walk.',
+    tags: ['trie', 'autocomplete', 'prefix', 'search suggestions', 'IP routing'],
+    module: () => import('./topics/trie.js'),
+  },
+  {
     id: 'union-find',
     type: 'visualization',
     buildsOn: ['tree-traversals'],

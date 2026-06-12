@@ -335,6 +335,16 @@ test('union-find: ends as one set, detects the cycle, compression shortens paths
   assert.ok(!off.some((s) => /Compressed/.test(s.explanation)), 'no compression step when off');
 });
 
+test('trie: autocomplete returns exactly the words under the prefix', async () => {
+  const topic = await loadTopic('trie');
+  const ca = runTopic(topic, { prefix: 'ca' });
+  const harvest = ca.find((s) => /Suggestions:/.test(s.explanation));
+  for (const word of ['cat', 'car', 'card', 'care']) assert.match(harvest.explanation, new RegExp(`"${word}"`));
+  assert.ok(!/"do"/.test(harvest.explanation), 'do is not a ca-completion');
+  const absent = runTopic(topic, { prefix: 'x (absent)' });
+  assert.match(lastText(absent), /NOTHING in the dictionary/);
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
