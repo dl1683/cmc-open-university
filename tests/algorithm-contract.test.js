@@ -1146,6 +1146,24 @@ test('gradient-flow: sigmoid chains starve layer 1, ReLU and residuals keep the 
   assert.equal(armor.rows.length, 4, 'full armor has four pieces');
 });
 
+test('cache-invalidation: the herd collapses to one request and versioned names never lie', async () => {
+  const topic = await loadTopic('cache-invalidation');
+  const dilemma = runTopic(topic, { view: 'the stale-or-stampede dilemma' });
+  const ttl = dilemma.find((s) => /TTL dial/.test(s.state.title ?? '')).state;
+  assert.equal(ttl.cells.find((c) => c.id === 't5:load').value, 0.2, 'short TTL hammers the origin');
+  assert.ok(ttl.cells.find((c) => c.id === 't86400:load').value < 0.0001, 'long TTL shields it');
+  const herd = dilemma.find((s) => /THUNDERING HERD/.test(s.explanation));
+  assert.match(herd.state.nodes.find((n) => n.id === 'origin').note, /ON FIRE/, 'stampede melts the origin');
+  const tamed = dilemma.find((s) => /COALESCING/.test(s.explanation));
+  assert.match(tamed.state.nodes.find((n) => n.id === 'cache').note, /1 fetch, 999 wait/, 'single-flight collapses the herd');
+  const escapes = runTopic(topic, { view: 'the three escape routes' });
+  assert.ok(escapes.some((s) => /change its NAME/.test(s.explanation) && /Git Internals/.test(s.explanation)), 'versioning tied to content-addressing');
+  assert.ok(escapes.some((s) => /304 NOT MODIFIED/.test(s.explanation)), 'ETag revalidation covered');
+  const table = escapes[escapes.length - 1].state;
+  assert.match(table.cells.find((c) => c.id === 'static:strat').label, /versioned names/, 'static assets get immutable names');
+  assert.match(table.cells.find((c) => c.id === 'private:strat').label, /no-store/, 'private data never cached');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

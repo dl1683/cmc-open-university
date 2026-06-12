@@ -629,6 +629,16 @@ export const topics = [
     module: () => import('./topics/service-workers.js'),
   },
   {
+    id: 'cache-invalidation',
+    type: 'visualization',
+    buildsOn: ['service-workers', 'cdn-request-flow', 'lru-cache', 'git-internals'],
+    category: 'Systems',
+    title: 'Cache Invalidation & Versioning',
+    summary: 'Stale copies, thundering herds, and the naming trick that dissolves one of the two hard problems.',
+    tags: ['cache invalidation', 'TTL', 'thundering herd', 'ETag', 'versioning', 'immutable', 'purge'],
+    module: () => import('./topics/cache-invalidation.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],
