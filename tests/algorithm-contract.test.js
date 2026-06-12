@@ -2145,3 +2145,19 @@ test('distributed-locks: the lease-overlap arithmetic computes 7 seconds of doub
   assert.match(rec[1].state.cells.find((c) => c.id === 'eff:detail').label, /saves money, not data/, 'efficiency vs correctness distinction');
   assert.equal(rec[2].state.rows.length, 4, 'four lock-free alternatives');
 });
+
+test('causal-graphs: Simpson reversal and backdoor un-reversal computed from real cells, collider r = -0.50', async () => {
+  const topic = await loadTopic('causal-graphs');
+  const si = runTopic(topic, { view: "Simpson's paradox, live" });
+  const cells = si[0].state.cells;
+  assert.match(cells.find((c) => c.id === 'small:a').label, /93% — A wins/, 'A wins small stones');
+  assert.match(cells.find((c) => c.id === 'large:a').label, /73% — A wins/, 'A wins large stones');
+  assert.match(cells.find((c) => c.id === 'totalRow:b').label, /83% — B "wins"/, 'the aggregate reverses');
+  assert.match(si[2].state.cells.find((c) => c.id === 'verdict:calc').label, /A 83% vs B 78%: A wins/, 'backdoor adjustment un-reverses the verdict');
+  const dag = runTopic(topic, { view: 'reading the DAG' });
+  assert.equal(dag[0].state.rows.length, 3, 'chain, fork, collider');
+  assert.match(dag[1].state.title, /correlation = -0\.50/, 'collider bias manufactured live on the grid');
+  assert.match(dag[1].state.cells.find((c) => c.id === 'setup:story').label, /correlation exactly 0/, 'independence by construction stated');
+  assert.match(dag[2].state.cells.find((c) => c.id === 'no:rule').label, /colliders/, 'never adjust colliders');
+  assert.match(dag[3].state.cells.find((c) => c.id === 'sever:story').label, /NO incoming arrows/, 'randomization severs back doors');
+});

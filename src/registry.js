@@ -1546,6 +1546,16 @@ export const topics = [
     module: () => import('./topics/doubly-robust.js'),
   },
   {
+    id: 'causal-graphs',
+    type: 'visualization',
+    buildsOn: ['doubly-robust', 'ab-testing', 'naive-bayes'],
+    category: 'Concepts',
+    title: "Causal Graphs, Confounding & Simpson's Paradox",
+    summary: 'Treatment A beats B in both subgroups and loses in the total — live arithmetic — plus the DAG grammar that says what to adjust for and what never to touch.',
+    tags: ['causal inference', "Simpson's paradox", 'confounding', 'collider bias', 'DAG', 'backdoor'],
+    module: () => import('./topics/causal-graphs.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],
