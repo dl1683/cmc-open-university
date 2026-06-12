@@ -759,6 +759,16 @@ export const topics = [
     module: () => import('./topics/svd.js'),
   },
   {
+    id: 'matrix-completion',
+    type: 'visualization',
+    buildsOn: ['svd', 'embeddings-similarity', 'thompson-sampling'],
+    category: 'AI & ML',
+    title: 'Matrix Completion & Recommenders',
+    summary: 'The ratings grid is mostly holes — alternating least squares (run live here) learns tastes and fills them in.',
+    tags: ['recommenders', 'collaborative filtering', 'ALS', 'matrix factorization', 'cold start', 'Netflix'],
+    module: () => import('./topics/matrix-completion.js'),
+  },
+  {
     id: 'activation-functions',
     type: 'visualization',
     buildsOn: ['gradient-descent'],

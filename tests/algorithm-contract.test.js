@@ -1519,6 +1519,26 @@ test('sharding: range skews where hash scatters, and the casualties are queries,
   assert.ok(broke.some((s) => /relocates cost/.test(s.explanation)), 'the closing thesis stated');
 });
 
+test('matrix-completion: live ALS recovers the seven hidden ratings within half a star', async () => {
+  const topic = await loadTopic('matrix-completion');
+  const fill = runTopic(topic, { view: 'filling the empty cells, live' });
+  const holes = fill[0].state;
+  assert.equal(holes.cells.filter((c) => c.label === '·').length, 7, 'seven holes shown in the grid');
+  const tastes = fill.find((s) => /learned tastes/.test(s.state.title ?? '')).state;
+  const taste = (id) => tastes.cells.find((c) => c.id === id).value;
+  assert.ok(taste('u0:t1') > taste('u0:t2'), 'Alice leans action');
+  assert.ok(taste('u1:t2') > taste('u1:t1'), 'Bob leans romance');
+  const filled = fill.find((s) => /holes, filled/.test(s.state.title ?? '')).state;
+  for (const row of filled.rows) {
+    const pred = filled.cells.find((c) => c.id === `${row.id}:pred`).value;
+    const truth = filled.cells.find((c) => c.id === `${row.id}:truth`).value;
+    assert.ok(Math.abs(pred - truth) < 0.7, `${row.label} recovered within ~two-thirds of a star`);
+  }
+  const loops = runTopic(topic, { view: 'cold starts & feedback loops' });
+  assert.ok(loops.some((s) => /NO equations/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'cold start shown in the algebra');
+  assert.ok(loops.some((s) => /grading its own homework/.test(s.explanation)), 'feedback loop tied to leakage');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);
