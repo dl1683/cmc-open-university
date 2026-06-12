@@ -598,6 +598,14 @@ test('multi-head-attention: head rows are softmax-normalized and concat preserve
   assert.equal(concat.columns.length, 4, 'two dims per head, concatenated');
 });
 
+test('prims-mst: reaches the same minimum total as Kruskal from any start', async () => {
+  const topic = await loadTopic('prims-mst');
+  for (const start of ['A', 'D']) {
+    const steps = runTopic(topic, { start });
+    assert.match(steps.find((s) => /Complete:/.test(s.explanation)).explanation, /total cost 19/, `start ${start} reaches cost 19`);
+  }
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

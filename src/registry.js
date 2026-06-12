@@ -204,6 +204,16 @@ export const topics = [
     module: () => import('./topics/kruskal-mst.js'),
   },
   {
+    id: 'prims-mst',
+    type: 'visualization',
+    buildsOn: ['kruskal-mst', 'binary-heap', 'dijkstra'],
+    category: 'Data Structures',
+    title: "Prim's Algorithm",
+    summary: 'Grow one tree outward, always crossing the frontier on the cheapest edge — the MST, built the other way.',
+    tags: ['MST', 'prim', 'greedy', 'frontier', 'priority queue'],
+    module: () => import('./topics/prims-mst.js'),
+  },
+  {
     id: 'bubble-sort',
     type: 'visualization',
     category: 'Sorting',
