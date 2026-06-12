@@ -356,6 +356,16 @@ export const topics = [
     module: () => import('./topics/beam-search.js'),
   },
   {
+    id: 'nn-forward-pass',
+    type: 'visualization',
+    buildsOn: ['activation-functions', 'gradient-descent'],
+    category: 'AI & ML',
+    title: 'Neural Network Forward Pass',
+    summary: 'Watch two inputs flow through a tiny 2-3-1 network: weights, biases, ReLU, prediction.',
+    tags: ['neural network', 'forward pass', 'weights', 'MLP', 'deep learning'],
+    module: () => import('./topics/nn-forward-pass.js'),
+  },
+  {
     id: 'kv-cache',
     type: 'visualization',
     buildsOn: ['attention', 'lru-cache'],
