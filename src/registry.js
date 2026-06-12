@@ -289,6 +289,16 @@ export const topics = [
     module: () => import('./topics/big-o-growth.js'),
   },
   {
+    id: 'reservoir-sampling',
+    type: 'visualization',
+    buildsOn: ['sliding-window'],
+    category: 'Concepts',
+    title: 'Reservoir Sampling',
+    summary: 'A fair sample from an endless stream in k slots of memory — the probability balances itself.',
+    tags: ['streaming', 'sampling', 'probability', 'big data', 'algorithm R'],
+    module: () => import('./topics/reservoir-sampling.js'),
+  },
+  {
     id: 'binary-exponentiation',
     type: 'visualization',
     buildsOn: ['recursion', 'big-o-growth'],

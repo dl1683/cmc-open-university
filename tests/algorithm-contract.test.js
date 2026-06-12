@@ -636,6 +636,16 @@ test('cdn-request-flow: hit never touches the origin; miss fills the cache for t
   assert.match(lastText(missRun), /20ms HIT/, 'next user benefits');
 });
 
+test('reservoir-sampling: never exceeds k slots and ends with the scripted fair sample', async () => {
+  const topic = await loadTopic('reservoir-sampling');
+  const steps = runTopic(topic, { k: '3' });
+  for (const step of steps) {
+    assert.ok(step.state.items.length <= 3, 'reservoir bounded at k');
+  }
+  assert.deepEqual(finalArray(steps), ['E', 'J', 'G'], 'deterministic script yields the expected sample');
+  assert.match(lastText(steps), /Sliding Window/, 'cross-links its streaming cousin');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
