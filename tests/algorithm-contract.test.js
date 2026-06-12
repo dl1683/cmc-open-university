@@ -960,6 +960,27 @@ test('uncertainty-quantification: band fans out beyond the data and MC dropout s
   assert.equal(meter.cells.find((c) => c.id === 'ood:call').label, 'ESCALATE to human', 'high doubt escalates');
 });
 
+test('regularization: L2 plateaus the norm and L1 zeroes weak features in order', async () => {
+  const topic = await loadTopic('regularization');
+  const explode = runTopic(topic, { view: 'weights explode, then behave' });
+  const dual = explode.find((s) => (s.state.series ?? []).length === 2).state;
+  const last = (id) => dual.series.find((ser) => ser.id === id).points.at(-1).y;
+  assert.ok(last('free') > 3.5, 'unregularized norm keeps growing');
+  assert.ok(last('leashed') < 1.5, 'weight decay plateaus the norm');
+  const table = explode.find((s) => /What the leash/.test(s.state.title ?? '')).state;
+  assert.ok(table.cells.find((c) => c.id === 'free:maxp').value > 0.9999, 'unleashed model hits 99.99%+ confidence');
+  assert.ok(table.cells.find((c) => c.id === 'leashed:maxp').value < 0.99, 'leashed model stays under 99%');
+  const paths = runTopic(topic, { view: 'L1 delete features, L2 keep them' });
+  const ridge = paths.find((s) => /ridge\) path/.test(s.explanation)).state;
+  const hourRidge = ridge.series.find((ser) => ser.id === 'hour').points.at(-1).y;
+  assert.ok(hourRidge > 0 && hourRidge < 0.05, 'ridge shrinks but never zeroes');
+  const lassoState = paths.find((s) => /lasso\) path/.test(s.explanation)).state;
+  const lassoAt = (id, x) => lassoState.series.find((ser) => ser.id === id).points.find((p) => Math.abs(p.x - x) < 1e-9).y;
+  assert.equal(lassoAt('hour', 0.4), 0, 'send hour dead by lambda 0.4');
+  assert.equal(lassoAt('len', 1), 0, 'word length dead by lambda 1');
+  assert.ok(lassoAt('excl', 1) > 1, 'strong feature survives lambda 1');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

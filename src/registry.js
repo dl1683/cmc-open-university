@@ -876,6 +876,16 @@ export const topics = [
     module: () => import('./topics/logistic-regression.js'),
   },
   {
+    id: 'regularization',
+    type: 'visualization',
+    buildsOn: ['logistic-regression', 'gradient-descent', 'dropout'],
+    category: 'AI & ML',
+    title: 'Regularization: L1 & L2',
+    summary: 'The leash on the weights: L2 shrinks everything smoothly, L1 deletes features outright — watch both paths.',
+    tags: ['regularization', 'L1', 'L2', 'ridge', 'lasso', 'weight decay', 'overfitting', 'sparsity'],
+    module: () => import('./topics/regularization.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],
