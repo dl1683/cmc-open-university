@@ -682,6 +682,21 @@ test('database-indexing: scan touches all rows, index touches few, covering skip
   assert.match(lastText(covering), /write amplification/i, 'write-time cost taught');
 });
 
+test('rope: norms preserved under rotation and equal offsets give equal scores', async () => {
+  const topic = await loadTopic('rope');
+  const steps = runTopic(topic, { theta: '30°' });
+  const rotations = steps[0].state;
+  for (const row of rotations.rows) {
+    const [x, y] = rotations.cells.filter((c) => c.row === row.id).map((c) => c.value);
+    assert.ok(Math.abs(Math.hypot(x, y) - 1) < 1e-9, `${row.label} keeps unit norm`);
+  }
+  const dotsState = steps[1].state;
+  const qk = (rid) => dotsState.cells.find((c) => c.row === rid && c.column === 'qk').value;
+  assert.ok(Math.abs(qk('pair2_0') - qk('pair5_3')) < 1e-9, 'offset-2 pairs score identically');
+  assert.ok(Math.abs(qk('pair2_0') - qk('pair4_2')) < 1e-9, 'all offset-2 pairs identical');
+  assert.ok(Math.abs(qk('pair2_0') - qk('pair3_0')) > 1e-3, 'different offset scores differ');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

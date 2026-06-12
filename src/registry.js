@@ -766,6 +766,16 @@ export const topics = [
     module: () => import('./topics/transformer-block.js'),
   },
   {
+    id: 'rope',
+    type: 'visualization',
+    buildsOn: ['positional-encoding', 'attention', 'kv-cache'],
+    category: 'AI & ML',
+    title: 'RoPE (Rotary Embeddings)',
+    summary: 'Encode position as rotation — relative distance falls out of every attention dot product for free.',
+    tags: ['RoPE', 'rotary', 'llama', 'long context', 'YaRN', 'position'],
+    module: () => import('./topics/rope.js'),
+  },
+  {
     id: 'positional-encoding',
     type: 'visualization',
     buildsOn: ['attention', 'transformer-block'],
