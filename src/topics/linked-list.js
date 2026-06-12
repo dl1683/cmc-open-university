@@ -85,7 +85,7 @@ export const article = {
       paragraphs: [
         `Insertion at the head is the simplest operation: create a node, point it at the old head, and move the head reference to the new node. Appending at the tail is O(n) if you only store head, because you must walk until next is null. If you also store a tail reference, append becomes O(1). Queue implementations often keep both head and tail for exactly this reason.`,
         `Removal depends on what reference you already have. In a singly linked list, removing a middle node in O(1) requires the previous node, because the previous node's next pointer must skip over the removed node. If you only have a value, you must search from head first, so the whole operation is O(n). A doubly linked list stores both next and previous pointers, spending more memory so removal from a known node is easier.`,
-        `Searching is always a traversal. At each node, compare the value and either stop or follow next. There is no Binary Search shortcut because there is no direct jump to the middle. Even if the values are sorted, reaching the middle still costs pointer walks.`,
+        `Searching is always a traversal. At each node, compare the value and either stop or follow next. There is no binary-search shortcut because there is no direct jump to the middle. Even if the values are sorted, reaching the middle still costs pointer walks.`,
       ],
     },
     {

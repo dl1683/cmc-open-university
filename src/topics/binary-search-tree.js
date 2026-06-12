@@ -125,7 +125,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Sorted maps and sets often use balanced search trees. C++ std::map is commonly implemented with a red-black tree; Java TreeMap uses a red-black tree too. AVL Tree Rotations show the stricter balancing style, where rotations repair height differences after inserts and deletes. These structures are useful when you need ordered iteration, predecessor/successor queries, or range queries that Hash Table cannot provide.`,
-        `Database Indexing usually uses B-Trees (How Databases Read), not simple binary nodes, because disk and SSD pages prefer wide nodes with many keys. Random Forest uses many decision trees for prediction, but those trees split feature space rather than maintaining the exact ordered-set invariant. Binary Heap (Priority Queue) is another tree-shaped structure, yet it optimizes only for the top priority, not full sorted lookup.`,
+        `Database indexes usually use B-Trees (How Databases Read), not simple binary nodes, because disk and SSD pages prefer wide nodes with many keys. Machine-learning decision forests also use tree shapes, but those trees split feature space rather than maintaining the exact ordered-set invariant. Binary Heap (Priority Queue) is another tree-shaped structure, yet it optimizes only for the top priority, not full sorted lookup.`,
       ],
     },
     {

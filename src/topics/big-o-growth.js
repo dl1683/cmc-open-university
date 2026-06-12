@@ -81,8 +81,8 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Performance incidents often reduce to growth curves. A page that scans every user for every request works in a demo and collapses at production size. Replacing a repeated scan with Hash Table lookup can change a hot path from O(n) to average O(1). Database Indexing uses tree-shaped structures so lookups are logarithmic instead of full-table scans. Binary Heap (Priority Queue) lets schedulers pull the next urgent item in O(log n) instead of sorting everything after every insert.`,
-        `Algorithm choice shows up in product latency. Bubble Sort is fine for a classroom animation and wrong for a million records. Merge Sort and Quick Sort exist because comparison sorting needs about n log n work in the general case. Memoization (Dynamic Programming) can turn repeated recursive subproblems from exponential time into linear or polynomial time by storing answers the first time they are computed.`,
+        `Performance incidents often reduce to growth curves. A page that scans every user for every request works in a demo and collapses at production size. Replacing a repeated scan with Hash Table lookup can change a hot path from O(n) to average O(1). Database indexes use tree-shaped structures so lookups are logarithmic instead of full-table scans. Binary Heap (Priority Queue) lets schedulers pull the next urgent item in O(log n) instead of sorting everything after every insert.`,
+        `Algorithm choice shows up in product latency. Bubble Sort is fine for a classroom animation and wrong for a million records. Merge Sort and quicksort exist because comparison sorting needs about n log n work in the general case. Memoization (Dynamic Programming) can turn repeated recursive subproblems from exponential time into linear or polynomial time by storing answers the first time they are computed.`,
       ],
     },
     {

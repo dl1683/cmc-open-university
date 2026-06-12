@@ -126,7 +126,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Dijkstra's Shortest Path uses a min-heap to repeatedly expand the unsettled node with the lowest known distance. Graph BFS uses a plain Queue because every edge has equal cost; Dijkstra upgrades the frontier to priority order when edge weights differ. Heap Sort builds a max-heap and repeatedly extracts the maximum to fill the array from the end. Huffman Coding uses a min-heap to repeatedly combine the two lowest-frequency symbols into a compression tree.`,
-        `Schedulers, simulation engines, and Message Queues use heap-like structures when tasks have deadlines, priorities, or retry times. A web crawler might prioritize fresh high-value pages; a timer system might wake whichever timeout expires next. The structure is attractive because new priorities arrive dynamically and the next best item is always cheap to retrieve.`,
+        `Schedulers, simulation engines, and message brokers use heap-like structures when tasks have deadlines, priorities, or retry times. A web crawler might prioritize fresh high-value pages; a timer system might wake whichever timeout expires next. The structure is attractive because new priorities arrive dynamically and the next best item is always cheap to retrieve.`,
       ],
     },
     {

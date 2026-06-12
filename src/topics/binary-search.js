@@ -107,7 +107,7 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Language libraries expose this directly: Python has bisect, C++ has lower_bound and upper_bound, and Java has Arrays.binarySearch. Database Indexing uses related search ideas constantly. B-Trees (How Databases Read) keep keys sorted inside disk pages so a page can be searched quickly before following the right child pointer. LSM Trees (How Cassandra Writes) store immutable sorted files, where exact lookup and range lookup both lean on sorted order.`,
+        `Language libraries expose this directly: Python has bisect, C++ has lower_bound and upper_bound, and Java has Arrays.binarySearch. Database indexes use related search ideas constantly. B-Trees (How Databases Read) keep keys sorted inside disk pages so a page can be searched quickly before following the right child pointer. LSM Trees (How Cassandra Writes) store immutable sorted files, where exact lookup and range lookup both lean on sorted order.`,
         `The same comparison pattern appears inside Binary Search Tree, but with a different storage shape. A sorted array gives excellent cache locality and O(1) access to the middle; a tree supports cheaper dynamic insertion but can become unbalanced without rotations. Two Pointers is another sorted-array technique, useful when the problem needs coordinated movement from the ends instead of halving from the middle.`,
       ],
     },

@@ -57,7 +57,7 @@ export const article = {
       heading: `What it is`,
       paragraphs: [
         `A queue is a First-In, First-Out container: the earliest item added is the earliest item removed. The coffee-shop line is the everyday model. New customers join the back, service happens at the front, and nobody cuts ahead unless you change the rules into a priority system. That arrival-order guarantee is the whole abstraction.`,
-        `The core operations are enqueue, which adds at the back, dequeue, which removes from the front, and peek, which reads the front item without removing it. Compared with Stack, this structure preserves time order instead of reversing it. Compared with Hash Table, it is not about finding an arbitrary key. It is about fair, predictable sequencing: work comes in, waits its turn, and leaves in the same order.`,
+        `The core operations are enqueue, which adds at the back, dequeue, which removes from the front, and peek, which reads the front item without removing it. Compared with Stack, this structure preserves time order instead of reversing it. Compared with a hash table, it is not about finding an arbitrary key. It is about fair, predictable sequencing: work comes in, waits its turn, and leaves in the same order.`,
       ],
     },
     {
@@ -83,14 +83,14 @@ export const article = {
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The most common bug is accidental O(n) dequeue from array shift. The second is mixing up FIFO with LIFO: if the newest item must run first, you wanted Stack. The third is pretending a queue gives random access. If you scan the waiting line over and over to find a specific item, your design probably wants Hash Table plus a separate ordering structure.`,
+        `The most common bug is accidental O(n) dequeue from array shift. The second is mixing up FIFO with LIFO: if the newest item must run first, you wanted Stack. The third is pretending a queue gives random access. If you scan the waiting line over and over to find a specific item, your design probably wants a hash table plus a separate ordering structure.`,
         `Real systems add policy around the simple abstraction. A queue can grow without bound and exhaust memory if producers outrun consumers. It can also create head-of-line blocking: one slow item at the front delays everything behind it. Production queues usually need backpressure, retries, dead-letter handling, or priorities; the data structure gives order, not a complete reliability protocol.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Stack for the reversed access rule, then Graph BFS to see FIFO order drive an algorithm. The Event Loop and Message Queues show the same idea in JavaScript and distributed systems. Binary Heap (Priority Queue) explains priority scheduling, while Sliding Window shows another two-ended pattern where old items leave as new items arrive.`,
+        `Study Stack for the reversed access rule, then Graph BFS to see FIFO order drive an algorithm. The Event Loop and Message Queues show the same idea in JavaScript and distributed systems. Binary Heap (Priority Queue) explains priority scheduling, while the sliding-window technique shows another two-ended pattern where old items leave as new items arrive.`,
       ],
     },
   ],

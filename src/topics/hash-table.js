@@ -136,7 +136,7 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A hash table stores key-value pairs by running each key through a hash function and using the result to choose an array bucket. Instead of checking keys one by one like Linear Search, the structure jumps straight to the likely location. With a good hash function and enough empty space, lookup, insert, and delete feel constant time, which is why JavaScript Map, Python dict, Ruby Hash, and many runtime object tables use this idea.`,
+        `A hash table stores key-value pairs by running each key through a hash function and using the result to choose an array bucket. Instead of checking keys one by one with a linear scan, the structure jumps straight to the likely location. With a good hash function and enough empty space, lookup, insert, and delete feel constant time, which is why JavaScript Map, Python dict, Ruby Hash, and many runtime object tables use this idea.`,
         `The catch is collisions. Two different keys can land in the same bucket because the array has finite size. The demo uses open addressing with linear probing: if the home bucket is full, walk forward until you find the key or an open slot. Other implementations use chaining, where each bucket points to a small list, or more advanced probing strategies. The table is fast because collisions are kept rare, not because collisions are impossible.`,
       ],
     },
@@ -156,21 +156,21 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Compilers use hash tables for symbol tables: variable names map to scope and storage information. Web servers use them for headers and session maps. LRU Cache combines Hash Table lookup with Linked List ordering so reads, writes, and evictions stay O(1). Rate Limiter (Token Bucket) implementations often map user IDs or API keys to counters. Consistent Hashing extends the same hash idea across machines, spreading keys around a ring so adding one server moves only part of the data.`,
-        `Hashing also appears where the stored value is the hash itself. Merkle Tree uses hashes to summarize chunks of data, while Git Internals names objects by content hash. Bloom Filter uses several hash positions to answer "definitely not present" with tiny memory. Database Indexing usually chooses tree structures for range scans, but hash indexes are still useful for exact-match workloads.`,
+        `Compilers use hash tables for symbol tables: variable names map to scope and storage information. Web servers use them for headers and session maps. LRU Cache combines Hash Table lookup with linked-list ordering so reads, writes, and evictions stay O(1). Rate Limiter (Token Bucket) implementations often map user IDs or API keys to counters. Consistent Hashing extends the same hash idea across machines, spreading keys around a ring so adding one server moves only part of the data.`,
+        `Hashing also appears where the stored value is the hash itself. Merkle Tree uses hashes to summarize chunks of data, while Git names objects by content hash. Bloom Filter uses several hash positions to answer "definitely not present" with tiny memory. Database indexing usually chooses tree structures for range scans, but hash indexes are still useful for exact-match workloads.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `The biggest misconception is that O(1) is a promise for every operation. It is an average under assumptions: good distribution, controlled load factor, and no adversarial collision pattern. Security-sensitive runtimes often use randomized or keyed hash functions for strings to prevent collision attacks; a cryptographic hash is not always necessary, but predictability is dangerous.`,
-        `Another trap is using plain JavaScript objects as maps without understanding coercion and prototype keys. Object property keys are strings or symbols; Map is safer when keys can be objects. Mutable keys are risky in languages where hash codes depend on object state. Finally, hash tables do not keep sorted order. If you need ordered iteration or range queries, Binary Search Tree, B-Trees (How Databases Read), or sorted arrays with Binary Search may be the better tool.`,
+        `Another trap is using plain JavaScript objects as maps without understanding coercion and prototype keys. Object property keys are strings or symbols; Map is safer when keys can be objects. Mutable keys are risky in languages where hash codes depend on object state. Finally, hash tables do not keep sorted order. If you need ordered iteration or range queries, a balanced search tree, B-Trees (How Databases Read), or sorted arrays with Binary Search may be the better tool.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Binary Search and Binary Search Tree to compare exact lookup with ordered lookup. LRU Cache shows the classic systems-design pairing of hashing and linked ordering. Consistent Hashing, Bloom Filter, Merkle Tree, and Rate Limiter (Token Bucket) all reuse hash functions for different systems problems.`,
+        `Study Binary Search and balanced search trees to compare exact lookup with ordered lookup. LRU Cache shows the classic systems-design pairing of hashing and linked ordering. Consistent Hashing, Bloom Filter, Merkle Tree, and Rate Limiter (Token Bucket) all reuse hash functions for different systems problems.`,
       ],
     },
   ],
