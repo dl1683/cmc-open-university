@@ -465,6 +465,22 @@ test('speculative-decoding: lossless — both drafts produce the identical sente
   assert.match(lastText(weak), /from 7 big-model passes/, 'weak draft needs 7 passes');
 });
 
+test('avl-tree: sorted input yields a balanced tree, not a chain', async () => {
+  const topic = await loadTopic('avl-tree');
+  const steps = runTopic(topic, { order: '10, 20, 30, 40, 50 (sorted!)' });
+  assert.ok(steps.some((s) => /rotation/i.test(s.explanation)), 'rotations occurred');
+  const final = steps.at(-1).state;
+  const byId = new Map(final.nodes.map((n) => [n.id, n]));
+  const depth = (id) => (id === null ? 0 : 1 + Math.max(depth(byId.get(id).left), depth(byId.get(id).right)));
+  assert.equal(depth(final.rootId), 3, '5 sorted inserts give height 3, not a height-5 chain');
+  const balanced = (id) => {
+    if (id === null) return true;
+    const n = byId.get(id);
+    return Math.abs(depth(n.left) - depth(n.right)) <= 1 && balanced(n.left) && balanced(n.right);
+  };
+  assert.ok(balanced(final.rootId), 'every node satisfies the AVL property');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

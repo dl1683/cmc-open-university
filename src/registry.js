@@ -84,6 +84,16 @@ export const topics = [
     module: () => import('./topics/selection-sort.js'),
   },
   {
+    id: 'avl-tree',
+    type: 'visualization',
+    buildsOn: ['binary-search-tree', 'b-tree'],
+    category: 'Data Structures',
+    title: 'AVL Tree Rotations',
+    summary: 'Self-balancing in action: balance factors hit ±2 and rotations repair the tree on the spot.',
+    tags: ['AVL', 'self-balancing', 'rotations', 'balance factor', 'red-black'],
+    module: () => import('./topics/avl-tree.js'),
+  },
+  {
     id: 'tree-traversals',
     type: 'visualization',
     buildsOn: ['binary-search-tree', 'recursion', 'queue'],
