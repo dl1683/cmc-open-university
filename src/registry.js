@@ -1307,3 +1307,43 @@ export function searchTopics(rawQuery) {
     .sort((a, b) => b.score - a.score || a.entry.title.length - b.entry.title.length)
     .map((x) => x.entry);
 }
+
+// Inline cross-linking: split text into segments, turning the first mention
+// of any other topic's exact title into a link segment. Longest title wins
+// at a position; matches must be word-bounded; one link per topic per text.
+const isWordChar = (ch) => /[A-Za-z0-9]/.test(ch ?? '');
+
+export function linkifyByTitle(text, excludeId = null) {
+  const candidates = topics
+    .filter((t) => t.type === 'visualization' && t.id !== excludeId)
+    .sort((a, b) => b.title.length - a.title.length);
+  const segments = [];
+  const linked = new Set();
+  let rest = String(text ?? '');
+  while (rest.length > 0) {
+    let best = null;
+    for (const entry of candidates) {
+      if (linked.has(entry.id)) continue;
+      let from = 0;
+      while (from <= rest.length - entry.title.length) {
+        const idx = rest.indexOf(entry.title, from);
+        if (idx === -1) break;
+        const bounded = !isWordChar(rest[idx - 1]) && !isWordChar(rest[idx + entry.title.length]);
+        if (bounded) {
+          if (!best || idx < best.idx) best = { id: entry.id, title: entry.title, idx };
+          break;
+        }
+        from = idx + 1;
+      }
+    }
+    if (!best) {
+      segments.push({ text: rest });
+      break;
+    }
+    if (best.idx > 0) segments.push({ text: rest.slice(0, best.idx) });
+    segments.push({ text: best.title, id: best.id });
+    linked.add(best.id);
+    rest = rest.slice(best.idx + best.title.length);
+  }
+  return segments;
+}

@@ -1,8 +1,25 @@
 // Page bootstrap: decides between homepage and topic page, wires search,
 // navigation, and the theme toggle. All content comes from the registry.
 
-import { topics, categories, searchTopics } from './registry.js';
+import { topics, categories, searchTopics, linkifyByTitle } from './registry.js';
 import { createTopicRuntime } from './core/visualizer.js';
+
+// Render text with the first mention of any other topic's title as an
+// inline link to that topic's page. Used for explanations and study notes.
+function renderLinkedText(el, text, excludeId) {
+  el.textContent = '';
+  for (const seg of linkifyByTitle(text, excludeId)) {
+    if (seg.id) {
+      const a = document.createElement('a');
+      a.className = 'inline-topic-link';
+      a.href = `./topic.html?topic=${seg.id}`;
+      a.textContent = seg.text;
+      el.appendChild(a);
+    } else {
+      el.appendChild(document.createTextNode(seg.text));
+    }
+  }
+}
 
 // ----------------------------------------------------------------- theme
 
@@ -126,13 +143,17 @@ async function initTopic() {
   renderTopicLinks(root.querySelector('[data-topic-links]'), entry);
 
   const mod = await entry.module();
-  createTopicRuntime({ root, topic: mod.topic });
-  renderArticle(root.querySelector('[data-topic-article]'), mod.article);
+  createTopicRuntime({
+    root,
+    topic: mod.topic,
+    renderExplanation: (el, text) => renderLinkedText(el, text, entry.id),
+  });
+  renderArticle(root.querySelector('[data-topic-article]'), mod.article, entry.id);
 }
 
 // Study notes: the written course that lives under every animation.
 // Modules export `article = { sections: [{heading, paragraphs: [...]}] }`.
-function renderArticle(container, article) {
+function renderArticle(container, article, topicId) {
   if (!article || !Array.isArray(article.sections)) return;
   for (const section of article.sections) {
     const heading = document.createElement('h3');
@@ -140,7 +161,7 @@ function renderArticle(container, article) {
     container.appendChild(heading);
     for (const text of section.paragraphs) {
       const p = document.createElement('p');
-      p.textContent = text;
+      renderLinkedText(p, text, topicId);
       container.appendChild(p);
     }
   }

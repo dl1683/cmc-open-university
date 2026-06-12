@@ -439,3 +439,15 @@ svg text {
 .mcell.hl-compare rect { stroke: var(--warn); stroke-width: 3; }
 .mlabel.hl-active text { fill: var(--accent); font-weight: 700; }
 .mlabel.hl-compare text { fill: var(--warn); font-weight: 700; }
+
+/* Inline topic cross-links inside explanations and study notes */
+.inline-topic-link {
+  color: var(--accent, #6ea8fe);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
+.inline-topic-link:hover {
+  text-decoration-style: solid;
+}

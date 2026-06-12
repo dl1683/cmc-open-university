@@ -513,7 +513,8 @@ function defaultInput(controls) {
   return input;
 }
 
-export function createTopicRuntime({ root, topic }) {
+export function createTopicRuntime({ root, topic, renderExplanation }) {
+  const setExplanation = renderExplanation ?? ((el, text) => { el.textContent = text; });
   const form = root.querySelector('[data-topic-controls]');
   const vis = root.querySelector('[data-visualization]');
   const explanationEl = root.querySelector('[data-explanation]');
@@ -529,7 +530,7 @@ export function createTopicRuntime({ root, topic }) {
 
   function onStep(step, index, total) {
     renderStep(vis, step);
-    explanationEl.textContent = step.explanation;
+    setExplanation(explanationEl, step.explanation);
     if (step.invariant) {
       invariantEl.hidden = false;
       invariantEl.textContent = `Invariant: ${step.invariant}`;

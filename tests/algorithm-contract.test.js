@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { topics, searchTopics } from '../src/registry.js';
+import { topics, searchTopics, linkifyByTitle } from '../src/registry.js';
 import { validateSteps, InputError } from '../src/core/state.js';
 import { hashIndex } from '../src/topics/hash-table.js';
 
@@ -1464,6 +1464,19 @@ test('hot-rows: the queue grows 100/sec without bound and the four designs trade
   assert.ok(tput('shard') > 10 * tput('naive'), 'sharding lifts throughput an order of magnitude');
   assert.ok(tput('ram') > tput('append'), 'RAM accumulator is fastest');
   assert.match(card.cells.find((c) => c.id === 'ram:loss').label, /unflushed window/, 'RAM design pays in crash loss');
+});
+
+test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
+  const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
+  const links = segs.filter((s) => s.id);
+  assert.deepEqual(links.map((s) => s.id), ['binary-search', 'stack'], 'each topic linked once, in order');
+  assert.equal(segs.map((s) => s.text).join(''), 'Read Binary Search, then Binary Search again, then the Stack.', 'segments reassemble the text');
+  const self = linkifyByTitle('The Stack is here.', 'stack');
+  assert.ok(self.every((s) => !s.id), 'a topic never links to itself');
+  const bounded = linkifyByTitle('Stacked plates are not a Stack link target when embedded: Stacks.', 'queue');
+  assert.deepEqual(bounded.filter((s) => s.id).map((s) => s.text), ['Stack'], 'word boundaries respected');
+  const longest = linkifyByTitle('Study Binary Search Tree first.', 'queue');
+  assert.equal(longest.find((s) => s.id).id, 'binary-search-tree', 'longest title wins at a position');
 });
 
 // ----------------------------------------------- layer 3: study articles
