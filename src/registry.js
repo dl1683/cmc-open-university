@@ -849,6 +849,16 @@ export const topics = [
     module: () => import('./topics/quorums.js'),
   },
   {
+    id: 'byzantine-generals',
+    type: 'visualization',
+    buildsOn: ['paxos', 'quorums', 'merkle-tree'],
+    category: 'Systems',
+    title: 'Byzantine Fault Tolerance: When Nodes Lie',
+    summary: 'Why majority voting collapses at N = 3 with one liar, recovers at N = 4, and generalizes to the 3f+1 quorums behind PBFT and proof-of-stake chains.',
+    tags: ['Byzantine', 'BFT', 'PBFT', '3f+1', 'blockchains', 'fault tolerance'],
+    module: () => import('./topics/byzantine-generals.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

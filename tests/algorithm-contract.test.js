@@ -2070,3 +2070,18 @@ test('policy-gradients: estimator audited against the closed form, baseline cuts
   assert.ok(atTwo.y <= -2 + 1e-9, 'A=-1 correction gradient never clips above r=1');
   assert.match(ppo[3].state.cells.find((c) => c.id === 'grpo:gave').label, /group mean|mean of sampled/i, 'GRPO baseline lesson included');
 });
+
+test('byzantine-generals: N=3 worlds indistinguishable, N=4 majority computed unanimous, 3f+1 arithmetic', async () => {
+  const topic = await loadTopic('byzantine-generals');
+  const gen = runTopic(topic, { view: 'the generals & 3f+1' });
+  assert.match(gen[0].state.cells.find((c) => c.id === 'cost:detail').label, /3f \+ 1/, 'the budget stated up front');
+  assert.match(gen[1].state.cells.find((c) => c.id === 'view:story').label, /byte-for-byte the same/, 'the indistinguishability core');
+  assert.match(gen[2].state.cells.find((c) => c.id === 'decide:story').label, /L1 → ATTACK · L2 → ATTACK · L3 → ATTACK: unanimous/, 'live majority vote: traitor commander still yields unanimity');
+  assert.match(gen[2].state.cells.find((c) => c.id === 'flip:story').label, /majority ATTACK, the TRUE order wins/, 'traitor lieutenant outvoted live');
+  assert.match(gen[3].state.cells.find((c) => c.id === 'cut:why').label, /f \+ 1/, 'quorum intersection arithmetic shown');
+  const pb = runTopic(topic, { view: 'PBFT & the real world' });
+  assert.match(pb[0].state.cells.find((c) => c.id === 'prep:does').label, /relay round/, 'PREPARE tied back to the generals');
+  assert.match(pb[1].state.cells.find((c) => c.id === 'still:effect').label, /3f \+ 1/, 'signatures honestly bounded under asynchrony');
+  assert.match(pb[2].state.cells.find((c) => c.id === 'db:how').label, /CRASH-fault only/, 'datacenters honestly excluded');
+  assert.equal(pb[3].state.rows.length, 4, 'the fault-tolerance ladder has four rungs');
+});
