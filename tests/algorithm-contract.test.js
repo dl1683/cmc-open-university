@@ -1679,6 +1679,23 @@ test('bulkheads: the shared pool drowns payments but compartments cap the blast 
   assert.ok(sealed.some((s) => /Containment first, recovery second/.test(s.explanation)), 'breaker pairing doctrine stated');
 });
 
+test('permutation-tests: 200 live shuffles put the observed +5.4 in the top 1.5% of the null world', async () => {
+  const topic = await loadTopic('permutation-tests');
+  const live = runTopic(topic, { view: 'the shuffle test, run live' });
+  assert.match(live[0].state.title, /better by 5\.4/, 'observed difference is 5.4');
+  const hist = live.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'nullDist')).state;
+  assert.equal(hist.series[0].points.reduce((a, p) => a + p.y, 0), 200, 'null histogram sums to 200 shuffles');
+  assert.ok(hist.markers.some((m) => Math.abs(m.x - 5.4) < 1e-9), 'observed marked on the distribution');
+  const verdict = live.find((s) => /The verdict/.test(s.state.title ?? ''));
+  assert.match(verdict.state.title, /p = 3\/200 = 0\.015/, 'p-value is 3/200');
+  assert.ok(live.some((s) => /252/.test(s.explanation)), 'exact enumeration count mentioned');
+  const reach = runTopic(topic, { view: 'when to reach for it' });
+  assert.ok(reach.some((s) => /EXCHANGEABILITY/.test(s.explanation)), 'exchangeability contract stated');
+  assert.ok(reach.some((s) => /block permutations/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'time-series caveat with block fix');
+  const kit = reach[reach.length - 1].state;
+  assert.equal(kit.rows.length, 4, 'four-tool resampling shelf');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

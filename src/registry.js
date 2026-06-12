@@ -339,6 +339,16 @@ export const topics = [
     module: () => import('./topics/multiple-testing.js'),
   },
   {
+    id: 'permutation-tests',
+    type: 'visualization',
+    buildsOn: ['ab-testing', 'bootstrap-ci', 'multiple-testing'],
+    category: 'Concepts',
+    title: 'Permutation Tests',
+    summary: 'Shuffle the labels 200 times (live) and count how often chance beats your result — a p-value with no formulas.',
+    tags: ['permutation test', 'null distribution', 'p-value', 'resampling', 'exchangeability', 'Fisher'],
+    module: () => import('./topics/permutation-tests.js'),
+  },
+  {
     id: 'binary-exponentiation',
     type: 'visualization',
     buildsOn: ['recursion', 'big-o-growth'],
