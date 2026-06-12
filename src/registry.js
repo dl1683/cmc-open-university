@@ -199,6 +199,16 @@ export const topics = [
     module: () => import('./topics/big-o-growth.js'),
   },
   {
+    id: 'two-pointers',
+    type: 'visualization',
+    buildsOn: ['binary-search'],
+    category: 'Concepts',
+    title: 'Two Pointers',
+    summary: 'Find a pair summing to a target in one pass — squeeze from both ends of a sorted array.',
+    tags: ['technique', 'pair sum', 'O(n)', 'interview'],
+    module: () => import('./topics/two-pointers.js'),
+  },
+  {
     id: 'memoization',
     type: 'visualization',
     buildsOn: ['recursion', 'hash-table'],
@@ -247,6 +257,16 @@ export const topics = [
     summary: 'Meaning as geometry: similar words sit close together, and search becomes "find my neighbors".',
     tags: ['embeddings', 'vector database', 'RAG', 'semantic search', 'cosine similarity'],
     module: () => import('./topics/embeddings-similarity.js'),
+  },
+  {
+    id: 'activation-functions',
+    type: 'visualization',
+    buildsOn: ['gradient-descent'],
+    category: 'AI & ML',
+    title: 'Activation Functions',
+    summary: 'Sigmoid, tanh, and ReLU compared — and why networks need nonlinearity at all.',
+    tags: ['relu', 'sigmoid', 'tanh', 'nonlinearity', 'vanishing gradients', 'neural networks'],
+    module: () => import('./topics/activation-functions.js'),
   },
   {
     id: 'gradient-descent',

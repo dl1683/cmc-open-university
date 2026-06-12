@@ -26,7 +26,7 @@ Teach anyone, for free, how computing actually works — by *showing* it. Every 
 
 ## Visual direction (Devansh, 2026-06-11)
 
-Visualizations should be **stunning and dimensional** — prefer 3D-feeling presentation over flat 2D wherever it helps comprehension, never where it hurts it. Current implementation: a 2.5D depth pass (shadows, glow pulses on semantic highlights, gradient stage) in the zero-dependency SVG engine. **Future step**: a true-3D renderer (WebGL/Three.js, vendored as a static file to preserve no-build) behind the *same* step contract, used for topics where 3D genuinely adds insight (trees, graphs, embedding spaces, loss landscapes). Adding that vendored dependency needs an explicit go-ahead from Devansh since it bends the zero-dependency rule.
+Visualizations should be **strategically dimensional** (Devansh): simple structures — trees, searches, lists — stay clean 2D because they explain simply; reach for 3D where it genuinely earns its keep — activation functions and loss surfaces, side-by-side algorithm comparisons, embedding spaces. Content and information density are king; dimensionality is a tool, not a style. Current implementation: a 2.5D depth pass (shadows, glow pulses on semantic highlights, gradient stage) in the zero-dependency SVG engine. **Future step**: a true-3D renderer (WebGL/Three.js, vendored as a static file to preserve no-build) behind the *same* step contract, used for topics where 3D genuinely adds insight (trees, graphs, embedding spaces, loss landscapes). Adding that vendored dependency needs an explicit go-ahead from Devansh since it bends the zero-dependency rule.
 
 ## Hard decisions (already made — do not relitigate)
 
