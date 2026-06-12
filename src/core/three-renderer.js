@@ -170,3 +170,130 @@ export function renderSurface3d(container, step) {
   }
   loadThree().then(() => boot());
 }
+
+// ---------------------------------------------------------- point clouds
+
+const CLUSTER_COLORS = [0x6ea8ff, 0xffd166, 0xff8fa3, 0x9bf6ff, 0xcaffbf, 0xbdb2ff];
+
+function buildPointsScene(container) {
+  const W = container.clientWidth || 560;
+  const H = 380;
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  container.textContent = '';
+  container.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(COLORS.bg);
+  const camera = new THREE.PerspectiveCamera(42, W / H, 0.01, 50);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+  sun.position.set(1.5, 2.2, 1.0);
+  scene.add(sun);
+  const floor = new THREE.GridHelper(1.3, 13, 0x2a3550, 0x1a2238);
+  floor.position.y = -0.45;
+  scene.add(floor);
+
+  const ctx = {
+    renderer, scene, camera, kind: 'points3d',
+    pointObjects: new Map(), vectorObjects: new Map(), clusterIndex: new Map(),
+    angle: 0.6, frame: null, disposed: false,
+  };
+  const orbit = () => {
+    if (ctx.disposed || !renderer.domElement.isConnected) {
+      cancelAnimationFrame(ctx.frame);
+      renderer.dispose();
+      ctx.disposed = true;
+      return;
+    }
+    ctx.angle += 0.0035;
+    camera.position.set(Math.cos(ctx.angle) * 1.45, 0.62, Math.sin(ctx.angle) * 1.45);
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    ctx.frame = requestAnimationFrame(orbit);
+  };
+  orbit();
+  return ctx;
+}
+
+function pointsToScene(state) {
+  const { x, y, z } = state.axes;
+  const zr = z && z.max !== undefined ? z : x;
+  return (px, py, pz) => new THREE.Vector3(
+    (px - x.min) / (x.max - x.min) - 0.5,
+    ((pz - (zr.min ?? 0)) / ((zr.max ?? 1) - (zr.min ?? 0))) * 0.9 - 0.45,
+    (py - y.min) / (y.max - y.min) - 0.5,
+  );
+}
+
+function syncPoints(ctx, step) {
+  const state = step.state;
+  const lit = new Set(Object.values(step.highlight ?? {}).flat());
+  const toScene = pointsToScene(state);
+
+  const wanted = new Set(state.points.map((q) => q.id));
+  for (const [id, obj] of ctx.pointObjects) {
+    if (!wanted.has(id)) { ctx.scene.remove(obj); ctx.pointObjects.delete(id); }
+  }
+  for (const q of state.points) {
+    if (q.cluster !== undefined && !ctx.clusterIndex.has(q.cluster)) {
+      ctx.clusterIndex.set(q.cluster, ctx.clusterIndex.size);
+    }
+    const color = q.cluster !== undefined
+      ? CLUSTER_COLORS[ctx.clusterIndex.get(q.cluster) % CLUSTER_COLORS.length]
+      : COLORS.marker;
+    let sphere = ctx.pointObjects.get(q.id);
+    if (!sphere) {
+      sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.018, 18, 18),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.35 }),
+      );
+      ctx.scene.add(sphere);
+      ctx.pointObjects.set(q.id, sphere);
+    }
+    sphere.material.color = new THREE.Color(color);
+    sphere.position.copy(toScene(q.x, q.y, q.z));
+    const isLit = lit.has(q.id);
+    sphere.material.emissive = new THREE.Color(isLit ? COLORS.highlight : color);
+    sphere.material.emissiveIntensity = isLit ? 0.85 : 0.18;
+    sphere.scale.setScalar(isLit ? 1.7 : 1);
+  }
+
+  const wantedVecs = new Set(state.vectors.map((v) => v.id));
+  for (const [id, obj] of ctx.vectorObjects) {
+    if (!wantedVecs.has(id)) { ctx.scene.remove(obj); ctx.vectorObjects.delete(id); }
+  }
+  for (const v of state.vectors) {
+    const old = ctx.vectorObjects.get(v.id);
+    if (old) ctx.scene.remove(old);
+    const from = toScene(v.from.x, v.from.y, v.from.z);
+    const to = toScene(v.to.x, v.to.y, v.to.z);
+    const dir = to.clone().sub(from);
+    const arrow = new THREE.ArrowHelper(
+      dir.clone().normalize(), from, dir.length(),
+      lit.has(v.id) ? COLORS.highlight : 0xffffff, 0.035, 0.02,
+    );
+    ctx.scene.add(arrow);
+    ctx.vectorObjects.set(v.id, arrow);
+  }
+}
+
+export function renderPoints3d(container, step) {
+  const boot = () => {
+    if (!container._three || container._three.disposed || container._three.kind !== 'points3d'
+      || !container.contains(container._three.renderer.domElement)) {
+      container._three = buildPointsScene(container);
+    }
+    syncPoints(container._three, step);
+  };
+  if (THREE) { boot(); return; }
+  if (!container.querySelector('[data-three-loading]')) {
+    const note = document.createElement('p');
+    note.dataset.threeLoading = '1';
+    note.textContent = 'Warming up the 3D engine…';
+    container.textContent = '';
+    container.appendChild(note);
+  }
+  loadThree().then(() => boot());
+}

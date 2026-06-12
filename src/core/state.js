@@ -22,6 +22,7 @@ export const STATE_KINDS = [
   'scatter',
   'graph',
   'surface3d',
+  'points3d',
 ];
 
 export const HIGHLIGHT_KEYS = [
@@ -260,6 +261,19 @@ export function surface3dState({ axes, heights, paths = [], markers = [] }, meta
   };
 }
 
+
+// True-3D point cloud (embedding spaces, clusters). points carry an optional
+// cluster for coloring; vectors draw arrows between 3D positions.
+export function points3dState({ axes, points = [], vectors = [] }, meta = {}) {
+  return {
+    kind: 'points3d',
+    axes: { x: { ...axes.x }, y: { ...axes.y }, z: { ...(axes.z ?? {}) } },
+    points: points.map((q) => ({ ...q })),
+    vectors: vectors.map((v) => ({ id: v.id, label: v.label ?? '', from: { ...v.from }, to: { ...v.to } })),
+    meta: { ...meta },
+  };
+}
+
 // ------------------------------------------------------- step contract
 
 export function collectStateIds(state) {
@@ -301,6 +315,11 @@ export function collectStateIds(state) {
       return [
         ...state.paths.map((p) => p.id),
         ...state.markers.map((m) => m.id),
+      ];
+    case 'points3d':
+      return [
+        ...state.points.map((q) => q.id),
+        ...state.vectors.map((v) => v.id),
       ];
     default:
       return [];

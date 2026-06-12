@@ -1713,6 +1713,31 @@ test('loss-surface-3d: GD settles in the shallow basin while momentum crosses to
   assert.ok(final.markers.some((m) => m.id === 'deep') && final.markers.some((m) => m.id === 'shallow'), 'both minima marked');
 });
 
+test('embedding-space-3d: parallel relationship arrows and the analogy lands nearest to queen', async () => {
+  const topic = await loadTopic('embedding-space-3d');
+  const steps = runTopic(topic, { view: 'through the space' });
+  assert.ok(steps.every((s) => s.state.kind === 'points3d'), 'every step is a 3D point cloud');
+  const arrows = steps.find((s) => (s.state.vectors ?? []).some((v) => v.id === 'kingQueen')).state;
+  const vec = (id) => {
+    const v = arrows.vectors.find((x) => x.id === id);
+    return { x: v.to.x - v.from.x, y: v.to.y - v.from.y, z: v.to.z - v.from.z };
+  };
+  const a = vec('manWoman');
+  const b = vec('kingQueen');
+  const dot = a.x * b.x + a.y * b.y + a.z * b.z;
+  const cos = dot / (Math.hypot(a.x, a.y, a.z) * Math.hypot(b.x, b.y, b.z));
+  assert.ok(cos > 0.99, 'man→woman and king→queen are near-parallel');
+  const final = steps[steps.length - 1].state;
+  const landing = final.points.find((p) => p.id === 'landing');
+  const d = (id) => {
+    const w = final.points.find((p) => p.id === id);
+    return Math.hypot(landing.x - w.x, landing.y - w.y, landing.z - w.z);
+  };
+  const others = final.points.filter((p) => !['landing', 'queen'].includes(p.id)).map((p) => Math.hypot(landing.x - p.x, landing.y - p.y, landing.z - p.z));
+  assert.ok(d('queen') < Math.min(...others), 'queen is the landing point\'s nearest word');
+  assert.ok(steps.some((s) => /doctor − man \+ woman/.test(s.explanation)), 'bias footnote included');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

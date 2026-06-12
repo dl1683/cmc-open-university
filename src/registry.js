@@ -1166,6 +1166,16 @@ export const topics = [
     module: () => import('./topics/loss-surface-3d.js'),
   },
   {
+    id: 'embedding-space-3d',
+    type: 'visualization',
+    buildsOn: ['embeddings-similarity', 'tsne-umap', 'loss-surface-3d'],
+    category: 'AI & ML',
+    title: 'The Embedding Space, in 3D',
+    summary: 'Words as floating points, meaning as distance — and king − man + woman walked as an arrow through 3D space.',
+    tags: ['3D', 'WebGL', 'embeddings', 'word2vec', 'analogy', 'semantic space'],
+    module: () => import('./topics/embedding-space-3d.js'),
+  },
+  {
     id: 'adam-optimizer',
     type: 'visualization',
     buildsOn: ['gradient-descent', 'loss-landscapes', 'regularization'],
