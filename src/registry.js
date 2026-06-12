@@ -376,6 +376,16 @@ export const topics = [
     module: () => import('./topics/kv-cache.js'),
   },
   {
+    id: 'quantization',
+    type: 'visualization',
+    buildsOn: ['nn-forward-pass', 'kv-cache'],
+    category: 'AI & ML',
+    title: 'Quantization',
+    summary: 'Squeeze float weights into 8, 4, or 2 bits — watch what survives and what gets lobotomized.',
+    tags: ['quantization', 'int4', 'llama.cpp', 'GPTQ', 'compression', 'inference'],
+    module: () => import('./topics/quantization.js'),
+  },
+  {
     id: 'random-forest',
     type: 'visualization',
     buildsOn: ['binary-search-tree'],
