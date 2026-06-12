@@ -396,6 +396,16 @@ export const topics = [
     module: () => import('./topics/backpropagation.js'),
   },
   {
+    id: 'dropout',
+    type: 'visualization',
+    buildsOn: ['nn-forward-pass', 'backpropagation', 'random-forest'],
+    category: 'AI & ML',
+    title: 'Dropout',
+    summary: 'Randomly silence neurons during training — an ensemble of sub-networks sharing one set of weights.',
+    tags: ['regularization', 'overfitting', 'dropout', 'ensemble', 'training'],
+    module: () => import('./topics/dropout.js'),
+  },
+  {
     id: 'rag-pipeline',
     type: 'visualization',
     buildsOn: ['embeddings-similarity', 'attention', 'kv-cache'],
