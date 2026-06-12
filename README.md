@@ -7,11 +7,16 @@ algorithm run — with a synchronized plain-English explanation of what is
 happening and *why* at every single step. Change the inputs and run it again.
 
 Topics span classic data structures (linked lists, stacks, queues, hash tables,
-binary search trees), classic algorithms (bubble/merge/quick/heap sort, linear
-and binary search), core concepts (recursion as a live call tree), and modern
-AI (the attention mechanism behind Transformers, computed for real on toy
-vectors). More are added over time — the goal is a free CS resource for anyone
-who wants to understand how computing works.
+BSTs, heaps, tree traversals, graphs with BFS and Dijkstra), classic algorithms
+(six sorts, two searches), core concepts (recursion as a live call tree,
+memoization, Big-O growth curves), systems design (LRU cache, load balancer,
+bloom filter), and modern AI (attention, gradient descent, k-means, BPE
+tokenization, softmax & temperature, embeddings). Topics declare what simpler
+ideas they are *built from*, so every page links back to its ingredients and
+forward to what it unlocks. Any visualization can be **exported as a video**
+(WebM) with the explanations baked in, for sharing. More is added continuously —
+the goal is a free CS resource for anyone who wants to understand how
+computing works.
 
 ## How it works
 

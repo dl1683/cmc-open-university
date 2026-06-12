@@ -247,7 +247,9 @@ h1, h2, h3 { line-height: 1.2; }
 .learn-grid { display: flex; flex-direction: column; gap: 12px; }
 
 .vis-panel {
-  background: var(--panel);
+  background:
+    radial-gradient(ellipse at 50% 0%, var(--accent-soft) 0%, transparent 55%),
+    var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 14px;
@@ -318,11 +320,40 @@ svg text {
 .svg-arrowhead { fill: var(--muted); }
 .svg-bracket { fill: none; stroke: var(--line); stroke-width: 3; }
 
+/* Depth pass: every cell floats with a soft shadow; the semantic highlight
+   states glow and pulse so the eye is pulled exactly where the algorithm is
+   working. Stunning, but never at the cost of follow-along clarity. */
 .cell rect, .cell circle {
   fill: var(--cell-bg);
   stroke: var(--line);
   stroke-width: 2;
-  transition: fill 200ms, stroke 200ms, opacity 200ms;
+  transition: fill 250ms, stroke 250ms, opacity 250ms, filter 250ms;
+  filter: drop-shadow(0 2.5px 2px rgb(10 20 40 / 22%));
+}
+
+@keyframes pulse-active {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--accent)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+  50% { filter: drop-shadow(0 0 9px var(--accent)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+}
+@keyframes pulse-good {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--good)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+  50% { filter: drop-shadow(0 0 10px var(--good)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+}
+@keyframes pulse-bad {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--bad)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+  50% { filter: drop-shadow(0 0 9px var(--bad)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
+}
+.hl-active rect, .hl-active circle { animation: pulse-active 1.6s ease-in-out infinite; }
+.hl-found rect, .hl-found circle { animation: pulse-good 1.8s ease-in-out infinite; }
+.hl-swap rect, .hl-swap circle { animation: pulse-bad 1.2s ease-in-out infinite; }
+.mcell.hl-active rect, .plot-marker.hl-active circle, .pt.hl-compare circle,
+.centroid.hl-active circle, .edge.hl-found line {
+  animation: pulse-active 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell rect, .cell circle, .mcell rect, .plot-marker circle, .pt circle,
+  .centroid circle, .edge line { animation: none !important; }
 }
 .cell .bucket-empty { fill: var(--bg); stroke-dasharray: 4 4; }
 
