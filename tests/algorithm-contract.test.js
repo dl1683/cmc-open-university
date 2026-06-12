@@ -455,6 +455,16 @@ test('mixture-of-experts: top-k routing activates exactly k experts per token', 
   assert.ok(routing.highlight.active.includes('t1:e1'), 'protein routes to its specialist E2');
 });
 
+test('speculative-decoding: lossless — both drafts produce the identical sentence', async () => {
+  const topic = await loadTopic('speculative-decoding');
+  const good = runTopic(topic, { draft: 'good draft' });
+  const weak = runTopic(topic, { draft: 'weak draft' });
+  assert.deepEqual(finalArray(good), finalArray(weak), 'output independent of draft quality');
+  assert.equal(finalArray(good).length, 10, 'full sentence generated');
+  assert.match(lastText(good), /from 3 big-model passes/, 'good draft needs only 3 passes');
+  assert.match(lastText(weak), /from 7 big-model passes/, 'weak draft needs 7 passes');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

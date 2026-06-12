@@ -516,6 +516,16 @@ export const topics = [
     module: () => import('./topics/backpropagation.js'),
   },
   {
+    id: 'speculative-decoding',
+    type: 'visualization',
+    buildsOn: ['kv-cache', 'knowledge-distillation'],
+    category: 'AI & ML',
+    title: 'Speculative Decoding',
+    summary: 'A small draft model guesses ahead; the big model verifies in one pass — identical output, much faster.',
+    tags: ['inference', 'speculative', 'draft model', 'LLM speed', 'lossless'],
+    module: () => import('./topics/speculative-decoding.js'),
+  },
+  {
     id: 'mixture-of-experts',
     type: 'visualization',
     buildsOn: ['nn-forward-pass', 'softmax-temperature', 'load-balancer'],
