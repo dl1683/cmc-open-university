@@ -606,6 +606,17 @@ test('prims-mst: reaches the same minimum total as Kruskal from any start', asyn
   }
 });
 
+test('gossip-protocol: saturates every reachable node, even with failures', async () => {
+  const topic = await loadTopic('gossip-protocol');
+  const healthy = runTopic(topic, { health: 'all 12 nodes healthy' });
+  const healthyFinal = healthy.findLast((s) => /Saturation/.test(s.explanation)).state;
+  assert.equal(healthyFinal.nodes.filter((n) => n.note === 'knows').length, 12, 'all 12 informed');
+  const degraded = runTopic(topic, { health: '3 nodes offline' });
+  const degradedFinal = degraded.findLast((s) => /Saturation/.test(s.explanation)).state;
+  assert.equal(degradedFinal.nodes.filter((n) => n.note === 'knows').length, 9, 'all 9 alive nodes informed');
+  assert.equal(degradedFinal.nodes.filter((n) => n.note === 'offline').length, 3, 'offline stay uninformed');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

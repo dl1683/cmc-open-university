@@ -459,6 +459,16 @@ export const topics = [
     module: () => import('./topics/saga-pattern.js'),
   },
   {
+    id: 'gossip-protocol',
+    type: 'visualization',
+    buildsOn: ['consistent-hashing', 'graph-bfs', 'merkle-tree'],
+    category: 'Systems',
+    title: 'Gossip Protocol',
+    summary: 'Each round, every informed node tells two peers — the whole cluster knows in O(log n) rounds.',
+    tags: ['gossip', 'epidemic', 'cassandra', 'membership', 'decentralized'],
+    module: () => import('./topics/gossip-protocol.js'),
+  },
+  {
     id: 'rate-limiter',
     type: 'visualization',
     buildsOn: ['stack', 'hash-table'],
