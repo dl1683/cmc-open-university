@@ -669,6 +669,16 @@ export const topics = [
     module: () => import('./topics/mvcc-vacuum.js'),
   },
   {
+    id: 'hot-rows',
+    type: 'visualization',
+    buildsOn: ['mvcc-vacuum', 'message-queue', 'write-caching'],
+    category: 'Systems',
+    title: 'Hot Rows & Append-and-Aggregate',
+    summary: 'A viral counter at 1,000 writes/sec melts a single row — four designs, from sharded counters to append-and-aggregate.',
+    tags: ['hot rows', 'contention', 'sharded counters', 'append-only', 'event sourcing', 'scalability'],
+    module: () => import('./topics/hot-rows.js'),
+  },
+  {
     id: 'cdn-request-flow',
     type: 'visualization',
     buildsOn: ['lru-cache', 'load-balancer', 'consistent-hashing', 'rate-limiter'],

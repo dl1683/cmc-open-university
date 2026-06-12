@@ -1447,6 +1447,25 @@ test('normalization: activations compound without it and the two axes standardiz
   assert.match(settle.cells.find((c) => c.id === 'rms:home').label, /LLaMA/, 'RMSNorm credited to LLaMA-class LLMs');
 });
 
+test('hot-rows: the queue grows 100/sec without bound and the four designs trade freshness for throughput', async () => {
+  const topic = await loadTopic('hot-rows');
+  const melt = runTopic(topic, { view: 'the hot row, melting' });
+  const backlog = melt.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'backlog')).state;
+  const pts = backlog.series[0].points;
+  assert.equal(pts[10].y, 1000, '1,000 writers waiting after ten seconds');
+  assert.equal(pts[30].y - pts[20].y, 1000, 'growth never stabilizes');
+  assert.ok(melt.some((s) => /without bound|unbounded/.test(`${s.explanation} ${s.invariant ?? ''}`)), 'queueing law stated');
+  assert.ok(melt.some((s) => /86 MILLION/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'daily corpse count shown');
+  const designs = runTopic(topic, { view: 'four designs, one counter' });
+  assert.ok(designs.some((s) => /LongAdder/.test(s.explanation)), 'sharded-counter kinship cited');
+  assert.ok(designs.some((s) => /Inserts parallelize where updates serialize/.test(s.invariant ?? '')), 'the core trick stated');
+  const card = designs[designs.length - 1].state;
+  const tput = (id) => card.cells.find((c) => c.id === `${id}:tput`).value;
+  assert.ok(tput('shard') > 10 * tput('naive'), 'sharding lifts throughput an order of magnitude');
+  assert.ok(tput('ram') > tput('append'), 'RAM accumulator is fastest');
+  assert.match(card.cells.find((c) => c.id === 'ram:loss').label, /unflushed window/, 'RAM design pays in crash loss');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {
