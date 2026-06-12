@@ -1340,6 +1340,27 @@ test('hyperparameter-search: random probes 9 distinct lrs to grid\'s 3 and lands
   assert.ok(smart.some((s) => /test set stays sealed/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'protocol seals the test set');
 });
 
+test('lr-schedules: the schedule beats both constants and warmup ramps before the cosine', async () => {
+  const topic = await loadTopic('lr-schedules');
+  const fails = runTopic(topic, { view: 'why one constant fails' });
+  const trio = fails.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'sched')).state;
+  const at = (id, t) => trio.series.find((ser) => ser.id === id).points.find((p) => p.x === t).y;
+  assert.ok(at('sched', 10) < 0.05, 'scheduled run lands within ten steps');
+  assert.ok(at('big', 10) > 3 && at('small', 10) > 5, 'both constants still far out at step ten');
+  assert.ok(at('big', 30) > at('sched', 30), 'bold constant never catches the schedule');
+  const zoo = runTopic(topic, { view: 'the schedule zoo & warmup' });
+  const curves = zoo[0].state;
+  const warmcos = curves.series.find((ser) => ser.id === 'warmcos').points;
+  assert.equal(warmcos[0].y, 0, 'warmup starts at zero');
+  assert.ok(Math.abs(warmcos[10].y - 1) < 1e-9, 'peak reached at the end of warmup');
+  assert.ok(warmcos.at(-1).y < 0.01, 'cosine lands near zero');
+  assert.ok(zoo.some((s) => /rumor/.test(s.explanation) && /v has seen enough gradients/.test(s.explanation)), 'warmup justified by Adam variance estimates');
+  const sweep = zoo.find((s) => (s.state.series ?? []).some((ser) => ser.id === 'sweep')).state;
+  const ys = sweep.series[0].points.map((p) => p.y);
+  assert.ok(ys.at(-1) > Math.min(...ys) + 1, 'range test explodes past the sweet spot');
+  assert.ok(zoo.some((s) => /Leslie Smith/.test(s.explanation)), 'LR range test attributed');
+});
+
 // ----------------------------------------------- layer 3: study articles
 
 for (const entry of visualizations) {

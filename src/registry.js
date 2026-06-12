@@ -1006,6 +1006,16 @@ export const topics = [
     module: () => import('./topics/adam-optimizer.js'),
   },
   {
+    id: 'lr-schedules',
+    type: 'visualization',
+    buildsOn: ['adam-optimizer', 'loss-landscapes', 'hyperparameter-search'],
+    category: 'AI & ML',
+    title: 'Learning-Rate Schedules & Warmup',
+    summary: 'Big steps to cover ground, small steps to settle — schedules turn one impossible constant into a dial over time.',
+    tags: ['learning rate', 'warmup', 'cosine annealing', 'step decay', 'LR range test', 'schedules', 'training'],
+    module: () => import('./topics/lr-schedules.js'),
+  },
+  {
     id: 'threshold-optimization',
     type: 'visualization',
     buildsOn: ['roc-auc', 'precision-recall', 'calibration-curves'],
