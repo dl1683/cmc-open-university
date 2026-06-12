@@ -8,9 +8,15 @@ export const categories = [
   'Sorting',
   'Searching',
   'Concepts',
+  'Systems',
   'AI & ML',
   'Papers',
 ];
+
+// Entries may declare `buildsOn: [ids]` — the simpler ideas they are made of.
+// Topic pages render these as "Built from" links, and compute the reverse
+// ("Next up") automatically, so complex topics always point back to their
+// ingredients and simple topics advertise what they unlock.
 
 export const topics = [
   {
@@ -52,6 +58,7 @@ export const topics = [
   {
     id: 'binary-search-tree',
     type: 'visualization',
+    buildsOn: ['binary-search'],
     category: 'Data Structures',
     title: 'Binary Search Tree',
     summary: 'Smaller values go left, larger go right — so lookups skip half the tree at every node.',
@@ -70,6 +77,7 @@ export const topics = [
   {
     id: 'merge-sort',
     type: 'visualization',
+    buildsOn: ['recursion'],
     category: 'Sorting',
     title: 'Merge Sort',
     summary: 'Split the array in half, sort each half, then merge — divide and conquer at O(n log n).',
@@ -79,6 +87,7 @@ export const topics = [
   {
     id: 'quick-sort',
     type: 'visualization',
+    buildsOn: ['recursion'],
     category: 'Sorting',
     title: 'Quick Sort',
     summary: 'Pick a pivot, partition the array around it, recurse — fast in practice and in place.',

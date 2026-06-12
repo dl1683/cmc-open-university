@@ -122,9 +122,40 @@ async function initTopic() {
   document.title = `${entry.title} — Visualized`;
   titleEl.textContent = entry.title;
   root.querySelector('[data-topic-summary]').textContent = entry.summary;
+  renderTopicLinks(root.querySelector('[data-topic-links]'), entry);
 
   const mod = await entry.module();
   createTopicRuntime({ root, topic: mod.topic });
+}
+
+// "Built from": the simpler ideas this topic is composed of.
+// "Next up": computed in reverse — everything that builds on this topic.
+function renderTopicLinks(container, entry) {
+  const buildsOn = (entry.buildsOn ?? [])
+    .map((id) => topics.find((t) => t.id === id))
+    .filter(Boolean);
+  const leadsTo = topics.filter((t) => (t.buildsOn ?? []).includes(entry.id));
+
+  const addRow = (label, entries) => {
+    if (entries.length === 0) return;
+    const row = document.createElement('p');
+    row.className = 'chip-row';
+    const caption = document.createElement('span');
+    caption.className = 'chip-caption';
+    caption.textContent = label;
+    row.appendChild(caption);
+    for (const target of entries) {
+      const chip = document.createElement('a');
+      chip.className = 'chip';
+      chip.href = entryHref(target);
+      chip.textContent = target.title;
+      row.appendChild(chip);
+    }
+    container.appendChild(row);
+  };
+
+  addRow('Built from:', buildsOn);
+  addRow('Next up:', leadsTo);
 }
 
 // -------------------------------------------------------------- bootstrap

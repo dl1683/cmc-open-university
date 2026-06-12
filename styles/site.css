@@ -196,7 +196,21 @@ h1, h2, h3 { line-height: 1.2; }
 
 .topic-main { padding: 22px 26px 50px; min-width: 0; }
 .topic-header h1 { margin: 0; font-size: 1.6rem; }
-.topic-summary { color: var(--muted); margin: 6px 0 18px; max-width: 70ch; }
+.topic-summary { color: var(--muted); margin: 6px 0 12px; max-width: 70ch; }
+
+.link-chips { margin-bottom: 14px; }
+.chip-row { margin: 4px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip-caption { font-size: 0.8rem; color: var(--muted); margin-right: 2px; }
+.chip {
+  display: inline-block;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+.chip:hover { outline: 1px solid var(--accent); }
 
 .controls {
   display: flex;
