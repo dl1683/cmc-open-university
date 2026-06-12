@@ -108,7 +108,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `Put the source node into a Queue and mark it seen. Repeatedly dequeue the oldest node, inspect each neighbor, and enqueue only the neighbors not seen before. When a neighbor is first discovered, store its parent pointer and distance as current distance + 1. Parent pointers reconstruct the path once the target is found.`,
-        `The queue is the proof mechanism. Nodes discovered at distance d enter the queue before nodes at distance d + 1, so all closer work is processed first. This is why the path is shortest by hop count. A Stack would create depth-first behavior instead, which can be useful for cycle detection or backtracking but does not guarantee fewest hops.`,
+        `The queue is the proof mechanism. Nodes discovered at distance d enter the queue before nodes at distance d + 1, so all closer work is processed first. This is why the path is shortest by hop count. A stack would create depth-first behavior instead, which can be useful for cycle detection or backtracking but does not guarantee fewest hops.`,
       ],
     },
     {
@@ -128,7 +128,7 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `The biggest mistake is applying it to weighted edges and expecting cheapest paths. It finds fewest edges, not lowest cost. Another bug is marking a node seen only when dequeued; in graphs with many incoming edges, that can enqueue duplicates. Mark when enqueuing so each vertex enters once. Also remember disconnected graphs: starting from A cannot reach nodes in another component.`,
-        `It is not inherently recursive. The normal implementation is iterative and queue-driven. Recursion can express depth-first traversal naturally, but breadth-first order needs an explicit frontier. Topological Sort uses a queue too, yet its priority is in-degree zero rather than graph distance.`,
+        `It is not inherently recursive. The normal implementation is iterative and queue-driven. Recursive code can express depth-first traversal naturally, but breadth-first order needs an explicit frontier. Topological Sort uses a queue too, yet its priority is in-degree zero rather than graph distance.`,
       ],
     },
     {

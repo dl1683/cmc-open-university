@@ -1609,6 +1609,24 @@ test('power-analysis: 2,000 users detect a real 10% lift one time in ten, and 80
   assert.ok(sizing.some((s) => /pick three, the fourth is determined/.test(s.state.title ?? '')), 'four-way trade staged');
 });
 
+test('markov-chains: both starts converge to (0.476, 0.381, 0.143) and the funnel ceiling is 36%', async () => {
+  const topic = await loadTopic('markov-chains');
+  const habits = runTopic(topic, { view: 'the chain finds its habits' });
+  const converge = habits.find((s) => /same destination/.test(s.state.title ?? '')).state;
+  const cell = (id) => converge.cells.find((c) => c.id === id).value;
+  for (const st of ['sunny', 'cloudy', 'rainy']) {
+    assert.ok(Math.abs(cell(`fromSun:${st}`) - cell(`fromRain:${st}`)) < 0.002, `${st}: both starts agree by day 10`);
+  }
+  assert.ok(Math.abs(cell('stat:sunny') - 10 / 21) < 1e-3, 'stationary sunny = 10/21');
+  assert.ok(habits.some((s) => /πP = π/.test(s.invariant ?? '')), 'eigen connection stated');
+  assert.ok(habits.some((s) => /teleport/.test((s.state.cells ?? []).map((c) => c.label).join(' '))), 'PageRank teleport finished');
+  const abs = runTopic(topic, { view: 'absorbing states & the family' });
+  const funnel = abs.find((s) => /upgraded by month/.test(s.state.title ?? '')).state;
+  assert.ok(Math.abs(funnel.cells.find((c) => c.id === 'm60:p').value - 36) < 0.2, 'long-run upgrade probability ~36%');
+  assert.ok(funnel.cells.find((c) => c.id === 'm1:p').value < 10, 'month one starts at 9%');
+  assert.ok(abs.some((s) => /ENGINEERS a chain/.test(s.explanation)), 'MCMC inversion explained');
+});
+
 test('linkifyByTitle: links exact titles once, word-bounded, never self', () => {
   const segs = linkifyByTitle('Read Binary Search, then Binary Search again, then the Stack.', 'queue');
   const links = segs.filter((s) => s.id);

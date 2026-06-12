@@ -799,6 +799,16 @@ export const topics = [
     module: () => import('./topics/eigenvectors.js'),
   },
   {
+    id: 'markov-chains',
+    type: 'visualization',
+    buildsOn: ['eigenvectors', 'pagerank', 'finite-state-machine'],
+    category: 'Concepts',
+    title: 'Markov Chains & Steady States',
+    summary: 'Remember only today, iterate forever: every starting point converges to the same long-run habits — computed live.',
+    tags: ['Markov chains', 'stationary distribution', 'absorbing states', 'MCMC', 'random walk', 'memoryless'],
+    module: () => import('./topics/markov-chains.js'),
+  },
+  {
     id: 'matrix-completion',
     type: 'visualization',
     buildsOn: ['svd', 'embeddings-similarity', 'thompson-sampling'],

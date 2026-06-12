@@ -136,43 +136,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A trie is a tree where each node represents a single character and each path from root to a marked node spells a complete word. Unlike a Hash Table that treats each word as an atomic key, a trie breaks words into letters and stores them as a navigable chain. The magic: words that share a prefix (like "car" and "card") share the same path up to their divergence point, so that prefix is stored exactly once in memory.`,
-        `Each node holds a map of its children (one per possible character), a flag marking whether the path to that node completes a word, and a label (the character itself). The root node is usually unmarked and represents the empty string. Imagine a massive dictionary stored not as a flat list but as a branching tree of letters — that is a trie. Every path spells a prefix of at least one real word by construction.`,
+        `A trie stores strings by shared prefixes. Each edge or node represents the next character or token, and a marked node says that the path from the root is a complete key. Edward Fredkin coined the name around 1960 from retrieval; many people pronounce it try to avoid confusion with tree.`,
+        `The structure is useful because common beginnings become common storage. The words cat, car, card, and care share c-a, then split. A Hash Table can answer exact membership quickly, but it does not naturally answer every key starting with ca. A prefix tree does: walk the prefix once, then traverse the subtree below it.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Insert a word by walking from the root, one character at a time. If a child node for that character already exists, reuse it (this is where the space savings happen). If not, create it and link it. Mark the final node as "is a word." Lookup is identical: walk the path; if you fall off the tree at any step, the word is not in the dictionary. If you reach the end and the node is marked, the word exists. Autocomplete is the key unlock: to find all words starting with a prefix like "ca", walk the prefix path (O(prefix length)), then harvest the entire subtree below that node — every node in that subtree represents a word or prefix of a word beginning with "ca".`,
-        `Deletion reverses insertion: unmark a node as a "word," then clean up childless nodes bottom-up. A trie proves the absence of a prefix instantly. If you reach a dead end (a missing child), no word in the dictionary starts with that prefix — proven without scanning the entire dictionary or even looking at stored words, just the structure itself. This is impossibly fast compared to a Hash Table, which must scan or probe.`,
+        `Insertion walks from the root one symbol at a time. If the child for the next symbol exists, reuse it. If not, create it. At the end, mark the node as a complete key. Exact lookup follows the same path and succeeds only if the final node is marked; reaching an unmarked prefix means the prefix exists but the full word does not.`,
+        `Autocomplete is the signature operation. Walk the requested prefix in O(prefix length). If any step is missing, no stored key has that prefix. If the walk succeeds, collect completions with Tree Traversals over the descendant subtree. Deletion unmarks the terminal node and then removes now-useless childless nodes on the way back up.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `A lookup or insert costs O(word length), completely independent of how many words are in the dictionary. This is trie's defining promise: a million-word dictionary and a two-word dictionary have the same lookup speed for a three-letter word. Space usage is O(total characters across all words) — not O(number of words). A trie storing "cat," "car," and "card" reuses the "ca" prefix, so it holds roughly 2 + 2 + 2 nodes (c-a-t, c-a-r, c-a-r-d) instead of 10. Autocomplete (prefix walk plus subtree harvest) costs O(prefix length + number of results), so if the prefix narrows down to 47 completions, you pay for 47, not for the entire dictionary.`,
+        `Exact lookup and insertion cost O(L), where L is key length, independent of the number of stored keys. Autocomplete costs O(P + R), where P is prefix length and R is the size of the returned subtree. Space is O(total stored symbols) in the worst case, but shared prefixes reduce real usage. For cat, car, card, and care, the raw words contain 14 letters; the shared-prefix structure needs only c, a, t, r, d, and e plus the root.`,
+        `Memory details depend on child representation. An array of 26 child pointers is fast for lowercase English but wasteful for Unicode. A map per node saves sparse space but adds hashing overhead. Compressed radix tries collapse chains of single-child nodes into edge labels, often winning in production.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Every search box you have used — browser address bar, search engines, phone keyboards, IDE symbol completion, map applications — relies on a trie. When you type "sou," autocomplete reaches the "sou" node and yields all descendants: "soup," "sound," "south," etc. IP routing in networks uses a trie of binary prefixes; when a packet arrives, a router walks the prefix trie to find the longest matching prefix and forward accordingly, supporting millions of routes. Spell-checkers and predictive keyboards use tries to suggest corrections. Databases like LevelDB and RocksDB use compressed tries (radix tries) to index sorted keys efficiently. DNA sequence matching in bioinformatics uses tries to find patterns in genomic data. Type-ahead systems at scale (e.g., Google's search suggestions) store tries in memory or compressed form to serve billions of queries per day.`,
+        `Autocomplete in search boxes, IDE symbol completion, phone keyboards, spell-checkers, and command shells all rely on prefix lookup. Routers use binary prefix tries for longest-prefix IP matching. Databases and storage engines use trie-like or radix structures for ordered byte keys; B-Trees (How Databases Read) solve a related indexing problem with disk-friendly high fanout. Tokenization (BPE) implementations often use trie-like tables to find the longest mergeable token prefix. Huffman Coding also produces prefix-free codes, although its tree is optimized for compression rather than lookup by human-readable prefix.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Tries are not always faster than Hash Tables for simple lookups on a small, static dictionary. If you only need "does this word exist?" on 50 words, a Hash Table is simpler and faster. Tries shine when you need prefix queries, autocomplete, or dynamic insertion into a large dictionary. People sometimes think a trie stores the full word at each node; in fact, each node stores one character and a map of children. A path spells the word, not any single node. Tries can waste memory if your alphabet is large (e.g., Unicode) and words are sparse; each node reserves space for all possible children even if most branches are empty (this is why hash-based tries or radix tries exist). Finally, naive tries assume a fixed, small alphabet (like a-z); with large alphabets or variable-length suffixes, compressed or hybrid structures often win.`,
+        `A trie is not automatically better than a Hash Table. For exact lookup on a small static dictionary, hashing is simpler and often faster. Prefix trees win when prefix queries, lexicographic traversal, or longest-prefix matching are core operations. Another misconception is that each node stores a full word. Usually the path spells the key, while nodes store one symbol, child links, and a terminal marker.`,
+        `Large alphabets change the engineering. Unicode normalization, case folding, accents, and emojis can turn a character-by-character design into a bug farm. Finite State Machines and minimal deterministic automata can compress large static dictionaries even more aggressively, while Bloom Filter can cheaply reject impossible exact lookups before touching a larger index.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Tries are built on the same tree-navigation principles as Tree Traversals (in-order and depth-first traversal are how you harvest completions). To understand why tries beat Hash Tables for prefix queries, study Hash Table to see its O(1) lookup but O(n) scanning cost. For a deeper dive into compressed tries, explore B-Trees (How Databases Read), which use a similar philosophy of shared structure and multi-way branching to scale storage. If you are building a tokenizer for AI models, see Tokenization (BPE) — BPE uses a trie-like structure to merge frequent character sequences. Finally, for truly massive-scale tries, Binary Search Tree introduces the principles of balanced trees, which applies to balanced trie variants in production systems.`,
+        `Study Hash Table to understand the exact-lookup alternative. Tree Traversals explains completion harvesting. B-Trees (How Databases Read) shows disk-oriented multiway indexing. Tokenization (BPE) connects prefix matching to AI text processing. Huffman Coding covers prefix-free trees, and Finite State Machines show another way to represent many string patterns compactly.`,
       ],
     },
   ],
 };
-

@@ -106,7 +106,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Compare Insertion Sort and Bubble Sort to understand nearby O(n^2) trade-offs. Then study Merge Sort, Quick Sort, and Heap Sort to see how general sorting escapes quadratic comparisons. Big-O Growth Rates gives the scale picture, and Binary Heap (Priority Queue) shows a better tool for repeated minimum or maximum selection.`,
+        `Compare Insertion Sort and Bubble Sort to understand nearby O(n^2) trade-offs. Then study Merge Sort, Quick Sort, and Heap Sort to see how general sorting escapes quadratic comparisons. Big-O Growth Rates gives the scale picture, and a heap shows a better tool for repeated minimum or maximum selection.`,
       ],
     },
   ],

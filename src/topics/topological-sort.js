@@ -104,42 +104,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Topological sort is a linear ordering of nodes in a directed graph where every edge from A to B places A before B. It answers: in what legal order can I execute tasks given some depend on others? Kahn's algorithm: identify zero-in-degree nodes (no prerequisites), queue them, then repeatedly dequeue a node, reduce in-degree of its neighbors, and enqueue newly-freed neighbors. If the queue empties before all nodes process, you have proven a circular dependency — the remaining nodes are stuck in a cycle.`,
-        `Why this works: at each step you process a node whose dependencies are satisfied, so downstream tasks are ready. A node trapped at non-zero in-degree must be part of a cycle that feeds back to itself.`,
+        `A topological ordering lists the nodes of a directed acyclic graph so every prerequisite appears before the thing that depends on it. If edge A -> B means A must happen before B, then A must be earlier in the output. The graph must be a DAG: directed, because edges have prerequisite direction; acyclic, because a cycle would demand that something happen before itself.`,
+        `Kahn's 1962 algorithm gives both an order and a certificate of failure. Count incoming edges for every node. Anything with zero incoming edges has no unmet prerequisites, so it can be scheduled now. Remove it, lower the counts of its outgoing neighbors, and repeat. If work remains but no zero-in-degree node exists, the remaining subgraph contains a cycle. The output is a legal schedule, not a ranking of importance.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Three phases. First, initialize: compute each node's in-degree (count incoming edges) and queue all zeros. Second, process: dequeue a node, add it to the result, decrement in-degree of all outgoing targets, and re-queue any that hit zero. Third, check: if result has all nodes, you have a valid topological order; if not, the stuck nodes are caught in a cycle. The queue naturally enforces the partial order because you only process nodes whose dependencies are already in the result.`,
+        `First compute in-degree for every node. Put all zero-in-degree nodes into a Queue. Then repeatedly dequeue one ready node, append it to the result, and conceptually delete its outgoing edges. Each deleted edge reduces a neighbor's in-degree by one. When a neighbor reaches zero, enqueue it because all of its prerequisites have now appeared in the result.`,
+        `The invariant is practical: the queue contains exactly the tasks that can legally start now. Different queue orders can produce different valid results because independent tasks have no required relative order. A Stack or priority queue can be used instead if you want a different but still legal tie-breaker, such as lexicographic order.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `O(V + E) time: one pass for in-degrees, one for queuing, one edge traversal per node. O(V) space for queue and map. This linear cost scales to millions of tasks and edges — exponentially cheaper than permutations.`,
+        `Time is O(V + E): one pass to count incoming edges, and one pass over outgoing edges as nodes are removed. Space is O(V) for in-degree counts, the ready queue, and the output, plus the graph representation. This is dramatically better than testing all permutations; even 20 tasks have about 2.4 quintillion possible orders.`,
+        `The algorithm does not find shortest paths or minimum costs. It only respects partial order constraints. Dijkstra's Shortest Path optimizes weighted routes; Graph BFS optimizes unweighted hop distance. Big-O Growth Rates helps explain why a linear dependency pass is the only acceptable answer for million-node build graphs.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Build systems (make, npm, cargo) order compilation steps. Spreadsheets use it to recompute cells in dependency order. Data pipelines (Airflow) schedule tasks so outputs reach consumers in time. Compilers order declarations. Course planners respect prerequisites. In each case, circular dependencies cause an immediate deadlock — and Kahn's algorithm detects it automatically.`,
+        `Build systems such as make, Bazel, npm, Cargo, and Buck schedule compilation and packaging steps this way. Spreadsheets recompute cells after their dependencies. Airflow, Dagster, and other workflow engines schedule data pipelines over DAGs. Compilers order declarations and optimization passes. Course planners use it for prerequisites. Message Queues often carry the ready tasks after dependency analysis has decided what may run.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Mistake one: a DAG may have many valid topological orders, not just one. Nodes with no dependency relationship can appear in any relative order. Mistake two: topological sort is simple, not complex — it is just Queue-based traversal where in-degree (not value) decides processing priority. Mistake three: many miss the free deadlock-detection property built into Kahn's algorithm. If the queue empties before all nodes are processed, you have mathematically proven a circular dependency exists — no separate cycle detector needed.`,
+        `The first mistake is expecting a unique answer. Many DAGs have many valid orders. The second is ignoring cycles until runtime. If the ready queue empties early, the remaining nodes are not merely delayed; they are mutually blocked. That is the same family of bug as a circular spreadsheet reference or a package cycle.`,
+        `Another misconception is that undirected cycle detection is the same problem. Union-Find (Disjoint Sets) is excellent for connectivity and undirected-cycle questions, but directed dependency cycles require edge direction. Recursion can implement a depth-first topological ordering too, but Kahn's queue-based version exposes ready work naturally for schedulers.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Learn Queue and Graph BFS to understand the traversal engine. Union-Find (Disjoint Sets) detects cycles in undirected graphs. Dijkstra's Shortest Path handles weighted dependencies. Recursion shows top-down dependency resolution (depth-first) versus Kahn's bottom-up approach — both answer the same question from different directions.`,
+        `Study Queue and Graph BFS for the frontier mechanics. Recursion shows the depth-first alternative. Union-Find (Disjoint Sets) contrasts directed dependency logic with undirected connectivity. Dijkstra's Shortest Path and Graph BFS explain what changes when the graph question is route cost or hop count instead of legal execution order.`,
       ],
     },
   ],
 };
-

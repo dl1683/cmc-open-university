@@ -127,13 +127,13 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `A heap is not a sorted array. It only promises that each parent beats its children, so siblings and cousins can appear in almost any order. That is why the extraction phase is necessary. Another common mistake is building the heap by repeated insertions and calling that the algorithm; repeated insertion works but costs O(n log n), while Floyd's bottom-up heapify is O(n).`,
-        `The sort is also not stable. Equal records can swap across each other during heap repair. And although the extra storage is O(1), recursive Tree Traversals are not involved here; the tree shape is implicit arithmetic over an array, not pointers and recursion.`,
+        `The sort is also not stable. Equal records can swap across each other during heap repair. And although the extra storage is O(1), recursive tree walks are not involved here; the tree shape is implicit arithmetic over an array, not pointers and recursion.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Binary Heap (Priority Queue) to use the structure without destroying it as a sort. Compare Quick Sort and Merge Sort for the locality, stability, and worst-case trade-offs. Big-O Growth Rates explains why O(n log n) is the target for comparison sorting. Then connect the same heap operation to Dijkstra's Shortest Path, Prim's Algorithm, and Huffman Coding.`,
+        `Study the heap priority-queue topic to use the structure without destroying it as a sort. Compare Quick Sort and Merge Sort for the locality, stability, and worst-case trade-offs. Big-O Growth Rates explains why O(n log n) is the target for comparison sorting. Then connect the same heap operation to Dijkstra's Shortest Path, Prim's Algorithm, and Huffman Coding.`,
       ],
     },
   ],

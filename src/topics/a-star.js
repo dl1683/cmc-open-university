@@ -123,43 +123,44 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `A* is Dijkstra's shortest-path algorithm with a compass: instead of exploring the map in every direction equally, it uses a heuristic — an educated guess about remaining distance — to prioritize nodes that point toward the goal. You expand the node with the lowest f = g + h, where g is the cost traveled so far and h is the estimated cost remaining. As long as h never overestimates (called "admissible"), A* finds the same optimal path as Dijkstra but explores far fewer nodes.`,
-        `The heuristic is what changes everything. In games like chess or pathfinding in Google Maps, a good heuristic lets the algorithm skip entire regions of the map. On this site, we use straight-line distance (Euclidean distance) as h, which is admissible because the true path weight is at least as large as the straight line. Set h to zero and A* degrades to Dijkstra — the expansion order shifts from goal-aware back to pure cost-minimization, settling more nodes to reach the same answer.`,
+        `A* is shortest-path search with a compass. It keeps g(n), the cost from the start to a node, and h(n), an estimate of the remaining cost to the goal. It expands the node with the smallest f(n) = g(n) + h(n). Hart, Nilsson, and Raphael introduced the algorithm in 1968, and it became a standard tool for robotics, games, and route planning because a good heuristic avoids exploring large irrelevant regions.`,
+        `Set h to zero and the method becomes Dijkstra's Shortest Path. Use an honest lower-bound heuristic, such as straight-line distance on a road map whose edges cannot be shorter than straight lines, and it still returns an optimal path while usually touching fewer nodes.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Start at the source with g = 0. At each step, pick the unsettled node with the lowest f = g + h. Relax its edges (if you find a cheaper path to a neighbor, update that neighbor's g and record the parent). The moment you settle the goal, backtrack through parent pointers to reconstruct the path.`,
-        `The key insight: h(n) tells you "I still have about this much to go." If h is honest (admissible), the first path you find to the goal is guaranteed optimal. But if h underestimates or is zero, you explore more territory before reaching the goal because no node's f score confidently points you toward success. Watch the "with heuristic" run settle far fewer nodes than the "zero heuristic" (Dijkstra) run on the same graph — both reach the goal via the same route, but A* gets there by ignoring detours, while Dijkstra must check them.`,
+        `Start with the source at g = 0. Put it in a priority queue ordered by f = g + h. Pop the lowest-f node, relax its outgoing edges, and update any neighbor whose g score improves. Store parent pointers so the final route can be reconstructed when the goal is settled. The open set contains frontier nodes; the closed set contains nodes whose best route is already known under the chosen assumptions.`,
+        `The heuristic controls behavior. An admissible heuristic never overestimates the true remaining cost, preserving optimality. A consistent heuristic also obeys a triangle-inequality style rule, which prevents needing to reopen settled nodes. A Binary Heap (Priority Queue) is the common implementation choice, although specialized grid pathfinders sometimes use buckets or jump-point optimizations.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Time and space depend on the heuristic quality. In the worst case (no heuristic, h = 0), A* is Dijkstra: O((V + E) log V) with a binary heap, where V is vertices and E is edges. With a good heuristic, you settle far fewer nodes — potentially closer to O(log V) if h is very accurate. The trade-off: computing h(n) has a cost (here, one Euclidean distance calculation per node), so the heuristic must be cheap relative to the savings it provides.`,
+        `Worst-case time is no better than Dijkstra's Shortest Path on an explicit graph: O((V + E) log V) with a binary heap, and O(V + E) memory for scores, parents, and frontier bookkeeping. In implicit search spaces, the number of expanded states can still grow exponentially with path depth if the heuristic gives little guidance.`,
+        `The payoff is empirical search reduction, not a new asymptotic guarantee for every graph. On a 2D grid, Manhattan distance can focus the frontier tightly toward the target. On a maze with misleading corridors, it may still explore a large region. Big-O Growth Rates tells only part of the story; heuristic quality decides the constant and the explored subgraph.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `A* is the standard pathfinding algorithm in every video game, board-game AI, and navigation system. Game developers use hand-tuned heuristics (in a grid, Chebyshev or Manhattan distance; in continuous space, Euclidean). Google Maps, Apple Maps, and most routing engines internally combine A* (or variants like Dijkstra with preprocessing) with traffic data. Robotics uses A* for motion planning: the heuristic is the straight-line distance to the goal configuration, and edges represent valid moves.`,
+        `Game engines use A* for NPC movement on grids, navmeshes, and waypoint graphs. Robotics planners use it over discretized configuration spaces. Map routing systems combine it with hierarchical preprocessing, traffic estimates, turn penalties, and landmark heuristics. Puzzle solvers use admissible heuristics such as misplaced tiles or Manhattan distance for sliding puzzles. Beam Search vs Greedy shows a related idea in AI decoding: score partial candidates and expand the promising ones first, though beam search does not give the same optimality guarantee.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `First misconception: "A* is always faster than Dijkstra." It is not faster on every graph; it is faster *in practice* on goal-directed problems with a good heuristic. A bad or expensive heuristic can slow you down more than you save. Second pitfall: an inadmissible heuristic (one that overestimates) breaks the optimality guarantee; you may find a suboptimal path faster. Third: A* still explores many nodes in an open field with no obstacles — the heuristic helps you skip detours, but if the true shortest path is wide open, Dijkstra and A* settle nearly the same set.`,
+        `The biggest misconception is that A* is automatically faster. With h = 0, it is exactly Dijkstra-style expansion. With an expensive or weak heuristic, the overhead can outweigh the savings. With an overestimating heuristic, it may return a suboptimal path faster, which is sometimes acceptable in games but not in systems that require optimal routing.`,
+        `Another mistake is ignoring graph representation. On a grid, diagonal moves change which heuristic is admissible: Manhattan distance works for four-neighbor movement; Chebyshev or octile distance fits common eight-neighbor movement. If costs change over time, stale heuristics and cached paths must be invalidated.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `After A*, study Dijkstra's Shortest Path to understand what A* optimizes away. Graph BFS covers level-order exploration with no weights. Binary Heap (Priority Queue) is the data structure A* depends on to quickly find the next node to settle. For games, look at minimax or alpha-beta pruning, which use heuristic-like estimates (board evaluation) to skip branches. In modern routing, study the Bellman-Ford algorithm and how preprocessing (like contraction hierarchies) combines with A*-style heuristics.`,
+        `Review Dijkstra's Shortest Path to understand the h = 0 baseline. Graph BFS covers the equal-cost case. Binary Heap (Priority Queue) explains the frontier. Value Iteration (Reinforcement Learning) offers a different way to propagate costs through a state space, and Beam Search vs Greedy shows heuristic ranking when optimality is intentionally traded for speed.`,
       ],
     },
   ],
 };
-
