@@ -90,7 +90,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Stack for the reversed access rule, then Graph BFS to see FIFO order drive an algorithm. The Event Loop and Message Queues show the same idea in JavaScript and distributed systems. Binary Heap (Priority Queue) explains priority scheduling, while the sliding-window technique shows another two-ended pattern where old items leave as new items arrive.`,
+        `Study Stack for the reversed access rule, then Graph BFS to see FIFO order drive an algorithm. Double-Ended Queue (Deque) extends the interface to both ends. The Event Loop, Linux Fair Scheduler Run Queue, and Message Queues show the same scheduling idea in runtimes, operating systems, and distributed systems. Binary Heap (Priority Queue) explains priority scheduling, while the sliding-window technique shows another two-ended pattern where old items leave as new items arrive.`,
       ],
     },
   ],

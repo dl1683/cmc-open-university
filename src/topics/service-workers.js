@@ -191,9 +191,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and platform details`,
+      paragraphs: [
+        `Official sources: MDN Service Worker API explains the proxy role, offline use, fetch interception, updates, and HTTPS requirement: https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API. The W3C Service Workers specification is the standards reference for event-driven service workers: https://www.w3.org/TR/service-workers/. MDN Cache API covers the storage object service workers commonly use for request/response caching: https://developer.mozilla.org/en-US/docs/Web/API/Cache.`,
+        `For production recipes, Workbox documents the common caching strategies used in this visualization, including cache-first, network-first, and stale-while-revalidate: https://developer.chrome.com/docs/workbox/caching-strategies-overview. The Workbox service worker overview is a practical companion for how these proxies improve reliability and performance: https://developer.chrome.com/docs/workbox/service-worker-overview.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Study Web Workers: A Second Thread for isolation, The Event Loop for worker events, and LRU Cache for eviction intuition. How DNS Works, TCP: Handshake & Congestion Control, and CDN Request Flow explain the network path a worker may skip. Cache Invalidation & Versioning is the production follow-up, and Message Queues gives the server-side version of offline mutation retry.`,
+        `Study Web Workers: A Second Thread for isolation, The Event Loop for worker events, and LRU Cache for eviction intuition. Structured Clone & Transferables explains the data that ServiceWorker.postMessage can carry, while Browser Message Channels & Broadcast Coordination shows reply ports and cross-tab coordination. URL Parser & Origin Tuple explains service worker scope and same-origin boundaries, and BFCache Page Lifecycle explains the separate live-document cache that a worker does not replace. Cache Storage Versioned Precache goes deeper on manifest sets, named caches, install gates, and activate cleanup. Service Worker Navigation Preload Race explains how a network-first HTML route avoids cold-start waterfalls. Background Sync Outbox Queue covers outbound offline writes, and Web Push Subscription Delivery covers inbound wakeups from the server. Resource Hints: Preload & Preconnect covers the network work a page can start before fetch interception matters, and HTTP Cache ETag Revalidation covers the validator path a worker often cooperates with. HTTP Vary Cache-Key Normalization covers header-shaped cache variants, including Service-Worker-Navigation-Preload. CORS Preflight Cache explains the browser permission cache for cross-origin API calls a worker may observe but not bypass. How DNS Works, TCP: Handshake & Congestion Control, and CDN Request Flow explain the network path a worker may skip. Cache Invalidation & Versioning is the production follow-up, Message Queues gives the server-side version of offline mutation retry, and Local-First Sync Engine Case Study shows how Service Workers and IndexedDB fit into collaborative offline-first apps.`,
       ],
     },
   ],

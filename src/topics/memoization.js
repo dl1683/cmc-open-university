@@ -127,7 +127,7 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Memoization powers Edit Distance (DP Table), sequence alignment, parsing, compiler optimization, and game search. Chess engines store evaluated positions in transposition tables so the same board reached by a different move order is not analyzed twice. Value Iteration (Reinforcement Learning) uses the same "reuse solved subproblems" instinct when values are updated across states. Dijkstra's Shortest Path is not memoized recursion, but it shares the discipline of recording the best known answer for a state instead of rediscovering it.`,
+        `Memoization powers Edit Distance (DP Table), sequence alignment, parsing, compiler optimization, and game search. Rerooting DP: All Roots Tree DP applies the same reuse instinct to trees: compute subtree facts once, then derive neighboring root states instead of rerunning DFS. Chess engines store evaluated positions in transposition tables so the same board reached by a different move order is not analyzed twice. Value Iteration (Reinforcement Learning) uses the same "reuse solved subproblems" instinct when values are updated across states. Dijkstra's Shortest Path is not memoized recursion, but it shares the discipline of recording the best known answer for a state instead of rediscovering it.`,
       ],
     },
     {
@@ -140,7 +140,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Recursion first, then Hash Table and Big-O Growth Rates to understand why the cache changes the curve. Edit Distance (DP Table) shows the bottom-up table version of the same idea. LRU Cache explains bounded caches, and Value Iteration (Reinforcement Learning) shows dynamic programming after the subproblems become states in a decision process.`,
+        `Study Recursion first, then Hash Table and Big-O Growth Rates to understand why the cache changes the curve. Edit Distance (DP Table) shows the bottom-up table version of the same idea. Rerooting DP: All Roots Tree DP shows dynamic programming on tree states. LRU Cache explains bounded caches, and Value Iteration (Reinforcement Learning) shows dynamic programming after the subproblems become states in a decision process.`,
       ],
     },
   ],

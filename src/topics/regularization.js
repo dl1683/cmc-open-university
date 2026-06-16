@@ -160,7 +160,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `L2 regularization adds a squared-weight rent to the loss. In the update, that appears as weight decay: w moves against the data gradient, then lambda*w pulls it back toward zero. The equilibrium is the point where extra confidence is no longer worth the rent. L2 shrinks all weights smoothly, which is useful when several correlated features all carry some signal.`,
-        `L1 regularization uses an absolute-value rent. In the demo's feature sweep, the L1 path soft-thresholds weights: each slides toward zero by a fixed amount and then stops exactly at zero. The weak send hour feature dies at lambda = 0.3, average word length at lambda = 0.8, while exclamation marks survive longer. That is feature selection by optimization. Elastic net mixes L1 and L2, keeping sparsity while avoiding lasso's habit of choosing one arbitrary feature from a correlated group.`,
+        `L1 regularization uses an absolute-value rent. In the demo's feature sweep, the L1 path soft-thresholds weights: each slides toward zero by a fixed amount and then stops exactly at zero. The weak send hour feature dies at lambda = 0.3, average word length at lambda = 0.8, while exclamation marks survive longer. That is feature selection by optimization. FTRL-Proximal Online CTR Case Study shows the production sparse-online version, where lazy L1 thresholding keeps a huge hashed model compact. Elastic net mixes L1 and L2, keeping sparsity while avoiding lasso's habit of choosing one arbitrary feature from a correlated group.`,
       ],
     },
     {
@@ -184,7 +184,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Logistic Regression to see why separable data makes weights grow, Gradient Descent to understand the update rule, and Cross-Validation & Honest Evaluation to choose lambda without cheating. Then compare Dropout, Early Stopping & Patience, and Regularization: L1 & L2 as three different ways to spend a little bias to buy a lot less variance.`,
+        `Study Logistic Regression to see why separable data makes weights grow, Gradient Descent to understand the update rule, FTRL-Proximal Online CTR Case Study for L1 sparsity in an online system, LinUCB Personalized News Case Study for ridge state inside a contextual bandit, and Cross-Validation & Honest Evaluation to choose lambda without cheating. Then compare Dropout, Early Stopping & Patience, and Regularization: L1 & L2 as three different ways to spend a little bias to buy a lot less variance.`,
       ],
     },
   ],

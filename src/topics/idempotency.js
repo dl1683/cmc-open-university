@@ -219,7 +219,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Read "Retries, Backoff & Jitter" for safe retry policies. Study "Message Queues" to see at-least-once delivery and why you dedup per hop. Explore "CRDTs: Conflict-Free Replicated Data Types" for idempotency by design. Master "Transaction Isolation Levels" for atomic writes. Review "Clocks & Ordering: Lamport to TrueTime" for distributed causality.`,
+        `Read "Retries, Backoff & Jitter" for safe retry policies. Study "Message Queues" to see at-least-once delivery and why you dedup per hop. Continue into "Agent Payments Protocol Mandate Ledger Case Study" and "Double-Entry Payment Ledger Execution Trace" for payment retries, mandates, receipts, and audit evidence. Explore "CRDTs: Conflict-Free Replicated Data Types" for idempotency by design. Master "Transaction Isolation Levels" for atomic writes. Review "Clocks & Ordering: Lamport to TrueTime" for distributed causality.`,
       ],
     },
   ],

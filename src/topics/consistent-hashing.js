@@ -133,9 +133,9 @@ export const article = {
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Sources and study next`,
       paragraphs: [
-        `Start with Hash Table for the hashing model, then Sharding & Partitioning for the broader data-placement problem. Load Balancer shows the request-routing version of the same idea. CAP Theorem explains what happens when ring members disagree during a partition. Then connect the storage path through LSM Trees (How Cassandra Writes), Bloom Filter, and Hot Rows & Append-and-Aggregate.`,
+        `Primary sources: Karger et al. on consistent hashing at https://dl.acm.org/doi/10.1145/258533.258660 and the Dynamo paper at https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf. Start with Hash Table for the hashing model, then Sharding & Partitioning for the broader data-placement problem. Jump Consistent Hash Case Study shows the no-ring, constant-memory version for numbered buckets. Rendezvous Hashing (HRW) shows the score-every-node version for top-k placement, while Maglev Load Balancer Case Study shows the precomputed-table version for packet-speed routing. CAP Theorem explains what happens when ring members disagree during a partition. Then connect the storage path through LSM Trees (How Cassandra Writes), Bloom Filter, and Hot Rows & Append-and-Aggregate.`,
       ],
     },
   ],

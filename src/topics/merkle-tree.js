@@ -163,7 +163,7 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `Read Hash Table for hashing intuition, then Git Internals for content-addressed storage. CAP Theorem and Consistent Hashing explain why replicas drift and how data is placed. Bloom Filter gives a contrasting space-saving probabilistic tool. Write-Ahead Log (WAL) shows a different durability mechanism: logs recover recent writes, while Merkle trees compare stored state after the fact. Tree Traversals helps with proof paths and subtree reasoning.`,
+        `Read Hash Table for hashing intuition, then Git Internals and Content-Addressed Merkle DAG Object Store for content-addressed storage. CAP Theorem and Consistent Hashing explain why replicas drift and how data is placed. Bloom Filter gives a contrasting probabilistic tool. Write-Ahead Log (WAL) shows a different durability mechanism: logs recover recent writes, while Merkle trees compare stored state after the fact. Merkle Mountain Range Append-Only Log and Transparency Log Witnessing Case Study extend the idea into append-only auditability. HotStuff BFT Quorum Certificate Case Study shows how signed consensus votes can authenticate ordered blocks and state roots. Data Availability Sampling & Erasure Coding Case Study shows commitments plus random samples in modular blockchain data layers, and Namespaced Merkle Tree Proof Case Study shows how range metadata proves a complete per-app slice. Software Supply Chain Provenance Graph shows how Merkle roots connect to signed build artifacts and attestations.`,
       ],
     },
   ],

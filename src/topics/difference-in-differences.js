@@ -184,9 +184,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Read "Instrumental Variables & Natural Experiments" to see how DiD sits in the causal-design toolkit alongside instruments and natural experiments — each is an estimator + an untestable bet. Explore "Causal Graphs, Confounding & Simpson's Paradox" and "Doubly Robust Estimation" to understand how other methods handle confounding when you can measure it directly. Study "A/B Testing & p-values" to see how randomization buys certainty with control. Together, these four designs cover the four ways to buy causal inference: randomize, adjust on measured confounders, find a lottery, or find a border (that's DiD). The parallel-trends assumption is the price of DiD's simplicity — steep, but often worth it when policies land on one group and neighbors provide a natural control.`,
+        `Read "Instrumental Variables & Natural Experiments" to see how DiD sits in the causal-design toolkit alongside instruments and natural experiments — each is an estimator + an untestable bet. Explore "Synthetic Control Donor Weights" for weighted counterfactual trajectories, then "Causal Graphs, Confounding & Simpson's Paradox" and "Doubly Robust Estimation" to understand how other methods handle confounding when you can measure it directly. Study "A/B Testing & p-values" to see how randomization buys certainty with control. The parallel-trends assumption is the price of DiD's simplicity — steep, but often worth it when policies land on one group and neighbors provide a natural control.`,
       ],
     },
   ],
 };
-

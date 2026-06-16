@@ -155,39 +155,39 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `An eigenvector is a direction that a matrix refuses to rotate. When you apply the matrix to this special vector, it comes back pointing the same way — just stretched (or shrunk) by a single number called the eigenvalue. The equation Av = λv captures it all: matrix A times vector v equals the eigenvalue λ times that same vector. Most directions spin when a matrix hits them; these few are the matrix's skeleton — the directions it cannot help amplifying or dampening without turning.`,
-        `Why call it "eigen"? German for "own" or "characteristic." These are the directions the matrix truly owns — the ones along which it is, mathematically, just multiplication by a number. Watch the demo: A = [[2,1],[1,2]] rotates the x-axis (1,0) into (2,1), spinning it upward. But along the diagonal (1,1), the matrix stretches to 3× without turning — that is an eigenvector with eigenvalue 3. Along the anti-diagonal (1,−1), the matrix leaves it untouched, scaling by 1 — another eigenvector, eigenvalue 1. These two directions contain all the matrix's essence.`,
+        `An eigenvector is a direction a matrix does not turn. Apply the matrix and the vector comes back on the same line, only scaled by an eigenvalue: Av = lambda v. The visualization uses A = [[2,1],[1,2]]. The x-axis and y-axis rotate, but the diagonal (1,1) stretches by 3 and the anti-diagonal (1,-1) stretches by 1. Those two directions are the matrix's skeleton.`,
+        `SVD & Low-Rank Approximation gives every matrix a rotate-stretch-rotate anatomy. Eigenvalues & Eigenvectors is the square-matrix version where some directions are preserved exactly.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Finding eigenvectors by solving det(A − λI) = 0 (the characteristic polynomial) is the textbook route, but for understanding, watch Power Iteration in the demo: pick any vector, apply the matrix repeatedly, and watch the angle converge to the dominant eigenvector. In the visualization, starting from (1,0), one application swings the vector to roughly 26.6°, then 38.7°, 42.9°… homing in on 45° (the (1,1) direction) like a compass needle. Why? Write your starting vector as a blend of the true eigenvectors: v = a·e₁ + b·e₂. Each application scales e₁ by 3 and e₂ by 1. After n iterations, you have 3ⁿa·e₁ + 1ⁿb·e₂. Since 3ⁿ grows and 1ⁿ stays flat, e₁ dominates exponentially — the starting angle dissolves into the dominant eigenvector's direction.`,
-        `Convergence speed depends on the ratio λ₁/λ₂ (the spectral gap). Here, 3/1 = 3, so the gap is wide and convergence is quick. A narrow gap (λ₁ = 3, λ₂ = 2.9, ratio ≈ 1.03) crawls toward the answer over hundreds of iterations. This exponential amplification of the top eigenvalue is the engine of Vanishing & Exploding Gradients in neural networks: apply a layer repeatedly, and its top eigenvalue's power compounds, either exploding hidden states or starving them.`,
+        `The demo finds the dominant eigenvector by power iteration. Start with (1,0), apply A, normalize, and repeat. The angle moves from 0 degrees toward 45 degrees: roughly 26.6, 38.7, 42.9, and then closer. The reason is decomposition. Any starting vector is a mix of eigen-directions; each multiplication scales each ingredient by its eigenvalue, so the lambda = 3 component overwhelms the lambda = 1 component exponentially.`,
+        `Convergence speed depends on the ratio |lambda2/lambda1|, often called the spectral gap story. A small ratio converges fast; a ratio near 1 crawls. This is the same compounding intuition behind Vanishing & Exploding Gradients, where repeated layers amplify or damp directions.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Computing all eigenvalues and eigenvectors of an n×n matrix naively costs O(n³) using methods like QR iteration. Power iteration to find the dominant eigenvector costs O(n²) per iteration (one matrix–vector multiply) and converges in O(log(λ₁/λ₂)) iterations — very fast if the spectral gap is wide, slow if eigenvalues cluster. For a 1000×1000 matrix with wide gap, finding the top eigenvector typically needs 10–50 iterations, so seconds on a modern machine. Specialized algorithms (Lanczos, randomized SVD) cut this dramatically for large sparse matrices. Storage is O(n²) for the full matrix or O(nnz) for sparse formats.`,
+        `Dense all-eigenvalue algorithms such as QR are O(n^3). Power iteration for one dominant direction costs one matrix-vector multiply per step: O(n^2) for dense matrices and O(nnz) for sparse ones. It needs a unique dominant eigenvalue and a starting vector with some component in that direction; ties or near-ties make convergence ambiguous or slow.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `PageRank IS power iteration: the web's link graph is a matrix, pages are components, links are entries. Running power iteration on the link matrix finds the steady importance distribution — the eigenvector. Importance flows along links, repeated until it stabilizes. The same fixed-point logic governs Markov chains' steady states: any "flow + repeat" system homes toward an eigenvector. PCA: Principal Component Analysis solves an eigenproblem on the data's covariance matrix to find the principal axes — the eigenvectors are directions of maximum variance, eigenvalues ARE the variances along each. SVD & Low-Rank Approximation uses the same idea: singular values are √(eigenvalues of AᵀA), and the economic decomposition peels away layers by spectral rank. In deep learning, a layer's amplification is its top eigenvalue: >1 explodes, <1 starves gradients over depth. Loss Landscapes & Optimization Geometry's sharpness/flatness distinction is the Hessian's spectral profile — sharp minima have large eigenvalues (fragile, steep), flat ones have small eigenvalues (robust, wide). Graph clustering uses the Laplacian matrix's small eigenvectors to partition networks. Vibration modes of bridges and buildings are eigenvectors of the stiffness matrix; resonance occurs when the driving frequency matches an eigenvalue. Quantum mechanics: energy levels are eigenvalues of the Hamiltonian — a postulate, not derived.`,
+        `PageRank is power iteration on the web graph: importance flows until it reaches a steady eigenvector. Markov Chains & Steady States uses the same fixed-point idea for probabilities. PCA: Principal Component Analysis finds eigenvectors of a covariance matrix; the eigenvalues are variances. The Hessian: Curvature & Newton's Step reads eigenvalues as curvature directions, and Natural Gradient & Fisher Information changes the metric when Euclidean directions mislead.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The biggest misconception is confusing eigenvalues with eigenvectors. λ is a number (the stretch factor); v is a direction. Both matter — you cannot understand a system without both. Another trap: assuming Power Iteration finds the answer in "one iteration." It does not; it converges gradually, and the speed hinges on the spectral gap. A third: thinking all matrices have real eigenvectors. They do not. Complex matrices and even real non-symmetric matrices produce complex eigenvalues and eigenvectors — pure rotations, like a 90° clockwise map, have no real eigenvector at all (rotating any real direction, so nothing stays fixed). Finally, do not assume an eigenvector is unique: if v is an eigenvector, so is any scalar multiple cv. The direction is the thing; the length is free. Normalization (scaling to unit length) is a convention to pin down a canonical representative.`,
+        `Eigenvalues are numbers; eigenvectors are directions. Scaling an eigenvector does not make a new direction, so normalizing is just a convention. Not every real matrix has real eigenvectors: a pure 90-degree rotation has complex eigenvalues because every real direction turns. Also, "dominant" means largest magnitude, not largest signed value; a negative eigenvalue flips direction while scaling.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Eigenvectors are the hidden structure inside PCA: Principal Component Analysis, which finds the covariance matrix's eigenvectors to reduce data to its essential axes. They are also the machinery of SVD & Low-Rank Approximation, which generalizes the same skeleton to rectangular matrices. PageRank uses them to rank the web. Vanishing & Exploding Gradients is, mathematically, a warning about layer eigenvalues compounding over depth. Loss Landscapes & Optimization Geometry describes minima by the Hessian's eigenvalues. Together, these five topics are your roadmap to understanding where eigenvectors hide in modern computing.`,
+        `Study PCA: Principal Component Analysis for covariance eigenvectors, SVD & Low-Rank Approximation for rectangular matrices, and PageRank for the billion-node power-iteration story. Then read Loss Landscapes & Optimization Geometry and The Hessian: Curvature & Newton's Step to see eigenvalues become the language of sharp and flat directions.`,
       ],
     },
   ],

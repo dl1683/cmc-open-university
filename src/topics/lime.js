@@ -215,6 +215,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        `Sparse Autoencoder Feature Dictionary Case Study goes one layer deeper than LIME: instead of perturbing visible input features around a black-box prediction, it decomposes internal transformer activations into sparse feature IDs and then tests whether those features causally move behavior.`,
         `SHAP is LIME's axiomatic sibling, using Shapley values with formal guarantees but exponential cost (and same scaffolding vulnerability). When you own the model, Saliency Maps & Feature Attribution give gradients directly — faster, requiring internals. Logistic Regression shows why models learn interactions like x·y = 8. Adversarial Examples & FGSM teach input fooling — the flip side of explanation. Cross-Validation & Honest Evaluation measure if explanations generalize. Random Forest shows ensemble interpretability by design.`,
       ],
     },

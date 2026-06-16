@@ -122,9 +122,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and production details`,
+      paragraphs: [
+        `The original RAG paper frames retrieval-augmented generation as combining parametric memory in a pretrained generator with non-parametric memory in a dense vector index, improving knowledge-intensive generation while giving a path to provenance and updateable knowledge: https://arxiv.org/abs/2005.11401. FAISS is one canonical vector-search library for this retrieval layer; its documentation describes efficient similarity search and clustering over dense vector sets, including collections that may not fit in RAM: https://faiss.ai/index.html.`,
+        `Microsoft's Azure AI Search RAG overview describes the production pattern as grounding LLM responses in proprietary content and notes the operational challenges behind the simple architecture: https://learn.microsoft.com/en-us/azure/search/retrieval-augmented-generation-overview. The Microsoft Foundry RAG/indexes guide adds the current platform framing around indexes and agentic retrieval: https://learn.microsoft.com/en-us/azure/foundry/concepts/retrieval-augmented-generation.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Start with Embeddings & Similarity, then HNSW (Vector Search at Scale) for retrieval at scale. Tokenization (BPE) explains chunk budgets, Attention Mechanism explains evidence reading, and KV Cache explains context serving cost. K-Means Clustering gives another indexing intuition, especially for partitioning large vector collections before exact or approximate search.`,
+        `Start with Embeddings & Similarity, then HNSW (Vector Search at Scale) for retrieval at scale. Tokenization (BPE) explains chunk budgets, Attention Mechanism explains evidence reading, and KV Cache explains context serving cost. Then study Multi-Index RAG, RAG Context Packing Token Budget, RAG Index Lifecycle and Alias Swap, RAG Citation Span Index Case Study, RAG Dedup, MinHash, and Chunk Canonicalization, Filtered Vector Search and Bitset Gates, and RAG Evaluation so the simple loop becomes a production retrieval system.`,
       ],
     },
   ],

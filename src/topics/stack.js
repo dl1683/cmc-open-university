@@ -83,7 +83,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Undo systems usually keep one history stack for actions and a second one for redo. Expression evaluators use stacks for operators and operands; Dijkstra's shunting-yard algorithm turns infix math like 3 + 4 * 5 into an order a machine can execute. Compilers and interpreters use call stacks, parsers use stacks to match nested parentheses, and depth-first Tree Traversals often use an explicit stack instead of recursive calls. Web navigation also looks stack-shaped: each page visit pushes a location, and Back pops toward the previous one.`,
-        `Systems code leans on the same idea. The JavaScript engine uses the call stack beside The Event Loop; the event loop schedules callbacks, while the call stack records what is currently executing. Graph algorithms also choose between structures: Graph BFS uses Queue for level order, while depth-first search uses a stack when it wants to chase one path deeply before backing up.`,
+        `Systems code leans on the same idea. The JavaScript engine uses the call stack beside The Event Loop; the event loop schedules callbacks, while the call stack records what is currently executing. Backtracking regex engines also use stack-like saved choices, which is why Regex Backtracking & ReDoS Case Study belongs next to this topic. Graph algorithms choose between structures too: Graph BFS uses Queue for level order, while depth-first search uses a stack when it wants to chase one path deeply before backing up.`,
       ],
     },
     {
@@ -96,7 +96,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Queue to see the opposite access rule, then revisit Recursion with the call stack in mind. Linked List shows the pointer version of the same operations. Tree Traversals and Graph BFS make the choice between stack and queue visible in traversal order, and Big-O Growth Rates explains why O(1) push and pop are such a strong primitive.`,
+        `Study Queue to see the opposite access rule, then revisit Recursion with the call stack in mind. Linked List shows the pointer version of the same operations. Regex Backtracking & ReDoS Case Study shows a production failure mode built from saved stack choices. JSON Parser Stack Case Study shows nested syntax as explicit frames. Tree Traversals and Graph BFS make the choice between stack and queue visible in traversal order, and Big-O Growth Rates explains why O(1) push and pop are such a strong primitive.`,
       ],
     },
   ],

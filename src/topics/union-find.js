@@ -136,7 +136,7 @@ export const article = {
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `Kruskal's Minimum Spanning Tree is the classic application, but the pattern appears anywhere equivalence classes grow over time. Compilers use related union structures for type unification and alias analysis. Image processing can label connected components by unioning neighboring pixels. Percolation simulations union open grid cells to ask whether a path spans the system. Offline graph algorithms answer batches of connectivity queries quickly after sorting or grouping events. Hash Table often appears beside Union-Find when elements are names or objects rather than dense integer IDs.`,
+        `Kruskal's Minimum Spanning Tree is the classic application, but the pattern appears anywhere equivalence classes grow over time. Compilers use related union structures for Unification Union-Find Type Constraints and alias analysis. Image processing can label connected components by unioning neighboring pixels. Percolation simulations union open grid cells to ask whether a path spans the system. Offline graph algorithms answer batches of connectivity queries quickly after sorting or grouping events. Hash Table often appears beside Union-Find when elements are names or objects rather than dense integer IDs.`,
       ],
     },
     {
@@ -148,7 +148,7 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `Study Kruskal's Minimum Spanning Tree next, because it uses this exact cycle check. Then compare Graph BFS and Dijkstra's Shortest Path: both explore graphs, but they answer reachability and shortest-path questions rather than dynamic grouping. Review Tree Traversals for parent-pointer intuition, Hash Table for mapping arbitrary labels to integer IDs, and Binary Heap (Priority Queue) for the other graph-algorithm workhorse.`,
+        `Study Kruskal's Minimum Spanning Tree next, because it uses this exact cycle check. Then compare Graph BFS and Dijkstra's Shortest Path: both explore graphs, but they answer reachability and shortest-path questions rather than dynamic grouping. Review Tree Traversals for parent-pointer intuition, Hash Table for mapping arbitrary labels to integer IDs, Binary Heap (Priority Queue) for the other graph-algorithm workhorse, and Unification Union-Find Type Constraints for the compiler use of equivalence classes.`,
       ],
     },
   ],

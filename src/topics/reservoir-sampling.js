@@ -122,7 +122,7 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `Compare Reservoir Sampling with Sliding Window: one samples all history, the other keeps recency. Bloom Filter is another bounded-memory streaming tool, trading exactness for false positives. Big-O Growth Rates explains O(k) memory, while A/B Testing & p-values, Confidence Intervals & the Bootstrap, and Multiple Testing & False Discoveries show why sampling quality matters once statistics enter the picture.`,
+        `Compare Reservoir Sampling with Sliding Window: one samples all history, the other keeps recency. Greenwald-Khanna Quantile Summary and KLL Quantile Sketch show a different streaming bargain: retain weighted rank summaries instead of fair raw examples. Bloom Filter is another bounded-memory streaming tool, trading exactness for false positives. Big-O Growth Rates explains O(k) memory, while A/B Testing & p-values, Confidence Intervals & the Bootstrap, and Multiple Testing & False Discoveries show why sampling quality matters once statistics enter the picture.`,
       ],
     },
   ],

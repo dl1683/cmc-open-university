@@ -187,40 +187,39 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `SVD — Singular Value Decomposition — decomposes every matrix into a sorted stack of rank-1 layers. Each layer is an outer product σ·u·vᵀ (one column pattern times one row pattern, scaled by loudness σ). On an 8×8 image (64 numbers), SVD finds four layers: one thundering (σ₁ = 20.07), three whispers (σ₂ = 1.47, σ₃ = 0.75, σ₄ = 0.22). Keep loud layers, drop quiet ones: compression. Apply it to centered data: PCA: Principal Component Analysis. Use it for model fine-tuning: LoRA Fine-Tuning shrinks trainable parameters from 16.8M to 65K by learning a rank-8 update.`,
+        `SVD decomposes any matrix into rank-1 layers sorted by loudness. The visualization builds an 8 by 8 image from a smooth wave, a ramp, and tiny speckle noise, then computes four singular triplets by power iteration and deflation. The singular values fall sharply: one large layer and a few small ones. Keeping the loud layers compresses the image and filters noise at the same time.`,
+        `SVD & Low-Rank Approximation is the general matrix companion to PCA: Principal Component Analysis. PCA asks for variance directions in centered data; SVD asks how many structured layers any matrix really has.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `SVD computes M = UΣVᵀ: U and V are orthogonal (perpendicular columns), Σ is diagonal (singular values). This module finds top-4 singular values by power iteration: guess a vector, multiply through M and M' 300 times until it converges to the dominant direction, extract σ, peel that rank-1 layer off, repeat. You get u vectors (column patterns), v vectors (row patterns), σ values (scales).`,
-        `Geometrically: M = UΣVᵀ means every matrix does three things: rotate input (Vᵀ), stretch along hidden axes (Σ), rotate output (U). The σ values are stretch factors — σ₁ is the worst-case amplification, which governs Vanishing & Exploding Gradients in neural networks.`,
+        `The factorization is M = U Sigma V^T. V^T rotates inputs onto hidden axes, Sigma stretches by singular values, and U rotates outputs. Equivalently, M is a sum of sigma_i u_i v_i^T rank-1 layers. The code finds the top layer, subtracts it from the residual matrix, then repeats. This mirrors Eigenvalues & Eigenvectors because singular vectors are eigenvectors of M^T M and MM^T, but SVD works for rectangular matrices too.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Full SVD of N×N is O(N³), but finding top-k (as here) is O(k·iterations·N²). Rank-1 truncation stores 17 numbers (vs 64: 73% cut) and retains 92% of image energy. Rank-2 stores 34 numbers, captures 96% — near-optimal by Eckart–Young (1936). The pattern: real matrices hide most energy in a few dominant layers, tail terms are noise. That is the low-rank hypothesis.`,
+        `Full dense SVD costs O(m n min(m,n)). Top-k iterative methods cost roughly O(k times iterations times the matrix-vector cost), which is far cheaper for sparse or structured matrices. In the page, rank 1 stores 17 numbers instead of 64 and captures about 92% by the displayed Frobenius-norm score; rank 2 stores 34 and captures about 96%. Eckart-Young says no other rank-k matrix beats truncated SVD under the standard norms.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Image compression (JPEG/PNG ancestry), recommender systems (Netflix: users×movies matrix, fill gaps by factoring into user-taste and movie-profile), face recognition (project faces onto PCA subspace), model fine-tuning (update weights as low-rank ΔW = B·A instead of full trainable matrices).`,
+        `Image compression keeps large singular values and drops tiny ones. Matrix Completion & Recommenders factors user-item tables into taste directions. LoRA Fine-Tuning assumes the update to a huge weight matrix is low-rank: a 4096 by 4096 update can become two thin rank-8 factors. Embeddings & Similarity has roots in the same latent-factor idea, and Quantization often stacks with low-rank compression.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Singular values are not intrinsic; they scale with matrix scale. Truncation IS lossy (rank-1 discards 92% energy). Eckart–Young optimality means rank-k SVD is best-possible at rank-k, not that the rank itself is right. Singular values σ ≠ eigenvalues λ; σ comes directly from SVD, λ from MᵀM. Power iteration assumes unique top singular vector; ties cause convergence to mix the subspace.`,
+        `A singular value is not an eigenvalue, although squared singular values are eigenvalues of M^T M. Truncation is lossy even when it looks excellent: rank 1 keeps about 92%, not discards 92%. Singular values scale if you scale the matrix, so compare spectra only under consistent preprocessing. A flat spectrum means there is no clean low-rank cutoff. Vanishing & Exploding Gradients depends on the top singular value because it measures worst-case amplification through a layer.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `PCA: Principal Component Analysis is SVD on centered data. Embeddings & Similarity uses SVD's u, v as learned representations. LoRA Fine-Tuning exploits low-rank updates. Vanishing & Exploding Gradients depend on σ₁. Quantization combines low-rank + quantization for extreme compression. The thread: spectral decay (σ₁ >> σ₂ >> …) in real matrices. Exploit it: compress images, filter noise, recommend, fine-tune.`,
+        `Study PCA: Principal Component Analysis for centered data, Eigenvalues & Eigenvectors for the square-matrix skeleton, and Matrix Completion & Recommenders for sparse low-rank prediction. Then connect the same spectral decay to LoRA Fine-Tuning, Quantization, Embeddings & Similarity, and The Hessian: Curvature & Newton's Step.`,
       ],
     },
   ],
 };
-

@@ -168,9 +168,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and runtime details`,
+      paragraphs: [
+        `MDN's Map reference documents the JavaScript API most directly connected to this topic: key-value pairs, insertion-order iteration, SameValueZero equality for primitive keys, and object-key identity: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map. The keyed collections guide gives the practical Map and Set overview for JavaScript users: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Keyed_collections.`,
+        `Runtime implementations add real engineering constraints. V8's "Optimizing hash tables: hiding the hash code" explains how object hash codes are stored without bloating every object: https://v8.dev/blog/hash-code. CPython's dict implementation source documents dictionary objects as hash-table based and compact/ordered in modern Python: https://github.com/python/cpython/blob/main/Objects/dictobject.c. The internal CPython dict header shows the index table entries, empty markers, and dummy markers used by the table: https://github.com/python/cpython/blob/main/Include/internal/pycore_dict.h.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Study Binary Search and balanced search trees to compare exact lookup with ordered lookup. LRU Cache shows the classic systems-design pairing of hashing and linked ordering. Consistent Hashing, Bloom Filter, Merkle Tree, and Rate Limiter (Token Bucket) all reuse hash functions for different systems problems.`,
+        `Study Binary Search and balanced search trees to compare exact lookup with ordered lookup. LRU Cache shows the classic systems-design pairing of hashing and linked ordering. Feature Hashing Signed Projection Primer shows how ML systems replace an explicit feature dictionary with hash buckets. Consistent Hashing, Bloom Filter, Merkle Tree, and Rate Limiter (Token Bucket) all reuse hash functions for different systems problems.`,
       ],
     },
   ],

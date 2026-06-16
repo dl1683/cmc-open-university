@@ -115,48 +115,42 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Entropy is a single number that measures how much surprise lives inside a distribution. Shannon proved in 1948 that you can define information as surprise: an event with probability p carries exactly −log₂(p) bits of information. A fair coin flip is 1 bit; something certain carries zero bits (no news). A 1-in-100 event is 6.6 bits. Why logarithms? Because they make information additive: two independent coin flips generate 2 bits of information because probabilities multiply while logarithms add.`,
-        `Entropy H is the average surprise across a whole distribution: H = Σ p · (−log₂ p) in bits per outcome. A certainty (sun always shines) has H = 0; four equally likely outcomes give H = 2 bits; a realistic skewed weather forecast lands near 1.26 bits. Entropy tells you the irreducible unpredictability of a source — and that unpredictability is exactly what costs bits to compress or describe.`,
+        `Entropy measures average surprise in a probability distribution. The page starts from Shannon's formula: an event with probability p carries -log2(p) bits. A fair coin flip carries 1 bit; a certain event carries 0; a 1% event carries about 6.6 bits. Average that surprise over all outcomes and you get entropy, the irreducible number of bits needed to describe draws from the source.`,
+        `In the visualization, a certain weather forecast has H = 0, four equally likely outcomes have H = 2 bits, and the skewed distribution [0.7, 0.2, 0.05, 0.05] has about 1.26 bits. Entropy & Information is the bridge between compression, prediction, and learning.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Information is quantified using logarithmic surprise. If you roll a 100-sided die and it lands on 1, you have witnessed an event with probability 1/100, carrying −log₂(1/100) ≈ 6.64 bits of information. The log₂ base is the key: it converts probability into bits, a universal unit of structure. Lower probability means higher information content — rare events "tell you more" in the information-theoretic sense.`,
-        `Entropy emerges when you average this surprise over all possible outcomes. For weather with probabilities [0.7, 0.2, 0.05, 0.05], you compute H = 0.7 · (−log₂ 0.7) + 0.2 · (−log₂ 0.2) + 0.05 · (−log₂ 0.05) + 0.05 · (−log₂ 0.05) ≈ 1.26 bits. This single number compresses the entire distribution's unpredictability into one digestible quantity. Entropy is maximal when all outcomes are equally likely (uniform distribution), and zero when only one outcome ever happens.`,
-        `Cross-entropy enters when you encode reality p using codes built for a different belief q. You pay H(p, q) = Σ p · (−log₂ q) bits. The overpayment compared to optimal is the KL divergence: KL(p || q) = H(p, q) − H(p). This is the mathematical language of wrong beliefs. When training language models, the loss function minimized is cross-entropy: the model's predicted distribution (Softmax & Temperature) tries to match the true distribution over next tokens, and the gap is measured in bits.`,
+        `The logarithm is what makes information add. Independent probabilities multiply, so their log surprises add. Huffman Coding uses the same rule operationally: common symbols deserve short codes, rare symbols deserve long codes, and no code can beat the entropy floor on average. Arithmetic & ANS Coding pushes closer to that floor by coding whole messages or integer states instead of rounding every symbol to a whole-bit codeword.`,
+        `Cross-entropy appears when reality is p but your model believes q. The page compares the skewed weather truth with a uniform model. The optimal cost is 1.26 bits; the uniform model pays 2.00 bits, so the 0.74-bit overpayment is KL divergence. Softmax & Temperature produces the q distribution in neural nets, and Gradient Descent with Backpropagation pushes q toward p by minimizing cross-entropy.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Computing entropy over n outcomes takes O(n) time: one pass, one logarithm per nonzero probability, one multiplication and sum. The log function itself is fast (hardware or library supported). The real cost lives upstream: collecting accurate probabilities. If you misestimate p by even a small amount, entropy changes. Computing cross-entropy for two distributions is also O(n): Σ p[i] · log(q[i]). Both are cheap operations; the bottleneck is statistical — you need data to estimate p accurately, and that requires samples.`,
+        `Computing entropy or cross-entropy is O(n) over n outcomes, skipping zero-probability terms. The hard part is estimating probabilities well. Sparse categories, rare tokens, and distribution shift make p uncertain. In language modeling, the distribution spans a vocabulary, so the cost is usually in computing logits and the softmax, not in the entropy formula itself.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Compression: entropy is the floor under every compressor. Shannon proved no code can average fewer than H bits per symbol, and Huffman Coding achieves this optimality by assigning symbol i roughly −log₂(p[i]) bits. Skewed frequencies (some symbols much likelier than others) yield low entropy and large compression savings; uniform frequencies yield maximal entropy and make compression futile.`,
-        `Machine learning: every language model loss is cross-entropy. Perplexity, the standard LM metric, is 2^H — entropy reexpressed as "how many equally likely options am I effectively choosing between?" Training a neural network on next-token prediction literally means learning a compressed model of language structure, pushing the model's output distribution toward the true data distribution.`,
-        `Information gain in decision trees: Random Forest chooses splits by entropy reduction per question. At each node, pick the feature that reduces child entropy the most (information gain = H_parent − weighted average of H_children). This greedily builds trees that compress data maximally.`,
+        `Compression uses entropy as a lower bound. Language models report perplexity, which is 2^H, the effective number of equally likely next tokens. Random Forest uses entropy reduction as information gain when choosing splits. Focal Loss & Hard Examples modifies cross-entropy so easy majority examples stop dominating. Knowledge Distillation transfers a teacher's softer, higher-entropy distribution to a smaller model.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Entropy is NOT disorder in a physical sense. It is a precise mathematical quantity, information-theoretic surprise. A highly compressed file has low entropy in one sense (few bytes) but the *data distribution* being compressed might be high-entropy (uniform). Do not conflate the two.`,
-        `Cross-entropy and KL divergence are not interchangeable. H(p, q) is absolute cost; KL(p || q) is relative overpayment. When minimizing a loss, you care about KL (the divergence from truth), but KL needs a baseline — it is always H(p, q) − H(p). Optimizing cross-entropy in practice reduces KL, which is what matters for generalization.`,
-        `Perplexity 2^H can feel counterintuitive: high perplexity (uncertain language model) means high entropy. Conversely, low perplexity means the model has learned to compress language well, placing high probability on actual next tokens. Perplexity = 1 means the model is certain at every step — a fiction unless the language is perfectly predictable.`,
+        `Entropy is not vague disorder; it is expected code length under a distribution. Cross-entropy and KL divergence are also different: cross-entropy is total coding cost, KL is extra cost above the entropy of reality. Natural Gradient & Fisher Information uses KL as geometry, asking how much a parameter step changes the model's distribution rather than how far it moved in coordinates.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Huffman Coding builds optimal codes against entropy by assigning shorter bit strings to likelier symbols. Knowledge Distillation uses entropy and soft targets to transfer the low-entropy structure of a teacher network into a student. Softmax & Temperature controls the entropy of a model's output distribution — higher temperature softens certainty, raising entropy; lower temperature sharpens predictions, lowering entropy. Gradient Descent optimizes cross-entropy loss to learn data distributions. Random Forest uses information gain (entropy reduction) at every split to build trees. Understanding entropy is the skeleton key: it unlocks why these mechanisms work and how they are connected.`,
+        `Study Huffman Coding for the prefix-code view of the compression floor, then Arithmetic & ANS Coding for fractional-bit entropy coders and DEFLATE Case Study for a complete compressor. Softmax & Temperature controls output entropy, and Gradient Descent minimizes cross-entropy. Then read Natural Gradient & Fisher Information to see KL become a metric, Random Forest for entropy reduction in trees, and Knowledge Distillation for transferring probability structure between models.`,
       ],
     },
   ],
 };
-

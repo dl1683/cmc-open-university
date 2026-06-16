@@ -181,7 +181,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Learn MVCC Internals & VACUUM to understand why one hot row becomes a corpse factory. Study Message Queue and Consistent Hashing: the former shows the append-and-consolidate shape (producers, consumers); the latter shows how sharding distributes a hot value. LSM Tree reveals how write-optimized databases internalize the append pattern. Write-Through vs Write-Back explains the RAM cache trade-off.`,
+        `Learn MVCC Internals & VACUUM to understand why one hot row becomes a corpse factory. PostgreSQL HOT Update Heap-Only Tuple shows the narrower same-page optimization that can reduce secondary-index churn when an update does not touch indexed columns. Study Message Queue and Consistent Hashing: the former shows the append-and-consolidate shape (producers, consumers); the latter shows how sharding distributes a hot value. LSM Tree reveals how write-optimized databases internalize the append pattern. Write-Through vs Write-Back explains the RAM cache trade-off.`,
       ],
     },
   ],

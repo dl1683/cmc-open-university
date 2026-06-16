@@ -201,13 +201,13 @@ export const article = {
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Boosting is not bagging with a different logo. It is greedy, sequential, and happy to chase noise if you keep adding trees after validation stops improving. Learning Curves & Bias–Variance explains the diagnosis: boosting often reduces bias first, then raises variance as it memorizes. Early Stopping & Patience is the practical brake. Data Leakage & Contamination is especially dangerous here because a leaky feature will look like a perfect residual fixer and be rewarded round after round.`,
+        `Boosting is not bagging with a different logo. It is greedy, sequential, and happy to chase noise if you keep adding trees after validation stops improving. Learning Curves & Bias–Variance explains the diagnosis: boosting often reduces bias first, then raises variance as it memorizes. Early Stopping & Patience is the practical brake. Data Leakage & Contamination is especially dangerous here because a leaky feature will look like a perfect residual fixer and be rewarded round after round. Leakage-Safe Target Encoding Case Study is the categorical version of that warning.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Random Forest to see the parallel ensemble strategy, Gradient Descent for the function-space analogy, and Regularization: L1 & L2 for why penalties keep boosted trees from overfitting. Picking a Threshold with Real Costs matters once a boosted classifier emits scores and the business must choose which errors to buy.`,
+        `Study Random Forest to see the parallel ensemble strategy, Tabular Feature-Basis Orientation Primer for feature-axis diagnostics, Leakage-Safe Target Encoding Case Study for categorical statistics, Gradient Descent for the function-space analogy, and Regularization: L1 & L2 for why penalties keep boosted trees from overfitting. Picking a Threshold with Real Costs matters once a boosted classifier emits scores and the business must choose which errors to buy.`,
       ],
     },
   ],

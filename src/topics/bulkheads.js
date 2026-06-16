@@ -184,9 +184,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Circuit Breakers & Deadlines to pair with bulkheads—structure contains, adaptation heals. Tail Latency & p99 Thinking shows why sizing to the tail matters. Sharding & Partitioning demonstrates bulkheads at the architecture level. Hot Rows & Append-and-Aggregate applies bulkheads to single hotspot rows. Message Queue explores how queues bulkhead producer from consumer. Load Balancer completes the stack: distribute traffic to healthy compartments and away from saturated ones.`,
+        `Study Semaphore Permit Counter to see the data structure behind async bulkheads and per-dependency concurrency caps. Circuit Breakers & Deadlines pair with bulkheads—structure contains, adaptation heals. Tail Latency & p99 Thinking shows why sizing to the tail matters. Sharding & Partitioning demonstrates bulkheads at the architecture level. Hot Rows & Append-and-Aggregate applies bulkheads to single hotspot rows. Message Queue explores how queues bulkhead producer from consumer. Load Balancer completes the stack: distribute traffic to healthy compartments and away from saturated ones.`,
       ],
     },
   ],
 };
-

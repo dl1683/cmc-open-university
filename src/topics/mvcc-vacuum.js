@@ -185,9 +185,10 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        `For the parts MVCC does not remove, study PostgreSQL Lock Manager & Deadlock Detector for relation, row, transaction, and advisory lock waits. PostgreSQL Advisory Lock Keyspace covers application-defined locks, and Transaction Savepoint Stack explains partial rollback plus lock cleanup after savepoint rollback.`,
+        `For the maintenance side MVCC depends on, continue into PostgreSQL Autovacuum Freeze & Wraparound. It explains relfrozenxid age, visibility-map all-frozen bits, forced anti-wraparound scans, and why VACUUM is correctness work as well as bloat cleanup.`,
         `MVCC is one path through Transaction Isolation Levels; see how Serializable adds phantom-protection. Git Internals shares the append-only model and cleanup (gc). LSM Tree applies the same design to NoSQL. Cache Invalidation & Versioning covers versioned names and expiration in distributed caches. Write-Ahead Logging explains how PostgreSQL pairs MVCC with crash safety.`,
       ],
     },
   ],
 };
-

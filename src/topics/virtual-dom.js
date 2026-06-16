@@ -174,7 +174,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Tree Traversals for the dual walk, Edit Distance (DP Table) for the harder general diff problem, and The Event Loop for why slow reconciliation blocks clicks. How a Browser Paints a Page shows why batched patches are valuable. Hash Table, Memoization (Dynamic Programming), and LRU Cache round out the identity and caching patterns that make large interfaces tractable.`,
+        `Study Tree Traversals for the dual walk, Edit Distance (DP Table) for the harder general diff problem, and The Event Loop for why slow reconciliation blocks clicks. React Fiber Scheduler Case Study shows how React turns reconciliation into schedulable units of work. React Suspense Resource Cache shows the loading boundary and resource-cache layer around the tree. Signals Reactivity Dependency Graph shows the fine-grained alternative to whole-subtree diffing, and UI State Machine Workflow shows how eventful screens avoid boolean soup. How a Browser Paints a Page shows why batched patches are valuable. Dirty Rectangle Damage Tracking shows how committed DOM changes become bounded repaint work. Hash Table, Memoization (Dynamic Programming), and LRU Cache round out the identity and caching patterns that make large interfaces tractable.`,
       ],
     },
   ],

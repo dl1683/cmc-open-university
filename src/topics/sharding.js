@@ -197,11 +197,10 @@ export const article = {
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Sources and study next`,
       paragraphs: [
-        `Consistent Hashing is the production algorithm for hash-based sharding — learn why naive mod-N resharding moves 75 percent of data and how the ring fixes it. Hot Rows & Append-and-Aggregate shows the salting strategy for celebrity keys at scale. Two-Phase Commit (2PC) and Saga Pattern are the costs you pay for cross-shard transactions; understand their trade-offs. CAP Theorem is the broader constraint that sharding operates within — you can partition for scale, but you cannot partition away consistency risk. Transaction Isolation Levels matter because different isolation levels change which concurrent behaviors your single-shard transactions can safely ignore.`,
+        `Primary sources and systems references: the Dynamo paper at https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf, Cassandra architecture notes at https://cassandra.apache.org/doc/latest/cassandra/architecture/overview.html, Spanner at https://research.google/pubs/spanner-googles-globally-distributed-database/, and Lamping and Veach's Jump consistent hash paper at https://arxiv.org/abs/1406.2294. Consistent Hashing is the production algorithm for hash-based sharding — learn why naive mod-N resharding moves 75 percent of data and how the ring fixes it. Jump Consistent Hash Case Study then shows the constant-memory version for logical numbered buckets, which is a good mental bridge between hash placement and shard-to-server control planes. Hot Rows & Append-and-Aggregate shows the salting strategy for celebrity keys at scale. Two-Phase Commit (2PC) and Saga Pattern are the costs you pay for cross-shard transactions; understand their trade-offs. CAP Theorem is the broader constraint that sharding operates within — you can partition for scale, but you cannot partition away consistency risk. Transaction Isolation Levels matter because different isolation levels change which concurrent behaviors your single-shard transactions can safely ignore.`,
       ],
     },
   ],
 };
-

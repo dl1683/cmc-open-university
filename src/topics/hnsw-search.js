@@ -168,13 +168,20 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `The main misconception is treating approximate search as exact search. Recall depends on M, efConstruction, efSearch, vector quality, and the distance metric. If the embedding model is bad, no index rescues it. If recall must be 100%, use exact search or rerank a sufficiently large candidate set. Another trap is ignoring filters. Metadata filters can shrink or fragment the candidate set, making a beautiful vector graph less useful unless the database handles filtered ANN carefully.`,
-        `HNSW is also not the only scale strategy. K-Means Clustering underlies IVF-style partitioning; product quantization compresses vectors; Binary Search solves a much simpler one-dimensional ordered case; Graph BFS gives the unweighted traversal baseline that HNSW bends into greedy metric navigation.`,
+        `HNSW is also not the only scale strategy. K-Means Clustering underlies IVF-style partitioning; product quantization compresses vectors; ScaNN combines partitioning with score-aware quantization and rescoring; Binary Search solves a much simpler one-dimensional ordered case; Graph BFS gives the unweighted traversal baseline that HNSW bends into greedy metric navigation.`,
+      ],
+    },
+    {
+      heading: `Sources and implementation details`,
+      paragraphs: [
+        `The primary paper is Malkov and Yashunin's "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs": https://arxiv.org/abs/1603.09320. It describes the multi-layer proximity graph, exponentially rarer upper layers, greedy search from upper layers, and neighbor-selection heuristic that improves high-recall performance.`,
+        `Production implementations expose the same trade-offs. hnswlib is a widely used C++/Python implementation: https://github.com/nmslib/hnswlib. pgvector documents HNSW as a multilayer graph index with better speed-recall trade-off than IVFFlat but slower build and higher memory use: https://github.com/pgvector/pgvector. FAISS also documents vector-search index families and implementation support around large-scale similarity search: https://faiss.ai/index.html.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Embeddings & Similarity first, then RAG Pipeline for the application loop. Skip List explains the layered-navigation analogy, Graph BFS gives the graph-search baseline, K-Means Clustering shows partition-based ANN intuition, and Markov Chains & Steady States builds comfort with graph walks even though HNSW search itself is greedy, not a Markov process.`,
+        `Study Embeddings & Similarity first, then RAG Pipeline for the application loop. Skip List explains the layered-navigation analogy, Graph BFS gives the graph-search baseline, K-Means Clustering shows partition-based ANN intuition, ScaNN Vector Search Case Study shows score-aware quantized retrieval, ANN Recall-Latency Pareto Ledger shows how ef_search becomes a measured production knob, and Markov Chains & Steady States builds comfort with graph walks even though HNSW search itself is greedy, not a Markov process.`,
       ],
     },
   ],

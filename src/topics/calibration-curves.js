@@ -139,7 +139,7 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Calibration matters whenever a probability drives an action. Picking a Threshold with Real Costs can use a closed-form cutoff only if probabilities are honest. Medical triage, fraud queues, sensor fusion, recommender abstention, and model routers all consume confidence. Uncertainty: Teaching Models to Say "I Don't Know" goes further by separating different kinds of doubt, but even a simple classifier must first make its stated probabilities match observed frequencies. A well-calibrated model can still be wrong on an individual case; calibration is a population promise, not a personal guarantee.`,
+        `Calibration matters whenever a probability drives an action. Picking a Threshold with Real Costs can use a closed-form cutoff only if probabilities are honest. Medical triage, fraud queues, sensor fusion, recommender abstention, model routers, and ad-click ranking all consume confidence. FTRL-Proximal Online CTR Case Study shows why calibration is part of the production learner, not a chart added after the fact. Uncertainty: Teaching Models to Say "I Don't Know" goes further by separating different kinds of doubt, but even a simple classifier must first make its stated probabilities match observed frequencies. A well-calibrated model can still be wrong on an individual case; calibration is a population promise, not a personal guarantee.`,
       ],
     },
     {
@@ -151,7 +151,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Softmax & Temperature for the logit-scaling mechanism, ROC Curves & AUC for discrimination, and Picking a Threshold with Real Costs for why calibrated probabilities make deployment arithmetic possible. Then use Precision, Recall & the Confusion Matrix to see how calibrated scores become concrete decisions.`,
+        `Study Softmax & Temperature for the logit-scaling mechanism, ROC Curves & AUC for discrimination, FTRL-Proximal Online CTR Case Study for calibrated probabilities in online ads, and Picking a Threshold with Real Costs for why calibrated probabilities make deployment arithmetic possible. Early-Exit Transformer Layer Skipping is a modern LLM serving case where calibrated confidence decides how much compute a token receives. Then use Precision, Recall & the Confusion Matrix to see how calibrated scores become concrete decisions, and study Membership Inference plus Model Inversion to see why rich confidence outputs can also become privacy attack signal.`,
       ],
     },
   ],

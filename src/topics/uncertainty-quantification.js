@@ -160,7 +160,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `After this, study probability calibration, thresholding, and bandit exploration. The useful deployment pattern is a dashboard with both gauges: one for whether a familiar score is calibrated, and one for whether the input is familiar enough to score at all.`,
+        `After this, study probability calibration, thresholding, bandit exploration, and Early-Exit Transformer Layer Skipping. The useful deployment pattern is a dashboard with both gauges: one for whether a familiar score is calibrated, and one for whether the input is familiar enough to score at all.`,
         `For implementation, decide the action before choosing the uncertainty method. A warning banner, a human-review queue, a wider prediction interval, and an active-learning request are different products. The right uncertainty estimate is the one that supports the decision you will actually take.`,
         `Always validate the abstention threshold on held-out data. A model that refuses too often can be as unusable as one that guesses too boldly or slow to a crawl.`,
       ],

@@ -124,9 +124,8 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `To deepen your understanding, explore Merkle Tree to see the mathematical structure underlying git's integrity commitments. Hash Table explains the lookup principle powering blob addressing. Graph BFS will help you understand how git traverses the DAG when merging or rebasing. Topological Sort formalizes the way git orders commits in a DAG. For systems that layer the same pattern, examine Write-Ahead Log (WAL), which uses similar immutability and append-only ordering to guarantee durability.`,
+        `Primary references: Git's object model in Pro Git at https://git-scm.com/book/en/v2/Git-Internals-Git-Objects, git repository layout at https://git-scm.com/docs/gitrepository-layout, and Git's hash transition notes at https://git-scm.com/docs/hash-function-transition. To deepen your understanding, explore Merkle Tree to see the mathematical structure underlying git's integrity commitments. Hash Table explains blob lookup. Graph BFS and Topological Sort explain commit traversal. Content-Addressed Merkle DAG Object Store generalizes Git's object model into a reusable storage pattern. Content-Defined Chunking & Dedup explains when byte-range boundaries replace Git's file/tree boundaries. Transparency Log Witnessing Case Study and Software Supply Chain Provenance Graph show how signed roots, attestations, and audit logs extend Git's integrity story into release security.`,
       ],
     },
   ],
 };
-

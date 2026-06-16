@@ -103,13 +103,13 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `Position information is not the same as guaranteed position reasoning. The model must learn to use the signal. A learned absolute table can overfit to seen lengths; a fixed sinusoid can extrapolate mathematically but still fail if the model never trained on long-range dependencies. RoPE extrapolates better in many decoder models, but stretching it too far can cause attention to blur or oscillate. Another misconception is that position is only a first-layer concern. In RoPE, position is applied inside every attention layer's query-key geometry, not simply added once at the input.`,
-        `Finally, do not confuse absolute and relative position. Absolute encodings label "this is position 128." Relative schemes make "this key is 17 tokens behind this query" easier to express. Many practical successes come from making relative distance natural to the dot product.`,
+        `Finally, do not confuse absolute and relative position. Absolute encodings label "this is position 128." Relative schemes make "this key is 17 tokens behind this query" easier to express. Many practical successes come from making relative distance natural to the dot product. Lost in the Middle: Long-Context Failure Modes is the behavioral warning: even when position is encoded, models may still use evidence unevenly across a long prompt.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Attention Mechanism to see why content-only attention needs order. The Transformer Block shows where the signal enters the model. RoPE (Rotary Embeddings) is the modern relative-position workhorse. Multi-Head Attention explains why different heads can exploit position differently, and KV Cache shows why appended positions must remain consistent during decoding. Embeddings & Similarity is the right foundation for understanding why adding or rotating vectors can encode structure at all.`,
+        `Primary sources: the original Transformer sinusoidal encoding in Attention Is All You Need at https://arxiv.org/abs/1706.03762, RoPE at https://arxiv.org/abs/2104.09864, T5 relative position bias at https://arxiv.org/abs/1910.10683, and ALiBi at https://arxiv.org/abs/2108.12409. Study Attention Mechanism to see why content-only attention needs order. The Transformer Block shows where the signal enters the model. FNet Fourier Token Mixing Case Study shows a fixed global mixer that still needs position information before tokens are transformed. RoPE (Rotary Embeddings) is the modern relative-position workhorse. Multi-Head Attention explains why different heads can exploit position differently, KV Cache shows why appended positions must remain consistent during decoding, and Lost in the Middle: Long-Context Failure Modes shows how position behavior appears in real long-context evaluations. Embeddings & Similarity is the right foundation for understanding why adding or rotating vectors can encode structure at all.`,
       ],
     },
   ],

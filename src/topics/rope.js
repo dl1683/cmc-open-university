@@ -114,13 +114,13 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `Do not say RoPE makes a model length-infinite. Frequencies can wrap, training may never teach the model to use far-away evidence, and attention kernels still pay for long contexts. Do not say it erases absolute position either; the model can still infer absolute-ish cues through boundaries, prompts, and layer interactions. And do not describe it as simple addition. Rotary encoding is an operator applied to Q and K, so it changes attention code, cache contents, and long-context scaling knobs.`,
-        `Another misconception is that all RoPE scaling recipes are interchangeable. Position interpolation, NTK-aware scaling, and YaRN move different parts of the frequency ladder and can trade local precision for long-range stability. A model can pass short benchmarks after scaling while losing retrieval accuracy at 64K tokens, so evaluation must include long-context tasks, not just perplexity near the training length.`,
+        `Another misconception is that all RoPE scaling recipes are interchangeable. Position interpolation, NTK-aware scaling, and YaRN move different parts of the frequency ladder and can trade local precision for long-range stability. A model can pass short benchmarks after scaling while losing retrieval accuracy at 64K tokens, so evaluation must include long-context tasks, not just perplexity near the training length. Lost in the Middle: Long-Context Failure Modes is the evaluation companion to the rotation math.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Start with Positional Encoding for the original sinusoidal frequency ladder. Then read Attention Mechanism to see where Q and K are born, Multi-Head Attention to see how every head gets its own rotated subspace, and KV Cache to understand why rotated keys are stored during decoding. The Transformer Block shows where the rotated attention output fits in the larger layer. If the rotation math feels abstract, Eigenvalues & Eigenvectors gives the linear-algebra foundation.`,
+        `Primary sources: RoFormer/RoPE at https://arxiv.org/abs/2104.09864, Llama 2's use of RoPE in long-context decoder models at https://arxiv.org/abs/2307.09288, YaRN at https://arxiv.org/abs/2309.00071, and the original Transformer position baseline at https://arxiv.org/abs/1706.03762. Start with Positional Encoding for the original sinusoidal frequency ladder. Then read Attention Mechanism to see where Q and K are born, Multi-Head Attention to see how every head gets its own rotated subspace, and KV Cache to understand why rotated keys are stored during decoding. Lost in the Middle: Long-Context Failure Modes explains why long-context behavior still needs position-swept evaluation after the math works. The Transformer Block shows where the rotated attention output fits in the larger layer. If the rotation math feels abstract, Eigenvalues & Eigenvectors gives the linear-algebra foundation.`,
       ],
     },
   ],

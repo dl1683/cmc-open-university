@@ -146,11 +146,18 @@ export const article = {
       ],
     },
     {
+      heading: 'Sources and engine details',
+      paragraphs: [
+        `PostgreSQL's planner documentation is the right companion for this topic: EXPLAIN shows the query plan the planner selected, and PostgreSQL emphasizes that choosing the plan matching query structure and data properties is critical: https://www.postgresql.org/docs/current/using-explain.html. The PostgreSQL multicolumn-index documentation explains why column order and access method matter, especially for B-tree indexes: https://www.postgresql.org/docs/current/indexes-multicolumn.html.`,
+        `MySQL's optimization guide describes indexes as a main way to improve SELECT operations on columns used in query conditions, with index entries acting as pointers to rows: https://dev.mysql.com/doc/refman/8.0/en/optimization-indexes.html. SQLite's query planner guide and EXPLAIN QUERY PLAN reference show the same lesson in an embedded engine: planners choose between scans and index searches based on available indexes, predicates, ordering, and estimated cost: https://www.sqlite.org/queryplanner.html and https://sqlite.org/eqp.html.`,
+      ],
+    },
+    {
       heading: 'Study next',
       paragraphs: [
-        `Indexes are B-Trees in action — explore B-Trees (How Databases Read) to understand the physical structure. Binary Search is how the index finds a key in logarithmic time. Hash Tables offer an alternative for exact-match lookups (fast but cannot handle ranges; indexes can). LSM Trees (How Cassandra Writes) are an entirely different approach to indexing that batches writes and amortizes the write amplification cost. Write-Ahead Log (WAL) is the consistency mechanism that protects your indexes during crashes.`,
+        `SQL Join Algorithms Primer shows why an index can turn a nested-loop join from a disaster into the right plan. PostgreSQL Query Planner Case Study explains why the optimizer may still ignore an index when estimated cost is higher.`,
+        `Indexes are B-Trees in action — explore B-Trees (How Databases Read) to understand the physical structure, then B+ Tree Leaf Sibling Scan Case Study to see why linked leaves make range scans and covering indexes practical. PostgreSQL HOT Update Heap-Only Tuple shows when an update can avoid redundant secondary-index entries. Binary Search is how the index finds a key in logarithmic time. Hash Tables offer an alternative for exact-match lookups (fast but cannot handle ranges; indexes can). Bw-Tree Delta Chain & Mapping Table shows how a B+ tree can trade page latches for CAS, delta replay, consolidation, and epoch reclamation. LSM Trees (How Cassandra Writes) are an entirely different approach to indexing that batches writes and amortizes the write amplification cost. Write-Ahead Log (WAL) is the consistency mechanism that protects your indexes during crashes.`,
       ],
     },
   ],
 };
-

@@ -212,10 +212,10 @@ export const article = {
       heading: `Study next`,
       paragraphs: [
         `Backpressure is the third pillar of the overload trilogy, closing a conversation you began in Retries, Backoff & Jitter (the client behaves) and Load Shedding & Graceful Degradation (the server protects itself). Together, they answer the question: when demand exceeds capacity, what happens? Retry discipline buys time; shedding protects the core; backpressure makes them actually talk.`,
+        `LLM Serving Admission-Control Goodput Gate brings that same feedback loop into model serving: the gate reads token budget, KV pressure, queue age, and deadlines, then admits, defers, sheds, or degrades before the GPU spends work on a request that can no longer finish.`,
         `Read TCP: Handshake & Congestion Control to see the sawtooth in real life — AIMD was not invented for this page; it is how the internet's most successful protocol has worked since 1988. Understand Message Queue to see how bounded buffers close the loop at different scales — the queue IS the backpressure wire.`,
-        `For producer-consumer pipelines, learn about Retries, Backoff & Jitter again to see why exponential backoff respects signals, and Load Shedding & Graceful Degradation to understand when to drop instead of queue. If you are building reactive code, study how RxJava and Project Reactor implement demand: that is pull-based backpressure in real codebases.`,
+        `For producer-consumer pipelines, learn about Retries, Backoff & Jitter again to see why exponential backoff respects signals, and Load Shedding & Graceful Degradation to understand when to drop instead of queue. Exchange Operator Parallel Query shows the same bounded-queue discipline inside parallel database execution. If you are building reactive code, study how RxJava and Project Reactor implement demand: that is pull-based backpressure in real codebases.`,
       ],
     },
   ],
 };
-

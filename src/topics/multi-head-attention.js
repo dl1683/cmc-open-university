@@ -104,7 +104,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `For head h, the computation is softmax(Q_h K_h^T / sqrt(d_head)) V_h. Q_h, K_h, and V_h come from head-specific slices of the learned projection matrices. The heads do not vote and they do not communicate while attention is being computed. They independently produce one output vector per token, and only after that does W_O blend the concatenated result back into d_model dimensions.`,
-        `This design fits GPUs well. Implementations do not launch 96 tiny separate jobs; they reshape tensors so batched matrix multiplies process all heads together. RoPE (Rotary Embeddings) or another position method is applied per head to queries and keys. During inference, the KV Cache stores keys and values per layer and per head, which is why grouped-query attention shares K/V heads to reduce memory while keeping many query heads.`,
+        `This design fits GPUs well. Implementations do not launch 96 tiny separate jobs; they reshape tensors so batched matrix multiplies process all heads together. RoPE (Rotary Embeddings) or another position method is applied per head to queries and keys. During inference, the KV Cache stores keys and values per layer and per head, which is why Grouped-Query Attention shares K/V heads to reduce memory while keeping many query heads.`,
       ],
     },
     {
@@ -125,13 +125,13 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `More heads are not automatically better. If d_model is fixed, adding heads shrinks d_head, and very small head dimensions can make each dot-product space weak. Some trained heads can be pruned with little immediate loss, but "redundant" does not mean useless; redundancy can make optimization and robustness easier. Another trap is clean-story interpretability. A head can be polysemantic, inert on one dataset, crucial on another, or important only because W_O and later layers use it in a specific way.`,
-        `Do not read one attention map as the model's reason for an answer. Saliency Maps & Feature Attribution and full-network ablations are stronger tools. Also do not confuse head count with context length: long context is constrained by token count, position encoding, cache memory, and kernels, not just the number of heads.`,
+        `Do not read one attention map as the model's reason for an answer. Saliency Maps & Feature Attribution, Sparse Autoencoder Feature Dictionary Case Study, and full-network ablations are stronger tools. Also do not confuse head count with context length: long context is constrained by token count, position encoding, cache memory, and kernels, not just the number of heads.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Attention Mechanism first if the Q/K/V formula is not automatic yet. Then study The Transformer Block, where heads become one sublayer inside a larger residual machine. KV Cache explains the serving cost of storing keys and values per head. RoPE (Rotary Embeddings) shows why position is applied inside each head's query-key space. BatchNorm & LayerNorm explains the stabilizers that keep many stacked head outputs trainable.`,
+        `Read Attention Mechanism first if the Q/K/V formula is not automatic yet. Then study The Transformer Block, where heads become one sublayer inside a larger residual machine. KV Cache explains the serving cost of storing keys and values per head, and Grouped-Query Attention shows how production models reduce that cost. RoPE (Rotary Embeddings) shows why position is applied inside each head's query-key space. Sparse Autoencoder Feature Dictionary Case Study shows why a clean-looking head story still needs feature-level evidence. BatchNorm & LayerNorm explains the stabilizers that keep many stacked head outputs trainable.`,
       ],
     },
   ],

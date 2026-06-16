@@ -114,7 +114,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Write-Ahead Log (WAL) for crash recovery, Merge Sort for compaction, and Bloom Filter for read avoidance. Compare against B-Trees (How Databases Read) and Write-Through vs Write-Back to understand why buffering changes the I/O shape. Then connect storage layout to MVCC Internals & VACUUM and Consistent Hashing, which answer different questions: which versions are visible, and which server owns the key.`,
+        `Read Write-Ahead Log (WAL) for crash recovery, Merge Sort for compaction, Bloom Filter for read avoidance, and SSTable Block Index & Filter for the immutable file layout. Then study LSM Compaction Strategies Primer, RocksDB MANIFEST & VersionSet, and LSM Tombstones & Range Deletes to see how file metadata, versions, and delete cleanup work. Compare against B-Trees (How Databases Read), B+ Tree Leaf Sibling Scan Case Study, and Write-Through vs Write-Back to understand why buffering changes the I/O shape. Then connect storage layout to MVCC Internals & VACUUM and Consistent Hashing, which answer different questions: which versions are visible, and which server owns the key.`,
       ],
     },
   ],

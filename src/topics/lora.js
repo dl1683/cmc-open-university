@@ -127,6 +127,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        `LoRA Adapter Registry, Merge, and Serving Ledger is the production sequel: it turns a small adapter file into a manifest, compatibility gate, merge audit, hot-swap serving cache, and rollout policy.`,
         `Study Neural Network Forward Pass to see where W + B A is applied, then Backpropagation to follow gradients into the adapters. SVD & Low-Rank Approximation explains the low-rank bet, Quantization explains QLoRA, Attention Mechanism shows the transformer layers most often adapted, and Knowledge Distillation explains how teachers can generate better fine-tuning targets.`,
       ],
     },

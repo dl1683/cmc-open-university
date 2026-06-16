@@ -1,0 +1,226 @@
+// Static timing analysis propagates arrival and required times over a timing
+// graph, then reports slack without simulating input vectors.
+
+import { graphState, matrixState, plotState, InputError } from '../core/state.js';
+
+export const topic = {
+  id: 'static-timing-analysis-timing-graph-case-study',
+  title: 'Static Timing Analysis Timing Graph Case Study',
+  category: 'Systems',
+  summary: 'An EDA timing case study: timing graph vertices, Liberty arcs, clocks, arrival time, required time, slack, setup/hold checks, incremental dirty cones, and timing-closure ledgers.',
+  controls: [
+    { id: 'view', label: 'View', type: 'select', options: ['arrival required slack', 'incremental update'], defaultValue: 'arrival required slack' },
+  ],
+  run,
+};
+
+function labelMatrix(title, rows, columns, labelsByRow) {
+  const labels = [''];
+  const codes = new Map([['', 0]]);
+  const code = (label) => {
+    if (!codes.has(label)) {
+      codes.set(label, labels.length);
+      labels.push(label);
+    }
+    return codes.get(label);
+  };
+  return matrixState({ title, rows, columns, values: labelsByRow.map((row) => row.map(code)), format: (value) => labels[value] });
+}
+
+function timingGraph(title, notes = {}) {
+  return graphState({
+    nodes: [
+      { id: 'clk', label: 'CLK', x: 0.8, y: 5.5, note: notes.clk || 'period' },
+      { id: 'launch', label: 'FF1', x: 1.4, y: 3.0, note: notes.launch || 'Q' },
+      { id: 'u1', label: 'U1', x: 3.3, y: 2.2, note: notes.u1 || 'arc' },
+      { id: 'u2', label: 'U2', x: 5.1, y: 3.0, note: notes.u2 || 'arc' },
+      { id: 'u3', label: 'U3', x: 6.7, y: 2.1, note: notes.u3 || 'load' },
+      { id: 'capture', label: 'FF2', x: 8.4, y: 3.0, note: notes.capture || 'D' },
+      { id: 'req', label: 'REQ', x: 8.4, y: 5.2, note: 'constraint' },
+    ],
+    edges: [
+      { id: 'e-clk-launch', from: 'clk', to: 'launch', weight: 'launch' },
+      { id: 'e-launch-u1', from: 'launch', to: 'u1', weight: 'clk->Q' },
+      { id: 'e-u1-u2', from: 'u1', to: 'u2', weight: '+120ps' },
+      { id: 'e-u2-u3', from: 'u2', to: 'u3', weight: '+210ps' },
+      { id: 'e-u3-capture', from: 'u3', to: 'capture', weight: '+90ps' },
+      { id: 'e-clk-req', from: 'clk', to: 'req', weight: 'period' },
+      { id: 'e-req-capture', from: 'req', to: 'capture', weight: 'setup' },
+    ],
+  }, { title });
+}
+
+function timingTable(title) {
+  return matrixState({
+    title,
+    rows: [
+      { id: 'launch', label: 'FF1/Q' },
+      { id: 'u1', label: 'U1/Y' },
+      { id: 'u2', label: 'U2/Y' },
+      { id: 'capture', label: 'FF2/D' },
+    ],
+    columns: [
+      { id: 'arr', label: 'arr' },
+      { id: 'req', label: 'req' },
+      { id: 'slack', label: 'slack' },
+    ],
+    values: [
+      [0.08, 0.68, 0.60],
+      [0.20, 0.56, 0.36],
+      [0.41, 0.35, -0.06],
+      [0.50, 0.44, -0.06],
+    ],
+    format: (value) => `${Math.round(value * 1000)}ps`,
+  });
+}
+
+function* arrivalRequiredSlack() {
+  yield {
+    state: timingGraph('Timing graph separates data and clock constraints'),
+    highlight: { active: ['launch', 'u1', 'u2', 'u3', 'capture'], compare: ['clk', 'req'], found: ['e-u2-u3'] },
+    explanation: 'Static timing analysis builds a directed timing graph from sequential endpoints, combinational arcs, clock definitions, and constraints. It checks every modeled path without simulating all vectors.',
+    invariant: 'Every arrival, required, and slack value is indexed by vertex, timing sense, corner, and clock edge.',
+  };
+
+  yield {
+    state: timingTable('Arrival, required, slack'),
+    highlight: { active: ['launch:arr', 'u1:arr', 'u2:arr'], compare: ['u2:req', 'capture:req'], found: ['u2:slack', 'capture:slack'] },
+    explanation: 'Arrival time propagates forward from launches. Required time propagates backward from constraints. Slack is required minus arrival, so negative slack marks a timing violation.',
+  };
+
+  yield {
+    state: plotState({
+      axes: { x: { label: 'path node', min: 0, max: 4 }, y: { label: 'ns', min: 0, max: 0.75 } },
+      series: [
+        { id: 'arr', label: 'arr', points: [{ x: 0, y: 0.08 }, { x: 1, y: 0.20 }, { x: 2, y: 0.41 }, { x: 3, y: 0.50 }] },
+        { id: 'req', label: 'req', points: [{ x: 0, y: 0.68 }, { x: 1, y: 0.56 }, { x: 2, y: 0.35 }, { x: 3, y: 0.44 }] },
+      ],
+      markers: [
+        { id: 'fail', label: 'slack<0', x: 2, y: 0.41 },
+        { id: 'end', label: 'end', x: 3, y: 0.50 },
+      ],
+    }, { title: 'Violation appears where arrival crosses required' }),
+    highlight: { active: ['arr'], compare: ['req'], found: ['fail', 'end'] },
+    explanation: 'A timing report is a path explanation: the cumulative arrival curve overtakes the required curve, so timing closure needs buffering, resizing, placement movement, or constraint repair.',
+  };
+
+  yield {
+    state: labelMatrix(
+      'Timing closure ledger',
+      [
+        { id: 'setup', label: 'setup' },
+        { id: 'hold', label: 'hold' },
+        { id: 'slew', label: 'slew' },
+        { id: 'cap', label: 'cap' },
+      ],
+      [
+        { id: 'symptom', label: 'symptom' },
+        { id: 'repair', label: 'repair' },
+      ],
+      [
+        ['arrives late', 'resize/move'],
+        ['arrives early', 'delay clk'],
+        ['slow edge', 'resize'],
+        ['too much load', 'split fanout'],
+      ],
+    ),
+    highlight: { active: ['setup:symptom', 'setup:repair'], compare: ['hold:symptom'], found: ['cap:repair'] },
+    explanation: 'Slack is not a single problem class. Setup, hold, slew, capacitance, and clock violations point to different repair moves and different risk.',
+  };
+}
+
+function* incrementalUpdate() {
+  yield {
+    state: timingGraph('An ECO dirties only part of the timing graph', { u2: 'resized', u3: 'dirty', capture: 'endpoint' }),
+    highlight: { active: ['u2', 'u3', 'capture'], compare: ['launch', 'u1'], found: ['e-u2-u3', 'e-u3-capture'] },
+    explanation: 'After a buffer is resized or a net parasitic changes, a good STA engine invalidates the affected fanout/fanin cone instead of recomputing the whole chip.',
+    invariant: 'Dirty propagation must include both forward arrival effects and backward required-time effects.',
+  };
+
+  yield {
+    state: labelMatrix(
+      'Incremental timing queues',
+      [
+        { id: 'dirty', label: 'dirty' },
+        { id: 'arrive', label: 'arr' },
+        { id: 'require', label: 'req' },
+        { id: 'report', label: 'report' },
+      ],
+      [
+        { id: 'state', label: 'state' },
+        { id: 'order', label: 'order' },
+      ],
+      [
+        ['U2 arc changed', 'enqueue'],
+        ['fanout levels', 'forward'],
+        ['endpoints', 'backward'],
+        ['worst paths', 'refresh'],
+      ],
+    ),
+    highlight: { active: ['dirty:state', 'arrive:order'], found: ['require:order', 'report:state'] },
+    explanation: 'Incremental timing is a dependency graph problem: changed arcs invalidate cached arrival and required values, then level order recomputes only what can change.',
+  };
+
+  yield {
+    state: plotState({
+      axes: { x: { label: 'changed arcs', min: 0, max: 1000 }, y: { label: 'work %', min: 0, max: 100 } },
+      series: [
+        { id: 'incr', label: 'incr', points: [{ x: 10, y: 3 }, { x: 100, y: 11 }, { x: 500, y: 34 }, { x: 1000, y: 52 }] },
+        { id: 'full', label: 'full', points: [{ x: 10, y: 100 }, { x: 100, y: 100 }, { x: 500, y: 100 }, { x: 1000, y: 100 }] },
+      ],
+      markers: [
+        { id: 'eco', label: 'ECO', x: 100, y: 11 },
+        { id: 'cap', label: 'full', x: 1000, y: 100 },
+      ],
+    }, { title: 'Dirty cones keep ECO timing interactive' }),
+    highlight: { active: ['incr'], compare: ['full'], found: ['eco', 'cap'] },
+    explanation: 'The whole point of incremental STA is human iteration speed. If every ECO recomputes every corner and every path from scratch, timing closure stalls.',
+  };
+
+  yield {
+    state: labelMatrix(
+      'STA data structures',
+      [
+        { id: 'graph', label: 'graph' },
+        { id: 'arc', label: 'arc' },
+        { id: 'corner', label: 'corner' },
+        { id: 'cache', label: 'cache' },
+      ],
+      [
+        { id: 'stores', label: 'stores' },
+        { id: 'risk', label: 'risk' },
+      ],
+      [
+        ['vertices edges', 'bad topology'],
+        ['delay tables', 'slew/load'],
+        ['PVT views', 'missed mode'],
+        ['arr req slack', 'stale values'],
+      ],
+    ),
+    highlight: { active: ['graph:stores', 'arc:stores', 'cache:stores'], compare: ['corner:risk'], found: ['cache:risk'] },
+    explanation: 'STA is graph propagation plus cache discipline. Multi-corner multi-mode analysis multiplies the state, so explicit keys and provenance matter.',
+  };
+}
+
+export function* run(input) {
+  const view = String(input.view);
+  if (view === 'arrival required slack') yield* arrivalRequiredSlack();
+  else if (view === 'incremental update') yield* incrementalUpdate();
+  else throw new InputError('Pick a static-timing view.');
+}
+
+export const article = {
+  references: [
+    { title: 'OpenROAD OpenSTA Documentation', url: 'https://openroad.readthedocs.io/en/latest/main/src/sta/README.html' },
+    { title: 'OpenSTA API Notes', url: 'https://github.com/The-OpenROAD-Project/OpenSTA/blob/master/doc/StaApi.txt' },
+    { title: 'OpenLane Timing Closure Documentation', url: 'https://openlane2.readthedocs.io/en/latest/usage/timing_closure/index.html' },
+  ],
+  sections: [
+    { heading: 'What it is', paragraphs: ['Static timing analysis checks whether modeled signal paths meet clock and constraint requirements without exhaustive simulation. The data structure is a timing graph: vertices represent pins or timing points, edges represent cell and net delay arcs, and clocks define launch/capture relationships.', 'Each vertex can carry arrival time, required time, slack, slew, capacitance, and path provenance across modes, corners, and clock edges.'] },
+    { heading: 'How it works', paragraphs: ['Forward propagation computes arrival times from launch points through combinational arcs. Backward propagation computes required times from capture constraints. Slack is the difference between required and arrival times; negative slack means the modeled design violates the timing requirement.', 'Incremental STA tracks dirty arcs and dirty vertices after ECOs, placement moves, parasitic updates, or constraint changes. Recomputing only affected cones is essential for interactive timing closure.'] },
+    { heading: 'Cost and complexity', paragraphs: ['The graph can contain many more timing arcs than cells because each library cell may have multiple input-output arcs, timing senses, and conditional checks. Multi-corner multi-mode analysis multiplies that state again.', 'Worst-path extraction is also a data-structure problem: reports need path reconstruction, top-k worst endpoints, grouped clocks, exception handling, and provenance back to cells, pins, nets, and constraints.'] },
+    { heading: 'Complete case study', paragraphs: ['A setup violation appears at FF2/D. The STA engine reports the launch clock, launch flop, cell arcs, net delays, capture clock, arrival time, required time, and negative slack. The repair loop upsizes one gate and inserts a buffer. The timing graph marks downstream arrivals and upstream required values dirty, then recomputes the affected cone.', 'The next report improves setup slack but creates a hold risk on a short neighboring path, so the closure ledger keeps setup and hold findings separate instead of treating slack as one scalar.'] },
+    { heading: 'Pitfalls', paragraphs: ['Do not confuse simulated correctness with timing correctness. A logic simulation can pass while the physical design misses timing. Do not cache timing values without mode, corner, clock edge, and exception keys. Do not repair setup blindly if hold, slew, capacitance, or routing congestion will regress.', 'A timing graph is only as good as its inputs: Liberty arcs, SDC constraints, parasitics, and netlist topology must agree.'] },
+    { heading: 'Sources and study next', paragraphs: ['Primary sources: OpenROAD OpenSTA docs at https://openroad.readthedocs.io/en/latest/main/src/sta/README.html, OpenSTA API notes at https://github.com/The-OpenROAD-Project/OpenSTA/blob/master/doc/StaApi.txt, and OpenLane timing closure docs at https://openlane2.readthedocs.io/en/latest/usage/timing_closure/index.html. Study Standard Cell Netlist Hypergraph Primer, Data-Flow Worklist Analysis, GraphBLAS Sparse Matrix Graph Case Study, and Standard Cell Placement Row Legalization Case Study next.'] },
+  ],
+};

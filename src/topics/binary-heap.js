@@ -126,7 +126,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Dijkstra's Shortest Path uses a min-heap to repeatedly expand the unsettled node with the lowest known distance. Graph BFS uses a plain Queue because every edge has equal cost; Dijkstra upgrades the frontier to priority order when edge weights differ. Heap Sort builds a max-heap and repeatedly extracts the maximum to fill the array from the end. Huffman Coding uses a min-heap to repeatedly combine the two lowest-frequency symbols into a compression tree.`,
-        `Schedulers, simulation engines, and message brokers use heap-like structures when tasks have deadlines, priorities, or retry times. A web crawler might prioritize fresh high-value pages; a timer system might wake whichever timeout expires next. The structure is attractive because new priorities arrive dynamically and the next best item is always cheap to retrieve.`,
+        `Schedulers, simulation engines, and message brokers use heap-like structures when tasks have deadlines, priorities, or retry times. Kubernetes Scheduler Priority Queue & Preemption Case Study shows the production version: a priority-ordered active queue plus backoff and unschedulable side structures. A web crawler might prioritize fresh high-value pages; a timer system might wake whichever timeout expires next. The structure is attractive because new priorities arrive dynamically and the next best item is always cheap to retrieve.`,
       ],
     },
     {
@@ -139,7 +139,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Queue first for ordinary FIFO scheduling, then Dijkstra's Shortest Path to see priority scheduling change a graph algorithm. Heap Sort shows how repeated extraction becomes sorting. Compare with Binary Search Tree for ordered lookup, and read Huffman Coding for a greedy algorithm built almost entirely around repeated min extraction.`,
+        `Study Queue first for ordinary FIFO scheduling, then Dijkstra's Shortest Path to see priority scheduling change a graph algorithm. Heap Sort shows how repeated extraction becomes sorting. Compare with Binary Search Tree for ordered lookup, read Huffman Coding for a greedy algorithm built almost entirely around repeated min extraction, and use Kubernetes Scheduler Priority Queue & Preemption Case Study for a control-plane scheduler built around priority plus backoff.`,
       ],
     },
   ],

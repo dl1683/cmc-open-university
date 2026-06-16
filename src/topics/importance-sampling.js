@@ -229,9 +229,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Read "Policy Gradients: REINFORCE to PPO" to see the importance-weight ratio r in action, and how the clipping guard connects to variance control. Study "Multi-Armed Bandits" for the explore/exploit bargain and the case for exploration in logging. Read "Confidence Intervals & the Bootstrap" for the ESS diagnostic and how resampling, like reweighting, extracts information from finite data. Explore "Reservoir Sampling" for a different angle on the data-efficiency problem: when you cannot store all the data, how do you still answer questions about it? Together, these topics show you a family of techniques for getting the most information per sample — the core of practical, efficient decision-making under uncertainty.`,
+        `Read "Policy Gradients: REINFORCE to PPO" to see the importance-weight ratio r in action, and how the clipping guard connects to variance control. Study "Multi-Armed Bandits" for the explore/exploit bargain and the case for exploration in logging. Then read "Contextual Bandit Logged Policy Evaluation Case Study" for the production log schema: action set, chosen action, propensity, delayed reward, support audit, ESS, and the promotion gate that makes p/q usable outside a toy example. Read "Particle Filter Resampling Localization Case Study" to see ESS drive resampling in a streaming state estimator. Read "Confidence Intervals & the Bootstrap" for the ESS diagnostic and how resampling, like reweighting, extracts information from finite data. Explore "Reservoir Sampling" for a different angle on the data-efficiency problem: when you cannot store all the data, how do you still answer questions about it? Together, these topics show you a family of techniques for getting the most information per sample — the core of practical, efficient decision-making under uncertainty.`,
       ],
     },
   ],
 };
-

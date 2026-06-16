@@ -105,7 +105,7 @@ export const article = {
       heading: `What it is`,
       paragraphs: [
         `Knowledge distillation trains a smaller student model to imitate a stronger teacher model. Hinton, Vinyals, and Dean popularized the recipe in the 2015 paper "Distilling the Knowledge in a Neural Network": the teacher's full probability distribution contains more information than a one-hot label. A label says "cat." A teacher might say 0.78 cat, 0.13 dog, 0.06 fox, and near zero for truck. Those near-misses are useful structure.`,
-        `The goal is compression without merely deleting weights. The student has fewer layers, narrower hidden states, or a simpler architecture, but it learns the teacher's behavior. This can make inference cheaper, reduce latency, and fit models onto phones, browsers, or high-throughput servers. Unlike Quantization, which changes number precision, distillation changes the model being trained.`,
+        `The goal is compression without merely deleting weights. The student has fewer layers, narrower hidden states, or a simpler architecture, but it learns the teacher's behavior. This can make inference cheaper, reduce latency, and fit models onto phones, browsers, or high-throughput servers. Unlike Quantization, which changes number precision, or Structured Pruning and N:M Sparsity, which changes the weight mask and packed layout, distillation changes the model being trained.`,
       ],
     },
     {
@@ -125,7 +125,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Distillation is common when a frontier or ensemble model is too expensive to serve directly. Search ranking stacks distill large rankers into fast production models. Vision systems distill ensembles into single CNNs or transformers. Speech and on-device NLP models use distilled students to meet battery and latency budgets. Modern LLM pipelines often use strong models to generate instruction data, critiques, or reasoning traces for smaller open models, though the exact recipe is usually proprietary and must be evaluated rather than assumed.`,
-        `It also pairs well with LoRA Fine-Tuning: a teacher can produce higher-quality task data, then a smaller or adapted student learns from it. Quantization can be applied afterward for another memory cut.`,
+        `It also pairs well with LoRA Fine-Tuning: a teacher can produce higher-quality task data, then a smaller or adapted student learns from it. Quantization can be applied afterward for another memory cut, while Structured Pruning and N:M Sparsity can remove or pack connections when the target kernels support the mask pattern.`,
       ],
     },
     {
@@ -136,9 +136,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and concrete systems`,
+      paragraphs: [
+        `The canonical source is Hinton, Vinyals, and Dean, Distilling the Knowledge in a Neural Network: https://arxiv.org/abs/1503.02531. DistilBERT is the clean NLP reference for shrinking BERT while preserving most benchmark quality: https://arxiv.org/abs/1910.01108. TinyBERT extends distillation across transformer layers and attention structures: https://arxiv.org/abs/1909.10351.`,
+        `MiniLM focuses on distilling self-attention relation knowledge for smaller language models: https://arxiv.org/abs/2002.10957. DeepSeek-R1 makes the modern reasoning-model version visible by distilling samples from a stronger reasoning teacher into smaller Qwen and Llama based models: https://github.com/deepseek-ai/DeepSeek-R1.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Read Softmax & Temperature for softened targets, Neural Network Forward Pass for logits and hidden states, and Gradient Descent for the student update. Quantization and LoRA Fine-Tuning show two complementary efficiency tools, while Dropout and Regularization: L1 & L2 explain why a smaller student still needs generalization pressure.`,
+        `Read Softmax & Temperature for softened targets, Neural Network Forward Pass for logits and hidden states, and Gradient Descent for the student update. Quantization, Structured Pruning and N:M Sparsity, LoRA Fine-Tuning, Speculative Decoding, and Early-Exit Transformer Layer Skipping show complementary efficiency tools, while Dropout and Regularization: L1 & L2 explain why a smaller student or shallow exit still needs generalization pressure.`,
       ],
     },
   ],

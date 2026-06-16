@@ -133,9 +133,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `"Binary Exponentiation" builds the same bit-scan pattern for O(log n) exponents. "Binary Search" shares the divide-by-two logarithmic thought. "Binary Heap (Priority Queue)" is another O(log n) dynamic structure, but heap-ordered instead of sum-ordered. "B-Trees (How Databases Read)" tackles range queries on disk at a different scale. Start with exponentiation to see the bit pattern in action, then search for the binary-divide spirit everywhere.`,
+        `"Binary Exponentiation" builds the same bit-scan pattern for O(log n) exponents. WebGPU Parallel Prefix Scan & Compaction shows the batch-parallel GPU cousin of prefix sums. "Binary Search" shares the divide-by-two logarithmic thought. "Binary Heap (Priority Queue)" is another O(log n) dynamic structure, but heap-ordered instead of sum-ordered. "B-Trees (How Databases Read)" tackles range queries on disk at a different scale. Start with exponentiation to see the bit pattern in action, then search for the binary-divide spirit everywhere.`,
       ],
     },
   ],
 };
-

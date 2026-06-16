@@ -187,6 +187,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        `Fencing Token Zombie Writer expands the lock-service warning into a concrete side-effect protocol: a monotonically increasing token on every grant, and a protected resource that rejects stale epochs from paused holders.`,
         `Begin with "View Changes: Replacing a Failed Leader" to understand how fencing tokens prevent stale leaders from corrupting data — that pattern is the finishing move after a lock. Study "Idempotency & Exactly-Once Delivery" to see how idempotent operations dissolve the double-hold window: if running the same operation twice is harmless, a lock is no longer required for safety, only for efficiency. Learn "Raft Leader Election" to see how consensus-backed leases (with heartbeats and election timeouts) work in practice; ZooKeeper and etcd use similar patterns. Explore "CRDTs: Conflict-Free Replicated Data Types" to see scenarios where concurrent writes merge correctly without any lock at all — the strongest move is designing the lock away entirely. Finally, "Message Queues" show how a queue with a single consumer per partition provides implicit mutual exclusion without any explicit lock service.`,
       ],
     },

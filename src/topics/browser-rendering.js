@@ -209,9 +209,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and browser details`,
+      paragraphs: [
+        `MDN's critical rendering path guide defines the browser path from HTML, CSS, and JavaScript to pixels, including DOM, CSSOM, render tree, and layout: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path. MDN's "How browsers work" guide adds the broader navigation-to-rendering context: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/How_browsers_work.`,
+        `web.dev's rendering performance guide explains the 60 fps frame budget and the need to profile rendering work: https://web.dev/articles/rendering-performance. web.dev's animation guide recommends restricting animations to transform and opacity when possible so animation stays at the compositing stage: https://web.dev/articles/animations-guide. Chrome's forced reflow insight documents the layout-thrashing pattern where geometric reads after DOM/style writes force immediate layout: https://developer.chrome.com/docs/performance/insights/forced-reflow.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Study Tree Traversals and Stack for the parser and DOM walks, then The Event Loop for when rendering gets a turn. How DNS Works, TCP: Handshake & Congestion Control, and CDN Request Flow cover the network path before parsing. Virtual DOM Reconciliation shows why UI libraries batch writes against this exact pipeline.`,
+        `Study Tree Traversals and Stack for the parser and DOM walks, then The Event Loop, Promise Microtask Queue, requestAnimationFrame Frame Budget, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, and PerformanceObserver Long Task Attribution for when rendering gets a turn and how stalls are measured. URL Parser & Origin Tuple explains the navigation input before bytes arrive, History API Session Stack explains same-document navigation, and BFCache Page Lifecycle explains why Back can restore a whole rendered page without re-running this pipeline. DOM Event Propagation & Path explains how input events travel through the DOM before handlers mutate UI state. How DNS Works, TCP: Handshake & Congestion Control, CDN Request Flow, and Resource Hints: Preload & Preconnect cover the network path before parsing. Virtual DOM Reconciliation shows why UI libraries batch writes against this exact pipeline. Dirty Rectangle Damage Tracking, OffscreenCanvas Worker Renderer, WebGPU Swapchain Frame Pacing, and Render Graph Framegraph Resource Lifetimes continue the path from changed UI state to bounded paint and GPU work.`,
       ],
     },
   ],

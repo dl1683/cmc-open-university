@@ -145,9 +145,8 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `For dynamic cluster membership, study Consistent Hashing: gossip tells nodes a peer arrived; Consistent Hashing ensures keys rebalance without touching most data. For verifying gossip state, study Merkle Tree to see how comparison finds deltas in O(log n) space. For formal failure recovery, study Raft Leader Election, which pairs with gossip in many systems (Consul): gossip detects failures, Raft elects a leader to coordinate recovery. For understanding when gossip fails, study CAP Theorem: gossip is partition-tolerant but cannot guarantee consistency or availability simultaneously under splits.`,
+        `For dynamic cluster membership, study SWIM Failure Detector & Membership: it explains how probes, indirect pings, suspicion, and gossip-style dissemination turn rumor spreading into a scalable membership subsystem. Then study Consistent Hashing: gossip tells nodes a peer arrived; Consistent Hashing ensures keys rebalance without touching most data. For verifying gossip state, study Merkle Tree to see how comparison finds deltas in O(log n) space. For formal failure recovery, study Raft Leader Election, which pairs with gossip in many systems (Consul): gossip detects failures, Raft elects a leader to coordinate recovery. For understanding when gossip fails, study CAP Theorem: gossip is partition-tolerant but cannot guarantee consistency or availability simultaneously under splits.`,
       ],
     },
   ],
 };
-

@@ -185,9 +185,10 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        `SLO Error Budget Burn Rate Alert turns percentile failures into a paging policy, Metric Label Cardinality Control explains how to keep latency metrics affordable enough to query during incidents, and PerformanceObserver Long Task Attribution shows the browser-side version of turning slow user-visible work into traceable evidence.`,
+        `Read DDSketch Relative-Error Quantiles, t-digest Quantile Sketch, and KLL Quantile Sketch to understand how production systems summarize latency distributions without averaging p99s. Greenwald-Khanna Quantile Summary gives the deterministic rank-error baseline that makes the tradeoff explicit.`,
         `Tail latency emerges from distributed fan-out, so start with "Sharding & Partitioning" to understand how scatter-gather amplifies the tail. From there, "Hot Rows & Append-and-Aggregate" shows how queue buildup creates tail latencies in real time. Use "Distributed Tracing" to locate which service or network hop is burning your latency budget — you cannot fix what you cannot see. "Cache Invalidation & Versioning" teaches the refresh and expiry patterns that prevent cache-miss storms from spiking your tail. "Message Queue" discipline covers idempotency and retry budgets, the guardrails for safe hedging and retries. Finally, "LSM Tree" background compaction is a canonical tail source: understand why compaction pauses matter and how write-amplification couples to latency spikes.`,
       ],
     },
   ],
 };
-

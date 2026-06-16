@@ -95,7 +95,7 @@ export const article = {
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `String problems use sliding windows for longest substring without repeats, minimum covering substring, and rolling counts. Observability systems keep recent errors or latency samples in a time window. Rate Limiter (Token Bucket) is not the same algorithm, but it solves the same resource-control family; exact sliding-window limiters often use timestamp queues. TCP: Handshake & Congestion Control uses a real network window over unacknowledged bytes, and Backpressure & Flow Control is the broader systems principle behind slowing producers when buffers fill.`,
+        `String problems use sliding windows for longest substring without repeats, minimum covering substring, and rolling counts. LZ77 Compression uses a different kind of window: already-emitted bytes become the searchable history for back-references. Observability systems keep recent errors or latency samples in a time window. Rate Limiter (Token Bucket) is not the same algorithm, but it solves the same resource-control family; exact sliding-window limiters often use timestamp queues or Redis Sorted Set Dict & Skiplist score windows. TCP: Handshake & Congestion Control uses a real network window over unacknowledged bytes, and Backpressure & Flow Control is the broader systems principle behind slowing producers when buffers fill.`,
       ],
     },
     {
@@ -107,7 +107,7 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `Start with Two Pointers, then compare Sliding Window against Binary Search for budget problems. Queue explains time-window implementations, Hash Table explains uniqueness and frequency maps, and Big-O Growth Rates explains the win over all-subarray scans. For systems context, read Rate Limiter (Token Bucket), TCP: Handshake & Congestion Control, and Backpressure & Flow Control.`,
+        `Start with Two Pointers, then compare Sliding Window against Binary Search for budget problems. Queue explains time-window implementations, Hash Table explains uniqueness and frequency maps, and Big-O Growth Rates explains the win over all-subarray scans. LZ77 Compression shows the same moving-boundary idea inside lossless compression. For systems context, read Rate Limiter (Token Bucket), Redis Sorted Set Dict & Skiplist, TCP: Handshake & Congestion Control, and Backpressure & Flow Control.`,
       ],
     },
   ],

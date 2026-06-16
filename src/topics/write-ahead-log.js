@@ -134,9 +134,17 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and engine details`,
+      paragraphs: [
+        `PostgreSQL's WAL introduction states the central rule directly: changes to data files are written only after WAL records describing those changes have been flushed to permanent storage: https://www.postgresql.org/docs/current/wal-intro.html. The PostgreSQL WAL configuration documentation shows the operational side: segment size, checkpoints, archiving pressure, and runtime tuning: https://www.postgresql.org/docs/current/runtime-config-wal.html.`,
+        `SQLite's WAL documentation explains the alternate commit path where changes append to a separate WAL file and checkpoints later move frames into the main database: https://sqlite.org/wal.html. For low-level details, SQLite also documents the WAL-mode file format and wal-index behavior: https://sqlite.org/walformat.html. InnoDB's redo log documentation describes the redo log as the crash-recovery structure for replaying changes that had not reached data files before shutdown: https://dev.mysql.com/doc/refman/9.7/en/innodb-redo-log.html.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
         `Read B-Trees (How Databases Read) and LSM Trees (How Cassandra Writes) to see what the log protects. Then study Message Queues and Raft Log Replication for systems where the log becomes the public interface or consensus object. Finish with Transaction Isolation Levels, MVCC Internals & VACUUM, Two-Phase Commit (2PC), and Write-Through vs Write-Back to separate durability, visibility, atomic commit, and storage-cache behavior.`,
+        `For the PostgreSQL-specific continuation, study PostgreSQL WAL Checkpoint & Recovery. It turns the general WAL invariant into checkpoint redo pointers, page LSN comparisons, dirty-buffer flushing, and crash restart behavior.`,
       ],
     },
   ],

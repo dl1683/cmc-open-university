@@ -200,6 +200,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        `LLM Serving Admission-Control Goodput Gate shows the same overload doctrine with token budgets, KV pressure, and prefill/decode deadlines. It is the LLM-serving version of asking whether a request can still become goodput before saying yes.`,
         `Load shedding is part of the overload doctrine alongside brownout and autoscaling — go to "Circuit Breakers & Deadlines" to see fallback ladders and how to handle errors from rejected requests. "Retries, Backoff & Jitter" teaches the client side: how to retry intelligently after a 503 and respect Retry-After headers. "Tail Latency & p99 Thinking" explains why p99 matters more than average latency for shedding triggers. "Bulkheads & Resource Isolation" shows how to partition requests by criticality — the foundation of priority-based shedding. "Load Balancer" covers the front-door architecture where shedding happens. Finally, "Hot Rows & Append-and-Aggregate" teaches the unbounded-queue law that makes shedding inevitable under sustained overload.`,
       ],
     },

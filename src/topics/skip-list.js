@@ -141,6 +141,7 @@ export const article = {
       heading: 'Real-world uses',
       paragraphs: [
         `Redis sorted sets combine a Hash Table for direct member lookup with a skip list for ordered score ranges and leaderboards. LevelDB uses a skip-list memtable before flushing sorted data into LSM Trees (How Cassandra Writes). Java's ConcurrentSkipListMap is a standard-library example where predictable sorted maps and concurrent access matter. HNSW (Vector Search at Scale) borrows the same hierarchy idea for approximate nearest-neighbor search: sparse upper layers navigate broadly, dense lower layers refine locally.`,
+        `Complete Redis case study: Redis Sorted Set Dict & Skiplist shows why a sorted set needs two access paths at once. The hash table answers "what is this member's score?" quickly, while the skip list keeps members ordered by score so ZRANGE, ZREVRANGE, rank, and score-window queries can start near the target and then traverse forward. That is why the sorted-set page is not just "a skip list"; it is a dual data structure. Complete LevelDB case study: the memtable accepts writes in memory, keeps keys sorted for reads and iteration, and later flushes that sorted order into SSTables for the LSM Tree. The skip list is the mutable front door before immutable storage takes over.`,
       ],
     },
     {
@@ -152,7 +153,8 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `Read Linked List for the pointer foundation, then Binary Search for the range-halving intuition. Compare Skip List with Binary Search Tree and AVL Tree Rotations to see probabilistic balance versus deterministic repair. For systems context, study LSM Trees (How Cassandra Writes), Hash Table, and HNSW (Vector Search at Scale). For the math tradeoff, revisit Big-O Growth Rates and ask why expected O(log n) is often good enough.`,
+        `Primary sources: William Pugh, "Skip Lists: A Probabilistic Alternative to Balanced Trees" at https://15721.courses.cs.cmu.edu/spring2018/papers/08-oltpindexes1/pugh-skiplists-cacm1990.pdf and ACM DOI https://dl.acm.org/doi/10.1145/78973.78977. Systems references: Redis sorted-set docs at https://redis.io/docs/latest/develop/data-types/sorted-sets/ and LevelDB skip-list implementation at https://github.com/google/leveldb/blob/main/db/skiplist.h.`,
+        `Read Linked List for the pointer foundation, then Binary Search for the range-halving intuition. Compare Skip List with Binary Search Tree and AVL Tree Rotations to see probabilistic balance versus deterministic repair. For systems context, study Redis Sorted Set Dict & Skiplist, LSM Trees (How Cassandra Writes), Hash Table, and HNSW (Vector Search at Scale). For integer predecessor search, compare with van Emde Boas Tree and X-Fast & Y-Fast Tries. For the math tradeoff, revisit Big-O Growth Rates and ask why expected O(log n) is often good enough.`,
       ],
     },
   ],

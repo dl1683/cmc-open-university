@@ -222,9 +222,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Start with "Importance Sampling & Off-Policy Estimation" to understand IPS and its failure modes — DR exists precisely to patch them. Read "Policy Gradients: REINFORCE to PPO" to see where the new policy p comes from in reinforcement learning settings. Study "A/B Testing & p-values" to understand when you can run an experiment instead of relying on off-policy estimates. Explore "Gradient Boosting" to see an ensemble method that also learns to correct model predictions. Together, these illuminate the full landscape of model evaluation: when to trust the model, when to distrust it, and how to combine both stances for an answer you can ship.`,
+        `Start with "Importance Sampling & Off-Policy Estimation" to understand IPS and its failure modes — DR exists precisely to patch them. Then read "Contextual Bandit Logged Policy Evaluation Case Study" to see the DR formula embedded in a real logged-policy gate with propensities, support checks, delayed labels, and effective sample size. Read "Propensity Score Overlap Diagnostics" for the balance and common-support checks behind weighting, and "Causal Forest Uplift Policy" for heterogeneous treatment effects. Study "A/B Testing & p-values" to understand when you can run an experiment instead of relying on off-policy estimates. Explore "Gradient Boosting" to see an ensemble method that also learns to correct model predictions.`,
       ],
     },
   ],
 };
-

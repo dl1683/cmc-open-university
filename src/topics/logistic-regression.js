@@ -168,7 +168,7 @@ export const article = {
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `For N examples, d features, and E epochs, batch training costs O(E * N * d). This demo has d = 2 and N = 10, so even 200 epochs are tiny. Storage is d weights plus one bias, and prediction costs O(d): multiply, add, apply sigmoid. The simplicity is why Logistic Regression remains a baseline in fraud, ads, medicine, and search. It is also easy to inspect: each coefficient changes log-odds, not vague feature importance. That makes failure analysis concrete: if all-caps gets a large positive weight, you can see exactly which cue moved the boundary.`,
+        `For N examples, d features, and E epochs, batch training costs O(E * N * d). This demo has d = 2 and N = 10, so even 200 epochs are tiny. Storage is d weights plus one bias, and prediction costs O(d): multiply, add, apply sigmoid. The simplicity is why Logistic Regression remains a baseline in fraud, ads, medicine, and search. FTRL-Proximal Online CTR Case Study shows the massive sparse version: hashed ad features, online updates, and per-coordinate optimizer state. It is also easy to inspect: each coefficient changes log-odds, not vague feature importance. That makes failure analysis concrete: if all-caps gets a large positive weight, you can see exactly which cue moved the boundary.`,
       ],
     },
     {
@@ -186,7 +186,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Gradient Descent for the optimizer moving the line, Regularization: L1 & L2 for the leash that stops runaway weights, and Calibration & Reliability Diagrams before treating sigmoid outputs as trustworthy probabilities. Then use ROC Curves & AUC and Precision, Recall & the Confusion Matrix to evaluate the score and choose an operating threshold.`,
+        `Study Gradient Descent for the optimizer moving the line, Regularization: L1 & L2 for the leash that stops runaway weights, FTRL-Proximal Online CTR Case Study for sparse online logistic learning, and Calibration & Reliability Diagrams before treating sigmoid outputs as trustworthy probabilities. Then use ROC Curves & AUC and Precision, Recall & the Confusion Matrix to evaluate the score and choose an operating threshold.`,
       ],
     },
   ],

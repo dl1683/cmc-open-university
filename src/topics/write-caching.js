@@ -181,9 +181,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Learn Write-Ahead Logging to see real databases pair logs with lazy flushing. Cache Invalidation & Versioning addresses the read side (when is a cached value stale?). LRU Cache shows eviction when memory is full. LSM Tree weaves write-back, logging, and compaction into production databases. Message Queue teaches replication-based durability, a complementary strategy to acks and logs.`,
+        `Learn Write-Ahead Logging to see real databases pair logs with lazy flushing. Linux Page Cache XArray and Readahead & Dirty Writeback show the kernel version of dirty cached file data, while fsync Rename Crash Consistency shows how applications turn dirty cached file writes into a crash-safe save protocol. Cache Invalidation & Versioning addresses the read side (when is a cached value stale?). LRU Cache shows eviction when memory is full. LSM Tree weaves write-back, logging, and compaction into production databases. Message Queue teaches replication-based durability, a complementary strategy to acks and logs.`,
       ],
     },
   ],
 };
-

@@ -155,7 +155,7 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Divide-and-conquer algorithms use recursion because the problem literally splits into smaller problems. Merge Sort sorts the left half, sorts the right half, then merges. Quick Sort partitions around a pivot, then sorts the left and right partitions. Binary Search can be written recursively too, although the iterative version uses less stack space.`,
-        `Tree-shaped data is the strongest use case. File systems, DOM trees, syntax trees, and JSON documents all contain smaller structures of the same kind. Graph algorithms need more care because graphs can have cycles; Graph BFS uses a FIFO queue explicitly, while recursive depth-first search must track a visited set or it may loop forever. Backtracking solvers for Sudoku, mazes, and constraint problems also fit the pattern: choose, recurse, undo, try the next choice.`,
+        `Tree-shaped data is the strongest use case. File systems, DOM trees, syntax trees, and JSON documents all contain smaller structures of the same kind. Graph algorithms need more care because graphs can have cycles; Graph BFS uses a FIFO queue explicitly, while recursive depth-first search must track a visited set or it may loop forever. Backtracking solvers for Sudoku, mazes, constraint problems, and some regex engines also fit the pattern: choose, recurse, undo, try the next choice.`,
       ],
     },
     {
@@ -166,9 +166,9 @@ export const article = {
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Sources and study next`,
       paragraphs: [
-        `Study Stack to understand the call stack directly. Then read Memoization (Dynamic Programming) to see repeated subproblems collapse from exponential to linear work. Big-O Growth Rates helps you judge the call tree. Merge Sort, Quick Sort, Tree Traversals, and Graph BFS show where recursion competes with or complements explicit data structures.`,
+        `References: MDN's recursion glossary entry at https://developer.mozilla.org/en-US/docs/Glossary/Recursion and Eloquent JavaScript's recursion discussion at https://eloquentjavascript.net/03_functions.html. Study Stack to understand the call stack directly. Then read Memoization (Dynamic Programming) to see repeated subproblems collapse from exponential to linear work. Big-O Growth Rates helps you judge the call tree. Regex Backtracking & ReDoS Case Study shows recursive choice search turning into a production latency bug. Zipper Focused Tree shows recursion turned into a navigable focus plus breadcrumbs. Dancing Links & Exact Cover shows recursive backtracking paired with reversible sparse-matrix state. Merge Sort, Quick Sort, Tree Traversals, and Graph BFS show where recursion competes with or complements explicit data structures.`,
       ],
     },
   ],

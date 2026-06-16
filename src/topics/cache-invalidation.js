@@ -191,9 +191,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Invalidation is distributed consistency. CAP Theorem explains why purge invalidation is hard. Service Workers & Offline-First covers stale-while-revalidate and ETag flow. CDN Request Flow shows where TTL decisions live. LRU Cache covers eviction (another consistency axis). Git Internals reveals content-addressing: how git names objects by hash and why that beats versioning. Load Balancer and Message Queue show herd-taming patterns.`,
+        `Invalidation is distributed consistency. CAP Theorem explains why purge invalidation is hard. HTTP Cache ETag Revalidation expands the revalidation route with ETag, If-None-Match, 304, Vary, and Cache-Control. Query Cache: Stale Time & GC shows the same freshness problem inside frontend server-state caches, and Optimistic UI Mutation Log shows how writes invalidate or patch those keyed records. Service Workers & Offline-First covers stale-while-revalidate and browser-controlled caching, while Cache Storage Versioned Precache goes deeper on manifest sets, named browser caches, install gates, and activate cleanup. CDN Request Flow shows where TTL decisions live. LRU Cache covers eviction (another consistency axis). Git Internals reveals content-addressing: how git names objects by hash and why that beats versioning. Load Balancer and Message Queue show herd-taming patterns.`,
       ],
     },
   ],
 };
-

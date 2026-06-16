@@ -147,7 +147,7 @@ export const article = {
     {
       heading: 'Real-world uses',
       paragraphs: [
-        `DEFLATE, used by ZIP, gzip, and PNG, combines LZ77 back-references with Huffman codes. Baseline JPEG commonly uses Huffman tables for quantized frequency coefficients, though arithmetic coding variants exist. HTTP/2 HPACK includes a static Huffman code for headers. Compression systems often pair Huffman with earlier modeling steps: Tokenization (BPE) changes the symbols, while Huffman changes the bit lengths assigned to those symbols.`,
+        `DEFLATE Case Study shows the full ZIP/gzip/PNG composition: LZ77 Compression produces literals and length-distance references, then Huffman codes the literal/length and distance alphabets. Baseline JPEG commonly uses Huffman tables for quantized frequency coefficients, though Arithmetic & ANS Coding explains why arithmetic-family coders can beat whole-bit code lengths. HTTP/2 HPACK includes a static Huffman code for headers. Compression systems often pair Huffman with earlier modeling steps: Tokenization (BPE) changes the symbols, while Huffman changes the bit lengths assigned to those symbols.`,
       ],
     },
     {
@@ -159,7 +159,7 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        `Study Binary Heap (Priority Queue) for the merge loop, Trie (Prefix Tree) for prefix-free decoding, and Tree Traversals for extracting the code table. Entropy & Information gives the theoretical compression floor. Tokenization (BPE) shows another greedy merge idea used before neural models see text. Hash Table is useful for frequency counting, and Big-O Growth Rates explains why the data structure choice inside the loop changes performance.`,
+        `Study Binary Heap (Priority Queue) for the merge loop, Trie (Prefix Tree) for prefix-free decoding, and Tree Traversals for extracting the code table. Entropy & Information gives the theoretical compression floor, while Arithmetic & ANS Coding shows the fractional-bit alternative. LZ77 Compression and DEFLATE Case Study show how Huffman becomes one stage inside a real compressor. HPACK Dynamic Table HTTP/2 Case Study shows Huffman coding inside a stateful network compression format. Tokenization (BPE) shows another greedy merge idea used before neural models see text. Hash Table is useful for frequency counting, and Big-O Growth Rates explains why the data structure choice inside the loop changes performance.`,
       ],
     },
   ],

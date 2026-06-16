@@ -172,7 +172,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Hash Table to understand the exact-lookup alternative. Tree Traversals explains completion harvesting. B-Trees (How Databases Read) shows disk-oriented multiway indexing. Tokenization (BPE) connects prefix matching to AI text processing. Huffman Coding covers prefix-free trees, and Finite State Machines show another way to represent many string patterns compactly.`,
+        `Study Hash Table to understand the exact-lookup alternative. Tree Traversals explains completion harvesting. PATRICIA Trie compresses prefix paths for routing-style lookups, and eBPF LPM Trie CIDR Policy Case Study shows longest-prefix matching exposed as a kernel map. Hierarchical Heavy Hitters: Prefix Sketch shows how prefix trees become a network-telemetry aggregation hierarchy. B-Trees (How Databases Read) shows disk-oriented multiway indexing. Tokenization (BPE) connects prefix matching to AI text processing. Huffman Coding covers prefix-free trees, and Finite State Machines show another way to represent many string patterns compactly.`,
       ],
     },
   ],

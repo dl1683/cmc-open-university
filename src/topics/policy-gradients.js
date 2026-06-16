@@ -283,9 +283,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Read "Value Iteration (Reinforcement Learning)" to see how the Bellman equation structures the problem and why a value function estimates the true answer. Study "Natural Gradient & Fisher Information" to understand why KL distance (not Euclidean distance in parameter space) is the right metric for policy changes, and why TRPO's trust region is principled even though PPO's clip is simpler. Explore "Multi-Armed Bandits" to see the baseline lesson in its pure form: subtracting the average reward and learning which arm is best, without the cascade of a sequential decision process. Master "Gradient Descent" to see the optimization mechanics under the hood and why step size is the perennial hard problem. Together these reveal the full architecture: policy gradients marry sampling (impossible to backprop through) with gradient-based learning, baselines tame variance without introducing bias, and trust regions protect the policy distribution from catastrophic updates — three insights that now train every aligned language model in production.`,
+        `Read "Value Iteration (Reinforcement Learning)" to see how the Bellman equation structures the problem and why a value function estimates the true answer. Study "Natural Gradient & Fisher Information" to understand why KL distance (not Euclidean distance in parameter space) is the right metric for policy changes, and why TRPO's trust region is principled even though PPO's clip is simpler. Explore "Multi-Armed Bandits" to see the baseline lesson in its pure form: subtracting the average reward and learning which arm is best, without the cascade of a sequential decision process. Master "Gradient Descent" to see the optimization mechanics under the hood and why step size is the perennial hard problem. Then study RL Experiment Reproducibility Ledger for the seed, environment, reward, and stress-test evidence needed to make PPO-style claims credible.`,
       ],
     },
   ],
 };
-

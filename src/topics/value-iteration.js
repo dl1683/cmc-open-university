@@ -137,7 +137,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Memoization (Dynamic Programming) for the reuse pattern, Markov Chains & Steady States for transition dynamics, and PageRank for another fixed-point iteration. A* Search gives a graph-planning contrast with heuristic costs. Neural Network Forward Pass explains function approximation for deep RL, while Multi-Armed Bandits isolates exploration without the complication of changing states.`,
+        `Read Memoization (Dynamic Programming) for the reuse pattern, Markov Chains & Steady States for transition dynamics, and PageRank for another fixed-point iteration. A* Search gives a graph-planning contrast with heuristic costs. Neural Network Forward Pass explains function approximation for deep RL, Multi-Armed Bandits isolates exploration without the complication of changing states, and RL Experiment Reproducibility Ledger shows what must be recorded once RL leaves the toy grid.`,
       ],
     },
   ],

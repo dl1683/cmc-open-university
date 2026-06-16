@@ -140,7 +140,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Queue and Graph BFS for the frontier mechanics. Recursion shows the depth-first alternative. Union-Find (Disjoint Sets) contrasts directed dependency logic with undirected connectivity. Dijkstra's Shortest Path and Graph BFS explain what changes when the graph question is route cost or hop count instead of legal execution order.`,
+        `Study Queue and Graph BFS for the frontier mechanics. Recursion shows the depth-first alternative. Union-Find (Disjoint Sets) contrasts directed dependency logic with undirected connectivity. Dijkstra's Shortest Path and Graph BFS explain what changes when the graph question is route cost or hop count instead of legal execution order. Narwhal Bullshark DAG Mempool Case Study shows topological ordering used to turn a certified Byzantine DAG into a linear ledger.`,
       ],
     },
   ],

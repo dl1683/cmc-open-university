@@ -137,7 +137,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Sliding Window for the byte-stream mechanic, How DNS Works for the step before the handshake, and CDN Request Flow for the multi-hop delivery path. Then compare TCP's implicit feedback with Rate Limiter (Token Bucket), Message Queues, Backpressure & Flow Control, and Circuit Breakers & Deadlines, where systems make throttling and failure policy explicit.`,
+        `Study NIC RX Ring & NAPI Poll Case Study for the packet receive path below TCP, TCP Listen Backlog & Accept Queue Case Study for server-side admission before application code sees a socket, TCP Reassembly & SACK Scoreboard for the byte-range repair state behind loss recovery, Sliding Window for the byte-stream mechanic, How DNS Works for the step before the handshake, and CDN Request Flow for the multi-hop delivery path. Then compare TCP's implicit feedback with QUIC Transport Streams & Loss Recovery, Rate Limiter (Token Bucket), Message Queues, Backpressure & Flow Control, and Circuit Breakers & Deadlines, where systems make throttling and failure policy explicit.`,
       ],
     },
   ],

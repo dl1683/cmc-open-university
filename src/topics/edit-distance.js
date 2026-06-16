@@ -142,9 +142,9 @@ export const article = {
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Sources and study next',
       paragraphs: [
-        `Study Memoization (Dynamic Programming) for the general grid pattern, then Recursion for the exponential version this table replaces. Compare with Two Pointers and Sliding Window to learn when sequence problems collapse to O(n) instead of needing O(mn). For applications, read Trie (Prefix Tree), Tokenization (BPE), and Big-O Growth Rates so you can reason about dictionary scale and text length before choosing an approach.`,
+        `Primary source: Levenshtein, "Binary codes capable of correcting deletions, insertions, and reversals", IEEE page at https://ieeexplore.ieee.org/document/5392606. Study Memoization (Dynamic Programming) for the general grid pattern, then Recursion for the exponential version this table replaces. Compare with Two Pointers and Sliding Window to learn when sequence problems collapse to O(n) instead of needing O(mn). For applications, read BK-Tree Metric Spellcheck, Trie (Prefix Tree), Tokenization (BPE), and Big-O Growth Rates so you can reason about dictionary scale and text length before choosing an approach.`,
       ],
     },
   ],

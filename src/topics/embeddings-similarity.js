@@ -94,7 +94,7 @@ export const article = {
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Storage is O(Nd): N items times d dimensions. One million 1,536-dimensional float32 vectors need about 6.1 GB before index overhead; float16 cuts that in half. Naive search is O(Nd) per query, which is fine for thousands of vectors and painful for millions. HNSW (Vector Search at Scale), IVF, and product quantization trade exactness for speed and memory, often returning high-recall neighbors in milliseconds. SVD & Low-Rank Approximation and related compression ideas appear when you need smaller vectors or faster indexes.`,
+        `Storage is O(Nd): N items times d dimensions. One million 1,536-dimensional float32 vectors need about 6.1 GB before index overhead; float16 cuts that in half. Naive search is O(Nd) per query, which is fine for thousands of vectors and painful for millions. HNSW (Vector Search at Scale), IVF, product quantization, and ScaNN-style score-aware compression trade exactness for speed and memory, often returning high-recall neighbors in milliseconds. SVD & Low-Rank Approximation and related compression ideas appear when you need smaller vectors or faster indexes.`,
       ],
     },
     {
@@ -112,9 +112,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and model families`,
+      paragraphs: [
+        `word2vec is the classic neural starting point: Mikolov et al. proposed efficient architectures for learning continuous word vectors from large corpora, with similarity and analogy structure emerging from the training objective: https://arxiv.org/abs/1301.3781. GloVe is the matrix/statistical counterpart: the Stanford project describes training vectors from global word-word co-occurrence statistics, and the ACL paper is the canonical reference: https://nlp.stanford.edu/projects/glove/ and https://aclanthology.org/D14-1162/.`,
+        `Modern embedding systems generalize the idea beyond single words. CLIP trains image and text encoders together by predicting matching image-caption pairs, creating a shared multimodal space: https://arxiv.org/abs/2103.00020. FAISS documents the production-search side: efficient similarity search and clustering over dense vector sets, including very large collections and GPU implementations: https://faiss.ai/index.html.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Start with Tokenization (BPE), then follow vectors through Neural Network Forward Pass and Gradient Descent. Attention Mechanism explains contextual embeddings. The Embedding Space, in 3D builds geometric intuition; t-SNE & UMAP: Seeing Embeddings shows how high-dimensional spaces get visualized; SVD & Low-Rank Approximation gives the matrix-compression ancestor; HNSW (Vector Search at Scale) explains how million-vector search becomes fast enough for real products.`,
+        `Start with Tokenization (BPE), then follow vectors through Neural Network Forward Pass and Gradient Descent. Attention Mechanism explains contextual embeddings. The Embedding Space, in 3D builds geometric intuition; t-SNE & UMAP: Seeing Embeddings shows how high-dimensional spaces get visualized; SVD & Low-Rank Approximation gives the matrix-compression ancestor; Sparse Autoencoder Feature Dictionary Case Study shows what changes when a learned representation is decomposed into sparse feature IDs; HNSW (Vector Search at Scale) explains graph ANN, and ScaNN Vector Search Case Study explains partitioned, quantized retrieval for real products.`,
       ],
     }
   ]

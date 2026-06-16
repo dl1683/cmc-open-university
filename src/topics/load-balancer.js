@@ -81,7 +81,7 @@ export const article = {
       heading: `What it is`,
       paragraphs: [
         `A load balancer is the traffic director in front of a fleet of servers. Clients connect to one stable address, while the balancer chooses which backend receives each request. Ten machines that each handle 10,000 requests per second can serve about 100,000 while exposing one address. The same idea appears at several layers: DNS chooses a region, a Layer 4 balancer forwards TCP connections, and a Layer 7 proxy such as NGINX or Envoy routes HTTP requests by path, header, tenant, or health.`,
-        `Classic strategies are deliberately simple. Round-robin cycles through backends. Weighted round-robin gives a larger server more turns. Least-connections sends the next request to the backend with the fewest active requests. More advanced systems add latency-aware routing, outlier detection, sticky sessions, and ring-based placement borrowed from Consistent Hashing when cache locality matters.`,
+        `Classic strategies are deliberately simple. Round-robin cycles through backends. Weighted round-robin gives a larger server more turns. Least-connections sends the next request to the backend with the fewest active requests. Power of Two Choices Load Balancing sits between those extremes: sample two backends, compare their active request counts, and avoid most bad placements without scanning the whole pool. More advanced systems add latency-aware routing, outlier detection, sticky sessions, and ring-based placement borrowed from Consistent Hashing when cache locality matters. SLO-Aware LLM Request Router shows the LLM-serving version, where queue depth is only one signal beside prefix-cache locality, KV state, privacy, and p99 budget.`,
       ],
     },
     {
@@ -112,9 +112,9 @@ export const article = {
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Sources and study next`,
       paragraphs: [
-        `Study Queue to understand why request buffers smooth short spikes but cannot fix sustained overload. Use Hash Table for the key-to-backend mapping beneath routing tables and session stores. Consistent Hashing explains why cache clusters avoid remapping every key during membership changes. Rate Limiter (Token Bucket) covers the front-door control that protects the balancer and backend pool. Then read Tail Latency & p99 Thinking and CDN Request Flow to see why the slowest hop, not the average hop, often defines the user experience.`,
+        `Production references: NGINX HTTP load-balancing docs at https://docs.nginx.com/nginx/admin-guide/load-balancer/http-load-balancer/, Envoy load-balancer docs at https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/load_balancing/load_balancers, and HAProxy load-balancing algorithm notes at https://www.haproxy.com/glossary/what-are-load-balancing-algorithms. Study Queue to understand why request buffers smooth short spikes but cannot fix sustained overload. Power of Two Choices Load Balancing is the next algorithmic step after round-robin and least-connections. Use Hash Table for the key-to-backend mapping beneath routing tables and session stores. Consistent Hashing explains why cache clusters avoid remapping every key during membership changes. SLO-Aware LLM Request Router shows how the same balancing foundation changes when each backend owns live KV cache and token-streaming SLOs. Rate Limiter (Token Bucket) covers the front-door control that protects the balancer and backend pool. Then read Tail Latency & p99 Thinking and CDN Request Flow to see why the slowest hop, not the average hop, often defines the user experience.`,
       ],
     },
   ],

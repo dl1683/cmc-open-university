@@ -86,7 +86,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `The simplest symmetric scheme finds the largest absolute weight in a group, sets scale = max_abs / max_integer, rounds q = round(w / scale), then stores q as a small integer. To use the model, it dequantizes with w_approx = q * scale or uses kernels that multiply quantized values directly. Group-wise quantization is the practical version: use separate scales for blocks of 32, 64, or 128 weights so one outlier does not ruin precision for an entire matrix.`,
-        `Different methods choose scales differently. GPTQ uses second-order information to minimize output error layer by layer. AWQ protects activation-important channels. Quantization-aware training inserts fake quantization during training so Gradient Descent learns weights that survive rounding. QLoRA combines Quantization with LoRA Fine-Tuning: keep the base model in 4-bit form, but train small full-precision adapters.`,
+        `Different methods choose scales differently. GPTQ uses second-order information to minimize output error layer by layer. AWQ protects activation-important channels. SmoothQuant moves activation outlier difficulty into weights for W8A8 execution. Activation-Aware Quantization Calibration Ledger turns those choices into calibration records, group scales, packed formats, and serving gates. Quantization-aware training inserts fake quantization during training so Gradient Descent learns weights that survive rounding. QLoRA combines Quantization with LoRA Fine-Tuning: keep the base model in 4-bit form, but train small full-precision adapters.`,
       ],
     },
     {
@@ -98,20 +98,20 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Quantization is how large models fit on ordinary machines. llama.cpp popularized CPU-friendly 4-bit and 5-bit Llama inference. Mobile inference stacks use int8 for speech, vision, and keyboard models. NVIDIA TensorRT and ONNX Runtime deploy quantized models for low-latency serving. Apple Neural Engine, Qualcomm Hexagon, and Google TPU paths all reward reduced precision. In retrieval systems, vector quantization compresses Embeddings & Similarity indexes; in training stacks, bf16 and fp16 mixed precision are standard even before integer quantization is considered.`,
+        `Quantization is how large models fit on ordinary machines. llama.cpp popularized CPU-friendly 4-bit and 5-bit Llama inference. Mobile inference stacks use int8 for speech, vision, and keyboard models. NVIDIA TensorRT and ONNX Runtime deploy quantized models for low-latency serving. Apple Neural Engine, Qualcomm Hexagon, and Google TPU paths all reward reduced precision. On-Device LLM Inference Cost Crossover depends on this: local models need enough quality per byte to fit RAM, battery, and accelerator limits. In retrieval systems, vector quantization compresses Embeddings & Similarity indexes; in training stacks, bf16 and fp16 mixed precision are standard even before integer quantization is considered.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `Quantization is not automatically lossless. Int8 is often close to free for mature models, but 4-bit can hurt math, code, safety classifiers, and narrow domain tasks. Two methods with the same bit width can behave differently because calibration data, group size, outlier handling, and kernel layout matter. Another misconception is that smaller weights always mean lower end-to-end latency. If generation is bottlenecked by memory bandwidth, quantization helps; if it is bottlenecked by dequantization or unsupported kernels, it may not.`,
-        `The hardest cases are outliers and activations. A few very large channels can dominate the scale, while small but important weights collapse to zero. That is why SVD & Low-Rank Approximation, Knowledge Distillation, and quantization are often combined: different compression tools remove different kinds of redundancy.`,
+        `The hardest cases are outliers and activations. A few very large channels can dominate the scale, while small but important weights collapse to zero. That is why SVD & Low-Rank Approximation, Knowledge Distillation, Structured Pruning and N:M Sparsity, and quantization are often combined: different compression tools remove different kinds of redundancy.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Neural Network Forward Pass to see where quantized weights are used, KV Cache for long-context memory pressure, LoRA Fine-Tuning for QLoRA, and SVD & Low-Rank Approximation for a different compression lens. Knowledge Distillation explains how to train a smaller model before quantizing it, and Embeddings & Similarity shows where vector quantization appears outside model weights.`,
+        `Read Neural Network Forward Pass to see where quantized weights are used, KV Cache for long-context memory pressure, LoRA Fine-Tuning for QLoRA, LoRA Adapter Registry, Merge, and Serving Ledger for serving quantized bases with adapters, Activation-Aware Quantization Calibration Ledger for AWQ/GPTQ/SmoothQuant-style post-training compression, Structured Pruning and N:M Sparsity for mask-and-kernel compression, and SVD & Low-Rank Approximation for a different compression lens. Knowledge Distillation explains how to train a smaller model before quantizing it, On-Device LLM Inference Cost Crossover shows why local deployment changes the cost model, and Embeddings & Similarity shows where vector quantization appears outside model weights.`,
       ],
     },
   ],

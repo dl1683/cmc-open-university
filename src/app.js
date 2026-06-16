@@ -4,10 +4,12 @@
 import { topics, categories, searchTopics, linkifyByTitle } from './registry.js';
 import { createTopicRuntime } from './core/visualizer.js';
 
-// Render text with the first mention of any other topic's title as an
-// inline link to that topic's page. Used for explanations and study notes.
-function renderLinkedText(el, text, excludeId) {
-  el.textContent = '';
+// Render text with explicit URLs as external links, and the first mention of
+// any other topic's title as an inline link to that topic's page. Used for
+// explanations and study notes.
+const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
+
+function appendTopicLinkedText(el, text, excludeId) {
   for (const seg of linkifyByTitle(text, excludeId)) {
     if (seg.id) {
       const a = document.createElement('a');
@@ -19,6 +21,34 @@ function renderLinkedText(el, text, excludeId) {
       el.appendChild(document.createTextNode(seg.text));
     }
   }
+}
+
+function renderLinkedText(el, text, excludeId) {
+  el.textContent = '';
+  const source = String(text ?? '');
+  let cursor = 0;
+  for (const match of source.matchAll(URL_PATTERN)) {
+    if (match.index > cursor) appendTopicLinkedText(el, source.slice(cursor, match.index), excludeId);
+
+    let href = match[0];
+    let trailing = '';
+    while (/[.,;:!?)]$/.test(href)) {
+      trailing = `${href.at(-1)}${trailing}`;
+      href = href.slice(0, -1);
+    }
+
+    const a = document.createElement('a');
+    a.className = 'external-source-link';
+    a.href = href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = href.replace(/^https?:\/\//, '');
+    el.appendChild(a);
+    if (trailing) el.appendChild(document.createTextNode(trailing));
+
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < source.length) appendTopicLinkedText(el, source.slice(cursor), excludeId);
 }
 
 // ----------------------------------------------------------------- theme
@@ -143,9 +173,15 @@ async function initTopic() {
   renderTopicLinks(root.querySelector('[data-topic-links]'), entry);
 
   const mod = await entry.module();
+  const initialInput = {};
+  const params = new URLSearchParams(location.search);
+  for (const control of mod.topic.controls ?? []) {
+    if (params.has(control.id)) initialInput[control.id] = params.get(control.id);
+  }
   createTopicRuntime({
     root,
     topic: mod.topic,
+    initialInput,
     renderExplanation: (el, text) => renderLinkedText(el, text, entry.id),
   });
   renderArticle(root.querySelector('[data-topic-article]'), mod.article, entry.id);

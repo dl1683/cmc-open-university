@@ -106,7 +106,7 @@ export const article = {
       heading: `What it is`,
       paragraphs: [
         `A CDN puts cached copies of content at edge locations near users. The visualization follows a user in Mumbai requesting cat.jpg while the origin servers live in Virginia. A direct origin trip is slow because physics matters. The CDN tries the nearby Mumbai edge first. If the edge has the file, the origin is not involved. If the edge is cold, it fetches the file once, stores it, and the next local user gets the fast path.`,
-        `This page composes several systems topics into one everyday request: How DNS Works chooses an edge, TCP: Handshake & Congestion Control carries bytes across each path, and the edge cache decides whether the request stops nearby or continues to origin.`,
+        `This page composes several systems topics into one everyday request: How DNS Works chooses an edge, TCP: Handshake & Congestion Control carries bytes across each path, HPACK Dynamic Table HTTP/2 Case Study explains how repeated request headers shrink on an HTTP/2 connection, HTTP/3 over QUIC explains the modern stream mapping, QPACK Dynamic Table HTTP/3 explains the newer header-compression state, and the edge cache decides whether the request stops nearby or continues to origin.`,
       ],
     },
     {
@@ -138,7 +138,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study How DNS Works for edge selection, Consistent Hashing for cache ownership, LRU Cache for eviction, Load Balancer for origin selection, and Rate Limiter (Token Bucket) for stampede protection. TCP: Handshake & Congestion Control explains the transport cost on each leg. Cache Invalidation & Versioning and Tail Latency & p99 Thinking are the production follow-ups once the basic flow works.`,
+        `Study How DNS Works for edge selection, DNS Negative Cache & NXDOMAIN for failed-name caching, DNS Serve-Stale Resolver Cache for authoritative-outage resilience, Consistent Hashing for cache ownership, LRU Cache for eviction, Load Balancer for origin selection, HPACK Dynamic Table HTTP/2 Case Study for compressed request metadata, HTTP/3 over QUIC and QPACK Dynamic Table HTTP/3 for the modern web transport path, and Rate Limiter (Token Bucket) for stampede protection. Resource Hints: Preload & Preconnect shows how the browser warms or starts this path earlier, while HTTP Cache ETag Revalidation, HTTP Vary Cache-Key Normalization, and CDN Stale-While-Revalidate Shield show how edge and browser caches avoid blocking on unchanged, variant-specific, or temporarily unavailable origin content. TCP: Handshake & Congestion Control and QUIC Transport Streams & Loss Recovery explain the transport cost on each leg. Cache Invalidation & Versioning and Tail Latency & p99 Thinking are the production follow-ups once the basic flow works.`,
       ],
     },
   ],

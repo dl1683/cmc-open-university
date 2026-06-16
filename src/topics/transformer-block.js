@@ -147,7 +147,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Attention Mechanism and Multi-Head Attention for the communication sublayer. Use Neural Network Forward Pass for the per-token FFN. Read BatchNorm & LayerNorm to understand why modern blocks prefer layer-style normalization over batch statistics. Then read KV Cache to see why decoding speed is mostly an inference-systems problem. Finally, revisit Softmax & Temperature, because the model's last block is only useful after logits become a distribution.`,
+        `Study Attention Mechanism and Multi-Head Attention for the communication sublayer. Use Neural Network Forward Pass for the per-token FFN. Read BatchNorm & LayerNorm to understand why modern blocks prefer layer-style normalization over batch statistics. Then read KV Cache to see why decoding speed is mostly an inference-systems problem. FNet Fourier Token Mixing Case Study shows how the block changes when attention is replaced by a fixed Fourier sublayer. Perceiver IO Latent Array Bottleneck shows how transformer blocks can operate over a fixed latent memory instead of the full raw input. Finally, revisit Softmax & Temperature, because the model's last block is only useful after logits become a distribution.`,
       ],
     },
   ],

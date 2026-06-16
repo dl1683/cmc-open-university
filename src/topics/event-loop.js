@@ -175,7 +175,7 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Promises are right for immediate follow-up work such as resolving dependencies or updating in-memory state. setTimeout is a yield point for chunked work that should let input and paint interleave. requestAnimationFrame is for work tied to the next frame. Web Workers: A Second Thread moves CPU-heavy work off the main thread entirely. Service Workers & Offline-First use a related event-driven model, but their fetch events live in a worker-like context rather than the page's main thread.`,
+        `Promises are right for immediate follow-up work such as resolving dependencies or updating in-memory state. setTimeout is a yield point for chunked work that should let input and paint interleave. requestAnimationFrame Frame Budget shows the frame-aligned path for work tied to the next repaint. Web Workers: A Second Thread moves CPU-heavy work off the main thread entirely. Service Workers & Offline-First use a related event-driven model, but their fetch events live in a worker-like context rather than the page's main thread.`,
       ],
     },
     {
@@ -187,7 +187,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Stack and Queue for the two basic data structures on screen. Then read How a Browser Paints a Page, Web Workers: A Second Thread, and Service Workers & Offline-First for the browser consequences. Message Queues and Distributed Tracing show the same scheduling problem after callbacks become cross-service messages instead of in-page functions.`,
+        `Study Stack and Queue for the two basic data structures on screen. Promise Microtask Queue goes deeper on Promise reactions, queueMicrotask, checkpoints, and starvation. Browser Scheduler postTask Priority Queue shows the native priority layer for app-owned tasks, while requestIdleCallback Idle Deadline Queue shows the low-priority leftover-time lane. requestAnimationFrame Frame Budget shows the render-aligned slot that follows those queues. Async Context Propagation shows how request-local values survive promise, timer, and callback hops. React Suspense Resource Cache shows how pending promises become UI boundaries, while UI State Machine Workflow shows how DOM events, promise completions, timers, and cancellations become explicit workflow events. Then read How a Browser Paints a Page, DOM Event Propagation & Path, Web Workers: A Second Thread, Service Workers & Offline-First, epoll Interest & Ready Lists, and io_uring Submission & Completion Rings for host-level evented I/O. Message Queues, Backpressure & Flow Control, and Distributed Tracing show the same scheduling problem after callbacks become cross-service messages instead of in-page functions.`,
       ],
     },
   ],

@@ -171,9 +171,9 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        `For PostgreSQL-specific concurrency internals, study PostgreSQL Lock Manager & Deadlock Detector for lock tags, wait queues, pg_locks, and wait-for graph cycles. Then study PostgreSQL Advisory Lock Keyspace for application-defined lock keys, and Transaction Savepoint Stack for partial rollback inside one outer transaction.`,
         `Isolation levels live inside transactions, which are guaranteed by Write-Ahead Logging: the database writes changes to a log before applying them to the main data, so if the power dies mid-update, the log can reconstruct the truth. Learn WAL to understand why SERIALIZABLE retries are safe and why ROLLBACK is always possible. Two-Phase Commit extends isolation to *multiple* databases at once: two banks need to agree on a fund transfer before either commits, or both abort. The isolation level you choose here is called a consistency model; the CAP Theorem explains the tradeoff between Consistency, Availability, and Partition tolerance — you pick two, and the choice shapes your isolation strategy. Write-Through vs Write-Back sits at a similar decision point: do you wait for the database to confirm the write (write-through, safer, slower) or fire-and-forget (write-back, faster, riskier)? Finally, if you want to understand how MVCC avoids blocking, study Git Internals to see how git never overwrites a commit — every change is a new object — and compare that mental model to how PostgreSQL keeps old row versions alive.`,
       ],
     },
   ],
 };
-

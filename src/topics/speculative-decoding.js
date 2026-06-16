@@ -136,9 +136,10 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
+        `Speculative Decoding Acceptance Ledger turns this primer into a production case study: draft probabilities, target probabilities, acceptance length, KV handoff, p99 gates, and rollback conditions.`,
+        `Early-Exit Transformer Layer Skipping shows the LayerSkip variant of this idea: the same model drafts from early layers, then deeper layers verify or repair the draft without loading a separate assistant model.`,
         `To understand why speculative decoding is possible, read KV Cache — it explains why generation is memory-bound and why batching many positions together is cheap. Knowledge Distillation covers how to train a draft model that is both small and accurate. Softmax & Temperature explores how sampling distributions work and why rejection sampling preserves them. Beam Search vs Greedy and Attention Mechanism provide context on how big models generate text one token at a time in the first place.`,
       ],
     },
   ],
 };
-

@@ -159,7 +159,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Review Dijkstra's Shortest Path to understand the h = 0 baseline. Graph BFS covers the equal-cost case. Binary Heap (Priority Queue) explains the frontier. Value Iteration (Reinforcement Learning) offers a different way to propagate costs through a state space, and Beam Search vs Greedy shows heuristic ranking when optimality is intentionally traded for speed.`,
+        `Review Dijkstra's Shortest Path to understand the h = 0 baseline. Graph BFS covers the equal-cost case. Binary Heap (Priority Queue) explains the frontier. Delaunay Triangulation & Voronoi Dual and Convex Hull: Monotone Chain show geometry structures that often feed navigation meshes and spatial preprocessing. Value Iteration (Reinforcement Learning) offers a different way to propagate costs through a state space, and Beam Search vs Greedy shows heuristic ranking when optimality is intentionally traded for speed.`,
       ],
     },
   ],

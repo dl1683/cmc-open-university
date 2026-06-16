@@ -152,7 +152,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Gradient Boosting to see sequential tree ensembles, Cross-Validation & Honest Evaluation to measure generalization, and Precision, Recall & the Confusion Matrix for imbalanced classification. Dropout gives a neural-network analogy for averaging thinned predictors. K-Means Clustering provides a contrasting unsupervised method where there are no labels and no votes.`,
+        `Study Gradient Boosting to see sequential tree ensembles, Tabular Feature-Basis Orientation Primer to understand why raw feature axes matter, Causal Forest Uplift Policy to see trees estimate heterogeneous treatment effects instead of ordinary labels, Cross-Validation & Honest Evaluation to measure generalization, and Precision, Recall & the Confusion Matrix for imbalanced classification. Dropout gives a neural-network analogy for averaging thinned predictors. K-Means Clustering provides a contrasting unsupervised method where there are no labels and no votes.`,
       ],
     },
   ],

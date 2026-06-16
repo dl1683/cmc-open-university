@@ -138,9 +138,20 @@ export const article = {
       ],
     },
     {
+      heading: 'Sources and standards',
+      paragraphs: [
+        `OpenTelemetry's traces concept page describes traces as collections of spans and identifies context propagation as the core concept that lets spans from different services be assembled into one trace: https://opentelemetry.io/docs/concepts/signals/traces/. Its context propagation page explains how traces, metrics, and logs can be correlated across process and network boundaries: https://opentelemetry.io/docs/concepts/context-propagation/.`,
+        `The W3C Trace Context specification standardizes traceparent and tracestate headers so trace identity can move across vendor boundaries: https://www.w3.org/TR/trace-context/. Jaeger's architecture documentation explains the production side: spans, collectors, query service, storage backends, and sampling to control overhead: https://www.jaegertracing.io/docs/1.76/architecture/. OpenTelemetry's JavaScript propagation docs show the same propagation idea in the JavaScript ecosystem: https://opentelemetry.io/docs/languages/js/propagation/.`,
+      ],
+    },
+    {
       heading: 'Study next',
       paragraphs: [
-        `Distributed tracing visualizes the shape of the dependency tree, which is identical to a Recursion call tree. Understanding Recursion first makes tracing intuitive. If a service delegates work asynchronously, the critical path shrinks: see Load Balancer for how systems shed work to avoid bottlenecks. When tracing a saga that spans multiple services, see Saga Pattern to understand compensation and rollback. Finally, Message Queues decouple services and allow async fire-and-forget — the technique that lets trace work drop off the critical path.`,
+        `GenAI Trace Token Cost Ledger is the LLM-specific continuation: the same span tree must carry model version, prompt hash, token usage, cache hit/miss, tool calls, eval scores, safety verdicts, cost, redaction policy, and rollout cohort.`,
+        `Trace Context & Baggage Propagation goes one layer lower and shows how traceparent, tracestate, and bounded baggage survive proxies, queues, and vendor boundaries. OpenTelemetry Tail Sampling Policy shows how a backend keeps expensive traces after it knows whether they were slow or erroneous.`,
+        `Metric Exemplars Trace Correlation connects aggregate latency buckets back to exact trace IDs, while SLO Error Budget Burn Rate Alert explains when a trace investigation becomes a page and Log Template Drain Parser shows how raw logs become joinable event keys during incident response.`,
+        `DDSketch Relative-Error Quantiles explains how tracing and metrics backends roll up latency distributions without averaging p99s. Tail Latency & p99 Thinking explains why those percentiles matter before you inspect individual traces.`,
+        `Distributed tracing visualizes the shape of the dependency tree, which is identical to a Recursion call tree. Understanding Recursion first makes tracing intuitive. Async Context Propagation shows how trace IDs and request-local values survive promise, timer, and callback hops inside one JavaScript service before they become cross-service headers. If a service delegates work asynchronously, the critical path shrinks: see Load Balancer for how systems shed work to avoid bottlenecks. When tracing a saga that spans multiple services, see Saga Pattern to understand compensation and rollback. Finally, Message Queues decouple services and allow async fire-and-forget — the technique that lets trace work drop off the critical path.`,
       ],
     },
   ],

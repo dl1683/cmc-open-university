@@ -200,7 +200,7 @@ export const article = {
       paragraphs: [
         `N = 5 replicas. Write W = 3 succeeds when three ack; the other two stay stale. Success ≠ full replication. Read R = 3 asks three replicas for versions, takes the max, and returns it. Since 3 + 3 = 6 > 5, the sets must overlap. In the simulation: write W = 3 to {A, B, C}, read R = 3 from {C, D, E} — overlap is C. If you break the inequality (W = 2, R = 2), the sets can miss each other, and a reader confidently returns stale data with no warning.`,
         `Config space: W = 3, R = 3 balances both; W = 5, R = 1 makes reads instant but freezes on one node failure; W = 1, R = 5 inverts it. Each trades latency for availability. Cassandra exposes the dial per query: QUORUM (arithmetic default), ONE (fastest), LOCAL_QUORUM (one datacenter), and ALL (almost never — one slow replica's p99 taxes everyone's p50).`,
-        `Sloppy quorums write to ANY W healthy nodes if home replicas are down (hinted handoff), buying availability but breaking the overlap proof until handoff completes. Healing happens at three speeds: read repair (per access), anti-entropy via Merkle Tree diffs (background), and hinted handoff (per recovery).`,
+        `Sloppy quorums write to ANY W healthy nodes if home replicas are down (see Hinted Handoff Replica Queue), buying availability but breaking the overlap proof until handoff completes. Healing happens at three speeds: Read Repair Digest Quorum (per access), anti-entropy via Merkle Tree diffs (background), and hinted handoff (per recovery).`,
       ],
     },
     {
@@ -224,7 +224,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `"Paxos: Consensus Without a Leader" shows how ordering adds structure quorums lack. "CRDTs: Conflict-Free Replicated Data Types" shows application-level merge semantics. "Consistent Hashing" shows how home replicas are chosen. "Merkle Tree" shows anti-entropy. "Clocks & Ordering: Lamport to TrueTime" shows why last-write-wins is dangerous. "Tail Latency & p99 Thinking" shows why LOCAL_QUORUM exists.`,
+        `"Session Guarantees & Replica Lag" adds the client-side layer: high-water marks and session tokens preserve read-your-writes and monotonic reads even when a quorum system still allows replica lag.`,
+        `"Paxos: Consensus Without a Leader" shows how ordering adds structure quorums lack. "Byzantine Fault Tolerance: When Nodes Lie" and "HotStuff BFT Quorum Certificate Case Study" show how quorum intersection changes when the overlap must contain an honest signer. "CRDTs: Conflict-Free Replicated Data Types" shows application-level merge semantics. "Consistent Hashing" shows how home replicas are chosen. "Merkle Tree" shows anti-entropy. "Hinted Handoff Replica Queue" and "Read Repair Digest Quorum" break down the two fast repair paths. "Clocks & Ordering: Lamport to TrueTime" shows why last-write-wins is dangerous. "Tail Latency & p99 Thinking" shows why LOCAL_QUORUM exists.`,
       ],
     },
   ],

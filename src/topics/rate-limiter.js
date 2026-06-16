@@ -97,7 +97,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `A production implementation usually stores two fields per key: current tokens and last_refill_time. On each request, compute elapsed time, add elapsed * refill_rate tokens, clamp to capacity, then decide. If tokens >= request_cost, subtract the cost and allow. Otherwise reject or delay. No real dripping process is needed; lazy refill gives the same result with less work.`,
-        `Distributed limiters put that state in Redis, DynamoDB, or an edge-local store and update it atomically. Redis Lua scripts are common because check-and-decrement must be one operation; otherwise two concurrent requests can both see the same token and overspend. Sliding Window counters are another family: they remember recent timestamps or bucketed counts to enforce a precise moving limit, but they use more memory. Token buckets are less exact but cheap, burst-friendly, and predictable.`,
+        `Distributed limiters put that state in Redis, DynamoDB, or an edge-local store and update it atomically. Redis Lua scripts are common because check-and-decrement must be one operation; otherwise two concurrent requests can both see the same token and overspend. Sliding Window counters are another family: they remember recent timestamps or bucketed counts to enforce a precise moving limit, often with Redis Sorted Set Dict & Skiplist-style timestamp windows, but they use more memory. Token buckets are less exact but cheap, burst-friendly, and predictable.`,
       ],
     },
     {
@@ -122,7 +122,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Hash Table for the per-key state map, Queue for delayed work, and Sliding Window for the stricter moving-window alternative. Then connect the limiter to Load Balancer and CDN Request Flow: the earlier you reject abusive traffic, the less backend capacity it burns. Finally, use Tail Latency & p99 Thinking to see why one extra remote counter lookup can matter on the slowest requests.`,
+        `Read Hash Table for the per-key state map, Queue for delayed work, Sliding Window for the stricter moving-window alternative, and Redis Sorted Set Dict & Skiplist for an exact timestamp-window implementation. Then connect the limiter to Load Balancer and CDN Request Flow: the earlier you reject abusive traffic, the less backend capacity it burns. Finally, use Tail Latency & p99 Thinking to see why one extra remote counter lookup can matter on the slowest requests.`,
       ],
     },
   ],

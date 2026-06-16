@@ -258,7 +258,14 @@ h1, h2, h3 { line-height: 1.2; }
   align-items: center;
   justify-content: center;
 }
-.vis-panel svg { width: 100%; height: auto; max-height: 62vh; }
+.vis-panel svg {
+  width: min(100%, 860px);
+  height: auto;
+  max-height: 50vh;
+}
+.vis-panel [data-id] {
+  animation: viz-reveal 260ms ease-out both;
+}
 
 .explain-panel {
   background: var(--panel);
@@ -316,6 +323,140 @@ h1, h2, h3 { line-height: 1.2; }
   .topic-nav { display: none; }
 }
 
+@media (max-width: 600px) {
+  body { overflow-x: hidden; }
+  .topic-layout {
+    width: 100%;
+    max-width: 100vw;
+    min-width: 0;
+  }
+  .topic-header,
+  .learn-grid {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .topic-main {
+    width: 100%;
+    max-width: 100vw;
+    padding: 22px 14px 42px;
+    overflow-x: hidden;
+  }
+  .header-row {
+    display: block;
+  }
+  .header-row .btn {
+    margin-top: 10px;
+    padding: 7px 10px;
+  }
+  .topic-header h1 {
+    width: 362px;
+    max-width: 100%;
+    font-size: 1.34rem;
+    line-height: 1.22;
+    white-space: normal;
+    overflow-wrap: break-word;
+    word-break: normal;
+  }
+  .topic-summary,
+  .explanation,
+  .invariant,
+  .study p,
+  .chip {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .topic-summary {
+    width: 362px;
+    max-width: 362px;
+  }
+  .explanation,
+  .invariant {
+    width: 322px;
+    max-width: 322px;
+    white-space: normal;
+    word-break: break-word;
+  }
+  .chip-row {
+    width: 362px;
+    max-width: 362px;
+  }
+  .chip-row,
+  .player-bar,
+  .player-controls,
+  .export-area,
+  .speed-label {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .invariant {
+    max-width: 100%;
+  }
+  .controls,
+  .explain-panel,
+  .vis-panel,
+  .study {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .study {
+    width: 362px;
+    max-width: 362px;
+    overflow-x: hidden;
+  }
+  .study p,
+  .study a {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .controls label {
+    min-width: 0;
+  }
+  .controls input,
+  .controls select {
+    width: 100%;
+    min-width: 0;
+  }
+  .controls .btn {
+    justify-self: start;
+  }
+  .player-bar { justify-content: flex-start; }
+  .player-controls,
+  .export-area {
+    width: 100%;
+  }
+  .progress-area {
+    flex-basis: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .step-slider {
+    width: calc(100% - 4px);
+    min-width: 0;
+  }
+  .vis-panel {
+    padding: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    justify-content: center;
+  }
+  .vis-panel svg {
+    width: 100%;
+    max-width: 620px;
+    max-height: none;
+    flex: 0 0 auto;
+    display: block;
+  }
+}
+
 /* -------------------------------------------- SVG visual vocabulary */
 
 svg text {
@@ -356,6 +497,13 @@ svg text {
   0%, 100% { filter: drop-shadow(0 0 2px var(--bad)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
   50% { filter: drop-shadow(0 0 9px var(--bad)) drop-shadow(0 2px 2px rgb(10 20 40 / 20%)); }
 }
+@keyframes viz-reveal {
+  from { opacity: 0.32; }
+  to { opacity: 1; }
+}
+@keyframes edge-flow {
+  to { stroke-dashoffset: -32; }
+}
 .hl-active rect, .hl-active circle { animation: pulse-active 1.6s ease-in-out infinite; }
 .hl-found rect, .hl-found circle { animation: pulse-good 1.8s ease-in-out infinite; }
 .hl-swap rect, .hl-swap circle { animation: pulse-bad 1.2s ease-in-out infinite; }
@@ -366,7 +514,7 @@ svg text {
 
 @media (prefers-reduced-motion: reduce) {
   .cell rect, .cell circle, .mcell rect, .plot-marker circle, .pt circle,
-  .centroid circle, .edge line { animation: none !important; }
+  .centroid circle, .edge line, .vis-panel [data-id] { animation: none !important; }
 }
 .cell .bucket-empty { fill: var(--bg); stroke-dasharray: 4 4; }
 
@@ -427,16 +575,39 @@ svg text {
 /* graph */
 .edge line { stroke: var(--line); stroke-width: 2.5; }
 .edge-weight-bg { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
-.edge.hl-active line { stroke: var(--accent); stroke-width: 4; }
+.edge.hl-active line {
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-dasharray: 10 7;
+  animation: edge-flow 950ms linear infinite;
+}
 .edge.hl-compare line { stroke: var(--warn); stroke-width: 4; }
-.edge.hl-found line { stroke: var(--good); stroke-width: 4.5; }
+.edge.hl-found line {
+  stroke: var(--good);
+  stroke-width: 4.5;
+  stroke-dasharray: 12 6;
+  animation: edge-flow 1100ms linear infinite, pulse-good 1.8s ease-in-out infinite;
+}
 .edge.hl-visited line { opacity: 0.35; }
 
 /* matrix */
-.mcell rect { fill: var(--accent); stroke: var(--line); stroke-width: 1; transition: fill-opacity 200ms; }
+.mcell rect {
+  fill: var(--accent);
+  stroke: var(--line);
+  stroke-width: 1;
+  transition: fill-opacity 200ms, stroke 220ms, filter 220ms;
+}
 .mcell text { fill: var(--text); }
-.mcell.hl-active rect { stroke: var(--accent); stroke-width: 3; }
-.mcell.hl-compare rect { stroke: var(--warn); stroke-width: 3; }
+.mcell.hl-active rect {
+  stroke: var(--accent);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px var(--accent));
+}
+.mcell.hl-compare rect {
+  stroke: var(--warn);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 7px var(--warn));
+}
 .mlabel.hl-active text { fill: var(--accent); font-weight: 700; }
 .mlabel.hl-compare text { fill: var(--warn); font-weight: 700; }
 
@@ -450,4 +621,11 @@ svg text {
 }
 .inline-topic-link:hover {
   text-decoration-style: solid;
+}
+
+.external-source-link {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
 }

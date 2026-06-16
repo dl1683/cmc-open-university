@@ -221,9 +221,8 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Read "Raft Leader Election" to see how term election (randomized timeouts) eliminates the duel. Study "Raft Log Replication" to see Multi-Paxos recast as a log machine. Explore "Two-Phase Commit (2PC)" to understand why 2PC blocks forever on coordinator failure while Paxos doesn't. Understand "Clocks & Ordering: Lamport to TrueTime" to see ballot numbers as Lamport clocks enforcing a happens-before order. Finally, learn "CAP Theorem" to understand why Paxos safety (consistency + availability) trades off partition tolerance with live-leader requirement — and why leased leaders (Chubby, Spanner, Raft with lease) form the bridge to practical systems.`,
+        `Read "Raft Leader Election" to see how term election (randomized timeouts) eliminates the duel. Study "Raft Log Replication" to see Multi-Paxos recast as a log machine. Continue into "Byzantine Fault Tolerance: When Nodes Lie" and "HotStuff BFT Quorum Certificate Case Study" to see how the quorum-intersection proof changes when nodes can lie instead of merely crash. Explore "Two-Phase Commit (2PC)" to understand why 2PC blocks forever on coordinator failure while Paxos doesn't. Understand "Clocks & Ordering: Lamport to TrueTime" to see ballot numbers as Lamport clocks enforcing a happens-before order. Finally, learn "CAP Theorem" to understand why Paxos safety (consistency + availability) trades off partition tolerance with live-leader requirement — and why leased leaders (Chubby, Spanner, Raft with lease) form the bridge to practical systems.`,
       ],
     },
   ],
 };
-

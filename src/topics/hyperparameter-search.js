@@ -194,7 +194,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Learning-Rate Schedules & Warmup for the most sensitive knob. Then focus on evaluation discipline and early-budget pruning. The key mental shift is that hyperparameter tuning is optimization without gradients: expensive, noisy, and easy to overclaim unless the protocol is written down before the search begins.`,
+        `Study Gaussian Process Bayesian Optimization Primer for the surrogate model behind Bayesian search, then Learning-Rate Schedules & Warmup for the most sensitive knob. Then focus on evaluation discipline and early-budget pruning. The key mental shift is that hyperparameter tuning is optimization without gradients: expensive, noisy, and easy to overclaim unless the protocol is written down before the search begins.`,
         `For students, the practical default is simple: run a random baseline, log every trial, and keep the final test set untouched until the search is over. Reproducible tuning beats clever tuning.`,
       ],
     },

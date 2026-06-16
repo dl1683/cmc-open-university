@@ -104,46 +104,42 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        `Thompson sampling is a Bayesian bandit algorithm that treats each arm's true rate as an unknown quantity described by a probability distribution—specifically a Beta distribution for binary outcomes like click-through rates or ad conversions. Instead of tracking a single point estimate (arm A has 4% conversion, arm B has 6%), you maintain a full belief distribution Beta(α, β) for each, starting flat at Beta(1,1) representing total ignorance.`,
-        `Born in 1933 and still the production standard at ad platforms (Google, Microsoft's Bing), medical trial designs, and growth experimentation frameworks. Its core insight: sampling one plausible rate from each distribution and serving whichever arm drew higher creates automatic, self-regulating exploration—no exploration parameter to mistune. The algorithm allocates traffic proportional to P(arm is best), a principle so elegant it explains why Thompson beats ε-greedy across decades of practice.`,
+        `Thompson Sampling is a Bayesian bandit algorithm that represents each arm as a distribution, not one estimate. The visualization compares two arms with true conversion rates A = 4% and B = 6%, unknown to the learner. Both start as Beta(1,1), a flat belief over plausible conversion rates. Each batch has 200 visitors; the algorithm routes traffic according to the probability that an arm is best.`,
+        `This improves the fixed exploration tax in Multi-Armed Bandits. When beliefs are wide and overlapping, exploration is high. When B's distribution moves right and narrows, B wins most posterior samples and receives most traffic automatically.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `How it works`,
       paragraphs: [
-        `Start with Beta(1,1) for each arm—a flat line representing no prior knowledge. When a visitor arrives, sample one value from arm A's Beta distribution and one from arm B's; serve whichever sample is higher. Record the outcome: a success increments α for that arm, a failure increments β. That's the full update rule, requiring no inverse functions or gamma math—just arithmetic.`,
-        `As evidence accumulates, the Beta distribution tightens. If arm B truly converts at 6% and arm A at 4%, B's distribution will shift right and sharpen faster. After enough trials, B's samples beat A's in nearly every draw, so exploration naturally concentrates on the better arm. The traffic share each arm receives equals the current probability—under the learner's beliefs—that it is the best arm. Exploration is not a blind tax (like ε-greedy) but an adaptive allocation tied directly to uncertainty.`,
-        `When beliefs diverge completely (overlap nearly gone), you're essentially always serving the best-so-far arm, but you never stopped exploring—the mechanism adapted smoothly from 50/50 splits to 95/5 concentrations without any external knob turning. The width of the distribution IS your exploration mandate.`,
+        `For binary rewards, Beta distributions are convenient because wins and losses update them by counting. A success increments alpha; a failure increments beta. To choose an arm, sample one plausible rate from each Beta distribution and serve the arm with the larger draw. In the page's reporting shortcut, numeric integration estimates P(B > A), then routes that share of the 200-visitor batch to B.`,
+        `The curves are the lesson. At the start, both are flat, so traffic is near 50/50. After each batch, B's curve shifts toward 6% and tightens; overlap is where exploration lives. This is uncertainty-aware sampling, not magic. It is philosophically close to Naive Bayes (Spam Filter): keep a probabilistic belief, update with evidence, act on the posterior.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Cost and complexity`,
       paragraphs: [
-        `Computationally trivial: one random sample from a Beta distribution per visitor, one arithmetic update per outcome. Memory per arm is two floats (α and β). The only moderately expensive step is computing P(arm B beats arm A) if you need it for reporting—you integrate the ratio of two Beta PDFs over the domain, but even that runs in milliseconds on modern hardware. Thompson scales linearly with the number of arms and requires no matrix operations, making it deployable at internet scale.`,
+        `Memory is two parameters per arm for Bernoulli rewards. Sampling or updating is O(k) for k arms. Reporting exact "probability best" can require integration or Monte Carlo, but the decision rule itself is cheap. More complex rewards need richer models, just as Softmax & Temperature needs logits before it can turn scores into probabilities.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Real-world uses`,
       paragraphs: [
-        `Ad platforms use Thompson sampling to allocate ad creatives (treatments) to users, learning conversion rates in real time while simultaneously serving better-performing ads more often. Microsoft's Bing team publishes experimentation papers validating Thompson against frequentist A/B testing, finding it allocates traffic efficiently without losing statistical validity. Clinical trials now use Thompson allocation to send more patients to apparently-superior treatments mid-trial while remaining statistically sound—a profound ethical improvement over fixed-allocation designs that continue serving inferior arms.`,
-        `Growth engineers at startups use Thompson-based bandits to choose between product variants (onboarding flows, pricing tiers, feature flags). The algorithm's self-adapting exploration means it finds winners faster than fixed-allocation tests while avoiding the premature convergence risk of pure exploitation (always picking the current best, which may improve with more data). Every major analytics platform now offers Thompson sampling as a built-in option, often under the label "Bayesian bandits" or "probabilistic allocation."`,
+        `Ad platforms, recommender systems, growth teams, and some adaptive trials use Thompson-style allocation when serving the current best option matters. LinUCB Personalized News Case Study is the UCB-style cousin for contextual actions, where uncertainty comes from a ridge-regression matrix instead of a Beta posterior. Policy Gradients: REINFORCE to PPO inherits the same taste for sampling from a policy, but the reward can arrive many steps later. Contextual Bandit Logged Policy Evaluation Case Study explains the production requirement that every sampled action must log its probability so future policies can be replayed. Value Iteration (Reinforcement Learning) is the planning-side cousin when a model of future states is available.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Thompson sampling assumes your outcomes are truly binary (success/failure, click/no-click) and independent—delays, batching, or correlated outcomes can break the Beta model. If you're optimizing a complex metric (time-on-page, engagement score), the Beta assumption fails, and you need a more general Bayesian model (multivariate Normal for continuous rewards, Dirichlet for categorical). Practitioners sometimes forget that Thompson's beauty—automatic exploration—only emerges after enough samples; early on with wild priors, it can seem chaotic.`,
-        `Another misconception: Thompson sampling is not frequentist-invalid. It produces valid confidence intervals, passes repeated-run guarantees, and can be reported as a proper A/B test if you sequence-check the result. Bayesian bandits and frequentist hypothesis testing are not enemies; Thompson is just a method for sequentially choosing where to sample next, and the final tally still has valid coverage properties.`,
+        `The Beta-Bernoulli version assumes binary, independent, quickly observed outcomes. Delayed revenue, repeated users, correlated sessions, and nonstationary rates need stronger models. Also, Bayesian allocation is not a free frequentist proof. If you need a public ship/no-ship claim, pair the adaptive run with A/B Testing & p-values, Confidence Intervals & the Bootstrap, or a preplanned sequential analysis.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: `Study next`,
       paragraphs: [
-        `Read Multi-Armed Bandits to see ε-greedy (the naive baseline Thompson improves on) and the exploration-exploitation tradeoff abstracted. Then A/B Testing & p-values to understand the frequentist formalism Thompson operates within. Softmax & Temperature covers the other famous way to convert estimated arm values into exploration behavior—sampling proportional to softmax scores instead of from Beta distributions, popular in reinforcement learning. For the reasoning behind sequential decision-making under uncertainty, Value Iteration (Reinforcement Learning) shows dynamic programming's view of the same problem over multiple steps. Finally, Reservoir Sampling demonstrates another case where a probability distribution (uniform over items) drives algorithmic decisions, showing the pattern that spans Thompson sampling, rejection sampling, and beyond.`,
+        `Start with Multi-Armed Bandits for regret and epsilon-greedy, then LinUCB Personalized News Case Study for contextual upper-confidence bonuses, then A/B Testing & p-values for the fixed-test contrast. Contextual Bandit Logged Policy Evaluation Case Study shows how Thompson-style sampled decisions become reusable logged data through propensity fields. Natural Gradient & Fisher Information shows another place where probability distributions define geometry, while Policy Gradients: REINFORCE to PPO shows how sampling-based decisions scale from two buttons to sequential policies.`,
       ],
     },
   ],
 };
-

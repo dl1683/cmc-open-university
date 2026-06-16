@@ -130,9 +130,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and broker details`,
+      paragraphs: [
+        `Kafka's documentation describes topics as partitioned logs and guarantees that consumers of a given topic-partition read events in the same order they were written: https://kafka.apache.org/documentation/. Kafka's implementation notes also describe consumer offsets as the mechanism that lets a consumer resume from a committed position after restart: https://kafka.apache.org/22/implementation/distribution/.`,
+        `Amazon SQS documents visibility timeout as the interval during which a received message is hidden from other consumers; if it is not deleted before the timeout expires, it can be received again: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html. SQS also documents standard queues as at-least-once delivery: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues-at-least-once-delivery.html. RabbitMQ's acknowledgements and publisher confirms guide covers the broker-side durability handshake between publishing, delivery, processing, and acknowledgement: https://www.rabbitmq.com/docs/confirms.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Start with Queue for FIFO intuition and Write-Ahead Log (WAL) for durable appends. Then connect Saga Pattern, Distributed Tracing, and Cache Invalidation & Versioning to see how asynchronous systems stay understandable. Load Balancer and Rate Limiter (Token Bucket) explain how consumers scale and how retries avoid overwhelming dependencies.`,
+        `Start with Queue for FIFO intuition and Write-Ahead Log (WAL) for durable appends. Exchange Operator Parallel Query shows the same producer-consumer shape inside a database executor, where bounded queues and credits keep parallel scans from outrunning joins. Narwhal Bullshark DAG Mempool Case Study shows what a Byzantine, certificate-backed mempool looks like when a queue becomes a replicated DAG. Then connect Saga Pattern, Distributed Tracing, and Cache Invalidation & Versioning to see how asynchronous systems stay understandable. Load Balancer and Rate Limiter (Token Bucket) explain how consumers scale and how retries avoid overwhelming dependencies.`,
       ],
     },
   ],

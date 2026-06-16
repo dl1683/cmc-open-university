@@ -132,7 +132,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Trie (Prefix Tree), LRU Cache, and Cache Invalidation & Versioning for the local patterns inside DNS. Then follow CDN Request Flow, Consistent Hashing, and Load Balancer to see how the returned IP becomes an actual path to content. TCP: Handshake & Congestion Control is the next packet-level step after the name resolves.`,
+        `Study Trie (Prefix Tree), LRU Cache, and Cache Invalidation & Versioning for the local patterns inside DNS. DNS Negative Cache & NXDOMAIN explains the absence side of resolver caching: how NXDOMAIN, NODATA, SOA TTLs, and SERVFAIL boundaries keep typos and outages from flooding authoritative servers. DNS Serve-Stale Resolver Cache explains the positive-cache resilience pattern when authoritative servers cannot refresh expired RRsets. Then follow CDN Request Flow, Consistent Hashing, and Load Balancer to see how the returned IP becomes an actual path to content. TCP: Handshake & Congestion Control is the next packet-level step after the name resolves.`,
       ],
     },
   ],

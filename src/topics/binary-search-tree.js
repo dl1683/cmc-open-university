@@ -124,7 +124,7 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Sorted maps and sets often use balanced search trees. C++ std::map is commonly implemented with a red-black tree; Java TreeMap uses a red-black tree too. AVL Tree Rotations show the stricter balancing style, where rotations repair height differences after inserts and deletes. These structures are useful when you need ordered iteration, predecessor/successor queries, or range queries that Hash Table cannot provide.`,
+        `Sorted maps and sets often use balanced search trees. C++ std::map is commonly implemented with a red-black tree; Java TreeMap uses a red-black tree too. AVL Tree Rotations show the stricter balancing style, where rotations repair height differences after inserts and deletes. Scapegoat Tree Rebuilds shows the opposite repair style: no per-node balance metadata, but occasional whole-subtree rebuilding. These structures are useful when you need ordered iteration, predecessor/successor queries, or range queries that Hash Table cannot provide.`,
         `Database indexes usually use B-Trees (How Databases Read), not simple binary nodes, because disk and SSD pages prefer wide nodes with many keys. Machine-learning decision forests also use tree shapes, but those trees split feature space rather than maintaining the exact ordered-set invariant. Binary Heap (Priority Queue) is another tree-shaped structure, yet it optimizes only for the top priority, not full sorted lookup.`,
       ],
     },
@@ -138,7 +138,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Binary Search first if the sorted-order logic is not automatic yet. Then learn Tree Traversals for in-order, pre-order, post-order, and level-order walks. AVL Tree Rotations explains how balance is repaired. Compare with Hash Table for exact lookup, B-Trees (How Databases Read) for databases, and Binary Heap (Priority Queue) for priority-first access.`,
+        `Sources: Open Data Structures covers binary search trees at https://opendatastructures.org/ods-cpp/6_2_Unbalanced_Binary_Searc.html and VisuAlgo provides an interactive BST reference at https://visualgo.net/en/bst. Study Binary Search first if the sorted-order logic is not automatic yet. Then learn Tree Traversals for in-order, pre-order, post-order, and level-order walks. AVL Tree Rotations explains how balance is repaired by rotations, Red-Black Tree by color rules, Treap by randomness, Splay Tree by access locality, and Scapegoat Tree Rebuilds by partial rebuilding. Compare with Hash Table for exact lookup, B-Trees (How Databases Read) for databases, and Binary Heap (Priority Queue) for priority-first access.`,
       ],
     },
   ],

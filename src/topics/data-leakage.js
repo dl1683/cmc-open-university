@@ -166,7 +166,7 @@ export const article = {
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Leak prevention is mostly ordering, not heavy computation. Deduplicate and group by entity before splitting. Split before augmentation. Fit scalers, imputers, feature selectors, and oversamplers only inside each training fold. Audit every feature with one question: would this exact value exist at the moment of prediction? The computational costs are small compared with a failed deployment. The organizational cost is discipline in code review, dataset versioning, and experiment logs. A written data contract is often more valuable than another model checkpoint, because it fixes what information the model is allowed to know.`,
+        `Leak prevention is mostly ordering, not heavy computation. Deduplicate and group by entity before splitting. Split before augmentation. Fit scalers, imputers, feature selectors, target encoders, and oversamplers only inside each training fold. Audit every feature with one question: would this exact value exist at the moment of prediction? The computational costs are small compared with a failed deployment. The organizational cost is discipline in code review, dataset versioning, and experiment logs. A written data contract is often more valuable than another model checkpoint, because it fixes what information the model is allowed to know.`,
       ],
     },
     {
@@ -184,7 +184,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Cross-Validation & Honest Evaluation for split discipline, Early Stopping & Patience for validation-set hygiene, Influence: Which Training Data Did This? for forensic examples, and Saliency Maps & Feature Attribution for suspect-feature audits. Then revisit ROC Curves & AUC with a healthier instinct: too-good-to-be-true performance is a bug report until proven otherwise.`,
+        `Study Cross-Validation & Honest Evaluation for split discipline, Leakage-Safe Target Encoding Case Study for high-cardinality categorical leakage, Point-in-Time Feature Join Index for temporal feature joins, Feature Store for training-serving consistency, Early Stopping & Patience for validation-set hygiene, Influence: Which Training Data Did This? for forensic examples, Saliency Maps & Feature Attribution for suspect-feature audits, Membership Inference Shadow Model Case Study for train-set participation leakage, LLM Training Data Extraction for memorized text, and PII Redaction Token Span Pipeline for removing sensitive fields before they become training data. Then revisit ROC Curves & AUC with a healthier instinct: too-good-to-be-true performance is a bug report until proven otherwise.`,
       ],
     },
   ],

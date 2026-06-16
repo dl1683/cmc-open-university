@@ -98,7 +98,7 @@ export const article = {
       heading: `How it works`,
       paragraphs: [
         `Inference has two phases. Prefill runs The Transformer Block over the full prompt in parallel and writes K and V for every layer. Decode then processes one new token at a time. The model computes that token's query, key, and value; appends the new K/V to the cache; and scores the new query against all cached keys to mix cached values. Past tokens' feed-forward layers and K/V projections are not rerun.`,
-        `The cache is usually shaped like layers by batch by sequence by KV heads by head dimension. Multi-Head Attention stores per-head values, while grouped-query attention and multi-query attention reduce memory by sharing K/V heads across more query heads. RoPE (Rotary Embeddings) is normally applied before keys are cached, so each cached key already contains its positional rotation.`,
+        `The cache is usually shaped like layers by batch by sequence by KV heads by head dimension. Multi-Head Attention stores per-head values, while Grouped-Query Attention and multi-query attention reduce memory by sharing K/V heads across more query heads. RoPE (Rotary Embeddings) is normally applied before keys are cached, so each cached key already contains its positional rotation.`,
       ],
     },
     {
@@ -125,7 +125,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Attention Mechanism to understand what keys and values are, then Multi-Head Attention to see why cache shape includes heads. The Transformer Block explains why only K/V state is enough to reuse old context. RoPE (Rotary Embeddings) explains the position math stored in cached keys. LRU Cache gives the simpler systems analogy, Quantization covers memory compression, and Speculative Decoding shows how serving stacks exploit cached prefixes for speed.`,
+        `Study Attention Mechanism to understand what keys and values are, then Multi-Head Attention and Grouped-Query Attention to see why cache shape includes heads. KV Cache Concurrency Capacity Model turns the bytes into a serving budget. The Transformer Block explains why only K/V state is enough to reuse old context. RetNet Retention State Case Study, RWKV Recurrent Transformer, and Selective State Space Models: Mamba show alternatives that carry compressed state instead of a growing KV list. Titans Test-Time Neural Memory Case Study contrasts short-term KV state with model-internal long-term neural memory. RoPE (Rotary Embeddings) explains the position math stored in cached keys. LRU Cache gives the simpler systems analogy, Quantization covers memory compression, and Speculative Decoding shows how serving stacks exploit cached prefixes for speed.`,
       ],
     },
   ],

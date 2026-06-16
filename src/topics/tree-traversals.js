@@ -125,7 +125,7 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Databases and filesystems use ordered index walks related to in-order traversal. Compilers traverse abstract syntax trees in pre-order for analysis passes and post-order for code generation when child results must exist first. Memory managers and destructors use post-order cleanup. Trie (Prefix Tree) autocomplete harvests completions with a subtree walk. Binary Heap (Priority Queue) is also tree-shaped, but most heap algorithms navigate by index arithmetic rather than general traversal.`,
+        `Databases and filesystems use ordered index walks related to in-order traversal. Compilers traverse abstract syntax trees in pre-order for analysis passes and post-order for code generation when child results must exist first. Memory managers and destructors use post-order cleanup. Trie (Prefix Tree) autocomplete harvests completions with a subtree walk. Virtual Tree LCA Compression uses DFS entry order to sort marked nodes before building an auxiliary tree. Rerooting DP: All Roots Tree DP uses postorder and preorder passes to reuse subtree results. Binary Heap (Priority Queue) is also tree-shaped, but most heap algorithms navigate by index arithmetic rather than general traversal.`,
       ],
     },
     {
@@ -138,7 +138,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study the search-tree lesson to connect in-order traversal with sorted output. Queue and Graph BFS explain level-order traversal beyond trees. Recursion explains the implicit call stack behind depth-first walks. Trie (Prefix Tree), Binary Heap (Priority Queue), and Topological Sort show how different structures reuse the same visit-each-node discipline for different jobs.`,
+        `Study the search-tree lesson to connect in-order traversal with sorted output. Queue and Graph BFS explain level-order traversal beyond trees. Recursion explains the implicit call stack behind depth-first walks. Rerooting DP: All Roots Tree DP, Virtual Tree LCA Compression, Trie (Prefix Tree), Binary Heap (Priority Queue), and Topological Sort show how different structures reuse the same visit-each-node discipline for different jobs.`,
       ],
     },
   ],

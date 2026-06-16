@@ -149,7 +149,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Softmax & Temperature first, because beam scores come from token probabilities. The Transformer Block explains where logits come from; KV Cache explains why every beam needs its own prefix state. Entropy & Information helps explain why low-entropy models collapse beams into similar outputs. Speculative Decoding is the speed-focused alternative, and A* Search plus Graph BFS connect beam search to older frontier-search algorithms.`,
+        `Study Softmax & Temperature first, because beam scores come from token probabilities. Self-Consistency Reasoning Vote shows a different decoding-time search pattern: sample full paths and vote over final answers. Tree of Thoughts Search Case Study turns intermediate reasoning into an explicit frontier, while Monte Carlo Tree Search & UCT Primer shows the classical exploration/exploitation version of tree search. The Transformer Block explains where logits come from; KV Cache explains why every beam needs its own prefix state. Entropy & Information helps explain why low-entropy models collapse beams into similar outputs. Speculative Decoding is the speed-focused alternative, and A* Search plus Graph BFS connect beam search to older frontier-search algorithms.`,
       ],
     }
   ]

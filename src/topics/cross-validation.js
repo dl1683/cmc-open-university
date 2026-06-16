@@ -137,13 +137,13 @@ export const article = {
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The dangerous mistake is fitting preprocessing before the split. A scaler, imputer, feature selector, or SMOTE step trained on all rows has already peeked at the validation fold. That is Data Leakage & Contamination, even if the cross-validation loop itself is written correctly. Every fitted step belongs inside the fold's training portion. Do not average fold models and call that the final model unless you intentionally build an ensemble. Do not keep checking the test set after each idea; repeated peeking turns it into training data with extra steps.`,
+        `The dangerous mistake is fitting preprocessing before the split. A scaler, imputer, feature selector, target encoder, or SMOTE step trained on all rows has already peeked at the validation fold. That is Data Leakage & Contamination, even if the cross-validation loop itself is written correctly. Every fitted step belongs inside the fold's training portion. Leakage-Safe Target Encoding Case Study shows the stricter version: training rows need out-of-fold category statistics, not a map fit on their own labels. Do not average fold models and call that the final model unless you intentionally build an ensemble. Do not keep checking the test set after each idea; repeated peeking turns it into training data with extra steps.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study A/B Testing & p-values after cross-validation when you need to know whether one model's improvement is statistically meaningful. Calibration & Reliability Diagrams checks whether validation probabilities mean what they claim. Data Leakage & Contamination is the audit checklist for keeping folds honest from raw data through final report.`,
+        `Study A/B Testing & p-values after cross-validation when you need to know whether one model's improvement is statistically meaningful. Calibration & Reliability Diagrams checks whether validation probabilities mean what they claim. Data Leakage & Contamination is the audit checklist for keeping folds honest from raw data through final report. Leakage-Safe Target Encoding Case Study turns the same rule into a concrete categorical-feature pipeline.`,
       ],
     },
   ],

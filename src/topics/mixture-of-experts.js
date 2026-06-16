@@ -108,11 +108,19 @@ export const article = {
       ],
     },
     {
+      heading: 'Sources and concrete systems',
+      paragraphs: [
+        `The original sparse expert framing is Shazeer et al., Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer: https://arxiv.org/abs/1701.06538. GShard scaled conditional computation for multilingual translation: https://arxiv.org/abs/2006.16668. Switch Transformer simplified routing to one expert per token and emphasized the capacity/load-balancing problem: https://arxiv.org/abs/2101.03961.`,
+        `Modern open systems make the tradeoff visible. Mixtral 8x7B documents a sparse MoE with two active experts per token: https://arxiv.org/abs/2401.04088. DeepSeekMoE explores fine-grained experts and shared experts: https://arxiv.org/abs/2401.06066. DeepSeek-V3 reports 671B total parameters with 37B activated per token and pairs MoE with Multi-Head Latent Attention: https://arxiv.org/abs/2412.19437.`,
+      ],
+    },
+    {
       heading: 'Study next',
       paragraphs: [
-        `Dive into how the router actually scores tokens by learning Neural Network Forward Pass. Understand how softmax converts scores into probability weights (Softmax & Temperature). See how the load-balancing auxiliary loss works by studying Load Balancer principles. For deeper context, revisit Attention Mechanism to understand the full Transformer architecture. Finally, explore KV Cache to learn how real inference systems optimize memory access — a challenge MoE exacerbates, making memory efficiency techniques essential when deploying sparse expert models.`,
+        `MoE Expert Capacity and All-To-All Routing Ledger is the production sequel: it turns top-k router scores into capacity slots, all-to-all send buffers, combine weights, and load-balance telemetry.`,
+        `Mixture-of-Depths Token Routing is the natural sibling: MoE routes each token to an expert, while MoD routes each token through or around a transformer block under a fixed top-k capacity.`,
+        `Dive into how the router actually scores tokens by learning Neural Network Forward Pass. Understand how softmax converts scores into probability weights (Softmax & Temperature). See how the load-balancing auxiliary loss works by studying Load Balancer principles. For deeper context, revisit Attention Mechanism to understand the full Transformer architecture. Scaling as Local Optimum Case Study explains when sparse conditional compute is a real escape route versus a bigger-model headline. Finally, explore KV Cache to learn how real inference systems optimize memory access — a challenge MoE exacerbates, making memory efficiency techniques essential when deploying sparse expert models.`,
       ],
     },
   ],
 };
-

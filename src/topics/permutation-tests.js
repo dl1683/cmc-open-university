@@ -172,43 +172,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `A permutation test answers the hardest question in statistics: is my result real, or just the luck of which data fell into which group? Instead of assuming your data follows a normal distribution or trusting a formula, it shuffles the group labels 200 times and counts how often pure chance beats your observed difference. If your result is so extreme that it appears in fewer than 5 percent of shuffles, you declare it significant — not because a table told you to, but because you built the answer yourself from the data.`,
-        `The null hypothesis, taken literally, is this: if the treatment did nothing, then these numbers were coming anyway, and the labels "control" and "new" are arbitrary stickers you can peel off and re-deal. Pool all the data, shuffle it, deal it back into groups at random, and recompute your test statistic. The p-value emerges from counting: it is the fraction of shuffles that matched or beat reality. For the two five-day workflows in this module, the observed difference is +5.4 tickets per day. Only 3 of 200 shuffles produced a difference that extreme, so p = 3/200 = 0.015 — well below the conventional 0.05 threshold, suggesting the new workflow likely matters.`,
+        `A permutation test builds a p-value by taking the null hypothesis literally. The page compares five days of ticket counts under a control workflow with five under a new workflow. The new workflow averages 5.4 more tickets per day. If the workflow did nothing, then the labels "control" and "new" are arbitrary stickers, so the honest test is to peel them off, redeal them, and see how often chance creates a difference at least that large.`,
+        `The visualization runs 200 deterministic shuffles and finds 3 as extreme as the observed result, so p = 3/200 = 0.015. A/B Testing & p-values asks the same tail question through a formula; Permutation Tests compute the tail directly from the observed values.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Start with your data: ten ticket counts split into control (12, 15, 9, 14, 11) and new workflow (18, 21, 16, 14, 19). The observed difference in means is +5.4. Now, the shuffle: combine all ten numbers into one pool. Use a fixed-seed random number generator (deterministic, so everyone's shuffles match) and Fisher–Yates to rearrange the pool. Deal the first five values to the "control" group and the last five to the "new" group, even though the labels are now meaningless. Compute the difference in means under this re-dealt assignment. Store it. Repeat 200 times.`,
-        `Each shuffle answers one question: in a world where labels mean nothing and the null is true, what difference does pure chance produce? The shuffles cluster near zero — when you randomly divide numbers, halves usually balance — but occasionally extreme shuffles spike upward or downward. The distribution you build is called the null distribution; it is the complete menu of outcomes chance can serve. Your observed +5.4 sits at the extreme edge of this distribution. Count how many shuffles were at least as extreme as +5.4 in absolute value (either direction): 3 shuffles qualified. That count, divided by 200, is your p-value.`,
+        `Pool the ten numbers, shuffle with Fisher-Yates, deal five to each group, and recompute the mean difference. Repeat K times to form the null distribution. The marker for +5.4 sits at the edge of that distribution, which is why the p-value is small. For this exact balanced case, there are only choose(10,5) = 252 possible label assignments, so a full exact test is possible; the page samples 200 to show the Monte Carlo version.`,
+        `Confidence Intervals & the Bootstrap is the sibling move: it resamples rows to estimate spread, while permutation tests reshuffle labels to test a claim. Both are useful when a normal approximation feels too fragile.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Computing a permutation test is brutally simple: pool N values, shuffle K times (typically 200 to 10,000 to shrink Monte Carlo error), and count. Each shuffle is O(N log N) for Fisher–Yates, so K shuffles cost O(K N log N). For the ten values here, that is negligible. For 10,000 observations, 10,000 shuffles still completes in seconds on a laptop — well within reach for exploratory statistics.`,
-        `The only constraint is that there are N! possible label permutations. With ten observations, there are 3,628,800 exact reassignments. With 20, there are 2.4 quintillion — too vast to enumerate. So permutation tests sample via Monte Carlo: you draw 10,000 random shuffles and estimate the true p-value from that sample. The sample p-value carries a tiny statistical error (shrinkable by shuffling more), but for practical inference, 1,000–10,000 shuffles suffice. Storage is O(N) for the data and O(K) for storing shuffle statistics; memory is never the bottleneck.`,
+        `One shuffle is O(N), not O(N log N): Fisher-Yates walks the array once. K shuffles cost O(KN) plus the statistic calculation. Memory is O(N) for the pooled data and O(K) if you store the null statistics for plotting. Exact enumeration grows combinatorially with group sizes, so larger studies usually sample 1,000 to 10,000 random permutations.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `The permutation test is the gold standard for small samples and exotic statistics. Fisher developed the exact version in the 1930s for the famous tea-tasting lady experiment, which had only 8 cups — impossible for a t-test to verify. Today, it is the weapon of choice in A/B Testing & p-values when you cannot assume normality or have unequal sample sizes. Genomics uses permutation tests to ask: is this SNP truly associated with disease, or label-shuffling, when testing thousands of genetic markers? Machine learning deploys it for model comparison: permute which model made each test-set prediction and ask "does Model A truly beat Model B, or is the 2-point difference just re-sampling luck?" The beauty is indifference: it does not care what statistic you chose — difference of means, of medians, of AUC, of p99 latencies. Pool, shuffle, recompute, count. Any test statistic permutes the same way.`,
+        `Permutation tests shine for small samples, skewed data, and unusual statistics: medians, trimmed means, p99 latency from Tail Latency & p99 Thinking, or a gap in ROC Curves & AUC. Cross-Validation & Honest Evaluation can use paired permutations to compare two models on the same examples. Genomics and feature screens pair the method with Multiple Testing & False Discoveries because one honest shuffle test is not enough when thousands are run.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The critical assumption is exchangeability: under the null, every re-labeling must be equally plausible. For independent observations, this holds. But time series break it — shuffling a Tuesday into next month destroys the auto-correlation that makes the time series a time series, introducing the same Data Leakage & Contamination trap. Instead, permute contiguous blocks (block permutations) to preserve the temporal structure. Paired data (before and after) must permute within each pair, flipping signs — you cannot swap person A's "before" with person B's "after."`,
-        `A second trap: p = 0.05 does not mean a 5 percent chance the null is true. It means: if the null is true, we would see this result 5 percent of the time by chance. These are not the same thing — Bayesian and frequentist worlds disagree on what probability means. Also, the permutation p-value from 200 shuffles carries Monte Carlo error (if 3 of 200 shuffles are extreme, the true p might be 1.2 percent or 2.1 percent, not exactly 1.5 percent). Shuffle more if precision matters. Finally, do not confuse this with Confidence Intervals & the Bootstrap, which resample to measure spread — a sibling move from the resampling family, but answering a different question.`,
+        `The key assumption is exchangeability: under the null, the things you shuffle must truly be interchangeable. Time series, user sessions, matched pairs, and clusters need restricted permutations. Shuffling individual rows can create Data Leakage & Contamination by breaking dependencies. Also, p = 0.015 is not the probability the null is true; it is the fraction of null relabelings that look this extreme.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Permutation tests detect whether an effect is real; Confidence Intervals & the Bootstrap measure how big the effect is and how much noise surrounds it. A/B Testing & p-values grounds the language of significance and p-thresholds; Multiple Testing & False Discoveries shows why declaring "significant" 20 times on a dashboard is not 20 truths — many are false positives requiring correction. Statistical Power & Sample Size asks the forward question: before the experiment, could my design even see the effect if it is real? Master these four tools — they form the complete resampling and inference toolkit on this site.`,
+        `Use Statistical Power & Sample Size before collecting data, Permutation Tests for a formula-light significance check, and Confidence Intervals & the Bootstrap for effect-size uncertainty. Then learn Multiple Testing & False Discoveries before trusting any screen that repeats the test across many metrics or model variants.`,
       ],
     },
   ],
 };
-

@@ -559,7 +559,18 @@ function defaultInput(controls) {
   return input;
 }
 
-export function createTopicRuntime({ root, topic, renderExplanation }) {
+function applyInput(form, controls, input) {
+  for (const control of controls) {
+    const el = form.elements[control.id];
+    if (!el) continue;
+    const value = input[control.id];
+    if (value == null) continue;
+    if (control.type === 'select' && !control.options.includes(value)) continue;
+    el.value = value;
+  }
+}
+
+export function createTopicRuntime({ root, topic, initialInput = {}, renderExplanation }) {
   const setExplanation = renderExplanation ?? ((el, text) => { el.textContent = text; });
   const form = root.querySelector('[data-topic-controls]');
   const vis = root.querySelector('[data-visualization]');
@@ -571,6 +582,7 @@ export function createTopicRuntime({ root, topic, renderExplanation }) {
   const toggleBtn = root.querySelector('[data-action="toggle"]');
 
   buildControls(form, topic.controls);
+  applyInput(form, topic.controls, { ...defaultInput(topic.controls), ...initialInput });
   let player = null;
   let currentSteps = [];
 
@@ -656,5 +668,5 @@ export function createTopicRuntime({ root, topic, renderExplanation }) {
     if (event.key === ' ') { event.preventDefault(); player && player.toggle(); }
   });
 
-  runWith(defaultInput(topic.controls));
+  runWith(readControls(form, topic.controls));
 }

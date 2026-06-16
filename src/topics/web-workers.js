@@ -168,7 +168,7 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Spreadsheets, browser IDEs, design tools, and map apps use workers to keep interaction smooth while formulas, syntax analysis, geometry, or tiles are computed. Tokenization (BPE) and Attention Mechanism are examples of ML-adjacent work that can be pushed into a worker for in-browser demos. Service Workers & Offline-First are related but different: they intercept fetches and cache responses, while web workers are usually hired for computation.`,
+        `Spreadsheets, browser IDEs, design tools, and map apps use workers to keep interaction smooth while formulas, syntax analysis, geometry, or tiles are computed. OffscreenCanvas Worker Renderer shows the graphics version: the main thread keeps input and DOM ownership while a worker owns canvas pixels. Tokenization (BPE) and Attention Mechanism are examples of ML-adjacent work that can be pushed into a worker for in-browser demos. Service Workers & Offline-First are related but different: they intercept fetches and cache responses, while web workers are usually hired for computation.`,
       ],
     },
     {
@@ -178,9 +178,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and platform details`,
+      paragraphs: [
+        `Official sources: MDN Using Web Workers explains the worker execution model and message passing: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers. MDN Transferable Objects documents ownership transfer for ArrayBuffer-style resources: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects. MDN Structured Clone explains what postMessage can and cannot copy: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm.`,
+        `Shared memory needs extra care. MDN SharedArrayBuffer documents cross-origin isolation requirements, Atomics, and WebAssembly.Memory sharing behavior: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer. The HTML structured-data section is the lower-level standard reference for structuredClone and transfer lists: https://html.spec.whatwg.org/multipage/structured-data.html.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Study The Event Loop first, then How a Browser Paints a Page to see why the main thread is precious. Service Workers & Offline-First explains the worker-like proxy used for networking. Message Queues and Distributed Tracing show the same messaging and observability problems once the boundary is between services instead of browser threads.`,
+        `Study The Event Loop first, then How a Browser Paints a Page to see why the main thread is precious. Structured Clone & Transferables explains the postMessage copy and ownership rules behind this page. OffscreenCanvas Worker Renderer shows how transferable ownership moves canvas rendering to a worker, and requestAnimationFrame Frame Budget explains the frame loop that renderer should respect. OPFS Origin Private File System shows why synchronous file access is pushed into dedicated workers. requestIdleCallback Idle Deadline Queue shows the opposite choice: keep optional background work on the main thread only when there is spare time. SharedArrayBuffer & Atomics shows the shared-memory alternative when transfer is not enough. Browser Message Channels & Broadcast Coordination covers MessagePort reply pipes and same-origin fanout. CSV Parser State Machine Case Study shows the concrete parser behind the 50 MB CSV example. Work-Stealing Deque Scheduler shows how multi-worker runtimes spread CPU tasks once one worker is not enough. Service Workers & Offline-First explains the worker-like proxy used for networking. Message Queues and Distributed Tracing show the same messaging and observability problems once the boundary is between services instead of browser threads.`,
       ],
     },
   ],

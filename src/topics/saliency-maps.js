@@ -174,7 +174,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `After this, connect derivatives, attacks, attention, and black-box explainers. The lasting discipline is verification: if an explanation claims a feature mattered, remove or perturb that feature and make the model prove the claim behaviorally.`,
+        `After this, connect derivatives, attacks, attention, sparse feature dictionaries, and black-box explainers. Sparse Autoencoder Feature Dictionary Case Study asks the same faithfulness question inside transformer activations: if a learned feature claims to mediate a behavior, ablate or steer it and make the model prove the claim behaviorally.`,
         `For students, the safest language is causal humility. Say "this method suggests the model was sensitive to these features," then test that suggestion. The explanation is useful only when it changes what you inspect, retrain, remove, or monitor.`,
         `That humility is not weakness. It is the difference between a visualization that helps debug a system and a decorative heatmap that makes everyone feel safer without changing the evidence. A plain behavioral test is worth more than a beautiful but untested overlay in a review.`,
       ],

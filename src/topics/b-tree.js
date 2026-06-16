@@ -177,9 +177,16 @@ export const article = {
       ],
     },
     {
+      heading: `Sources and engine details`,
+      paragraphs: [
+        `PostgreSQL documents its B-tree implementation as a standard multi-way balanced tree index for data types with a linear sort order: https://www.postgresql.org/docs/current/btree.html. The PostgreSQL index-types documentation also emphasizes that B-tree indexes support equality, range comparisons, and ordered retrieval when that beats a separate sort: https://www.postgresql.org/docs/current/indexes-types.html.`,
+        `SQLite exposes the storage-engine view directly: its file format and B-tree module documents describe table and index B-trees over database pages, with page-level details handled by the storage layer: https://www.sqlite.org/fileformat.html and https://sqlite.org/btreemodule.html. MySQL's InnoDB physical-structure docs describe B-tree index pages and sorted index builds, including fill factor for future growth: https://dev.mysql.com/doc/refman/8.0/en/innodb-physical-structure.html.`,
+      ],
+    },
+    {
       heading: `Study next`,
       paragraphs: [
-        `Review Binary Search for in-page lookup and Binary Search Tree for the pointer-heavy ancestor. Then study Database Indexing, Transaction Isolation Levels, and MVCC Internals & VACUUM to see how the tree behaves inside a real database. Compare the read-optimized page model against LSM Trees (How Cassandra Writes), and use Tree Traversals to understand why ordered leaves make range scans so cheap.`,
+        `Review Binary Search for in-page lookup and Binary Search Tree for the pointer-heavy ancestor. Then study B+ Tree Leaf Sibling Scan Case Study for the production leaf-chain range-scan variant, Database Indexing, Transaction Isolation Levels, and MVCC Internals & VACUUM to see how the tree behaves inside a real database. Compare the read-optimized page model against LSM Trees (How Cassandra Writes), Bw-Tree Delta Chain & Mapping Table for a latch-free ordered-index variant, Filesystem Extent Tree & Delayed Allocation for filesystem B+tree metadata, and Tree Traversals to understand why ordered leaves make range scans so cheap.`,
       ],
     },
   ],

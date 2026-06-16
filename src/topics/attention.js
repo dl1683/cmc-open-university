@@ -161,14 +161,20 @@ export const article = {
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `Attention weights are not explanations. A bright cell in a head means one value vector influenced one intermediate representation; it does not prove a final answer depended on that token. Attribution needs the whole network, not one softmax table. Another common mistake is calling attention "memory." Attention reads the current context. Persistent memory, retrieval, or tool state must be added outside the basic layer.`,
+        `Attention weights are not explanations. A bright cell in a head means one value vector influenced one intermediate representation; it does not prove a final answer depended on that token. Attribution needs the whole network, not one softmax table. Sparse Autoencoder Feature Dictionary Case Study continues that warning by decomposing internal activations into feature candidates that still need causal tests. Another common mistake is calling attention "memory." Attention reads the current context. Persistent memory, retrieval, or tool state must be added outside the basic layer.`,
         `Do not overstate causality either. Unmasked attention is bidirectional; causal attention is created by a mask. Do not overstate sparsity: sparse patterns save compute, but they also remove possible interactions. The Transformer Block works because attention is wrapped with feed-forward layers, residual paths, and normalization-style stabilization.`,
+      ],
+    },
+    {
+      heading: `Sources and historical context`,
+      paragraphs: [
+        `Primary sources: Vaswani et al.'s Transformer paper at https://arxiv.org/abs/1706.03762, FlashAttention at https://arxiv.org/abs/2205.14135, the multi-query attention paper at https://arxiv.org/abs/1911.02150, and the grouped-query attention paper at https://arxiv.org/abs/2305.13245. These are worth reading in that order: first the math, then the IO bottleneck, then the serving-memory variants that became important once decoder models were deployed at scale.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Multi-Head Attention next: one head is the scalar version, many heads are the production architecture. Then study The Transformer Block to see attention surrounded by residuals and the feed-forward network. KV Cache explains why serving a decoder is different from training one. RoPE (Rotary Embeddings) explains how position is inserted into query-key geometry. Finally, return to Softmax & Temperature, because the same row-normalizing function appears inside attention and at the final next-token sampler.`,
+        `Read Multi-Head Attention next: one head is the scalar version, many heads are the production architecture. Then study The Transformer Block to see attention surrounded by residuals and the feed-forward network. KV Cache explains why serving a decoder is different from training one. Perceiver IO Latent Array Bottleneck shows cross-attention as a data-structure interface between huge inputs, fixed latent memory, and output queries. FNet Fourier Token Mixing Case Study shows what changes when the learned all-pairs attention table is replaced by a fixed Fourier mixer. Sparse Autoencoder Feature Dictionary Case Study shows how interpretability moves from attention maps to internal feature dictionaries. Titans Test-Time Neural Memory Case Study shows how attention can become the short-term part of a larger memory architecture. RoPE (Rotary Embeddings) explains how position is inserted into query-key geometry. Lost in the Middle: Long-Context Failure Modes shows why having a long context window does not guarantee the model will use evidence from every position equally well. Finally, return to Softmax & Temperature, because the same row-normalizing function appears inside attention and at the final next-token sampler.`,
       ],
     }
   ]

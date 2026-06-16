@@ -95,7 +95,7 @@ export const article = {
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Matching costs O(n) for n input characters. Each character is read once, and each step is O(1). Space is O(S times A), where S is the number of states and A is the alphabet size, because every state-symbol pair needs a defined transition. Sparse tables can store only non-default edges. Backtracking regex engines that support features outside regular languages, such as backreferences, can take exponential time on adversarial patterns; automata-based engines like RE2 trade some expressiveness for predictable linear behavior.`,
+        `Matching costs O(n) for n input characters. Each character is read once, and each step is O(1). Space is O(S times A), where S is the number of states and A is the alphabet size, because every state-symbol pair needs a defined transition. Sparse tables can store only non-default edges. Thompson NFA Regex Engine Case Study shows how to keep several possible states active at once; Subset Construction: NFA to DFA shows how those state sets become deterministic table rows. Backtracking regex engines that support features outside regular languages, such as backreferences, can take exponential time on adversarial patterns; Regex Backtracking & ReDoS Case Study makes that failure mode explicit.`,
       ],
     },
     {
@@ -115,7 +115,7 @@ export const article = {
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Trie (Prefix Tree) for character-labeled states, Graph BFS for exploring state graphs, and Tokenization (BPE) for a modern text-processing pipeline. TCP: Handshake & Congestion Control and Raft Leader Election show state machines governing systems where illegal transitions can break real networks. Topological Sort rounds out the ordering mindset: not every graph is an FSM, but every explicit state model benefits from clear transition rules.`,
+        `Study Trie (Prefix Tree) for character-labeled states, Graph BFS for exploring state graphs, and Thompson NFA Regex Engine Case Study for nondeterministic regex execution. Subset Construction: NFA to DFA explains how active-state sets become deterministic rows, while Regex Backtracking & ReDoS Case Study shows the stack-based alternative and why it can explode. UTF-8 Decoder DFA Case Study shows byte-level validation. CSV Parser State Machine Case Study shows delimiter parsing as a practical FSM, while JSON Parser Stack Case Study shows where finite state stops and stack memory begins. UI State Machine Workflow applies the same idea to checkout, modals, guards, async invokes, cancellation, and statecharts. Tokenization (BPE) is a modern text-processing pipeline. Pratt Parser Expression AST shows how token streams become syntax trees, while Control Flow Graph & Dominator Tree shows how compilers turn branchy code into a stateful program graph. TCP: Handshake & Congestion Control and Raft Leader Election show state machines governing systems where illegal transitions can break real networks.`,
       ],
     },
   ],

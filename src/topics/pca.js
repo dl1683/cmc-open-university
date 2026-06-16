@@ -166,58 +166,40 @@ export const article = {
     {
       heading: `What it is`,
       paragraphs: [
-        `Principal Component Analysis — PCA — is the art of finding which directions your data actually varies in, keeping only the ones that matter, and dropping the rest. You start with high-dimensional data (say, 768-dimensional embeddings from a neural network or pixel measurements from images) and ask: along which straight-line directions do I see real variation? Along others, is everything nearly identical? PCA answers exactly, closes-form, without any optimizer or randomness. Fifty years old and still everywhere because it trades simplicity and interpretability for raw speed — milliseconds on datasets that neural-network dimensionality reduction (t-SNE, UMAP) would need hours on.`,
-        `This module shows PCA computed live, in front of you, on twelve correlated 2-D points. The data centers at (5.25, 4.30). The covariance matrix is [[6.81, 5.43], [5.43, 4.43]]. The principal components emerge: PC1 points at 39° with eigenvalue λ₁=11.2 (almost all the variance), PC2 at λ₂=0.06 (crumbs). Project onto just PC1, and you keep 99.4% of the variance while halving storage. The magic is that this exact arithmetic — no guessing — tells you the answer every time.`,
+        `PCA finds the straight directions where data varies most, then keeps the loud directions and drops the quiet ones. The visualization uses twelve correlated 2-D points. After centering them at about (5.25, 4.30), it computes a covariance matrix with large positive off-diagonal covariance, meaning the two features move together. The first principal component points down the cloud's spine; the second is almost noise.`,
+        `This is PCA: Principal Component Analysis in its most transparent form. It is linear, deterministic, and interpretable. Unlike t-SNE & UMAP: Seeing Embeddings, it does not bend space; it rotates and crops it.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Step one: center your data. Subtract the mean from every point so the cloud sits at the origin. This washes out absolute position; you now measure only variation around the center.`,
-        `Step two: compute the covariance matrix. For 2-D data (feature 1 and feature 2), this is a 2×2 symmetric matrix: diagonal entries are the variance of each feature (how much each bounces around its mean), and off-diagonals are covariance — a measure of whether two features move together. The demo shows covariance 5.43, large and positive, meaning feature 1 and feature 2 climb together; they are correlated. This tiny matrix is the data's complete second-order portrait: it tells you the shape of the cloud in pure arithmetic.`,
-        `Step three: find the eigenvectors and eigenvalues of that covariance matrix. Eigenvectors are special directions where the matrix only stretches, never rotates. For a 2×2 covariance matrix this has a closed-form solution — the exact angle θ and the two eigenvalues λ₁, λ₂ pop out of algebra. No iteration, no seed. Eigenvalue λ₁ is the variance along the first eigenvector direction; λ₂ is the variance perpendicular to it. In the demo, λ₁=11.2 and λ₂=0.06 — one direction dominates wildly.`,
-        `Step four: rank by eigenvalue and crop. Sort the components by their eigenvalues (biggest first), and decide how many to keep. Each component you drop discards that fraction of variance: drop PC2 (λ₂/(λ₁+λ₂)=0.5%) and keep 99.4% of the total. In 768-D embeddings you might keep the top 50 eigenvalues and drop the bottom 718 — losing 2% of variance but crushing a 15× compute saving for what comes next (like t-SNE on the survivors).`,
-        `Step five: project and reconstruct. To compress: multiply each point by the kept eigenvector matrix to get low-D coordinates. To decompress: multiply those coordinates by the transposed matrix to recover an approximation of the original. This invertibility is the beating heart of PCA: it is lossy compression with a knob (how many components to keep), and you get the original reconstruction formula for free.`,
+        `Step one is centering. Step two is covariance: variances on the diagonal, co-movement off the diagonal. Step three is Eigenvalues & Eigenvectors. The covariance matrix's eigenvectors are the principal axes, and the eigenvalues are the variances captured along them. In the demo, lambda1 is about 11.2 and lambda2 about 0.06, so projecting onto PC1 keeps 99.4% of total variance.`,
+        `Projection turns each 2-D point into one coordinate along PC1. Reconstruction reverses the map approximately by expanding back through the kept component. SVD & Low-Rank Approximation generalizes this view: PCA on centered data can be computed by SVD, with singular values tied to explained variance.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Computational cost: O(p³) for the eigendecomposition of a p×p covariance matrix (p is your feature count). Computing the covariance itself is O(np), where n is your sample count. In practice: computing PCA on a million points with 768 features takes milliseconds. t-SNE on a million 768-D points takes hours. This is why PCA is the standard preprocessing step before any expensive manifold method — it crushes noise dimensions (eigenvalues that are dust) and leaves the signal for the harder algorithms to bend.`,
-        `Storage: the covariance matrix is p×p (for 768 features, that is ~590 KB). The eigenvector matrix is also p×p (it stores all directions, though you keep only a few). Once you project and keep only k components, each data point shrinks from p floats to k floats. Compressing 768-D embeddings to 50-D saves 15× space.`,
-        `Interpretability (a hidden advantage): each principal component is a linear recipe over original features. If PC1 = 0.78·feature1 + 0.63·feature2, you can read off what PC1 "means" — it weights the two features almost equally, so it is probably a kind of "magnitude" or "size" axis. These loadings (the weights) let you name your axes and explain what your reduction did. t-SNE cannot do this — its axes are inscrutable.`,
+        `For n samples and p features, forming a full covariance matrix costs O(n p^2), and dense eigendecomposition costs O(p^3). Truncated or randomized SVD is often used when p is large and only k components are needed. After fitting, storage drops from p numbers per point to k, and reconstruction error is controlled by the discarded eigenvalues.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Eigenfaces (1990s computer vision classic): stack pixels from face images into rows, run PCA, project all faces onto the top 50 components, store only those 50 numbers per face, use cosine distance in that space for face recognition. Tiny footprint, bulletproof linear logic, became a template for a hundred other domains.`,
-        `Preprocessing for t-SNE / UMAP: the standard scikit-learn pipeline is PCA 768→50 (5 seconds, deterministic) followed by t-SNE 50→2 (minutes, non-deterministic). PCA kills the noise and speeds up the expensive manifold step. The two are teammates: PCA says "what varies"; t-SNE says "how to draw it."`,
-        `Whitening and decorrelation: machine-learning models prefer decorrelated features (covariance = 0 between features). PCA whitening divides each component by √λᵢ, turning the covariance matrix into identity. Models train faster and converge better.`,
-        `Scree-plot reading: practitioners plot eigenvalues in descending order and watch for the "elbow" — where the curve flattens. That elbow point is your natural rank, your "true" dimensionality. The demo's data has one huge eigenvalue then a cliff to crumbs: keep 1 component, trash 1. Real data might have 50 large, then a gradual decay — you must choose where to cut.`,
-        `Anomaly detection: compute PCA on normal data, project new samples, measure reconstruction error. A point with high error is an outlier — it does not live along the normal directions. Standard industrial anomaly detector.`,
+        `PCA compresses embeddings before expensive visualization, denoises sensor streams, decorrelates features through whitening, and creates low-dimensional anomaly detectors from reconstruction error. Embeddings & Similarity often uses PCA before HNSW (Vector Search at Scale) or plotting. Quantization can follow PCA for a second compression step. K-Means Clustering sometimes works better after PCA removes noisy dimensions.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The ring failure, shown in the demo: data on a circular curve — perfectly 1-dimensional structure, but a curved one. PCA sees equal variance in every direction (the eigenvalues are nearly tied), so no straight axis is better than any other. Project anyway and antipodal points on the ring (opposite sides) land on top of each other. The structure was curved, not straight. This is the exact problem that manifold methods (t-SNE, UMAP) solve by bending space: they can unroll that ring into a clean line. Do not use PCA if your data lives on a manifold.`,
-        `Linearity assumption: PCA assumes the interesting structure is along straight lines. If your data is a spiral, a torus, or any curve, PCA fails. Check with a manifold-learning visualization first (UMAP, or even just visual inspection).`,
-        `Scaling trap: if feature 1 ranges 0–100 and feature 2 ranges 0–1, feature 1 will dominate the covariance matrix simply because of scale, not because it is more important. Always standardize (subtract mean, divide by standard deviation) before PCA unless there is a reason not to.`,
-        `Explained variance as a threshold: the scree plot shows how many components you need to retain, say, 95% of variance. But 95% is not magic. On noisy data (where eigenvalues decay slowly), you might need all 100 components to hit 95%; on clean data, maybe 5. The threshold is a tool, not a rule. Codex and domain knowledge beat thresholds.`,
-        `Overshooting with k: choosing too many components defeats compression (you are not reducing much) and makes downstream algorithms slower. Choosing too few loses signal you needed. The elbow point in the scree plot is a heuristic; validate on your actual task (classification accuracy, reconstruction error) to know if you over- or under-reduced.`,
+        `The second view shows PCA's honest failure: a ring is one-dimensional but curved. Any straight projection collapses opposite points together. PCA also depends on feature scale; standardize unless units are meaningful. High explained variance is not the same as task usefulness, and a component's loading vector needs domain interpretation. Data Leakage & Contamination applies here too: fit PCA on training data only, then transform validation and test data.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `t-SNE & UMAP: Seeing Embeddings — PCA is linear and rigid; t-SNE and UMAP bend space to preserve neighborhoods in nonlinear data. Learn when to use PCA's speed versus their flexibility.`,
-        `Embeddings & Similarity — PCA projects data into a lower-dimensional space; now you need to measure distance in that space. Cosine similarity is the standard; learn why Euclidean distance works poorly in high-D.`,
-        `Gradient Descent — PCA solves by closed form; most modern methods (neural networks, manifold learning) use iterative gradient descent. Learn the two paradigms and when each wins.`,
-        `Quantization — once you have compressed embeddings with PCA (768→50), quantize to 8-bit integers to drop storage another 32×. Together they form a production pipeline.`,
-        `Convolution — in images, PCA is the linear baseline; convolution adds positional structure. Learn why convolution works where PCA would flatten the image into meaningless vectors.`,
+        `Read Eigenvalues & Eigenvectors for the covariance skeleton, SVD & Low-Rank Approximation for the general matrix version, and t-SNE & UMAP: Seeing Embeddings for nonlinear neighborhood maps. Then connect PCA-compressed vectors to Embeddings & Similarity, Sparse Autoencoder Feature Dictionary Case Study, HNSW (Vector Search at Scale), Quantization, K-Means Clustering, and Tabular Feature-Basis Orientation Primer for when rotation hurts tree-style tabular models.`,
       ],
     },
   ],
 };
-
