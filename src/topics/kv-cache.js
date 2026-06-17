@@ -88,44 +88,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `The key-value cache is the inference trick that makes autoregressive LLMs stream instead of reprocessing the whole conversation for every word. In Attention Mechanism, each token produces a query, key, and value. During generation, old tokens never change and cannot see future tokens, so their keys and values are reusable. The cache stores those K and V tensors after the prompt prefill and appends one new row per generated token.`,
-        `This is not the same idea as LRU Cache, which evicts old entries by recency. A decoder cache is ordered model state: layer by layer, head by head, position by position. It is safe because causal masking freezes the past. It is expensive because every active request carries its own growing cache in GPU memory.`,
+        `Autoregressive LLMs generate one token after another. Each new token attends to the entire prefix: the original prompt plus every token already generated. Without reuse, the model would repeatedly recompute the same attention inputs for old tokens. A long chat would pay again for the system prompt, the user prompt, and every previous output token every time it produced the next word.`,
+        `The key-value cache exists because past tokens are fixed under causal masking. Once token 12 has produced its Key and Value tensors in layer 18, those tensors will not change when token 13, 14, or 15 is generated. The cache stores those K/V tensors after prefill and appends one new row per decode step. That is why an LLM often pauses before the first token, then streams later tokens much faster than a full rerun would allow.`,
+      ],
+    },
+    {
+      heading: `The naive approach and the wall`,
+      paragraphs: [
+        `The naive approach is simple: after each generated token, concatenate it to the context and run the transformer over the whole context again. This is easy to reason about because every step looks like ordinary training-time forward propagation over a sequence. It also produces the right answer for a causal decoder.`,
+        `The wall is repeated work. Suppose a prompt has 2,000 tokens and the model generates 500 more. A full rerun computes projections, attention, and feed-forward activations for the same first 2,000 tokens hundreds of times. The wasted work grows with the triangular sum of context lengths. Worse, the old tokens are exactly the ones least likely to change: causal masking prevents them from seeing future tokens, so their K/V state is pure duplicate computation.`,
+      ],
+    },
+    {
+      heading: `The core insight`,
+      paragraphs: [
+        `The core insight is that only the newest token needs new K/V projections. The new token still needs to attend to all previous tokens, but it can do that by reading cached keys and values instead of recomputing them. The cache changes the problem from "rerun the whole prefix" to "append one row and perform attention against stored rows."`,
+        `This is not the same as an LRU cache. An LRU cache is a general-purpose map that evicts old entries by recency. A decoder KV cache is ordered model state: layer by layer, sequence position by sequence position, head by head. It is safe because the transformer is causal. It is expensive because every active request carries a growing memory object tied to its exact token prefix, model weights, adapter state, and position scheme.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Inference has two phases. Prefill runs The Transformer Block over the full prompt in parallel and writes K and V for every layer. Decode then processes one new token at a time. The model computes that token's query, key, and value; appends the new K/V to the cache; and scores the new query against all cached keys to mix cached values. Past tokens' feed-forward layers and K/V projections are not rerun.`,
-        `The cache is usually shaped like layers by batch by sequence by KV heads by head dimension. Multi-Head Attention stores per-head values, while Grouped-Query Attention and multi-query attention reduce memory by sharing K/V heads across more query heads. RoPE (Rotary Embeddings) is normally applied before keys are cached, so each cached key already contains its positional rotation.`,
+        `Inference has two phases. Prefill processes the full prompt in parallel. For every layer, it computes queries, keys, and values for the prompt tokens, performs prompt attention, and writes the prompt K/V tensors into cache storage. This is the phase behind time to first token. Long prompts make prefill large because the model must actually ingest the whole input before it can produce the first output token.`,
+        `Decode then runs one token step at a time. For the current token, the model computes a query, key, and value. It appends the new key and value to the cache for each layer. The query scores all cached keys for that layer, and the attention weights mix the cached values. Past tokens' feed-forward blocks, projections, and K/V rows are not recomputed.`,
+        `The cache shape is usually described as layers by batch by sequence by KV heads by head dimension, with one tensor for keys and one for values. Multi-Head Attention stores K/V per head. Grouped-query attention and multi-query attention reduce the number of KV heads, so more query heads share fewer key/value heads. RoPE is normally applied before keys are cached, which means the stored key already carries its positional rotation.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `What the visual proves`,
       paragraphs: [
-        `The cache saves a huge constant factor, not all length cost. With cache, each generated token still compares its query with every cached key, so attention work per layer grows O(L d) with current context length L. Across T generated tokens, decode attention is still triangular in length. Without cache, each step reruns the full prefix through all layers, including projections and feed-forward work for old tokens, which is far worse in practice.`,
-        `Memory is the real bill: 2 tensors (K and V) times layers times tokens times KV heads times head dimension times bytes. A Llama-2-7B-style model with 32 layers, 32 KV heads, head dimension 128, 4,096 tokens, and fp16 cache needs about 2 GiB per sequence. With 8 KV heads through grouped-query attention, the same shape falls near 512 MiB. Quantization can cut this further, but quality and kernel support matter.`,
+        `The visual contrasts two generation modes. In cached mode, prefill lights up the prompt rows once. Each generated token adds one active row while earlier rows remain visited state. The proof is not that attention ignores the past. The proof is that the past is read from memory instead of recalculated.`,
+        `In naive mode, every row lights up again on every generated token. The running count climbs faster because old rows repeat. That side of the animation shows why the cache is not an optional optimization for production LLMs. Without it, streaming would collapse under duplicate projection and feed-forward work. With it, the server pays a memory bill to avoid recomputing stable state.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Why it works`,
       paragraphs: [
-        `Every production decoder stack uses cache management: vLLM, TensorRT-LLM, llama.cpp, TGI, and cloud inference engines. vLLM's PagedAttention made a practical systems point in 2023: KV memory fragments like virtual memory, so paging cache blocks can increase batch throughput dramatically. Speculative Decoding also relies on cache behavior, because a draft model proposes tokens and the target model verifies them while reusing accepted prefix state.`,
-        `The cache is why first-token latency and tokens-per-second are different metrics. Prefill is large parallel work over the prompt. Decode is many smaller steps, each tied to cache reads, batching, and memory bandwidth. Long prompts stress prefill; long continuations stress cache growth.`,
+        `The correctness argument is an invariant over positions. For a fixed prompt prefix, model weights, adapter state, and positional encoding, the K and V tensors for an old token depend only on tokens at or before that old token. Future tokens are masked away. Therefore adding a new token cannot change any old K/V row. Reusing the cached row gives the same value a full rerun would compute.`,
+        `The query is different. The newest token's query is new because the newest token is new. That query must still compare against all cached keys to decide which previous values to mix. The cache preserves exact transformer semantics for standard causal decoding; it just avoids recomputing deterministic old state.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Costs and tradeoffs`,
       paragraphs: [
-        `The biggest misconception is "cache makes generation O(1)." It does not: the new token still attends over the cached context. The second is "cache can be shared freely." It can be shared only for identical prefixes with identical model weights, position scheme, sampling path, and adapter state. Change the prompt, LoRA adapter, or token sequence and the cache no longer represents the same computation.`,
-        `Cache compression is also not free. Int8 or lower-precision KV storage saves memory, but attention scores can shift. Sliding-window eviction saves memory, but old context disappears. Prefix caching helps repeated system prompts, but it needs exact token matches. These are systems trade-offs, not mathematical guarantees.`,
+        `The cache saves a huge amount of compute, but it does not make generation constant time. With cache, each generated token still attends over the current context, so attention work per layer grows with context length. Across a long continuation, decode attention still forms a triangle of reads and dot products. The cache removes repeated K/V projections and old-token feed-forward work, which is why it is decisive in practice even though length still matters.`,
+        `Memory is the real bill: 2 tensors, K and V, times layers, tokens, KV heads, head dimension, and bytes per element. A model with many layers and many KV heads can spend gigabytes of GPU memory on a single long sequence. Grouped-query attention, multi-query attention, KV quantization, sliding windows, and paged cache allocators all exist because this memory bill limits concurrency. PagedAttention, introduced with vLLM, attacks fragmentation and duplication by treating KV memory like virtual-memory pages: https://arxiv.org/abs/2309.06180.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Every production decoder stack needs KV cache management: vLLM, TensorRT-LLM, llama.cpp, TGI, SGLang, and cloud inference engines. The cache is why first-token latency and tokens per second are separate metrics. Prefill is a large parallel pass over the input. Decode is a sequence of smaller steps dominated by cache reads, batching, sampling, and memory bandwidth.`,
+        `The cache also enables higher-level serving tricks. Prefix caching reuses the state for repeated system prompts or shared conversation prefixes. Speculative decoding lets a draft model propose tokens and a target model verify them while keeping accepted prefix state. Continuous batching depends on knowing how much KV memory each live request owns. Long-context products, agent loops, retrieval-augmented generation, and chat serving all become capacity-planning problems around this data structure.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `The biggest misconception is that the cache makes generation O(1). It does not. The new token still attends over cached context unless the model uses a different architecture or an attention variant with a limited window. Another misconception is that caches can be shared freely. They can be shared only for identical token prefixes under identical model weights, position encoding, adapters, and cache format. Change a LoRA adapter, tokenizer path, or system prompt and the cache may no longer represent the same computation.`,
+        `Compression and eviction are not free either. Int8 or lower-precision KV storage saves memory, but attention scores can shift. Sliding-window eviction bounds memory, but old context disappears. Prefix caching helps repeated prompts, but exact token matching and cache invalidation become system concerns. The cache is a correct reuse mechanism; every memory-saving variant is a tradeoff layered on top.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Attention Mechanism to understand what keys and values are, then Multi-Head Attention and Grouped-Query Attention to see why cache shape includes heads. KV Cache Concurrency Capacity Model turns the bytes into a serving budget. The Transformer Block explains why only K/V state is enough to reuse old context. RetNet Retention State Case Study, RWKV Recurrent Transformer, and Selective State Space Models: Mamba show alternatives that carry compressed state instead of a growing KV list. Titans Test-Time Neural Memory Case Study contrasts short-term KV state with model-internal long-term neural memory. RoPE (Rotary Embeddings) explains the position math stored in cached keys. LRU Cache gives the simpler systems analogy, Quantization covers memory compression, and Speculative Decoding shows how serving stacks exploit cached prefixes for speed.`,
+        `Study Attention Mechanism first so keys, queries, and values are concrete. Then study Transformer Block, Multi-Head Attention, Grouped-Query Attention, RoPE, quantization, speculative decoding, PagedAttention, KV cache concurrency capacity models, continuous batching, and prefill/decode disaggregation. For contrasting architectures, study RetNet retention state, RWKV recurrent transformers, Mamba-style state space models, and Titans-style test-time memory. Those topics all ask the same systems question: how much past context should be carried, in what format, and at what cost?`,
       ],
     },
   ],

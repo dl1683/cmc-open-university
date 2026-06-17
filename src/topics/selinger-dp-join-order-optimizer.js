@@ -219,20 +219,57 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
+    { heading: 'Why this exists', paragraphs: [
       'Selinger-style optimization is the classic dynamic-programming approach behind System R and many descendants. It treats join ordering as a search over relation subsets. For each subset, keep the cheapest known plan, then build larger subsets from smaller ones.',
       'The important data structure is the DP table. A key names a set of relations, and the value stores a plan, estimated rows, estimated cost, and sometimes useful physical properties such as output order.',
+      'It exists because SQL describes what result is wanted, not the physical order in which tables should be joined. Two logically equivalent join trees can differ by orders of magnitude in intermediate row counts, memory use, and disk spill.',
     ] },
+    { heading: 'The obvious approach and its wall', paragraphs: [
+      'The obvious approach is to join tables in the order written by the SQL query. That is easy to implement and often terrible: SQL is declarative, and the written order may create huge intermediate results before filters can reduce them.',
+      'Trying every join tree is the other wall. The number of possible plans explodes as relation count grows. Selinger DP controls that explosion by reusing best-known plans for subsets instead of rediscovering them for every larger tree.',
+    ] },
+    {
+      heading: 'What the views teach',
+      paragraphs: [
+        'In the subset-DP view, each node such as AB or BC is a memoized subproblem: the best known way to produce that set of joined relations. The full ABC plan is not invented from scratch; it is assembled from smaller winners plus the cost of one more join.',
+        'The highlighted competitors show the exchange being tested. If AB then C is cheaper than BC then A, the winning table entry stores both the cost and the backpointer needed to rebuild the final tree. The visual point is reuse: the optimizer pays to solve AB once, then treats it as a child candidate in larger plans.',
+        'In the interesting-orders view, a locally more expensive plan can survive. A plan for AB that preserves date order might lose on immediate cost but win later by avoiding a final sort or enabling a merge join. The optimizer is carrying useful physical properties, not just row sets.',
+      ],
+    },
     { heading: 'How it works', paragraphs: [
       'Start with single-relation access paths: sequential scan, index scan, bitmap scan, or other scan variants. Then enumerate two-way joins, then three-way joins, and so on. A candidate for A,B,C can reuse the best A,B plan plus C, or best B,C plan plus A, depending on allowed join shape.',
       'System R also introduced interesting orders. A plan that is not cheapest immediately may preserve a sort order useful for a later merge join, GROUP BY, or ORDER BY. That means a subset may keep multiple nondominated plans.',
+      'A cost model estimates scan cost, join cost, output rows, and sometimes I/O, CPU, memory, sort cost, and physical distribution. The DP table records backpointers so the final winning entry can be expanded into an executable join tree.',
+      'A practical implementation also has to enumerate only legal joins. Inner joins commute and associate more freely than outer joins, semi-joins, anti-joins, and joins constrained by predicates. Modern optimizers track a join graph so disconnected products can be avoided unless a cross join is actually required.',
+    ] },
+    { heading: 'The core insight', paragraphs: [
+      'Join order has optimal substructure only after you decide what physical properties matter. The cheapest plan for {A,B} may not be the globally best child if a slightly more expensive {A,B} plan preserves an order needed later.',
+      'That is why the DP table stores more than one winner when plans differ by useful properties. The optimizer is not only choosing relation subsets; it is carrying physical promises forward through the search.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The dynamic program works because larger join plans can be decomposed into smaller join plans. If a candidate joins {A,B} with {C}, the internal plan for {A,B} can be reused from the table rather than re-enumerated. This reuse turns repeated search into a structured bottom-up enumeration.',
+      'The caveat is that optimal substructure depends on the state key being rich enough. If order, partitioning, or materialization can affect future cost, the DP state must include those properties. Otherwise the optimizer may discard a plan that is slightly worse now but better later.',
+      'Dominance is the pruning rule. A plan can be dropped only when another plan for the same logical subset has no higher cost and satisfies at least the same useful physical properties. If one plan is cheaper but unordered and another is ordered by a later grouping key, neither dominates the other until the future requirement is known.',
     ] },
     { heading: 'Cost and complexity', paragraphs: [
       'The search grows quickly with relation count, so optimizers prune, restrict plan shapes, use connected-subgraph enumeration, or switch strategies for large joins. The DP is only as good as the cost model and cardinality estimates feeding it.',
       'A bad row estimate can make a bad plan look cheap. That is why this topic links directly to PostgreSQL Query Planner Case Study: the DP machinery may be correct while its inputs are wrong.',
+      'The classic Selinger search emphasized left-deep plans because they fit pipelined execution and reduce the search space. More modern optimizers may explore bushy trees, parallel plans, distribution properties, and enforcer operators, but the same subset-and-property idea remains visible.',
+      'For n relations, even left-deep enumeration grows fast enough that optimizers use time budgets, heuristic cutoffs, and fallback planners. The tradeoff is explicit: a wider search can find better plans, but planning latency is part of query latency, especially for short interactive queries.',
     ] },
     { heading: 'Complete case study', paragraphs: [
       'A star-schema dashboard joins a sales fact table with date, customer, and product dimensions. The optimizer estimates which dimension filters shrink the fact table most and chooses early joins that reduce intermediate rows. If an index scan preserves date order, the optimizer may keep that ordered plan because it can avoid a later ORDER BY sort.',
+      'Suppose joining sales to customers first produces 10 million rows, while joining sales to dates under a selective date filter produces 50,000 rows. The DP table stores those estimates for {sales,customers} and {sales,dates}. When it considers the full set, the smaller intermediate makes sales-dates-then-customers look cheaper.',
+      'Now add ORDER BY date. A plan that uses a date index may cost more for the first join but preserve date order. If that order avoids a large final sort, the optimizer should keep it as an interesting-order alternative. That is why the table may contain multiple plans for the same relation subset.',
+    ] },
+    { heading: 'Where it wins / Where it fails', paragraphs: [
+      'It wins for moderate-size SQL join queries where dynamic programming can enumerate useful subsets and cost estimates are good enough to prune bad plans.',
+      'It fails when cardinality estimates are badly wrong, relation counts are too high for exhaustive DP, or physical properties such as distribution and memory spill are missing from the model. Then the search can be correct and still pick the wrong plan.',
+      'It also fails as an explanation if users treat the chosen plan as proof of truth. A plan is the optimizer best guess under statistics, assumptions, and search limits. EXPLAIN ANALYZE, row estimate errors, and spill evidence are needed to diagnose whether the guess matched reality.',
+    ] },
+    { heading: 'Implementation guidance', paragraphs: [
+      'Represent relation sets as bitmasks when the relation count is small enough; this makes subset lookup, split enumeration, and memo table indexing cheap. Store cost, estimated cardinality, physical properties, and a compact backpointer rather than storing full tree copies in every candidate.',
+      'Keep selectivity estimation separate from enumeration. The DP loop should ask the statistics layer for row estimates and predicate effects, but it should not hide those assumptions. Good explain output shows chosen subsets, rejected alternatives when feasible, row estimates, actual rows, sort nodes, spills, and whether a useful order was preserved.',
     ] },
     { heading: 'Sources and study next', paragraphs: [
       'Sources: Selinger et al., "Access Path Selection in a Relational Database Management System", https://web.eecs.umich.edu/~michjc/eecs584/Papers/selinger_1979.pdf; ACM DOI listing, https://dl.acm.org/doi/10.1145/582095.582099; DuckDB internals overview, https://duckdb.org/docs/current/internals/overview.html. Study Cardinality Estimation Error Propagation, PostgreSQL Statistics Histogram & MCV, Cascades Memo Query Optimizer, PostgreSQL Query Planner Case Study, SQL Join Algorithms Primer, and Volcano Iterator Query Execution next.',

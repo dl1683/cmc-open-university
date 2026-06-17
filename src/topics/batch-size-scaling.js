@@ -50,7 +50,7 @@ function* noiseScale() {
       ],
     }),
     highlight: { active: ['noise', 'steps'], found: ['small', 'large'] },
-    explanation: 'Increasing batch size averages away gradient noise and reduces the number of updates per epoch. That is the bargain: more parallel work per step, fewer parameter updates, and a different optimization path.',
+    explanation: 'As the minibatch grows, the gradient estimate gets quieter and the epoch contains fewer optimizer updates. The plot is showing the core bargain: more parallel work per step, but fewer chances for the optimizer to change direction.',
   };
 
   yield {
@@ -74,7 +74,7 @@ function* noiseScale() {
       ],
     ),
     highlight: { active: ['noise:large', 'updates:large', 'hardware:large'], compare: ['generalize:large'] },
-    explanation: 'Large batches are not automatically bad. They change the noise, update count, and hardware efficiency. The question is whether the optimizer can preserve accuracy while using the parallelism.',
+    explanation: 'The matrix separates the effects that often get blurred together. A large batch can keep hardware busy and reduce noise, but it also removes update diversity. Validation decides whether that parallelism preserved learning or only changed the path.',
     invariant: 'Batch size is an optimization hyperparameter, not just a hardware knob.',
   };
 
@@ -99,7 +99,7 @@ function* noiseScale() {
       ],
     ),
     highlight: { found: ['workers:role', 'allreduce:role', 'step:role'], compare: ['allreduce:failure'] },
-    explanation: 'Distributed training increases global batch by splitting examples across workers, averaging gradients, and applying one optimizer step. The communication pattern is as important as the math.',
+    explanation: 'Synchronous data parallelism makes one global batch from many local batches. The all-reduce averages those gradients before a single update, so network delay and stragglers become part of the training algorithm, not just system overhead.',
   };
 
   yield {
@@ -123,7 +123,7 @@ function* noiseScale() {
       ],
     ),
     highlight: { active: ['critical:response', 'comm:response', 'quality:response'] },
-    explanation: 'There is usually a point where adding batch gives less speed or worse validation. Scaling discipline means noticing the knee instead of buying more hardware blindly.',
+    explanation: 'This table is the failure checklist for large-batch runs. Past the useful knee, extra batch can vanish into communication, memory pressure, or worse validation. Scaling is only a win when time to the same target quality falls.',
   };
 }
 
@@ -143,7 +143,7 @@ function* linearWarmup() {
       ],
     }),
     highlight: { active: ['constant', 'danger'], found: ['warmup', 'stable'] },
-    explanation: 'The linear-scaling rule says that if the batch grows k times, the learning rate can often grow k times. Warmup prevents the first few epochs from taking that full large step before the model has stabilized.',
+    explanation: 'The dashed choice is the naive jump: use the large-batch learning rate immediately. Warmup ramps toward that rate so early unstable gradients do not take oversized steps before the representation has settled.',
   };
 
   yield {
@@ -168,7 +168,7 @@ function* linearWarmup() {
       ],
     ),
     highlight: { active: ['x4:lr', 'x16:lr', 'warm:lr'], found: ['base:reason'] },
-    explanation: 'The rule is empirical but powerful: scale the learning rate with global batch, then use warmup to avoid the unstable beginning. This is the central move in the ImageNet-in-1-hour result.',
+    explanation: 'The table ties the learning-rate multiplier to global batch size. The rule is empirical: try to preserve per-epoch progress with a larger step, then use warmup because the first epochs are the most fragile.',
     invariant: 'Large-batch training changes both the batch and the optimizer schedule.',
   };
 
@@ -193,7 +193,7 @@ function* linearWarmup() {
       ],
     ),
     highlight: { compare: ['accum:cost', 'parallel:cost'], found: ['sync:what', 'async:cost'] },
-    explanation: 'Accumulating gradients can simulate a larger batch on one device, but it does not reduce wall-clock time the same way more parallel workers can. The system and optimizer questions are linked but distinct.',
+    explanation: 'Gradient accumulation changes the effective batch seen by the optimizer, not the amount of parallel hardware. It can fix memory limits, but it usually trades fewer updates for more time per update rather than producing distributed speedup.',
   };
 
   yield {
@@ -217,7 +217,7 @@ function* linearWarmup() {
       ],
     ),
     highlight: { active: ['val:good', 'speed:good', 'cost:good'], compare: ['val:bad', 'cost:bad'] },
-    explanation: 'The right scoreboard is not just examples per second. Large-batch scaling wins only if validation quality and total cost hold up against the smaller-batch baseline.',
+    explanation: 'The final scoreboard rejects throughput alone. A scaled run wins only if it reaches the same validation target sooner or cheaper; faster examples per second can still lose if accuracy drops or accelerator cost rises.',
   };
 }
 
@@ -231,42 +231,72 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Topic Exists',
       paragraphs: [
-        'Batch Size Scaling studies what happens when training uses much larger minibatches, usually to exploit many GPUs. A minibatch gradient is an estimate of the full-data gradient. Larger batches reduce that noise and expose more parallel work per optimizer step. They also reduce the number of updates per epoch and can change the optimization path. That is why batch size is both a systems knob and a learning hyperparameter.',
-        'The classic large-batch result is Goyal et al.\'s ImageNet-in-1-hour work. They showed that distributed synchronous SGD could train ResNet-50 with a minibatch up to 8192 while preserving accuracy, using a linear learning-rate scaling rule and warmup. The message is not "always use huge batches." The message is that scaling can work when optimization details and hardware efficiency are handled together.',
+        'Batch-size scaling exists because modern training is limited by two different clocks. One clock is statistical: how many optimizer updates are needed to reach a target validation quality? The other clock is physical: how fast can accelerators process examples, exchange gradients, and apply updates? A small minibatch gives many noisy updates and often trains well, but it may leave a large cluster underused. A very large minibatch keeps many devices busy, but it reduces update count and changes the path taken by optimization.',
+        'The topic matters because "more GPUs" is not a training algorithm. If batch size grows without changing the learning-rate schedule, regularization, synchronization strategy, and validation discipline, the run can become faster in examples per second and worse in the metric that matters. Large-batch training became credible because work such as the ImageNet-in-1-hour result showed a controlled recipe: synchronous data parallelism, linear learning-rate scaling, warmup, and an honest comparison to the small-batch baseline.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Naive Approach',
       paragraphs: [
-        'In distributed synchronous SGD, each worker processes a local minibatch, computes gradients, and participates in an all-reduce or parameter synchronization step. The gradients are averaged, then the optimizer applies one update. If the global batch is k times larger, the linear-scaling rule often tries a learning rate k times larger so the per-epoch progress stays comparable. Warmup ramps toward that larger rate over the first few epochs to avoid unstable early updates.',
-        'This connects directly to Gradient Descent, Backpropagation, Learning-Rate Schedules & Warmup, and Parameter Server Case Study. The algorithmic loop and the communication system cannot be separated. Too little per-worker work wastes GPU time. Too much global batch can reduce update diversity, hurt validation, or make learning-rate tuning fragile.',
+        'The naive approach is to keep the old training recipe and simply increase the global batch. If one GPU used a batch of 256, then 32 GPUs can use a global batch of 8192, run fewer steps per epoch, and finish sooner. That arithmetic is only about throughput. It ignores the fact that stochastic gradient descent learns from a sequence of updates, not from epochs as an abstract unit. Fewer updates mean fewer chances to correct direction, react to curvature, and benefit from gradient noise.',
+        'A second naive approach is to raise the learning rate immediately in proportion to the larger batch. That can work after the model has entered a stable regime, but early training is fragile. Features are not formed, batch statistics are unsettled, and the loss surface can be steep. Jumping to a large step on the first iteration can throw the model into a poor region or cause divergence. Warmup exists because the large-batch learning rate is often useful later than it is at the start.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Large-batch scaling has several ceilings. Communication can dominate when all-reduce traffic grows or when stragglers delay synchronous steps. Memory can limit local batch size, forcing gradient accumulation. Optimization can hit a critical batch size where larger batches provide less statistical benefit. Generalization can drift if the schedule, regularization, or number of training epochs is not adjusted.',
-        'The cost scoreboard should include wall-clock time to target quality, hardware efficiency, validation accuracy, and total dollars. A run that is faster but uses vastly more accelerators may be economically worse. A run that reaches lower training loss but worse validation has failed the real objective.',
+        'A minibatch gradient is an estimate of the full-data gradient. Larger batches reduce variance in that estimate. That is good up to a point, because each update points more reliably downhill. Past a critical batch size, however, the extra examples mostly confirm a direction that was already clear. The run pays for more examples per update without getting proportional learning progress. The critical batch is not a universal constant; it depends on model, data, optimizer, schedule, and target quality.',
+        'The scaling insight is therefore conditional: increase batch size only while time to the same validation target improves. The right objective is not maximum examples per second. It is lower wall-clock time or lower cost to reach a specified quality. A large batch is successful when the hardware parallelism saves more time than the optimization changes lose. This is why large-batch work always needs a matched baseline, not just a throughput chart.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How The System Works',
       paragraphs: [
-        'Large-batch methods are used in vision training, language-model pretraining, recommender systems, contrastive learning, and any setting where data parallelism can keep many accelerators busy. Modern training stacks combine large batches with AdamW or SGD variants, warmup, cosine or linear decay, gradient clipping, mixed precision, activation checkpointing, and topology-aware collective communication.',
+        'In synchronous data-parallel training, each worker receives a local minibatch, runs forward and backward passes, and computes gradients for its shard. The workers then participate in an all-reduce or equivalent synchronization step. The gradients are averaged into one global gradient, and the optimizer applies one update. The global batch is the sum of local batches across workers, possibly multiplied by gradient accumulation steps.',
+        'The linear scaling rule says that if the global batch is multiplied by k, try multiplying the learning rate by k. The intuition is per-epoch progress: a larger batch takes fewer updates per epoch, so each update must move farther to keep total progress similar. Warmup ramps from a smaller learning rate to the scaled learning rate over the first part of training. Decay then reduces the rate as optimization approaches a basin. This recipe couples batch size, learning rate, schedule, and optimizer state.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What The Visual Is Proving',
       paragraphs: [
-        'The main misconception is that more batch is equivalent to more speed. Larger batches reduce the number of optimizer updates; they do not guarantee better time to quality. Another mistake is copying a learning rate without copying the batch, warmup, optimizer, model, and data regime. Finally, gradient accumulation can increase effective batch size without improving hardware parallelism. It may be necessary for memory, but it is not the same as adding synchronized workers.',
+        'The noise-scale view proves that batch size changes two quantities at once. The gradient becomes less noisy, but the epoch contains fewer updates. That is why the plot cannot be read as "larger is cleaner, so larger is better." Cleaner estimates help until the lost update opportunities and reduced stochasticity become more important. The useful knee is where additional batch stops improving time to target.',
+        'The warmup view proves that large-batch training needs a schedule, not a single number. The dangerous curve jumps to the scaled learning rate before the model is ready. The safer curve ramps upward, lets early representations stabilize, and then uses the larger step. The validation scoreboard proves the final rule: a scaled run wins only if it reaches the same or better validation quality sooner or cheaper than the baseline.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
       paragraphs: [
-        'Primary source: Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour at https://arxiv.org/abs/1706.02677. Study Scaling as Local Optimum Case Study, Gradient Descent, Backpropagation, Learning-Rate Schedules & Warmup, Parameter Server Case Study, Learning Curves & Bias-Variance, Loss Landscapes & Optimization Geometry, and Vanishing & Exploding Gradients next.',
+        'Large-batch scaling works when the gradient noise at the baseline batch is still high enough that averaging more examples improves the update, and when the learning-rate schedule compensates for fewer updates. It also works when the system can keep accelerators busy while hiding or reducing communication overhead. In that regime, each synchronized step costs more computation but uses enough parallel hardware that wall-clock time drops.',
+        'Warmup works because early gradients can be poorly conditioned. The network begins with random or pretrained weights that may not yet produce stable internal statistics. A large learning rate can amplify transient gradient directions. A ramp gives the optimizer time to move into a region where the scaled step is less destructive. In practice, warmup is also a tuning bridge: it makes large runs less sensitive to the exact first-epoch dynamics.',
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        'The first cost is communication. All-reduce has to move gradient data across devices, and synchronous training waits for slow workers. Good implementations overlap communication with computation, use topology-aware collectives, shard optimizer state, and tune local batch size so each worker has enough work to amortize overhead. The second cost is memory. Larger local batches consume activation memory, which may force activation checkpointing, mixed precision, gradient accumulation, or smaller models.',
+        'The third cost is quality risk. Large batches can reach lower training loss while generalizing worse, especially if regularization, augmentation, epoch count, or learning-rate decay are copied blindly. The fourth cost is economic. A run that finishes in half the time on eight times the hardware may be a worse purchase. Cost per target quality should include accelerator hours, failed tuning runs, communication efficiency, energy, and the opportunity cost of occupying a cluster.',
+      ],
+    },
+    {
+      heading: 'Real Uses',
+      paragraphs: [
+        'Large-batch methods are used in vision training, language-model pretraining, recommender systems, speech models, contrastive learning, and large-scale fine-tuning. They are especially useful when data parallelism is the cleanest way to use many accelerators. Modern recipes combine large batches with AdamW or SGD variants, warmup, cosine or linear decay, gradient clipping, mixed precision, activation checkpointing, and optimized collective communication. At very large scale, pipeline and tensor parallelism may join data parallelism, but batch-size scaling remains the simplest lever for exposing parallel work.',
+        'Gradient accumulation is related but different. It increases the effective batch by summing gradients over multiple microbatches before an optimizer step. It can solve memory limits and imitate the optimizer behavior of a larger batch, but it does not by itself create more wall-clock parallelism. More GPUs can reduce time per update if communication is efficient. Accumulation usually increases time per update while reducing the number of updates. Mixing the two without measuring time to quality causes confusion.',
+      ],
+    },
+    {
+      heading: 'Failure Modes And Limits',
+      paragraphs: [
+        'Scaling stops helping at several ceilings. Past the critical batch, more examples give little statistical benefit. If communication dominates, devices wait instead of computing. If local batches are too small, kernels run inefficiently. If local batches are too large, memory pressure forces slower techniques. If the learning rate is too aggressive, the run diverges. If it is too conservative, the large batch wastes updates. If validation quality lags, the speedup is not a success.',
+        'The most common reporting failure is to show examples per second without the quality target. A serving team should ask: did the scaled run reach the same validation metric, with the same data budget and comparable regularization, at lower wall-clock time or lower total cost? Another failure is to tune the scaled run heavily while leaving the baseline weak. Fair comparison means matching effort, reporting failed runs when possible, and separating hardware efficiency from model quality.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study Gradient Descent and Backpropagation first, because batch size changes the update sequence produced by those algorithms. Then study Learning-Rate Schedules & Warmup, Loss Landscapes & Optimization Geometry, and Learning Curves & Bias-Variance to understand why the same training loss can produce different validation behavior. Study Parameter Server Case Study, all-reduce collectives, mixed precision, gradient accumulation, and distributed optimizer sharding for the systems side. The primary large-batch reference is Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour, which is useful because it shows the recipe and the discipline around preserving accuracy.',
       ],
     },
   ],

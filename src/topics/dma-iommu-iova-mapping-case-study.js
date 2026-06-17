@@ -178,35 +178,73 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'DMA means a device can read or write memory directly. The Linux DMA API is the portability layer that turns driver-owned CPU buffers into device-visible DMA addresses. On many systems, an IOMMU translates those DMA addresses through I/O page tables before the transaction reaches physical RAM.',
-        'The important distinction is address space. A CPU virtual pointer, a CPU physical address, a bus address, and an I/O virtual address are not the same contract. Drivers should program devices with DMA addresses returned by the DMA mapping API.',
+        'DMA is the mechanism that lets a device move bytes to or from main memory without asking the CPU to copy every byte. An NVMe controller can write disk data into page-cache pages. A NIC can fill receive buffers. A GPU or accelerator can read command buffers and write results. The CPU still sets up the operation, but the hot transfer path belongs to the device.',
+        'The hard part is address meaning. A driver owns a CPU-visible buffer, usually reached through a kernel virtual address. The device cannot safely use that pointer. It needs an address in the device DMA address space, and on many machines that address is an I/O virtual address translated by an IOMMU. The Linux DMA API is the contract that turns a CPU buffer into a device-visible token with a direction, length, and lifetime.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'For a streaming DMA transfer, the driver maps a buffer with a direction such as DMA_TO_DEVICE or DMA_FROM_DEVICE. The mapping call handles cache maintenance and address translation requirements, returning a dma_addr_t. The driver puts that address into a hardware descriptor. After the device completes, the driver synchronizes or unmaps before the CPU reuses the buffer.',
-        'Scatter-gather mapping handles fragmented buffers. The kernel receives a list of memory segments, maps them for the device, and returns a mapped segment list. Storage and network drivers then translate those segments into the descriptor format their hardware understands.',
+        'The obvious design is to give the device whatever address the CPU is using. That can appear to work on simple systems, especially when examples run without an IOMMU and bus addresses resemble physical addresses. It also feels natural because the driver already has a pointer and the device descriptor only asks for an address and length.',
+        'That shortcut breaks on real platforms. CPU virtual addresses are interpreted through CPU page tables. Devices issue bus transactions through a different path. Memory may be above a device DMA mask, fragmented across many pages, protected by an IOMMU, or cached in a way the device cannot see. A driver that skips the DMA API may pass an address the device cannot translate, let a device read stale data, or let a malicious or broken device write outside the intended buffer.',
       ],
     },
     {
-      heading: 'Complete case study: NVMe read buffer',
+      heading: 'Core insight',
       paragraphs: [
-        'A page-cache miss allocates one or more memory pages for file data. The NVMe path maps those pages for DMA, builds PRP or SGL descriptors into the submission queue entry, and rings the SSD doorbell. The SSD writes data into memory through the DMA address. On completion, the driver unmaps or synchronizes the buffer, and the page cache can mark the folio uptodate.',
-        'The same pattern appears in RDMA Queue Pair & Work Request Case Study and GPUDirect RDMA Peer Memory Case Study. The device may be a NIC instead of an SSD, but the ownership problem is still device-visible memory, permissions, lifetime, and completion.',
+        'A DMA mapping is an address-space object, not just a number. The map operation says that a particular device may access a particular memory range, in a particular direction, until the matching sync or unmap. On IOMMU systems, the mapping may allocate IOVA space and install IOVA-to-physical page-table entries. On simpler systems, it may validate addressability or choose a bounce buffer.',
+        'The core invariant is that the device receives only DMA addresses returned by the DMA API. The CPU virtual pointer remains a CPU-side object. The dma_addr_t is the device-side capability. Mapping creates that capability; completion and unmap end it. This separation is what lets the same driver run across machines with different IOMMU, cache-coherency, and device-addressing rules.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Data structures and mechanism',
       paragraphs: [
-        'Every streaming map needs a matching unmap or sync path. Leaking mappings can exhaust IOVA space or bounce-buffer pools. Reusing a buffer before the device is finished can corrupt data. Giving the wrong direction can leave stale CPU cache lines or stale device-visible contents.',
-        'Another trap is ignoring DMA masks and segment limits. Devices have address-width, alignment, and segment-size constraints. A correct driver checks what the device can address and lets the DMA API and block/network layers split or bounce as needed.',
+        'A streaming mapping is the common case for data buffers. The driver calls a mapping function such as dma_map_single or dma_map_page with a buffer, length, and direction. The call returns a dma_addr_t. The driver writes that address and length into a device descriptor, rings the device doorbell, and waits for an interrupt, poll completion, or queue entry that proves the device is finished.',
+        'Scatter-gather is the data structure that makes large fragmented I/O practical. Software may see one logical request, but the backing memory can be many non-contiguous pages. A scatterlist records those memory pieces. dma_map_sg converts the list into device-visible segments and may merge adjacent entries, split entries, or translate them through the IOMMU. The segment count after mapping is the count the hardware descriptor builder must use.',
+        'Several side structures matter. The IOVA allocator manages ranges in the I/O virtual address space. IOMMU page tables map those IOVAs to real pages. Device DMA masks describe which addresses the hardware can issue. Cache-maintenance rules decide whether CPU writes must be flushed before DMA_TO_DEVICE or CPU reads must wait for invalidation after DMA_FROM_DEVICE. Debug accounting can detect leaks, double unmaps, and direction mistakes.',
+        'Coherent DMA allocations solve a related but different problem. They are useful for descriptor rings and shared control blocks that both CPU and device touch for a long time. Streaming mappings are better for payload buffers that have a clear ownership handoff per operation.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: Linux DMA API documentation at https://docs.kernel.org/core-api/dma-api.html and DMA API how-to at https://docs.kernel.org/core-api/dma-api-howto.html. Study Buddy Allocator Free Lists, Linux Page Cache XArray, NVMe Submission/Completion Queue, Linux blk-mq Tag & Hardware Queue, RDMA Queue Pair & Work Request, GPUDirect RDMA Peer Memory, and Backpressure & Flow Control next.',
+        'The design works because it gives the device the narrowest useful view of memory. The mapping layer can install translations only for the pages in the request, enforce direction, choose addresses the device can reach, and tear the view down when the transfer finishes. An IOMMU also protects the rest of memory if the device attempts an unexpected access.',
+        'The direction is part of correctness. If the device reads memory, the CPU writes that prepared the buffer must be visible before the device starts. If the device writes memory, the CPU must not read stale cache lines before synchronization. Coherent systems hide some of this, but portable drivers still use the DMA API because the same source may run on non-coherent platforms.',
+      ],
+    },
+    {
+      heading: 'Worked case study',
+      paragraphs: [
+        'Consider an NVMe read into the page cache. The kernel allocates one or more pages for file data and builds a block request. The NVMe path maps those pages for DMA_FROM_DEVICE, turns the mapped segments into PRP or SGL entries, places the command in the submission queue, and rings the SSD doorbell. The SSD writes data through the device DMA addresses, not through kernel pointers.',
+        'When the completion queue entry arrives, the driver knows the device is finished with the mapped range. The unmap or sync path reconciles cache state so the CPU can safely read the data. The block layer can complete the bio, and the page cache can mark the folio uptodate. The same shape appears in NIC receive rings, USB transfers, RDMA registrations, and GPU peer-memory paths, even though each device has its own descriptor format.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'DMA mapping is useful wherever copying bytes through the CPU would waste cycles and memory bandwidth. Storage, networking, audio, video capture, accelerators, RDMA, and GPU transfer paths all depend on it. It is also useful as a portability boundary because the driver does not need to know whether the platform uses identity mappings, IOMMU translations, bounce buffers, or explicit cache maintenance.',
+        'The pattern is especially important for ring-based devices. A driver may allocate long-lived coherent memory for descriptor rings, then use streaming mappings for data buffers whose ownership moves per request. That split keeps stable control structures simple while preserving strict lifetime rules for payload buffers.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'DMA is not free. Mapping can allocate IOVA space, update IOMMU page tables, invalidate IOTLB entries, flush or invalidate caches, allocate bounce buffers, and build descriptors. For tiny transfers, those costs can exceed a CPU copy. Drivers often batch work, reuse descriptor rings, and use coherent allocations for long-lived control memory to avoid paying streaming-map costs in the wrong place.',
+        'It also fails when the lifetime is vague. A buffer must not be freed, reused, or modified by the CPU while the device still owns the relevant direction. A scatter-gather list must respect hardware segment limits and alignment. A driver must handle mapping failure, shortened segment counts, DMA masks, and error completions. Ignoring any of those turns a performance feature into a corruption path.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Useful signals start with correctness. Linux DMA debugging can report leaked mappings, wrong-direction syncs, double unmaps, and suspicious reuse. IOMMU fault logs can show a device touching an unmapped or disallowed IOVA. Device error counters, PCIe AER events, and driver timeout logs often point to descriptors that reference bad addresses or buffers whose ownership changed too early.',
+        'Performance signals are mapping rate, IOMMU fault or invalidation activity, bounce-buffer use, small-I/O overhead, interrupt-to-completion latency, and descriptor-ring occupancy. If throughput is low while CPU time is high in mapping or sync paths, the system may need larger I/O, batching, different memory allocation, or a coherent ring plus streaming payload design.',
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        'Primary sources are the Linux DMA API documentation at https://docs.kernel.org/core-api/dma-api.html and the DMA API how-to at https://docs.kernel.org/core-api/dma-api-howto.html. They are worth reading because the rules are contract rules, not implementation trivia.',
+        'Study Linux Page Cache XArray for the memory object that storage fills, NVMe Submission/Completion Queue and Linux blk-mq Tag & Hardware Queue for descriptor flow, RDMA Queue Pair & Work Request and GPUDirect RDMA Peer Memory for peer-device transfers, Buddy Allocator Free Lists for physical memory supply, and Backpressure & Flow Control for what happens when devices complete slower than software submits.',
       ],
     },
   ],

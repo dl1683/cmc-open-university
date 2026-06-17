@@ -243,44 +243,78 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: "Why this exists",
       paragraphs: [
-        'An AI datacenter power interconnection queue is the missing physical layer under GPU capacity planning. It stores site candidates, utility applications, grid-study status, substation work, feeder capacity, rack power envelopes, load-test results, and the release decision that says which capacity is actually usable.',
-        'The local AI infrastructure corpus repeatedly points to this bottleneck: massive GPU commitments require substations, cooling, interconnects, and front-loaded construction before revenue arrives. The data-structure lesson is to model that chain explicitly instead of treating a GPU purchase order as online capacity.',
+        "AI datacenter capacity is not real when GPUs are ordered. It becomes real when a site has usable power, tested cooling, network-ready racks, and an operations policy that allows sustained load. The gap between those two states is where many capacity claims become misleading.",
+        "The power interconnection queue exists because physical infrastructure moves on slower clocks than chip procurement or cloud sales. A site may need utility applications, grid studies, substation work, switchgear, feeder upgrades, environmental permits, cooling changes, load-bank tests, and acceptance procedures. Each gate has a different owner and a different proof object.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: "The naive approach",
       paragraphs: [
-        'The queue starts with demand forecasts and contract terms, but it only releases capacity when the physical proof objects are present. A row can hold site id, utility territory, requested MW, approved MW, study phase, substation milestone, switchgear ETA, cooling design, rack density, load-bank test, and scheduler quota.',
-        'The release algorithm is conservative: usable capacity is the minimum of contracted power, energized power, thermal capacity, network-ready rack groups, operational staffing, and policy caps. That minimum then feeds the GPU Cloud Capacity Reservation Orderbook and SLO-Aware LLM Request Router.',
+        "The naive capacity model counts contracted megawatts or purchased accelerators. It looks reasonable in a finance model because every row has a number and a date. If the company bought the GPUs and signed for the power, the spreadsheet can mark the capacity as coming online in a quarter.",
+        "Operations breaks that shortcut. Planned MW, approved MW, energized MW, usable IT load, rack-ready power, thermal headroom, network-ready groups, and scheduler quota are different states. A market-facing commitment, a construction milestone, and a rack safely serving AI traffic cannot be collapsed into one capacity number.",
       ],
     },
     {
-      heading: 'Why it matters',
+      heading: "The core insight",
       paragraphs: [
-        'AI infrastructure can be financially committed before it is physically energized. That creates a dangerous gap between booked capacity, construction-in-progress, and billable load. The gap matters for depreciation, debt service, customer reservations, and public claims about how much capacity exists.',
-        'The Uptime Institute 2025 survey describes power availability as a major capacity constraint for datacenter operators, especially as AI workloads drive higher rack densities: https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2025. The US Department of Energy also tracks clean-energy and grid-readiness work for rising datacenter electricity demand: https://www.energy.gov/policy/articles/clean-energy-resources-meet-data-center-electricity-demand.',
+        "The core insight is to model capacity as a queue of proof gates, not a single inventory count. The durable object is an append-only ledger of evidence: site control, utility application, grid-study phase, interconnection agreement, substation milestone, switchgear delivery, meter state, load-bank result, cooling certification, network acceptance, derate, and incident note.",
+        "The system then derives a release index from that ledger. Schedulable capacity is no larger than the minimum of contracted power, approved power, energized power, thermal capacity, network-ready rack groups, staffing, policy caps, and current derates. The scheduler should see the conservative release index, not the optimistic construction plan.",
       ],
     },
     {
-      heading: 'Implementation shape',
+      heading: "How the mechanism works",
       paragraphs: [
-        'Use an append-only ledger for external proof objects and a derived capacity index for scheduling. The ledger keeps signed interconnection studies, energization dates, load tests, power meter snapshots, thermal certification, and incident notes. The derived index exposes only capacity that is safe to allocate.',
-        'A practical schema separates planned MW, approved MW, energized MW, IT load, facility overhead, rack density, cooling mode, redundancy class, and serving quota. That prevents the common error where a market-facing commitment, a construction milestone, and a running rack are collapsed into one number.',
+        "A practical row starts with demand and site information, but it does not become serving capacity until evidence accumulates. Land control is not a grid study. A grid study is not an energized feeder. An energized feeder is not proof that high-density racks can reject heat under sustained AI load.",
+        "The release algorithm is intentionally conservative. It reconciles electrical meters, IT load, facility overhead, PUE assumptions, cooling mode, rack density, water or carbon constraints, network fabric, SLO tests, and staffing. Any one of those can lower the capacity that is safe to expose to a GPU scheduler or customer reservation system.",
+        "The ledger should be append-only because old promises matter. If a site was derated, if switchgear slipped, or if a load test failed, the historical record explains why capacity moved backward. A mutable status cell cannot support finance, operations, customer commitments, and post-incident review at the same time.",
+        "The units should stay explicit. Megawatts at the utility boundary, IT load at the rack, facility overhead, rack density in kW, cooling-loop limits, and released scheduler quota are related but not interchangeable. Keeping them separate prevents accidental conversion from paper capacity to usable service.",
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: "What the visual is proving",
       paragraphs: [
-        'Do not use nameplate facility power as scheduler capacity. Do not ignore the timing gap between equipment arrival and utility energization. Do not allocate committed reservations to racks that have not passed sustained load tests. Do not hide derating events; they are the exact evidence the capacity model needs.',
-        'Also avoid treating power as separate from cooling. Higher-density AI racks change airflow, liquid loop, water, CDU, maintenance, and emergency shutdown assumptions. The power queue should link directly to the Liquid Cooling Rack Thermal Loop case study.',
+        "The capacity-queue view proves that GPU demand becomes usable service only after several physical gates clear. The queue nodes are not paperwork decoration. They are dependencies that decide whether a rack can draw power safely. The gap between committed MW and energized MW is the risk the model is making visible.",
+        "The energization-ledger view proves that release is a reconciliation, not a label. The chip delivery, power state, civil work, cooling, network, burn-in, and audit rows all narrow the final quota. The scheduler should follow the slowest real gate, because the fastest procurement row cannot make an unready site serve traffic.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: "Why it works",
       paragraphs: [
-        'Primary sources: US Department of Energy datacenter electricity demand resources at https://www.energy.gov/policy/articles/clean-energy-resources-meet-data-center-electricity-demand, Uptime Institute Global Data Center Survey Results 2025 at https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2025, and NVIDIA DGX GB200 hardware guidance at https://docs.nvidia.com/dgx/dgxgb200-user-guide/hardware.html. Study AI Capex Depreciation Utilization Ledger, GPU Cloud Capacity Reservation Orderbook, AC Power Flow Newton-Raphson Jacobian, Power Grid Bus Admittance Sparse Matrix, and Liquid Cooling Rack Thermal Loop next.',
+        "The method works because it refuses to average incompatible states. Finance can still track contracted capacity. Construction can still track milestones. Operations can still track energized and tested load. The release index simply prevents those states from being mistaken for one another.",
+        "It also works because it gives every downstream system a defensible input. A reservation orderbook can sell only released quota. A rack-placement service can place hardware only where power and cooling exist. An SLO-aware router can send inference traffic only to capacity that has passed burn-in. A finance team can see the difference between committed capex and billable load.",
+        "Forecasting still has a place. The queue can show expected dates and confidence ranges. The rule is that forecasts stay forecasts until a gate has proof. That separation lets leaders plan without letting optimistic dates leak into scheduler capacity.",
+      ],
+    },
+    {
+      heading: "Costs and tradeoffs",
+      paragraphs: [
+        "The cost is operational discipline. Every gate needs an owner, a timestamp, a source document, and a policy for what counts as passing. That is heavier than a simple capacity spreadsheet. It is also the price of avoiding double-counted capacity and public claims that outrun physics.",
+        "The ledger can create organizational friction because it exposes uncomfortable gaps. Sales may want to reserve future capacity. Finance may want a simple ramp. Infrastructure may know that power, cooling, network, and burn-in will not arrive together. A useful release model makes those conflicts visible instead of smoothing them into one optimistic date.",
+      ],
+    },
+    {
+      heading: "Real uses",
+      paragraphs: [
+        "Cloud providers and AI labs need this model when they decide how much training or inference capacity can be promised to internal teams or external customers. A capacity reservation system should not allocate a customer to racks that are powered only on paper. A model-training plan should not assume a cluster exists because the accelerators have shipped.",
+        "The same ledger helps with site comparison. One site may have faster chip delivery but slower utility work. Another may have strong power but weak thermal headroom for dense racks. A third may be network-ready but constrained by water, carbon, or local operating policy. The queue makes those differences explicit.",
+        "It also helps incident response. If a site loses headroom during a heat event, a transformer problem, or a cooling-loop fault, the ledger can derate released capacity and leave a reason. The scheduler then routes around the constraint instead of discovering the physical problem as rising latency or failed jobs.",
+      ],
+    },
+    {
+      heading: "Failure modes and limits",
+      paragraphs: [
+        "The model fails when nameplate facility power is treated as scheduler capacity. It also fails when manual spreadsheets get stale, derates are hidden, load tests are skipped, or a team records a gate as done without attaching evidence. In those cases the release index becomes theater.",
+        "Power cannot be isolated from cooling. A site can be electrically ready and still thermally blocked. High-density AI racks change airflow, liquid loops, CDU capacity, maintenance procedures, emergency shutdown policy, and staffing. The interconnection queue should link directly to a thermal readiness ledger, not pretend that power alone is the bottleneck.",
+        "It is also possible to be too conservative. If the release model lags real readiness, expensive GPUs sit idle and customers wait. The goal is not pessimism. The goal is evidence-based release, with fast updates when proof arrives and fast derates when conditions change.",
+      ],
+    },
+    {
+      heading: "Study next",
+      paragraphs: [
+        "Primary sources: US Department of Energy datacenter electricity demand resources at https://www.energy.gov/policy/articles/clean-energy-resources-meet-data-center-electricity-demand, Uptime Institute Global Data Center Survey Results 2025 at https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2025, and NVIDIA DGX GB200 hardware guidance at https://docs.nvidia.com/dgx/dgxgb200-user-guide/hardware.html.",
+        "Study AI Capex Depreciation Utilization Ledger for the finance view, GPU Cloud Capacity Reservation Orderbook for customer allocation, AC Power Flow Newton-Raphson Jacobian and Power Grid Bus Admittance Sparse Matrix for grid modeling, Liquid Cooling Rack Thermal Loop for thermal limits, and SLO-Aware LLM Request Router for how released capacity becomes serving traffic.",
       ],
     },
   ],

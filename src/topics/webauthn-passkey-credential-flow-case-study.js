@@ -87,14 +87,14 @@ function* registration() {
   yield {
     state: passkeyGraph('Registration starts with a fresh server challenge'),
     highlight: { active: ['rp', 'challenge', 'browser', 'e-rp-challenge', 'e-rp-browser'], compare: ['authn'] },
-    explanation: 'The relying party creates public-key credential options: challenge, RP ID, user handle, allowed algorithms, authenticator preferences, and timeout. The browser delivers those options to an authenticator after user consent.',
+    explanation: 'The relying party starts with a fresh challenge and scoped credential options: RP ID, user handle, algorithms, authenticator preferences, and timeout. The browser carries that request to an authenticator only after user consent.',
     invariant: 'The challenge turns enrollment into a fresh, replay-resistant ceremony.',
   };
 
   yield {
     state: passkeyGraph('The authenticator creates a credential scoped to the RP'),
     highlight: { active: ['browser', 'authn', 'cred', 'pubkey', 'e-browser-authn', 'e-authn-cred', 'e-cred-pubkey'], found: ['challenge'] },
-    explanation: 'The authenticator creates a key pair and credential ID. The private key stays with the authenticator or synced passkey provider. The server stores the public key, credential ID, user handle, RP ID, and initial counter.',
+    explanation: 'The authenticator creates a per-site key pair and credential ID. The private key stays with the authenticator or synced passkey provider; the server stores only the public key and binding metadata needed for later checks.',
   };
 
   yield {
@@ -120,13 +120,13 @@ function* registration() {
       ],
     ),
     highlight: { active: ['rp:guards', 'pub:guards', 'count:guards'], found: ['cred:stored'] },
-    explanation: 'WebAuthn is a bundle of small records. The server does not store a password verifier. It stores a public key and enough binding data to check future assertions.',
+    explanation: 'Registration changes the server record from a reusable secret verifier to a public-key lookup row. The stored data can verify future signatures, but it cannot be used to sign in by itself.',
   };
 
   yield {
     state: passkeyGraph('The credential becomes a reusable login handle'),
     highlight: { active: ['cred', 'pubkey', 'counter', 'session', 'e-cred-pubkey', 'e-counter-session'], compare: ['challenge'] },
-    explanation: 'After registration, the credential ID indexes the account credential record. Later assertions prove possession of the matching private key under a new challenge and the same relying-party scope.',
+    explanation: 'After registration, the credential ID is the handle for this account credential. Later logins must prove possession of the matching private key under a new challenge and the same relying-party scope.',
   };
 }
 
@@ -134,14 +134,14 @@ function* assertion() {
   yield {
     state: assertionGraph('Login repeats the challenge-response ceremony'),
     highlight: { active: ['rp', 'client', 'authdata', 'sig', 'e-rp-client', 'e-client-authdata', 'e-authdata-sig'], compare: ['store'] },
-    explanation: 'For authentication, the server sends a fresh challenge. The browser creates clientDataJSON with challenge and origin. The authenticator returns authenticatorData and a signature over authenticatorData plus the client-data hash.',
+    explanation: 'Login repeats the fresh challenge boundary. The browser records challenge and origin in clientDataJSON, and the authenticator signs authenticatorData plus the client-data hash with the scoped private key.',
     invariant: 'The private key signs a challenge bound to this site and this ceremony.',
   };
 
   yield {
     state: assertionGraph('The credential ID selects the stored public key'),
     highlight: { active: ['sig', 'store', 'origin', 'counter', 'e-sig-store', 'e-store-origin', 'e-store-counter'], found: ['rp'] },
-    explanation: 'The server finds the credential record, verifies the signature using the stored public key, checks the challenge, validates the origin and RP ID hash, and evaluates user-presence or user-verification flags.',
+    explanation: 'The credential ID selects the stored public key, but lookup is not enough. The server verifies the signature, challenge, origin, RP ID hash, and user-presence or user-verification flags before making a session.',
   };
 
   yield {
@@ -171,7 +171,7 @@ function* assertion() {
       ],
     ),
     highlight: { active: ['webauthn:secret', 'passkey:secret', 'webauthn:phish', 'passkey:phish'], compare: ['pass:secret', 'otp:phish'] },
-    explanation: 'The main data-structure change is moving from server-side shared secrets to per-site public keys. That is why phishing resistance and breach resistance improve together.',
+    explanation: 'The main data-structure change is replacing reusable shared secrets with per-site public keys. A database leak exposes verification keys, not the private keys needed to answer a fresh challenge.',
   };
 }
 
@@ -185,38 +185,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'WebAuthn lets a site authenticate a user with a public-key credential scoped to that relying party. Registration creates the credential. Authentication later produces an assertion proving user presence or verification and possession of the corresponding private key. Passkeys are the user-facing deployment of this model, often with credentials synced across devices by the platform provider.',
-        'The W3C WebAuthn Level 3 specification defines an API for creating and using strong, attested, scoped, public-key credentials by web applications: https://www.w3.org/TR/webauthn-3/. The FIDO Alliance passkeys page describes passkeys as a passwordless sign-in approach built on FIDO/WebAuthn technology: https://fidoalliance.org/passkeys/.',
+        'Passwords make the server store something attackers can target and make users type a secret into pages that may be fake. Even with hashing and MFA, phishing and credential reuse keep turning login into a shared-secret problem.',
+        'WebAuthn changes the shape of login. A site stores a public key for that site. The user device keeps the private key. Each login is a fresh signature over a challenge bound to the real relying party.',
       ],
     },
     {
-      heading: 'Data structure model',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A relying party stores a credential record: credential ID, user handle, public key, RP ID, sign counter, credential properties, transports, attestation metadata if used, and timestamps. During login, the credential ID indexes that record and the public key verifies the assertion signature.',
-        'The assertion contains clientDataJSON, authenticatorData, signature, and credential metadata. The server validates the challenge, origin, RP ID hash, user-presence or user-verification flags, signature, and counter behavior before creating a session.',
+        'The usual login design stores a password hash, checks a submitted password, and adds an OTP or push prompt for extra protection. That design is familiar, deployable, and better than storing plaintext passwords.',
+        'It still leaves users entering reusable secrets into pages. It also leaves recovery, phishing resistance, MFA enrollment, and credential stuffing as separate problems bolted around the same shared-secret core.',
       ],
     },
     {
-      heading: 'Complete case study: banking login',
+      heading: 'Where it fails',
       paragraphs: [
-        'A bank enrolls a passkey for a customer account. The server sends a registration challenge for bank.example, the authenticator creates a new credential, and the bank stores the public key and credential ID. On later login, a phishing site cannot ask that credential to sign for bank.example because browser and authenticator scoping binds the credential to the real relying party.',
-        'For a high-risk transfer, the bank can require user verification and a fresh assertion rather than trusting a long-lived session alone. The assertion is not a password equivalent copied from the client. It is a new signature over a fresh challenge under the scoped credential.',
+        'If a phishing site collects a password and OTP, it can replay them quickly against the real site. If a password database leaks, attackers can attempt offline cracking and reuse. If recovery is weak, attackers bypass the stronger primary factor.',
+        'OTP helps, but many OTP flows are still phishable because the secret or code is transferable. The missing invariant is site-scoped possession of a private key that cannot be replayed to a different origin.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Core insight',
       paragraphs: [
-        'WebAuthn does not remove server-side policy. The server still owns account recovery, device management, risk scoring, session lifetime, audit logs, and step-up rules. Weak recovery can undo the strength of the primary login.',
-        'A counter mismatch is not automatically a mathematical proof of compromise. The WebAuthn specification treats counters as clone-detection aids and notes that zero or non-increasing counters require relying-party risk handling. The service should log, step up, notify, or revoke according to risk, not blindly accept or panic.',
+        'The credential is scoped to a relying-party ID and used through the browser. The authenticator signs a fresh challenge together with authenticator data, and the server verifies the signature using the stored public key for that credential ID.',
+        'That turns login into a lookup plus a proof of possession. The server can verify the proof, but a server breach does not reveal a secret that can produce future proofs.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        "The registration view shows the permanent record being created. The relying party sends a challenge and policy, the authenticator creates a key pair scoped to the RP ID, and the server stores the credential ID and public key. The server is not storing a secret it can later leak.",
+        "The assertion view shows the repeatable login proof. A fresh challenge, origin, RP ID hash, authenticator flags, and signature all have to line up. The interesting part is not that the user unlocked a device; it is that the device signed the right challenge for the right relying party.",
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Registration begins when the relying party sends public-key credential creation options: challenge, RP ID, user handle, algorithms, authenticator selection, and timeout. The authenticator creates a key pair and credential ID, then returns attestation data and the public key. The server stores the credential record.',
+        'Authentication begins with a new challenge. The browser creates clientDataJSON containing the challenge and origin. The authenticator returns authenticatorData, a signature over authenticatorData plus the client-data hash, and the credential ID. The server finds the public key and validates challenge, origin, RP ID hash, flags, signature, and counter behavior.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Fresh challenges stop replay. Origin and RP ID binding stop a phishing site from asking a credential for bank.example to sign a login for attacker.example. The signature proves the authenticator holds the private key for this credential.',
+        'The server-side record is safe to expose in a way a password verifier is not. A public key verifies signatures but cannot create them. That is why breach resistance and phishing resistance come from the same data-structure change.',
+      ],
+    },
+    {
+      heading: 'Registration details',
+      paragraphs: [
+        'Registration is a ceremony, not a form submit. The relying party chooses a random challenge, declares the RP ID, identifies the user, chooses allowed public-key algorithms, and describes authenticator requirements such as resident credential and user verification preferences. The browser binds this request to the page origin before the authenticator creates anything.',
+        'The response gives the server an attested credential record. In many consumer deployments, attestation is reduced or ignored for privacy and deployability. In managed enterprise deployments, attestation can matter because the organization may want to know which authenticator class created the credential. Either way, the server must store enough metadata to verify later assertions and manage credential lifecycle.',
+      ],
+    },
+    {
+      heading: 'Assertion details',
+      paragraphs: [
+        'Authentication starts with a new challenge and a set of allowed credential IDs, unless discoverable credentials let the authenticator help with account selection. The browser creates client data containing the challenge and origin. The authenticator signs authenticator data plus the hash of that client data. The server verifies the challenge, origin, RP ID hash, signature, user presence, user verification requirement, and counter behavior.',
+        'This is where passkeys differ from an OTP prompt. A code can be copied from one site to another. A WebAuthn signature is tied to the RP ID and challenge. A phishing page can ask the browser for its own origin, but it cannot make that origin become the bank origin unless the browser, DNS, TLS, and relying-party identity have all been compromised in a much deeper way.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'WebAuthn adds ceremony state, credential records, browser API complexity, recovery flows, device management, and user-experience edge cases. Synced passkeys improve usability but move some trust to the platform account and its recovery process.',
+        'The sign counter is useful risk evidence, not a perfect clone oracle. Some authenticators may report zero or behave differently across synced credentials, so services need explicit risk handling instead of a single universal counter rule.',
+        'The server data model also becomes more explicit. A user may have several credentials, some discoverable and some not, created on different platforms with different user-verification behavior. Good account security depends on showing, naming, revoking, and auditing those credentials clearly instead of treating passkeys as one invisible replacement password.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Passkeys are strong for consumer login, enterprise SSO, admin consoles, payment step-up, and any account where phishing and password reuse are real threats.',
+        'They work especially well when the service can support multiple credentials per user, clear recovery, risk-based step-up, and audit logs that distinguish registration, authentication, recovery, and credential removal.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'WebAuthn does not solve authorization after login. The server still owns sessions, resource policy, account recovery, device enrollment, rate limits, abuse detection, and audit.',
+        'It is also not frictionless for every environment. Legacy browsers, shared devices, platform-account recovery, lost devices, and account transfer all need product and security design.',
+        'The sharpest failure mode is weak recovery. If account recovery falls back to email links, SMS, or support-desk override with little evidence, attackers will route around the phishing-resistant primary login. A passkey deployment should be reviewed together with enrollment, recovery, device removal, step-up, and session revocation.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        'A bank enrolls a passkey for a customer account. The server sends a registration challenge for bank.example, the authenticator creates a scoped credential, and the bank stores the public key, credential ID, user handle, RP ID, and counter metadata.',
+        'Later, a phishing site cannot get that credential to sign for bank.example because browser and authenticator scoping bind the credential to the real relying party. For a high-risk transfer, the bank requires user verification and a fresh assertion rather than trusting an old session alone.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: W3C WebAuthn Level 3 at https://www.w3.org/TR/webauthn-3/ and FIDO Alliance passkeys overview at https://fidoalliance.org/passkeys/. Study JWT Verification, OAuth PKCE Token Lifecycle Case Study, Capability Security & Attenuation, Hash Table, JSON Parser Stack Case Study, Zanzibar Authorization Case Study, OPA Rego Policy Decision Graph, and Distributed Tracing next.',
-        'WebAuthn Passkey Credential Discovery continues from this foundation into discoverable credentials, allowCredentials filtering, conditional mediation, account selectors, fallback identity hints, and how passkey UX interacts with SameSite cookies and Storage Access in real browser login flows.',
+        'Primary sources: W3C WebAuthn Level 3 at https://www.w3.org/TR/webauthn-3/ and FIDO Alliance passkeys overview at https://fidoalliance.org/passkeys/.',
+        'Study WebAuthn Passkey Credential Discovery for discoverable credentials and account selectors, JWT Verification and OAuth PKCE Token Lifecycle Case Study for adjacent web identity flows, Hash Table for credential-ID lookup, JSON Parser Stack Case Study for structured browser payloads, and OPA Rego Policy Decision Graph or Zanzibar Authorization Case Study for policy after authentication.',
       ],
     },
   ],

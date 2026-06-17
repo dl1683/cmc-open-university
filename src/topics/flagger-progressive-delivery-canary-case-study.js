@@ -194,43 +194,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Flagger is a progressive delivery controller for Kubernetes. It automates canary analysis, traffic shifting, promotion, and rollback by integrating with service meshes, ingress controllers, metrics providers, and webhooks. The data structure is a release state machine with measured gates.',
-        'Primary sources: Flagger homepage at https://flagger.app/, Flagger docs at https://docs.flagger.app/, and Flagger GitHub repository at https://github.com/fluxcd/flagger. The repository summary describes Flagger as automating releases by gradually shifting traffic while measuring metrics and running conformance tests.',
+        'A normal Kubernetes rollout can replace pods gradually, but readiness probes only prove that a container started and answered its health check. They do not prove that the new revision handles real traffic, preserves latency, keeps error rates low, or avoids breaking a downstream dependency.',
+        'Progressive delivery adds a control loop around the rollout. Flagger watches a workload, sends a small slice of traffic to the candidate, measures behavior, then either increases exposure, promotes the candidate, or rolls traffic back to the stable version.',
       ],
     },
     {
-      heading: 'Canary loop',
+      heading: 'The naive rollout hides the real risk',
       paragraphs: [
-        'A workload change starts analysis. Flagger manages primary and canary targets, updates traffic weights through a mesh or ingress controller, checks metric templates and webhooks, and either advances, promotes, or aborts. The loop is a controller: observe, decide, mutate traffic, wait, and observe again.',
-        'This extends Feature Flag Control Plane. Feature flags decide exposure inside application code. Flagger decides exposure at the traffic layer. Both need stable cohorts, observability, and rollback evidence.',
+        'The simple approach is to deploy the new version and trust readiness, alerts, and humans. That can work for low-risk services, but it exposes too much traffic before the system has evidence. By the time dashboards show the problem, the new revision may already be serving most users.',
+        'A manual canary is the next step: change traffic weights by hand, watch metrics, and roll back if something looks bad. That process is slow and inconsistent. Flagger turns it into a repeatable release state machine with explicit gates.',
       ],
     },
     {
-      heading: 'Metric gates',
+      heading: 'The core idea',
       paragraphs: [
-        'Metric gates should reflect the actual risk. Success rate, request duration, error budget, saturation, cost, and business events may all matter. Webhooks can run smoke tests, load tests, conformance checks, or manual approval bridges. A gate without enough traffic is not evidence; it is a weak sample.',
-        'Prometheus TSDB Case Study explains the metric store behind many rollout gates. Envoy xDS Service Mesh Case Study explains the data-plane control that can shift traffic. Distributed Tracing can connect failures back to the candidate revision.',
+        'Flagger separates release intent from release evidence. The desired change is the new workload revision. The evidence is the analysis: traffic percentage, metric windows, webhook checks, threshold failures, and promotion or rollback decisions.',
+        'The invariant is simple: traffic weight should advance only after the current analysis interval passes. If a gate fails enough times, the controller stops increasing exposure and routes traffic back to primary.',
       ],
     },
     {
-      heading: 'Complete case study: checkout API canary',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'A checkout API deploys a new revision. Flagger routes 5 percent of traffic to canary, queries success rate and p99 latency, runs a webhook that performs synthetic checkout, then advances to 10, 25, and 50 percent. At 25 percent, p99 exceeds the threshold and checkout errors rise. Flagger aborts, shifts traffic back to primary, and records the failed analysis.',
-        'The result is a bounded blast radius. Only a slice of traffic saw the candidate, and the release ledger keeps the revision, traffic weights, metric windows, webhook results, and rollback decision for debugging.',
+        'In the canary loop view, follow the cycle rather than the nodes individually. Deploy creates a candidate. Flagger starts analysis. The mesh or ingress changes weights. Metrics and webhooks judge the current slice of traffic. The result either advances the loop or sends it to rollback.',
+        'In the metric gate view, the important state change is the gate decision. A green metric does not promote the whole release by itself; it permits the next weight step. A failed gate removes traffic from the candidate and preserves the reason for later debugging.',
+        'The primary and canary nodes represent separate serving targets. The mesh node is the blast-radius control. The metric node is the evidence source. The result node is the controller decision that closes the feedback loop.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'Progressive delivery is not a guarantee of safety. Bad metrics, low samples, hidden tenant slices, missing cost telemetry, and flaky hooks can all approve a bad release. Canary traffic also needs representative routing; a small percent that misses the risky path proves little.',
+        'A workload change starts analysis. Flagger can manage primary and canary resources, update routes through supported service meshes, ingress controllers, or Gateway API providers, and evaluate metric templates and webhooks on an interval.',
+        'A typical canary has a step weight, maximum weight, analysis interval, threshold for failed checks, and one or more metrics. At each interval the controller asks whether the current candidate traffic is healthy enough to continue.',
+        'Webhooks extend the metric checks. They can run smoke tests, load tests, conformance checks, manual approvals, or custom validation. In Flagger, webhook success is interpreted from the HTTP response, so the check must be reliable and specific.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A checkout API deploys a new revision. Flagger sends 5 percent of traffic to canary, checks success rate and p99 latency, and runs a webhook that performs a synthetic checkout. The first interval passes, so traffic moves to 10 percent.',
+        'At 25 percent, p99 latency crosses the threshold and checkout errors rise. The gate fails. After the configured failure threshold, Flagger aborts analysis, routes traffic back to primary, and records the failed revision, traffic weight, metric window, and decision reason.',
+        'The important result is not that the release was magically safe. The result is bounded blast radius plus evidence. A smaller slice of users saw the bad revision, and the team has a release record that points to the failing condition.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The control loop works because it makes exposure monotonic and conditional. The candidate cannot jump from zero to full traffic unless policy says the steps can be that large. Each step creates a chance to observe real behavior before the next increase.',
+        'Rollback works because traffic routing is controlled outside the candidate application. If the canary misbehaves, the mesh or ingress can stop sending traffic to it without waiting for the bad pods to become healthy or for humans to redeploy the old version.',
+        'The correctness is operational rather than mathematical. Flagger can enforce the rollout policy exactly, but the policy is only as good as its measurements, thresholds, routing representativeness, and failure handling.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Progressive delivery adds release latency. A rollout that could finish in seconds may take minutes because the controller waits for analysis windows. That delay is the cost of gathering evidence before increasing blast radius.',
+        'It also adds control-plane dependencies. The mesh or ingress must support traffic shifting, the metrics backend must answer queries on time, and webhooks must be reachable. If those dependencies are flaky, the rollout can stall or fail for reasons unrelated to the candidate code.',
+        'Metric choice dominates practical behavior. Success rate and average latency may miss tail latency, tenant-specific failures, cost spikes, or a broken path that receives little traffic during the canary interval.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'Flagger fits services with observable request traffic, clear rollback targets, and metrics that correlate with user harm. APIs, web frontends, model gateways, and service-mesh workloads are natural candidates because traffic can be split and measured while both versions run.',
+        'It also fits GitOps environments. A desired workload change lands in the cluster, and the controller handles the measured rollout without turning every release into a manual dashboard-watching exercise.',
+        'The best candidates are reversible service changes with enough traffic during the analysis window.',
+      ],
+    },
+    {
+      heading: 'Where it is not the right tool',
+      paragraphs: [
+        'It is weak for releases with no meaningful live traffic during analysis, batch jobs whose failures appear hours later, schema changes that are not backward compatible, and changes where one request can cause irreversible damage.',
+        'It is also the wrong abstraction when exposure must be controlled by user cohort or product entitlement inside the application. Feature flags are better for user-level targeting. Flagger is better for traffic-layer rollout and rollback.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'A canary can pass for the wrong reason. Low sample counts, traffic that misses the risky path, noisy p99 windows, masked errors, bad Prometheus queries, and flaky webhooks can all approve a candidate that should fail.',
+        'A canary can also fail for the wrong reason. Shared dependency outages, unrelated primary failures, bad baselines, or metric backend problems can blame the candidate. Good release records keep raw metric windows and hook logs so the team can separate code failure from measurement failure.',
+        'Rollback is not full recovery if the release performed irreversible work. Database migrations, message format changes, cache poisoning, and external side effects need compatibility plans before traffic shifting starts.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Feature Flag Control Plane, Argo CD GitOps Application Reconcile, Helm Release Revision Ledger, Envoy xDS Service Mesh Case Study, Prometheus TSDB Case Study, Metric Exemplars Trace Correlation, Distributed Tracing, and LLM Model Rollout Shadow Canary Ledger next.',
+        'Study Feature Flag Control Plane for application-level exposure, Argo CD GitOps Application Reconcile for desired-state delivery, Helm Release Revision Ledger for release history, Envoy xDS Service Mesh Case Study for traffic control, Prometheus TSDB Case Study for metric storage, and Distributed Tracing for finding which candidate path failed.',
+        'Primary sources: Flagger docs at https://docs.flagger.app/, deployment strategies at https://docs.flagger.app/usage/deployment-strategies, how-it-works notes at https://docs.flagger.app/usage/how-it-works, webhooks at https://docs.flagger.app/usage/webhooks, and the Flagger repository at https://github.com/fluxcd/flagger.',
       ],
     },
   ],

@@ -197,41 +197,79 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why the page cache exists',
       paragraphs: [
-        'The Linux page cache keeps file contents in memory so reads, page faults, and many writes can be served without immediately touching storage. The cache is organized around file mappings: an inode address_space maps file offsets to cached folios.',
-        'The XArray is the important data-structure hook. Kernel documentation describes it as a large sparse array of pointers, and notes that its most important user is the page cache.',
+        `A general-purpose operating system cannot afford to treat every file read as a fresh trip to storage. Programs reread shared libraries, configuration files, database pages, package indexes, source trees, container layers, and executable text. Even on fast NVMe, storage latency and queueing are much slower than a memory hit. Linux therefore keeps file contents in memory in the page cache, so buffered reads and memory-mapped page faults can often be satisfied by copying from RAM or by mapping an already-resident folio into a process.`,
+        `The page cache is not just a performance trick. It is the coordination layer between ordinary file APIs, mmap, filesystems, writeback, reclaim, and crash-consistency boundaries such as fsync. A write can update cached memory before the backing device changes. A read can find a clean cached folio without touching disk. Memory pressure can drop unused clean folios, but it must not discard dirty ones. Filesystems can map logical file offsets to disk blocks while the memory manager decides which cached ranges deserve RAM. The data structure has to serve all of those paths without becoming a global bottleneck.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive cache and its wall',
       paragraphs: [
-        'For buffered reads, the kernel calculates the folio indexes covering the requested byte range, looks them up in the file mapping, and copies data from memory on a hit. A miss allocates a folio, reads storage into it, marks it uptodate, and inserts it so later reads or mmap faults can reuse it.',
-        'For buffered writes, the kernel copies user bytes into cached folios and marks them dirty. The backing disk may still contain old bytes until writeback or fsync pushes the folios out.',
+        `The simplest design is a hash table keyed by (file, pageIndex). That is enough to answer one question: do we already have this page? But the kernel routinely asks richer questions. During readahead it wants to walk neighboring cached ranges. During writeback it wants to find dirty folios. During reclaim it wants to distinguish clean, dirty, mapped, under-writeback, and referenced pages. During truncate it may need to remove a range. During huge sparse-file access it must represent high offsets without allocating empty slots for every missing page before them.`,
+        `A resizable array also fails. File offsets can be sparse and enormous, so an array indexed directly by page number would waste memory or require copying and remapping as it grows. A linked list preserves order but makes random lookup expensive. A plain hash table gives fast exact lookup but loses ordered traversal and indexed marks. The page cache wants the shape of a huge sparse array, the lookup cost of an index, and the ability to mark and scan special entries. That is the reason Linux uses the XArray in each file mapping rather than a simpler container.`,
       ],
     },
     {
-      heading: 'Case study: same page idea at three layers',
+      heading: 'The core data model',
       paragraphs: [
-        'SQLite has a pager that caches database pages inside the library. PostgreSQL has a database buffer pool. Linux has the page cache. All three index page-sized units and track dirty state, but they sit at different ownership boundaries. The database layer understands transactions and WAL; the kernel layer understands files, mappings, writeback, and reclaim.',
+        `The central object is the file mapping, represented in the kernel by an address_space. For ordinary file data, the mapping belongs to an inode. Inside that mapping, ` + "`i_pages`" + ` is an XArray from page-sized file indices to cached folios. The key is not merely a byte offset; it is a mapping plus an index derived from the offset. Offset 0 in one file and offset 0 in another file are different cache entries because they live under different mappings.`,
+        `The value is a folio, which is the modern Linux abstraction for one or more physically contiguous pages managed as a unit. A folio can be absent, present but not yet uptodate, uptodate and clean, dirty, under writeback, mapped into userspace, locked for I/O, or eligible for reclaim. Those states are as important as the pointer lookup. A cached folio is useful only if the kernel knows whether its bytes are valid, whether storage already has the same contents, and whether anyone can safely drop or reuse the memory.`,
+        `The most important invariant is simple: a dirty cached folio is newer than the backing store. That state changes the reclaim rule. A clean unused folio can be evicted because the disk or remote filesystem already has the data. A dirty folio cannot be thrown away without losing writes. It must be written back, invalidated under careful rules, or kept until an operation such as fsync forces the durability boundary the application needs.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Mechanism in the visualizer',
       paragraphs: [
-        'Page-cache hits avoid disk latency and can collapse repeated reads into memory copies. The complexity is coherency: direct I/O, mmap, truncation, dirty writeback, fsync, memory pressure, and filesystem mappings all have to agree about which bytes are valid and durable.',
+        `The file-offset lookup path starts outside the cache. A process calls read, or it faults on a memory-mapped file. VFS reaches the file's inode and therefore its address_space. The kernel converts the byte range into folio indices and looks in the mapping's XArray. On a hit, if the folio is uptodate, the kernel can copy bytes to userspace or map the page into the process. On a miss, it allocates a folio, inserts or coordinates insertion, asks the filesystem and block layer to fill it, marks it uptodate after successful I/O, and leaves it indexed for future reads.`,
+        `The dirty-state path shows why the XArray also needs marks and range walks. A buffered write copies user bytes into a cached folio and marks it dirty. The syscall may return before storage has the new contents. Later, background writeback, memory pressure, fsync, or sync policy finds dirty folios, submits I/O through the filesystem, and marks them clean after completion. Reclaim can then evict unused clean folios. The same mapping therefore supports point lookup for reads, marked scans for writeback, and removal or invalidation for truncation and reclaim.`,
+        `The LRU node in the visualizer is deliberately separate from the XArray. The XArray answers "which cached folio belongs to this file offset?" The reclaim machinery answers "which memory should be reclaimed under pressure?" Real page-cache behavior is the combination of both: a folio is indexed by file position, participates in replacement policy, and carries state that determines whether it can be reused immediately.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why XArray fits',
       paragraphs: [
-        'A successful write() to a regular file usually means bytes reached the kernel page cache, not that they are durable on storage. fsync or an equivalent durability protocol is the explicit boundary. Another misconception is that the page cache is simply an LRU cache. Reclaim, dirty state, writeback, mappings, and filesystem rules make it a coordinated VM/filesystem structure.',
+        `The Linux XArray behaves like a very large sparse array of pointers. That phrase matters. It preserves an integer index space, so the page cache can talk naturally in file-page numbers. It does not require memory for every missing slot in a sparse file. It supports finding the next or previous populated entry, which a hash table cannot do cleanly. It supports marks, so subsystems can tag entries as dirty, under writeback, or otherwise interesting and later search for those tags without scanning every cached folio in the machine.`,
+        `Concurrency is another reason the choice matters. File data lookup is a hot path. Many readers may be checking cached pages while writers, reclaim, truncate, and writeback change state around them. The surrounding kernel code uses locking and RCU-oriented patterns to keep read-heavy paths fast while preserving correctness for updates. The data structure is not responsible for all synchronization by itself, but it has to be usable in that environment.`,
+        `The cost model is asymmetric. If a folio is missing and the kernel must wait for storage, the XArray lookup cost is negligible compared with I/O. If a workload is mostly cache hits, the lookup path, memory copying, page fault handling, and cacheline behavior matter. If memory is tight, writeback and reclaim policy dominate. The page cache is fast when it converts expensive storage operations into cheap memory operations, but it is not free: it consumes RAM, creates writeback work, and can interfere with applications that already manage their own cache.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it works and where it does not',
       paragraphs: [
-        'Primary sources: Linux XArray docs at https://docs.kernel.org/core-api/xarray.html, VFS address_space docs at https://docs.kernel.org/filesystems/vfs.html, filemap/writeback APIs at https://docs.kernel.org/core-api/mm-api.html, and iomap buffered I/O notes at https://docs.kernel.org/filesystems/iomap/operations.html. Study VFS Dentry & Inode Cache, File Descriptor Table & Open File Description, LRU Cache, Write-Through vs Write-Back, SQLite B-Tree & Pager, Adaptive Radix Tree, Readahead & Dirty Writeback, Linux Workingset Refault & Reclaim, fsync Rename Crash Consistency, and Filesystem Extent Tree & Delayed Allocation next.',
+        `The page cache is excellent for shared, repeated, and unpredictable file access. Program startup benefits because executable pages and shared libraries stay warm. Build systems benefit because source files and headers are reread. Search tools benefit because directory and file scans reuse cached data. mmap-heavy applications benefit because file-backed pages can be faulted and shared without each process issuing independent I/O. Buffered writes benefit because the kernel can batch and reorder writeback instead of forcing each small write to storage immediately.`,
+        `The same mechanism can be the wrong abstraction for databases, storage engines, and high-throughput systems that already have a buffer manager. A database may want its own replacement policy, checksum discipline, write-ahead log ordering, prefetch strategy, and direct control over fsync. If it uses buffered I/O, it may cache the same data once in the database buffer pool and again in the kernel page cache. Direct I/O is one answer, but it moves responsibility back to the application: alignment, scheduling, caching, and durability become application concerns.`,
+        `The page cache also does not make writes durable by itself. A successful write syscall can mean "copied into kernel memory," not "committed to stable storage." Applications that care about crash recovery must understand fsync, fdatasync, rename, filesystem journaling, and storage flush behavior. The page cache can improve throughput, but it sharpens the distinction between visibility to later reads and durability after power loss.`,
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        `Suppose a process reads 8 KB from a file at offset 1 MB. With 4 KB base pages, that covers two indices in the file mapping. The kernel asks the address_space XArray for those indices. If both folios are present and uptodate, the read is a memory operation. If the first is present and the second is missing, the kernel can return or schedule I/O depending on the path, allocate the missing folio, map the file offset to storage blocks through the filesystem, and fill the folio from the device.`,
+        `Now suppose the process overwrites 2 KB in the first folio. The cached folio is modified and marked dirty. A later read of the same range sees the new bytes from memory. The disk may still hold the old bytes until writeback. If memory pressure arrives, reclaim cannot simply drop that dirty folio. If fsync arrives, the kernel must push the dirty data and the metadata needed to make it durable. This is the same object passing through lookup, modification, writeback, and reclaim roles.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `When you build software on top of the page cache, decide who owns caching policy. A command-line tool, web server, package manager, or build system can usually rely on buffered I/O because the kernel already shares hot file data across processes and reclaims it under memory pressure. A database or log-structured storage engine may need its own buffer pool, checksum path, write ordering, and eviction policy. In that case, buffered I/O can duplicate memory and hide durability boundaries the application wants to control.`,
+        `Choose the I/O mode around invariants, not fashion. Buffered I/O gives simple APIs and a strong default cache. mmap gives convenient shared file-backed memory but turns missing cached folios into page faults and changes where errors surface. Direct I/O can reduce double caching and make latency more explicit, but it makes alignment, batching, prefetch, and writeback the application's problem. The right choice depends on whether the kernel's policy is close enough to the workload's policy.`,
+        `Be explicit about durability. If the program promises that data survives a crash, the design must include fsync or fdatasync at the correct boundary, and it must account for metadata such as directory entries after rename. The page cache makes writes visible to later reads before they are durable. That is a feature for throughput and a hazard for recovery protocols that confuse visibility with persistence.`,
+      ],
+    },
+    {
+      heading: 'Observability and debugging',
+      paragraphs: [
+        `Page-cache behavior often explains performance swings that look like application logic changes. A cold cache turns reads into storage I/O. A warm cache turns the same reads into memory copies and page-table work. A workload that fits in memory during a small test may thrash under production data. A background writeback storm can add latency to unrelated requests because dirty folios, reclaim, and block I/O compete for shared resources.`,
+        `Useful signals include cache hit and miss behavior, major and minor page faults, dirty memory, writeback memory, reclaim activity, I/O queue depth, fsync latency, and memory pressure. Tools vary by kernel and distribution, but the questions stay stable: are reads missing the cache, are writes piling up as dirty pages, is reclaim waiting on writeback, are mmap faults stalling, and is the application accidentally caching the same data in two layers?`,
+        `Debugging should keep the file mapping invariant in mind. A byte range maps to indices inside one address_space. If truncate, hole punching, invalidation, direct I/O, mmap, and buffered I/O touch the same range, correctness depends on coordinated cache invalidation and state transitions. Most application programmers do not manipulate those internals directly, but understanding the invariant helps explain why mixed I/O modes and crash-recovery code deserve special care.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Linux XArray documentation at https://docs.kernel.org/core-api/xarray.html, Linux filesystem API notes for address_space and ` + "`i_pages`" + ` at https://docs.kernel.org/filesystems/api-summary.html, Linux memory-management API notes at https://docs.kernel.org/core-api/mm-api.html, and iomap buffered I/O notes at https://docs.kernel.org/filesystems/iomap/operations.html. The exact internals change across kernel releases, so use the docs and source tree for the version you are studying.`,
+        `Next, study VFS Dentry and Inode Cache for the path from pathname to inode, File Descriptor Table and Open File Description for the path from process handle to file object, Readahead and Dirty Writeback for policy, fsync Rename Crash Consistency for durability, Postgres Buffer Pool Clock Sweep for an application-owned neighbor, SQLite B-Tree Pager for a library-level pager, and Filesystem Extent Tree Delayed Allocation for how logical file offsets eventually become disk placement decisions.`,
       ],
     },
   ],

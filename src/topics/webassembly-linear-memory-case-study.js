@@ -240,47 +240,163 @@ export function* run(input) {
   else throw new InputError('Pick a WebAssembly memory view.');
 }
 
-export const article = {
+const legacyArticle = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'WebAssembly linear memory is the memory model that lets low-level code run inside a browser or other host without receiving native pointers into the host process. The core abstraction is deliberately simple: a contiguous, mutable array of raw bytes. Wasm load and store instructions use integer offsets into that byte array. The host can expose the same memory to JavaScript through WebAssembly.Memory.buffer, which is an ArrayBuffer or SharedArrayBuffer.',
-        'The official core specification describes linear memory as a mutable byte array, and the MDN JavaScript API reference describes WebAssembly.Memory as the resizable buffer accessed by a WebAssembly instance: https://www.w3.org/TR/wasm-core-2/ and https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory. That makes this topic a bridge between arrays, allocators, typed arrays, browser runtimes, and sandboxing.',
+        'WebAssembly needs to run low-level code without handing that code native pointers into the browser or host process. C, C++, Rust, and other compiled languages still need addresses, loads, stores, stacks, heaps, structs, and byte buffers. Linear memory is the compromise: one sandboxed byte array that Wasm can address directly.',
+        'The official core specification describes linear memory as a mutable byte array, and MDN describes WebAssembly.Memory as the resizable buffer accessed by a WebAssembly instance: https://www.w3.org/TR/wasm-core-2/ and https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory. This topic is the bridge between arrays, allocators, typed arrays, browser runtimes, and sandboxing.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting wrong answer',
       paragraphs: [
-        'A memory has an initial size measured in pages. One WebAssembly page is 64 KiB. A module can import memory from JavaScript or create and export memory to JavaScript. JavaScript then creates typed-array views such as Uint8Array, Uint32Array, or Float64Array over the same buffer. Those views do not copy data; they interpret the same bytes with different element widths.',
-        'Compound values cross the boundary as pointer and length pairs. JavaScript writes bytes into memory, passes the offset to an exported Wasm function, and reads the result back from memory. Toolchains such as Emscripten add helpers for calling compiled C functions, string conversion, and HEAP8/HEAPU8/HEAP32-style typed views, but the underlying model is still bytes plus offsets: https://emscripten.org/docs/api_reference/preamble.js.html.',
+        'The easy mistake is to treat a Wasm pointer like a JavaScript object reference. It is not one. A pointer is just an integer offset into the module memory. JavaScript cannot follow it as an object, and Wasm cannot use it to escape into the host heap.',
+        'Another mistake is to cache typed-array views forever. For non-shared memory, memory.grow detaches references to the old buffer, even grow(0), so code that keeps a Uint8Array over memory.buffer must recreate the view after any call that may grow memory: https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory/grow.',
       ],
     },
     {
-      heading: 'Growth and pitfalls',
+      heading: 'Core model',
       paragraphs: [
-        'Memory can grow by pages. The JavaScript API memory.grow(delta) returns the previous page count and increases the memory size if it stays within the maximum. MDN documents the sharp edge: for non-shared memory, every grow call detaches references to the old buffer, even grow(0), so cached typed-array views become empty or stale. Accessing memory.buffer again gives a buffer with the current length: https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory/grow.',
-        'This is why robust interop code stores pointer and length, not a permanent JavaScript view. If an exported function might allocate and trigger growth, recreate typed-array views afterward. If the module owns malloc/free, JavaScript must also respect allocation lifetime. Pointers are just numeric offsets; the runtime will bounds-check them, but it will not automatically free your heap object or decode your struct layout.',
+        'A memory has an initial size measured in pages. One WebAssembly page is 64 KiB. A module can import memory from JavaScript or create and export memory to JavaScript. JavaScript creates typed-array views such as Uint8Array, Uint32Array, or Float64Array over the same buffer. Those views do not copy data; they reinterpret the same bytes with different element widths.',
+        'The invariant is pointer plus length. Compound values cross the boundary by writing bytes into memory, passing an offset and length to an exported function, and reading bytes back through a fresh view. Loads and stores are bounds-checked against linear memory, so an out-of-bounds access traps instead of reading arbitrary host memory.',
+        'Toolchains such as Emscripten add calling helpers, string conversion, malloc/free wrappers, and HEAP8/HEAPU8/HEAP32-style views, but the model underneath is still bytes plus offsets: https://emscripten.org/docs/api_reference/preamble.js.html.',
       ],
     },
     {
-      heading: 'Case-study connections',
+      heading: 'Legacy visual note',
       paragraphs: [
-        'This topic links Buddy Allocator Free Lists and Slab Allocator Size Classes to browser execution. A C or Rust allocator compiled to Wasm manages a heap inside linear memory. It also links Apache Arrow Columnar Memory Case Study because both rely on byte buffers plus typed views and offsets. It links Web Workers because Wasm modules often run off the main thread, Structured Clone & Transferables because ArrayBuffer ownership affects interop, and SharedArrayBuffer & Atomics because Wasm threads share memory through the same browser gate.',
-        'V8 Generational Garbage Collection is a useful contrast. JavaScript objects live in a garbage-collected heap controlled by the engine. Wasm linear memory is a separate byte store controlled by the module and host API. The browser can sandbox it, grow it, and detach buffers, but the language compiled into Wasm may still require manual allocation discipline.',
+        'In the linear-memory view, watch one buffer fan out into Uint8, Uint32, and Float64 interpretations. The point is not that there are three copies; the point is that one byte store can be viewed with several element widths, so offsets, alignment, and encoding become part of the contract.',
+        'In the growth-and-interop view, malloc returns a numeric pointer, JavaScript creates a view over that range, and growth makes old views unsafe for non-shared memory. The safe rule is to store pointer and length, recreate views after growth, and pair ownership with free when the module owns the heap. If you remember only one thing, remember that the pointer is a number inside Wasm memory, not a host object.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins and fails',
       paragraphs: [
-        'Do not treat a Wasm pointer like a JavaScript object reference. It is an offset. Do not cache typed-array views forever if memory can grow. Do not forget string encodings; JavaScript strings are not raw C strings. Do not assume a struct layout unless both sides agree on alignment and field widths. Do not confuse the sandbox boundary with memory safety inside the module: C code can still corrupt its own heap inside linear memory.',
-        'A second misconception is that WebAssembly is only a browser feature. The core format is designed to be portable and not web-specific, though browsers expose it through JavaScript APIs. The V8 4GB memory writeup is a good example of how runtime and toolchain details affect what large linear memories can do in practice: https://v8.dev/blog/4gb-wasm-memory.',
+        'Linear memory wins when native-style code needs predictable byte layout, portable sandboxing, and efficient bulk exchange with JavaScript. It connects Buddy Allocator Free Lists and Slab Allocator Size Classes to browser execution because compiled allocators manage a heap inside this byte array. It also connects Apache Arrow Columnar Memory Case Study because both rely on byte buffers, typed views, and offsets.',
+        'It fails when callers forget the boundary contract. JavaScript strings are not raw C strings. Struct layout needs agreed alignment and field widths. Cached views can go stale. Shared memory introduces Atomics and cross-origin isolation requirements. The sandbox prevents host-memory escape, but C code can still corrupt its own heap inside linear memory.',
+        'WebAssembly is not only a browser feature. The core format is portable, though browsers expose it through JavaScript APIs. V8 4GB Wasm Memory is a useful example of how runtime and toolchain details affect large memories in practice: https://v8.dev/blog/4gb-wasm-memory.',
+      ],
+    },
+    {
+      heading: 'Practical guidance',
+      paragraphs: [
+        'Write the boundary contract down: encoding, pointer, length, element width, alignment, ownership, and whether the call may grow memory. Most Wasm interop bugs are violations of one of those small agreements.',
+        'Prefer bulk transfer over chatty calls. Copy a buffer, call once, and read a buffer back when possible. Crossing the JS/Wasm boundary repeatedly for tiny fields can erase the benefit of running low-level code.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: W3C WebAssembly Core Specification at https://www.w3.org/TR/wasm-core-2/, MDN WebAssembly.Memory at https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory, MDN memory.grow at https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/Memory/grow, MDN text-format memory examples at https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Understanding_the_text_format, Emscripten preamble.js at https://emscripten.org/docs/api_reference/preamble.js.html, Emscripten deployment memory notes at https://emscripten.org/docs/compiling/Deploying-Pages.html, and V8 4GB Wasm Memory at https://v8.dev/blog/4gb-wasm-memory. Study Bytecode Stack Virtual Machine, Interpreter Dispatch Table & Threaded Code, Buddy Allocator Free Lists, Slab Allocator Size Classes, TLSF Real-Time Allocator Bitmap Index, Apache Arrow Columnar Memory Case Study, Structured Clone & Transferables, SharedArrayBuffer & Atomics, Web Workers, Service Workers, Ring Buffer, and V8 Generational Garbage Collection next.',
+      ],
+    },
+  ],
+};
+
+export const article = {
+  sections: [
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'WebAssembly linear memory exists to give compiled code a simple, portable memory model inside a host such as the browser. C, C++, Rust, Zig, and other languages expect something like a byte-addressed address space. JavaScript objects and garbage-collected references are not that.',
+        'Linear memory is the compromise: a module gets a contiguous array of bytes, indexed by integer offsets. The WebAssembly program can load and store numbers at those offsets, while the host keeps the memory sandboxed from the rest of the process.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious browser integration would let compiled code directly use JavaScript arrays, objects, or DOM memory. That would be unsafe and too tied to one host. It would also make compiled languages fight JavaScript object layout and garbage collection.',
+        'Another tempting model is a real native pointer into process memory. That is not acceptable on the web. A Wasm module must not read arbitrary browser memory, corrupt the host, or depend on machine-specific addresses. Linear memory gives pointer-like offsets without exposing real process pointers.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'A Wasm memory is an ArrayBuffer-like byte store divided into pages. A pointer in Wasm is usually just an integer offset into that store. Loads and stores check that the accessed range is inside the memory bounds.',
+        'This makes memory explicit. The module owns its heap discipline: stack layout, allocator metadata, structs, arrays, and strings all become bytes at offsets. The host can inspect or copy those bytes, but it does not understand their meaning unless the ABI defines it.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A module declares or imports a memory with an initial page count and often a maximum page count. One WebAssembly page is 64 KiB. Instructions such as i32.load, i64.store, and f32.load read and write typed values at computed offsets.',
+        'The compiler lowers high-level data structures into memory layout. A Rust string passed to Wasm may become a pointer and length. A C struct becomes fields at fixed offsets. An allocator manages free and used regions. None of that is automatic JavaScript object sharing; it is an ABI contract.',
+        'Memory can grow with memory.grow, but growth can detach or replace the host view depending on the integration path. Host code that keeps a typed array view over memory must be prepared to refresh it after growth.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The byte-grid view proves that Wasm memory is not a bag of objects. It is one indexed byte array. A string, struct, image buffer, or stack frame exists only because code agrees how to interpret bytes starting at an offset.',
+        'The bounds-check view proves the sandbox. A bad offset is not supposed to wander into browser internals. The access traps or fails at the memory boundary. That is the security value of linear memory.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The model works because compiled languages can target integer offsets efficiently. The compiler can generate familiar load and store operations, while the runtime can validate the module and enforce memory bounds.',
+        'It also works as a host boundary. JavaScript can pass numbers, copy bytes, create typed views, or call exported functions. The host does not need to understand every source-language object model, only the agreed memory layout and function signatures.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Linear memory is fast and portable, but it creates copying and ABI costs. Passing a string from JavaScript to Wasm often means encoding it into bytes, allocating space, copying it, and passing pointer plus length. Returning complex data has the same problem in reverse.',
+        'Manual memory management can also return. A language runtime may provide an allocator and garbage collector inside Wasm, but the host will not automatically free arbitrary allocations unless the ABI exposes that behavior. Leaks can happen across the boundary.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Linear memory wins for compute-heavy code, codecs, compression, cryptography, image processing, game engines, parsers, simulation kernels, and existing C/C++ or Rust libraries compiled to the web or an edge runtime.',
+        'It is especially useful when large buffers stay inside Wasm for many operations. The less often data crosses the host boundary, the more the module benefits from dense memory and compiled code.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure is treating offsets as safe high-level references. An offset can be stale, point to freed memory, or refer to bytes whose meaning changed. The host must respect the module ABI rather than guessing.',
+        'The second failure is repeated boundary copying. If every small operation copies data in and out of memory, the Wasm speedup can vanish. Good designs batch work, share buffers carefully, and minimize crossings.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Define the ABI explicitly: how strings, arrays, errors, and ownership are represented. Decide who allocates, who frees, and whether the host may retain pointers after a call returns.',
+        'Refresh typed array views after memory growth. Track pointer-plus-length pairs together. Validate lengths before copying. Treat exported allocator and free functions as part of the public contract, not as incidental helpers.',
+        'Measure boundary cost separately from compute cost. A benchmark that calls one large Wasm function may look excellent while a product workload that calls thousands of tiny functions does not.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose JavaScript wants to pass an image buffer to a Wasm filter. The host allocates a region in linear memory, copies RGBA bytes into that region, and calls an exported function with pointer, width, height, and length. The Wasm code treats the pointer as the start of a byte array.',
+        'If the filter returns a new image, it may return pointer plus length to another memory region. The host creates a typed array view, copies or consumes the bytes, and then calls an exported free function if ownership has moved back to the host. Without that ownership rule, memory leaks or use-after-free bugs become likely.',
+        'The example shows why linear memory is powerful and awkward. It makes compiled code fast on dense buffers, but every boundary crossing needs layout, ownership, and lifetime discipline that ordinary JavaScript objects normally hide.',
+      ],
+    },
+    {
+      heading: 'How to choose it',
+      paragraphs: [
+        'Use WebAssembly when the hot work is compute-heavy, buffer-oriented, or already exists in a systems language. It is usually a poor fit for code that constantly calls back into the DOM, manipulates many JavaScript objects, or crosses the host boundary for tiny operations.',
+        'The best Wasm modules have a narrow API and do large chunks of work per call. Parse this buffer, compress this block, run this simulation step, transform this image, verify this proof. The less chatty the boundary, the more linear memory helps.',
+        'For teams, the decision should include debugging and packaging. Source maps, panic handling, allocator diagnostics, binary size, startup time, and compatibility with CSP or edge runtimes can matter as much as raw compute speed.',
+      ],
+    },
+    {
+      heading: 'What to watch in production',
+      paragraphs: [
+        'The operational question is not simply whether Wasm is fast. It is whether the data layout, ownership model, and deployment path stay understandable after several engineers touch the boundary. A clean module exposes a small set of functions whose pointer rules can be written on one page.',
+        'Watch memory growth, allocator pressure, and copied byte volume. A leak inside the module may not look like a JavaScript object leak, and a copy storm may show up as ordinary CPU time rather than as an obvious Wasm problem. Good telemetry counts allocations, frees, bytes copied, traps, and calls per user action.',
+        'Also decide how failure should cross the boundary. Panics, error codes, thrown host exceptions, and poisoned memory states need a documented contract. Otherwise the fastest part of the system becomes the hardest part to debug when malformed input or edge-runtime differences appear.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study ArrayBuffer and TypedArray, Operating-System Virtual Memory, WebGPU Buffer and Bind Group, Protobuf Wire Format, Arena Allocators, and Browser Security Sandboxing. A useful exercise is to pass a UTF-8 string into Wasm, return a transformed string, and write down every allocation and copy.',
       ],
     },
   ],

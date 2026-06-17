@@ -133,37 +133,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Taint analysis is a specialized data-flow analysis for security. It marks some values as untrusted at sources, follows how those values move through code, and reports when tainted data reaches a dangerous sink without an approved sanitizer.',
-        'The model is intentionally broader than exact value flow. A transformed string may no longer equal the original input, but it can still be derived from the original input and still be dangerous. That is why taint tracking often adds edges that normal value-preserving data flow would not include.',
+        `Security bugs often appear when untrusted data crosses a trust boundary and later reaches an operation that treats the value as authority. An HTTP parameter becomes SQL text. A path segment becomes a filesystem path. A header becomes a redirect URL. Retrieved text becomes an LLM tool instruction. The value may pass through helpers, objects, arrays, promises, and string builders before the dangerous call happens.`,
+        `Taint analysis exists to make that path visible. It marks values from sources as untrusted, propagates that influence through program operations, and reports when taint reaches a dangerous sink without an approved sanitizer or safe API boundary. The useful output is not merely "line 42 is bad." It is a source-to-sink path that a reviewer can inspect.`,
+        `This matters because manual review does not scale across modern applications. Searching for database calls, shell execution, template rendering, file access, SSRF-capable clients, or tool calls finds the endpoints, but not the data provenance. Taint analysis turns the question into graph reachability with security-specific models: where does untrusted data start, how can it move, where is it dangerous, and which transformations change its role?`,
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        `The obvious approach is to grep for dangerous APIs and inspect the arguments by hand. That is still useful for small codebases or narrow audits. A reviewer can look at db.exec, child_process.exec, innerHTML, open redirects, file reads, template rendering, and tool dispatch calls, then trace each argument backward.`,
+        `The wall is indirection. Real applications wrap frameworks, pass values through route objects, create helper functions, serialize and deserialize payloads, store values in maps, and build strings over several statements. The dangerous call may be far from the source. A human can trace one path, but large repositories contain thousands of possible paths and many framework-specific shortcuts.`,
+        `A second wall is review consistency. One reviewer may understand that parameterized SQL is safe for SQL injection but not for shell execution. Another may trust a sanitizer outside its context. A tool does not replace judgment, but it can enforce a consistent source, sink, sanitizer, and summary model across the whole codebase.`,
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        `Taint follows influence, not exact equality. If req.query.name is copied into a variable, concatenated into a template string, placed into an object field, returned from a helper, or sent through a promise chain, the final value may not equal the original text. It is still attacker-controlled in the way that matters to the sink.`,
+        `The analysis is usually a data-flow engine plus a security model. The engine knows how facts move through assignments, calls, returns, fields, arrays, and control-flow joins. The security model says which values are sources, which APIs are sinks, which calls are sanitizers, and which library or framework functions pass taint through.`,
+        `The key distinction is role. A value can be tainted and still safe for one sink if it is passed as data rather than syntax. A parameterized SQL API can keep an attacker-controlled id from becoming query syntax. That does not make the same id safe for HTML output, shell commands, file paths, or LLM tool authority.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The engine starts with the Data-Flow Worklist Analysis skeleton. A source could be an HTTP parameter, uploaded file, environment variable, retrieved document, or LLM tool observation. A sink could be SQL execution, shell execution, file path access, HTML rendering, secret-returning APIs, or tool calls in an agent.',
-        'Sanitizers are sink-specific. Escaping for HTML is not the same as parameter binding for SQL. A summary describes how taint moves through a function call, method, framework helper, promise chain, object field, or collection. Missing summaries cause false negatives; overly broad summaries cause noisy false positives.',
+        `The engine starts by assigning taint facts to source expressions. In a web application, sources can include query parameters, route params, request bodies, headers, cookies, uploaded files, environment variables, webhooks, queue messages, database fields containing user content, retrieved documents, or LLM observations from untrusted tools.`,
+        `The propagation rules carry those facts through the program. A variable assignment copies taint. String concatenation combines taint. A property write can taint an object field. A function call may pass taint from argument to return value. A promise chain may preserve taint across callbacks. A collection may need element-level or whole-collection taint depending on the precision of the analysis.`,
+        `A sink is an operation where attacker influence can become authority. SQL execution, shell execution, path-based file access, HTML or JavaScript rendering, SSRF-capable HTTP clients, unsafe deserialization, template evaluation, secret-returning APIs, and agent tool dispatch can all be sinks. A sink model should name the dangerous argument position and the kind of taint that matters there.`,
+        `Sanitizers and safe APIs are context-specific. Escaping for HTML is meaningful for an HTML sink. Parameter binding is meaningful for SQL. URL validation may be meaningful for SSRF only if it handles redirects, DNS rebinding, private address ranges, and scheme restrictions. A sanitizer model that says "clean" without naming the sink class is usually too broad.`,
+        `Summaries connect the analysis across abstraction boundaries. If a framework helper returns req.query.name but the model does not know that, the path breaks and the bug is missed. If a summary says every helper returns tainted data, harmless flows become noisy. Production taint analysis is therefore mostly modeling work around a reusable data-flow core.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Imagine a JavaScript route that reads req.query.name, places it into a template string, and sends the resulting string to db.exec. The taint path is source to route handler to string construction to SQL sink. A path query should explain each hop so a reviewer can decide whether the finding is real.',
-        'The safe repair is not to guess at quote escaping. It is to move the untrusted value into a parameterized query API. In the analysis model, that API is treated as a sanitizer for SQL execution because the value is passed as data rather than executable query text.',
+        `The correctness claim is conditional: if the source model is right, the sink model is right, and the flow rules over-approximate real data influence, then a reported path is evidence that untrusted data can reach the sink. The tool may not prove exploitability, but it gives the reviewer a concrete path to check.`,
+        `The path explanation matters because taint analysis is not useful as a naked warning label. A reviewer needs to see the source, intermediate transformations, call summaries, sanitizer decisions, and sink. If the path jumps through a missing framework model or ignores a real sanitizer, the reviewer can fix the model rather than guessing.`,
+        `A safe repair changes the role of the value at the sink. For SQL injection, the usual repair is not hand-written quote escaping. It is a parameterized API that sends SQL syntax and untrusted data separately. In the model, the untrusted value may remain tainted, but it no longer reaches the SQL-text argument in the dangerous role.`,
+        `The same reasoning applies outside SQL. A path traversal repair may canonicalize and constrain a path under an allowed directory. An SSRF repair may parse the URL, enforce scheme and host policy, resolve and recheck addresses, and block redirects to private ranges. An LLM tool-call repair may preserve provenance and forbid untrusted retrieved text from authorizing side effects.`,
+      ],
+    },
+    {
+      heading: 'Concrete case',
+      paragraphs: [
+        `Consider a route that reads req.query.table, builds SELECT * FROM plus that table name, and calls db.exec. The source is the query parameter. The flow steps are assignment and string construction. The sink is raw SQL execution. The alert is useful because it explains the missing boundary: untrusted text became query syntax.`,
+        `Changing the code to db.query("SELECT * FROM users WHERE id = ?", [id]) changes the sink role. The id value is still attacker-controlled, but the API treats it as a parameter, not executable SQL syntax. A precise taint query should stop reporting SQL injection for that path while still allowing the same id to be reported if it later reaches a shell command or HTML sink unsafely.`,
+        `A more subtle example uses a helper: getTable(req) returns req.query.table after a small transformation. If the analysis lacks a summary for getTable, the path from source to sink disappears. If the summary says getTable sanitizes table names but the helper only trims whitespace, the analysis becomes unsound. The model must say what the helper actually guarantees.`,
+        `A useful finding therefore has two layers. The first is graph reachability from source to sink. The second is semantic review: is the sink dangerous in this call, does the sanitizer apply to this sink class, and can an attacker control the source in the deployed route?`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Start with a narrow vulnerability class. SQL injection, command injection, path traversal, SSRF, XSS, unsafe deserialization, secret exfiltration, prompt injection to tool calls, and unsafe file writes all need different source, sink, and sanitizer definitions. A broad "find badness" query is usually noisy.`,
+        `Model the framework before judging the application. For JavaScript, route parameters, request bodies, Express middleware, ORM helpers, template engines, promise utilities, and wrapper modules often decide whether paths are visible. For a codebase with custom abstractions, a small set of accurate summaries can improve results more than a clever query.`,
+        `Make findings reviewable. Store the source location, sink location, path steps, sanitizer decisions, and rule id. Group duplicate paths that share the same source and sink. Suppressions should name the reason, such as trusted source, validated enum, safe parameter API, or sink not reachable in production.`,
+        `Use taint analysis as part of CI with severity gates that match confidence. High-confidence source-to-dangerous-sink paths can block changes. Lower-confidence paths can create review tasks. The tool should improve security throughput, not train engineers to ignore a wall of false positives.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `Precision costs modeling time. Every framework shortcut, helper, wrapper, sanitizer, and sink argument position can affect results. A cheap first query may find real bugs, but a durable deployment needs ownership for models and suppressions as the codebase changes.`,
+        `Soundness and noise pull against each other. If the analysis over-approximates every possible flow, reviewers drown in paths that cannot happen. If it under-approximates to stay quiet, real bugs disappear. Different teams choose different points on that curve depending on whether the tool is used for research, CI blocking, or audit support.`,
+        `Path sensitivity is expensive. A value may be safe only after a particular validation branch, or only when an enum check succeeds, or only for one route. A path-insensitive analysis may report false positives because it merges safe and unsafe states. A highly path-sensitive analysis may become too slow or too complex for large applications.`,
+        `Alias and heap modeling are also hard. If taint is stored inside object fields, arrays, maps, request contexts, closures, or global registries, the analysis must decide how precisely to track it. Whole-object taint is simple but noisy. Field-sensitive taint is better but more expensive and easier to get wrong.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first failure mode is sanitizer confusion. A value escaped for HTML is not safe for SQL. A SQL parameter is not safe for a shell command. A URL allowlist may not be safe if redirects, encoded hosts, IPv6 forms, or DNS rebinding are ignored. Sanitizers should be tied to sink classes and threat models.`,
+        `The second failure mode is missing implicit flows. If a secret controls a branch and the branch controls public output, the secret influenced behavior without being copied as a value. Classic taint tracking usually follows data flow, not every information-flow channel. That is acceptable for many injection classes, but it should not be mistaken for full noninterference.`,
+        `The third failure mode is dynamic behavior. eval, reflection, dependency injection, monkey-patching, dynamic property names, runtime route registration, and generated code can hide paths from a static analyzer. Runtime instrumentation, tests, or symbolic execution may be needed when static models cannot see enough of the program.`,
+        `The fourth failure mode is trusting the path too much. A taint path is evidence, not the exploit. The reviewer still needs to check reachability, authentication, deployment configuration, data shape, sink semantics, and whether the reported source is attacker-controlled in the relevant context.`,
       ],
     },
     {
       heading: 'Links to LLM security',
       paragraphs: [
-        'Prompt Injection Threat Model is taint analysis in a new shape. Untrusted retrieved text flows into the model context. The sink is not only final text; it can be a tool call, email send, repository write, or secret-bearing API. A guardrail policy engine is therefore a source/sink/sanitizer model around an LLM application.',
-        'The same discipline applies: label trust boundaries at ingestion, preserve provenance through transformations, keep tool permissions narrow, and log enough path evidence to audit why a tool call was allowed or blocked.',
+        `Prompt injection is taint analysis with a newer sink. Untrusted retrieved documents, web pages, user messages, and tool observations flow into model context. The dangerous sink may be a tool call, repository edit, email send, purchase, database query, or secret-bearing API rather than final text.`,
+        `The same discipline applies. Label trust boundaries at ingestion. Preserve provenance through chunking, retrieval, summarization, context packing, and tool planning. Keep tool permissions narrow. Treat policy checks as sanitizers only for the sink class they actually constrain. Log enough path evidence to explain why a tool call was allowed or blocked.`,
+        `This framing prevents a common mistake: treating the model as a sanitizer. A model may rewrite, summarize, or classify untrusted text, but that does not automatically remove the attacker's influence. If the rewritten text can still steer a side-effecting tool, the taint has changed shape rather than disappeared.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: CodeQL data-flow overview at https://codeql.github.com/docs/writing-codeql-queries/about-data-flow-analysis/, CodeQL JavaScript/TypeScript guide at https://codeql.github.com/docs/codeql-language-guides/analyzing-data-flow-in-javascript-and-typescript/, CodeQL JavaScript data-flow cheat sheet at https://codeql.github.com/docs/codeql-language-guides/data-flow-cheat-sheet-for-javascript/, Semgrep taint overview at https://docs.semgrep.dev/writing-rules/data-flow/taint-mode/overview, and Semgrep taint labels at https://semgrep.dev/docs/writing-rules/data-flow/taint-mode/advanced. Study Data-Flow Worklist Analysis, Abstract Interpretation & Interval Domain, Prompt Injection Threat Model, LLM Guardrail Policy Engine, and Symbolic Execution Path Constraints next.',
+        `Primary sources: CodeQL data-flow overview at https://codeql.github.com/docs/writing-codeql-queries/about-data-flow-analysis/, CodeQL JavaScript/TypeScript guide at https://codeql.github.com/docs/codeql-language-guides/analyzing-data-flow-in-javascript-and-typescript/, CodeQL JavaScript data-flow cheat sheet at https://codeql.github.com/docs/codeql-language-guides/data-flow-cheat-sheet-for-javascript/, Semgrep taint overview at https://docs.semgrep.dev/writing-rules/data-flow/taint-mode/overview, and Semgrep taint labels at https://semgrep.dev/docs/writing-rules/data-flow/taint-mode/advanced.`,
+        `Study Data-Flow Worklist Analysis for the propagation engine, Abstract Interpretation and Interval Domain for conservative approximation, Symbolic Execution Path Constraints for concrete path witnesses, Prompt Injection Threat Model for LLM source/sink modeling, LLM Guardrail Policy Engine for enforcement, and Software Supply Chain Provenance Graph for another example of path evidence across trust boundaries.`,
       ],
     },
   ],

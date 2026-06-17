@@ -187,7 +187,7 @@ export function* run(input) {
   else throw new InputError('Pick a view.');
 }
 
-export const article = {
+const legacyArticle = {
   sections: [
     {
       heading: `What it is`,
@@ -201,6 +201,13 @@ export const article = {
         `The visualization shows two attack strategies. First: N = 3 with one traitor is impossible. A loyal commander sends "attack" to L1 and a traitor lieutenant L2 relays "the commander said retreat" — both statements are byte-for-byte identical to L1. No decision rule can be right in both worlds: world 1 (traitor commander) requires L1 to ignore the commander; world 2 (traitor lieutenant) requires L1 to trust him. The evidence is ambiguous by design.`,
         `Second: N = 4 with one traitor succeeds. A traitor commander tells L1 "attack," L2 "retreat," L3 "attack." Each loyal lieutenant collects three claims (one from the commander, two relayed), then takes the majority. All three lieutenants end up voting on the same multiset {A, R, A} — the contradiction is pooled into shared evidence — so all compute the same majority result. If the traitor is a lieutenant instead, the honest commander's order is simply outvoted 2-to-1 by honest relays. One liar cannot dominate a majority.`,
         `The 3f+1 rule emerges from the quorum arithmetic: you can only wait for 2f+1 replies (the f faulty nodes may be silent forever), and two quorums of 2f+1 must overlap in at least f+1 nodes. Since at most f are liars, at least one overlap is honest — that witness carries the truth across any pair of decisions. This is the same pigeonhole principle that keeps Paxos honest: the intersection that carried history now must carry honesty, requiring one-third more hardware.`,
+      ],
+    },
+    {
+      heading: `Legacy visual note`,
+      paragraphs: [
+        `Read the generals as a model of untrusted communication, not as a military story. Messages can be missing, contradictory, forged, or delayed, and correct participants still need to decide consistently.`,
+        `The animation's useful lesson is fault model discipline. Crash-fault consensus assumes nodes stop or lag; Byzantine consensus assumes nodes may lie. The data structures, quorum sizes, signatures, and costs change because the threat model changed.`,
       ],
     },
     {
@@ -225,6 +232,90 @@ export const article = {
       heading: `Study next`,
       paragraphs: [
         `Read "Paxos: Consensus Without a Leader" to understand the crash-fault quorum that inspired the Byzantine overlap. Continue into "HotStuff BFT Quorum Certificate Case Study" for the production data structures: quorum certificates, chained commits, timeout certificates, and Diem/Aptos-style descendants. Then study "Narwhal Bullshark DAG Mempool Case Study" to see how DAG-based BFT separates data availability from ordering. Study "Raft Leader Election" for the same ideas in a leader-based protocol. Explore "Read/Write Quorums & Tunable Consistency" to see the pigeonhole principle applied to freshness instead of honesty. Learn "Merkle Tree" for the cryptographic commitments that let light clients verify state without trusting validators. Trace "Two-Phase Commit (2PC)" to see the synchronous ancestor of PBFT's prepare/commit structure. Together, these form the consensus family: crash-fault (Paxos, Raft), Byzantine-fault (PBFT, HotStuff), and the quorum invariants that connect them all.`,
+      ],
+    },
+  ],
+};
+
+export const article = {
+  sections: [
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Byzantine fault tolerance exists for systems where a participant can lie, equivocate, send different messages to different peers, omit messages, or act maliciously. Ordinary crash fault tolerance assumes failed nodes stop or become unreachable. Byzantine systems assume failed nodes may actively mislead the rest.',
+        'The classic generals story is a teaching device. Several generals must agree to attack or retreat, but some messengers or generals may be traitors. The real engineering problem appears in replicated databases, blockchains, control planes, voting systems, and any distributed protocol exposed to adversarial behavior.',
+        'The difference from ordinary consensus is not cosmetic. A crash-fault node can withhold information. A Byzantine node can manufacture conflicting information. Protocols must therefore prove not only that enough nodes agreed, but that the evidence for agreement cannot also support the opposite decision.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is majority vote. If most nodes say commit, commit. That works only when nodes report one consistent story. A Byzantine node can tell one replica commit and another abort, creating split brain while still appearing to participate.',
+        'Another tempting approach is to trust the leader unless it disappears. That is safe for crash faults but unsafe for malicious leaders. A Byzantine leader can propose conflicting values, hide messages, or selectively delay communication so different honest nodes form different beliefs.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that agreement needs both quorum size and evidence. Honest nodes must not decide based only on one message. They need enough signed or authenticated messages that two conflicting decisions cannot both gather valid support from quorums containing too few honest nodes.',
+        'The famous bound is that deterministic Byzantine agreement with oral messages needs more than three times as many total nodes as faulty nodes in the classic model. Practical Byzantine protocols often use 3f + 1 replicas to tolerate f Byzantine faults, with quorum intersection guaranteeing that conflicting certificates share at least one honest participant.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A practical protocol such as PBFT runs in phases. A leader proposes a value. Replicas echo or prepare that proposal. If a replica sees enough matching prepare messages, it can move to commit. If it sees enough matching commit messages, it decides. The phases build a certificate that many replicas saw the same value.',
+        'Authentication matters. Signed or MAC-authenticated messages prevent a faulty node from impersonating many nodes. View changes matter too. If the leader is faulty or slow, the group moves to a new leader while carrying enough certificate evidence that a committed value cannot be contradicted.',
+        'The protocol is not trying to identify every traitor before acting. It is trying to make honest replicas agree despite traitors. Fault detection may help operations, but safety comes from quorum intersection and message evidence.',
+        'For 3f + 1 replicas, a common quorum size is 2f + 1. Two such quorums must overlap in at least f + 1 replicas, which means at least one overlapping replica is honest. That honest overlap is what prevents two conflicting values from both receiving valid decision evidence.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The message-splitting view proves why crash-fault intuition fails. A faulty node can send different values to different honest nodes. The danger is not silence; it is equivocation. The system must make equivocation visible or harmless.',
+        'The quorum view proves why 3f + 1 appears. If enough replicas support a value, any conflicting support set must overlap it. With the right quorum sizes, that overlap contains an honest replica that will not sign two conflicting decisions for the same round and view.',
+        'When signatures appear in the visual, read them as evidence objects. A signed contradiction can be carried into later rounds, shown to new leaders, and used to slash or eject a validator. The protocol is not only passing messages; it is building durable proof of who said what.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Byzantine protocols work by making decisions depend on certificates that cannot be duplicated for conflicting values. Honest replicas follow rules such as signing one proposal per view or refusing to vote against a locked value without stronger evidence. Those local rules create global safety.',
+        'Liveness is harder. The network must eventually deliver messages within some bound, or a protocol cannot distinguish a slow honest leader from a faulty one. Many practical protocols assume partial synchrony: the network can be messy for a while, but eventually it behaves well enough for progress.',
+        'This safety-liveness split is important. A protocol can be safe while stalled: no two honest replicas decide differently, but nobody decides at all. Production designs need monitoring, view-change timers, leader rotation, and denial-of-service defenses to turn safety into a usable service.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Byzantine tolerance is expensive. It needs more replicas than crash tolerance, more message phases, authentication, larger logs, and view-change machinery. Message complexity can be high, especially in protocols where many replicas broadcast to many others.',
+        'The benefit is a stronger threat model. If the system is only worried about machine crashes in one trusted datacenter, Byzantine protocols may be overkill. If nodes cross organizations, money, governance, or adversarial networks, crash-only assumptions may be dangerously weak.',
+        'Membership is also a cost. Deciding who the replicas are, how keys rotate, how a member is removed, and how evidence of misbehavior is stored can be as important as the agreement round itself. A static toy protocol is much simpler than a living validator set.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Byzantine techniques win in replicated ledgers, permissioned blockchains, consensus among mutually distrustful organizations, high-integrity control systems, and services where a compromised node must not corrupt the decision of the group.',
+        'They also provide a vocabulary for audits. Ask what the system assumes a faulty participant can do, what evidence supports a decision, whether conflicting decisions can both gather certificates, and what happens when the leader is malicious but not offline.',
+        'They are most compelling when trust boundaries are real. If all replicas are controlled by one operator on one software stack, Byzantine replication may mostly protect against compromise. If replicas are run by different organizations, it can protect against conflicting incentives as well.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure is claiming Byzantine tolerance while relying on trusted clocks, unauthenticated messages, or a hidden central coordinator. Those assumptions can collapse the adversarial model. The second failure is underestimating liveness: a safe protocol can still stall under partitions or denial of service.',
+        'Operational complexity is another failure mode. Key rotation, validator membership changes, slashing rules, replay protection, evidence retention, and software upgrades all affect the safety envelope. The math of quorum intersection is necessary but not enough for a production system.',
+        'A final failure is ambiguous finality. Users need to know when a decision is irreversible under the protocol assumptions. Probabilistic, economic, and certificate-based finality have different meanings, and mixing them in product language creates dangerous expectations.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Consensus and Raft to understand crash faults first, then PBFT, Quorum Systems, Digital Signatures, Threshold Signatures, View Change, Blockchain Finality, and CAP Theorem. Compare what changes when a node can merely disappear versus when it can lie differently to different peers.',
+        'A useful exercise is to draw four replicas with one faulty node. Try to create two conflicting commit certificates. The overlap argument becomes clear when you see that the same honest replica would have to sign both conflicts for both certificates to exist.',
+        'After that, draw seven replicas with two faulty nodes and repeat the exercise. Scaling the picture from f = 1 to f = 2 makes the quorum arithmetic feel less like a memorized formula and more like an intersection proof.',
       ],
     },
   ],

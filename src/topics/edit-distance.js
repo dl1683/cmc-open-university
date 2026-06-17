@@ -112,39 +112,59 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        `Edit Distance (DP Table) measures how many single-character insertions, deletions, and substitutions are needed to turn one string into another. Vladimir Levenshtein formalized this unit-cost version in 1965. The visualization offers kitten to sitting, sunday to saturday, and cat to cat. For kitten to sitting, the answer is 3: substitute k with s, substitute e with i, and insert g.`,
-        `This is a sequence comparison problem. Recursion gives the natural definition: the distance between two suffixes is the best of delete, insert, or substitute, plus the distance of the smaller suffixes. But raw recursion recomputes the same suffix pairs exponentially many times. Memoization (Dynamic Programming) stores every subproblem in a grid, so each cell answers one prefix-pair question once.`,
+        `Edit distance measures how much work it takes to turn one sequence into another. In the standard Levenshtein version, the allowed edits are insert one symbol, delete one symbol, or substitute one symbol for another. The distance between cat and cut is 1 because one substitution changes a to u. The distance between kitten and sitting is 3 under unit costs. This gives a concrete number for "near but not identical."`,
+        `The idea applies to strings, DNA bases, tokens, OCR output, product names, file lines, or any ordered sequence once the edit operations are defined. It is useful because many systems do not need exact equality. A search box should recover from a typo. A diff tool should align mostly similar text. A record-linkage system should notice that two names may refer to the same person even when punctuation, spelling, or transcription differs.`,
+        `The distance is a model, not a law of nature. Before using it, decide what the symbols are. Character distance is good for short typos. Token distance may be better for sentences. Line distance may be better for source files. DNA alignment may need bases plus gap penalties. The same table pattern works across these cases only after the unit of comparison and cost rules match the question being asked.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and wall',
       paragraphs: [
-        `Build a table with m + 1 rows and n + 1 columns. Row i means the first i characters of the source; column j means the first j characters of the target. The first column is i deletions to reach the empty string. The first row is j insertions from the empty string. Then each interior cell looks at three already-computed neighbors: diagonal for substitution or match, above for deletion, and left for insertion.`,
-        `If the two current characters match, copy the diagonal cost. If they differ, store 1 + min(diagonal, above, left). The demo fills the grid row by row and highlights exactly those three dependencies. The bottom-right cell is the distance. A traceback then walks backward to recover an edit script, not just the number. This is why the table is more informative than a greedy scan with Two Pointers or a simple Sliding Window.`,
+        `The direct approach is to try edit scripts. At each mismatch, delete from the source, insert from the target, or substitute one symbol for the other, then keep exploring until the source equals the target. This is not a silly plan. It mirrors the definition of the problem, and for tiny examples a human can reason exactly this way.`,
+        `The wall is repeated branching over the same suffix pairs. After several different early edits, the algorithm often reaches the same question again: what is the distance between the remaining part of one string and the remaining part of the other? Brute force forgets that it already solved that question. The number of possible scripts grows explosively, while the number of distinct prefix-pair questions is only the size of a rectangular grid.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        `The standard dynamic program costs O(mn) time and O(mn) space. If you only need the distance, not the edit script, you can store two rows and reduce space to O(min(m, n)). Traceback takes O(m + n) after the full table is stored. For two 1,000-character strings, the table has about one million cells, which is practical; for millions of characters, production systems use banding, indexes, or problem-specific approximations.`,
+        `The core insight is to make every prefix pair a subproblem. Cell i, j in the table means the minimum edit cost for turning the first i symbols of the source into the first j symbols of the target. Once that definition is fixed, the recurrence is forced by the last operation. The last operation was either a deletion, an insertion, a substitution, or no edit if the last symbols already match.`,
+        `That gives each cell three dependencies. The cell above represents deleting the current source symbol. The cell to the left represents inserting the current target symbol. The diagonal cell represents matching or substituting the two current symbols. If the symbols match, copy the diagonal. If they differ, take one plus the cheapest of above, left, and diagonal. The final answer is in the bottom-right cell because that cell compares the full source with the full target.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism and table layout',
       paragraphs: [
-        `Spell-checkers compare a typo against dictionary candidates, often after a Trie (Prefix Tree) narrows the search. Fuzzy search, record linkage, OCR cleanup, and DNA alignment all use variants. Git-style text diff is related, though many diff tools use Myers' shortest-edit-script algorithm rather than this exact table. Tokenization (BPE) matters in modern language systems because distance can be computed over characters, bytes, tokens, or words, and the choice changes the meaning of "one edit."`,
+        `The first row and first column are base cases, not decoration. Turning a nonempty prefix into an empty prefix takes one deletion per source symbol. Turning an empty prefix into a nonempty target prefix takes one insertion per target symbol. Those edge values anchor the rest of the grid. From there, fill cells in an order where above, left, and diagonal are already known, usually row by row or column by column.`,
+        `The table is a dynamic-programming data structure. It stores the result of each subproblem so later cells can reuse it in constant time. If the source has length m and the target has length n, the table has (m + 1)(n + 1) cells. Each cell holds a cost. If the application also needs an edit script, the implementation can store a backpointer or recover one later by walking from the bottom-right cell toward the top-left along choices that explain the cost.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        `Equal costs are a model, not a law. DNA alignment may reward matches and penalize gaps differently; keyboard typo correction may make nearby-key substitutions cheaper. The recurrence then becomes min(diagonal + substitutionCost, above + deletionCost, left + insertionCost), with match cost often zero. Another common mistake is quoting the longest-common-subsequence formula as Levenshtein distance. m + n - 2 * LCS length is the insert/delete distance when substitutions are not allowed as a one-step edit.`,
+        `Correctness comes from optimal substructure. Take any optimal script for prefixes i and j. Look at its final step. If it ends by deleting source symbol i, then everything before that final deletion must be an optimal script for prefixes i - 1 and j; otherwise replacing it with a cheaper script would improve the whole answer. The same argument holds for insertion and substitution. A match is just a diagonal move with zero additional cost.`,
+        `Because every possible final operation is represented by one of the three neighbors, the recurrence cannot miss the optimum. Because the table fills smaller prefixes before larger prefixes, each neighbor already contains its true minimum when the current cell is computed. The invariant after filling any cell is plain: that cell is the true minimum edit cost for its prefix pair. The bottom-right cell inherits the invariant for the complete strings.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and practical variants',
       paragraphs: [
-        `Primary source: Levenshtein, "Binary codes capable of correcting deletions, insertions, and reversals", IEEE page at https://ieeexplore.ieee.org/document/5392606. Study Memoization (Dynamic Programming) for the general grid pattern, then Recursion for the exponential version this table replaces. Compare with Two Pointers and Sliding Window to learn when sequence problems collapse to O(n) instead of needing O(mn). For applications, read BK-Tree Metric Spellcheck, Trie (Prefix Tree), Tokenization (BPE), and Big-O Growth Rates so you can reason about dictionary scale and text length before choosing an approach.`,
+        `The classic algorithm costs O(mn) time and O(mn) space. That is excellent compared with enumerating scripts, but it is still expensive for long strings or large candidate sets. If a search engine compares a query with millions of names, even a small grid per candidate may be too much. If only the distance is needed, memory can drop to two rows, or even one row with careful updates, because each new row depends only on the previous row and the current row's left cell.`,
+        `If the edit script is needed, full memory or backpointer storage is more convenient. Other variants change the model. Weighted edit distance charges different costs for likely keyboard mistakes, phonetic confusions, or domain-specific substitutions. Damerau-Levenshtein adds transposition for swapped adjacent characters. Banded dynamic programming assumes the answer is small and fills only cells near the diagonal. Bit-parallel algorithms pack many cells into machine words for short patterns. Each variant keeps the same habit: define the subproblem carefully, then reuse it.`,
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        `Edit distance is useful when surface form matters. Spell checkers rank candidate corrections. Fuzzy search tolerates missing letters and extra letters. OCR cleanup compares noisy text against known vocabularies. Record linkage compares names, addresses, and identifiers that may have typos. Bioinformatics alignment uses related dynamic-programming grids with gap penalties and substitution scores. Plagiarism and code-similarity tools use edit-like ideas after choosing the right unit, such as characters, tokens, or lines.`,
+        `Operationally, the important signals are not just average distance. Systems track candidate-generation recall, false matches at a chosen threshold, latency per comparison, p95 query cost, and how often the distance model agrees with human judgment. A typo-tolerant product search has different goals from a legal document diff. In one setting, overmatching is annoying. In another, overmatching can attach the wrong record to a person. The edit model must fit the consequence of an error.`,
+        `Thresholds need calibration. A distance of 2 is tiny for a 30-character product title and huge for a 3-character airport code. Many systems normalize by length, restrict comparisons to candidates from a trie or q-gram index, or use edit distance only as a reranker after cheaper filters. The algorithm gives the exact answer for a pair; the surrounding retrieval system decides which pairs deserve that exact computation.`,
+      ],
+    },
+    {
+      heading: 'Where it fails and what to study next',
+      paragraphs: [
+        `Edit distance is not semantic similarity. The strings dog and dig are close by character edits but refer to different words. The strings car and automobile are far by character edits but close in meaning. Unit-cost character edits also treat all mistakes as equally likely, which is rarely true. A one-letter keyboard neighbor may be more plausible than a random substitution. A missing middle initial in a name is different from a changed surname.`,
+        `Study recursion and memoization first, then dynamic programming tables, longest common subsequence, Needleman-Wunsch alignment, tries, BK-trees, q-gram indexes, and tokenization. The original Levenshtein paper, "Binary codes capable of correcting deletions, insertions, and reversals," is the historical source. The deeper lesson is broader than strings: when an exponential search keeps asking the same smaller questions, name the subquestions, store their answers, and prove that the recurrence covers every valid final step.`,
       ],
     },
   ],

@@ -201,44 +201,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'A bounding volume hierarchy, or BVH, is a tree over geometric objects. Leaves store primitives such as triangles, curves, or collision shapes. Internal nodes store bounding volumes, most often axis-aligned bounding boxes, that enclose every primitive below them. A query tests the cheap volume first and descends only when the volume might contain an answer.',
-        'This topic builds on R-Tree Spatial Index, k-d Tree, Quadtree Spatial Index & Map Tiles, and Interval Tree. The contrast is important: quadtrees and grids subdivide space; BVHs subdivide the primitive set. That makes BVHs a natural fit for ray tracing, game collision broad phases, CAD selection, physics, and scenes with complex meshes.',
+        `Ray tracing asks a brutal question many times: given a ray, what is the closest surface it hits? A single rendered frame can contain millions or billions of such queries once reflections, shadows, transparency, anti-aliasing, and path-tracing bounces are included. The scene may contain millions of triangles. Testing every ray against every triangle is correct, but it is not a renderer. It is a demonstration of why acceleration structures exist.`,
+        `The same problem appears outside photorealistic rendering. A physics engine asks which shapes might collide. A CAD tool asks which object the cursor selected. A game asks whether a projectile intersects a mesh. In all of these cases, exact primitive tests are expensive and most primitives are irrelevant to a given query. The data structure has to reject large groups before the exact math begins.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'Ray traversal starts at the root. If the ray misses the root box, the entire scene is skipped. If it hits, traversal tests child boxes. A miss rejects every primitive below that child. A hit descends until leaves are reached, where exact ray-triangle or shape tests run. Closest-hit traversal usually visits nearer child boxes first and prunes farther nodes when their entry distance cannot beat the current best hit.',
-        'Construction groups primitives into leaves and recursively builds parent boxes. Simple builders split by median centroid. Higher-quality builders estimate cost with the surface-area heuristic, or SAH, which trades build time for fewer traversal tests later. GPU and real-time systems often use faster approximate builders, wide nodes, compact memory layouts, and specialized traversal kernels.',
+        `The naive ray tracer loops through all triangles, computes an exact ray-triangle intersection for each one, keeps the nearest positive hit distance, and returns the winning surface. This is simple and has no build step, but its cost is linear in scene size for every query. Doubling the number of triangles doubles the cost of each ray, even if the new triangles are behind the camera or far away from the ray path.`,
+        `Uniform grids and spatial partitions are a natural next idea: divide space into cells and test only the cells the ray enters. That works for some scenes, but empty space, uneven triangle density, huge triangles, and dynamic objects can make grid resolution painful. A bounding volume hierarchy takes a different path. It partitions primitives into groups and wraps those groups with cheap volumes, usually axis-aligned bounding boxes.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'A BVH uses O(n) storage for n primitives. Build time ranges from near-linear approximate builders to more expensive high-quality SAH builders. Query time depends on scene distribution, box overlap, ray coherence, memory locality, and traversal order. In bad layouts, many boxes overlap and the ray descends into too many branches. In good layouts, most rays reject large parts of the scene with a handful of box tests.',
-        'Dynamic scenes add another dimension. If vertices deform or objects move, the system can refit boxes bottom-up instead of rebuilding the tree. Refit is fast, but tree quality can deteriorate as objects drift away from the groups chosen by the original builder. Engines therefore mix refit, partial rebuild, full rebuild, and instance-level transforms depending on motion and latency budget.',
+        `A BVH is a proof-carrying filter. Every internal node stores a box that encloses all geometry below it. If a ray misses the box, then it cannot hit any primitive in that subtree. The rejection is safe because containment is the invariant. A cheap box test becomes a certificate for skipping many expensive primitive tests.`,
+        `The hierarchy matters because one miss can eliminate thousands of triangles. The root box covers the whole scene. Its children cover smaller groups. Leaves contain a small number of primitives. A good BVH arranges the tree so most rays miss many boxes early, while rays that do hit geometry reach only a small set of plausible leaves. The structure does not change the answer; it changes how much work is needed to prove the answer.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Traversal mechanics',
       paragraphs: [
-        'A path tracer needs to answer billions of ray-scene intersection queries. Without an acceleration structure, every ray would test every triangle. With a BVH, each ray walks a hierarchy of boxes, rejects entire mesh regions, and tests exact triangles only in surviving leaves. The speedup is not just algorithmic; it is what makes physically based rendering and real-time ray tracing practical on modern CPUs and GPUs.',
-        'A real-time engine often separates bottom-level acceleration structures for mesh triangles from top-level acceleration structures for scene instances. If a car mesh appears ten times, its mesh BVH can be reused while each instance has a transform in the top-level tree. Moving objects may refit or rebuild their local structures, while static environment geometry can use a higher-quality build created offline.',
+        `Traversal starts at the root. A ray-box test computes whether the ray enters and exits the node's bounds over a valid interval. If there is no overlap, the traversal stops for that subtree. If the ray intersects the box, the algorithm descends to children. At a leaf, it runs exact tests against triangles or other primitives and updates the best hit distance.`,
+        `Closest-hit traversal benefits from visiting nearer child boxes first. Once the algorithm has a hit at distance t, any node whose bounding box begins farther than t cannot contain a closer answer and can be skipped. Shadow rays often use an even simpler rule: stop as soon as any occluder is found between the shading point and the light. Collision queries use the same broad idea but swap ray-triangle tests for shape overlap predicates.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Construction mechanics',
       paragraphs: [
-        'The first misconception is that a BVH is the same as an R-tree. Both store bounding boxes, but an R-tree is a balanced dynamic spatial index often used in databases, while a BVH is usually optimized around traversal throughput over render or physics primitives. Another misconception is that build quality is free. Better splits reduce ray work but cost CPU or GPU time during construction.',
-        'BVHs also do not remove exact tests. A box hit means maybe. The final ray-triangle, triangle-triangle, or shape predicate still decides the real collision or visible surface. The hierarchy is a broad-phase filter that earns its keep by making the exact phase small.',
+        `A builder starts with primitive bounds and centroids. It chooses a split, partitions the primitive set, recurses on the two or more child groups, and stores parent boxes as the union of child boxes. Leaves usually contain a small fixed number of primitives. Internal nodes contain only bounds and child references. The result is a tree that subdivides objects, not empty space.`,
+        `Split quality controls traversal cost. A median split is fast and tends to balance the tree, but it may create boxes that overlap heavily. The surface-area heuristic, or SAH, estimates the expected cost of a split by combining child surface area, primitive counts, and traversal cost. SAH builders spend more time during construction to reduce expected query work. Linear BVH builders use Morton codes or similar spatial ordering to build quickly on GPUs, accepting lower quality when fast rebuilds matter more than perfect traversal.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: PBRT BVH chapter at https://www.pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies, Intel BVH construction article at https://www.intel.com/content/www/us/en/developer/articles/technical/bvh-construction.html, and the JCGT BVH performance comparison at https://jcgt.org/published/0011/04/01/. Study R-Tree Spatial Index, k-d Tree, Quadtree Spatial Index & Map Tiles, Interval Tree, and Big-O Growth next.',
+        `In the ray traversal view, the scene root contains two child boxes. The left child contains triangles A and B. The right child contains triangles C and D. The query ray intersects the root and the left child but misses the right child. That single miss removes C and D from consideration without touching their triangle equations.`,
+        `The remaining work is exact. The traversal tests A and B, keeps the closest valid hit, and returns it as the answer. If B produces a hit at distance 4 and a later node's box starts at distance 7, that later node can be rejected even if the ray would geometrically intersect its box. The current best distance turns the BVH from a maybe-filter into an increasingly strong pruning device as traversal proceeds.`,
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        `The first view makes the rejection invariant visible: a missed box removes every descendant. The highlighted triangles are not ignored because the algorithm got lucky; they are ignored because containment makes the miss logically sufficient. That is the main lesson for any broad-phase data structure. Cheap conservative tests should reduce the number of expensive exact tests while never discarding a possible true hit.`,
+        `The build and refit view shows why BVHs are engineering objects, not just abstract trees. A builder must choose grouping, layout, branching factor, and update strategy. Refit recomputes boxes bottom-up after primitives move, which is much cheaper than rebuilding. But if objects move far from their original groups, the boxes grow and overlap, and traversal quality decays. Dynamic engines therefore balance refit, partial rebuild, full rebuild, and top-level instancing.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `Storage is linear in the number of primitives, but memory layout drives real speed. Renderers care about compact nodes, cache lines, SIMD-friendly child tests, stack size, and GPU divergence. A theoretically reasonable tree can still be slow if traversal jumps randomly through memory or sends neighboring rays down unrelated branches. Wide BVHs reduce tree depth and match vector hardware, but each node visit may test more child bounds.`,
+        `Build time ranges from near-linear approximate methods to expensive high-quality SAH construction. Offline film rendering can spend more time building a high-quality hierarchy for static geometry. Real-time graphics and physics often need rebuilds or refits every frame, so they accept lower split quality for predictable frame time. Instancing changes the tradeoff again: a bottom-level structure can be built once for a mesh, while a top-level structure handles many transformed copies.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `BVHs win for scenes with irregular geometry and many queries. Triangle meshes, hair curves, procedural primitives, CAD assemblies, collision shapes, and instanced game scenes all fit the model. Unlike a uniform grid, a BVH adapts to where primitives actually are. Unlike a pure object list, it gives each query a way to prove that large regions do not matter.`,
+        `They are especially strong when the hierarchy can be reused. A static environment can amortize build cost over many frames and many rays. A path tracer can reuse the same acceleration structure for camera rays, shadow rays, reflection rays, and indirect bounces. A game engine can reuse bottom-level mesh structures while updating a smaller top-level hierarchy as objects move.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `A BVH struggles when bounds overlap heavily. Long thin triangles, large primitives crossing many regions, tangled geometry, and poor split choices can make a ray enter many child boxes. In the worst case, traversal approaches brute force because the hierarchy cannot separate the scene. Bad memory layout can also erase the benefit by turning traversal into cache misses or divergent GPU branches.`,
+        `Highly dynamic deformation can be hard. Refit is fast only when the old topology remains reasonable. If a character's cloth, foliage, or particle geometry spreads far from its original leaves, parent boxes inflate and pruning weakens. Full rebuilds restore quality but cost time. Production systems watch for this degradation and schedule rebuilds based on motion, overlap metrics, or frame budget.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The most dangerous bug is an invalid bound. If a parent box fails to contain a child primitive, traversal may miss a real intersection. That is a correctness failure, not just a performance problem. Numeric precision also matters: ray-box tests need consistent handling of near-zero directions, infinities, NaNs, negative zero, and rays that start inside a box. Conservative bounds are often slightly expanded to avoid precision holes.`,
+        `Another failure is confusing broad-phase and exact-phase responsibilities. A box hit is only a maybe. It does not prove a triangle was hit, and it does not decide the surface normal, material, barycentric coordinates, or collision response. The BVH narrows the candidate set; exact predicates still own the final answer.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: PBRT BVH chapter at https://www.pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies, Intel BVH construction article at https://www.intel.com/content/www/us/en/developer/articles/technical/bvh-construction.html, and the JCGT BVH performance comparison at https://jcgt.org/published/0011/04/01/.`,
+        `Good next topics are R-Tree Spatial Index for database-style bounding rectangles, Quadtree Spatial Index & Map Tiles for regular spatial subdivision, Spatial Hash Grid Broadphase for game collision, Sweep and Prune Broadphase for axis-sorted intervals, Interval Tree for one-dimensional overlap queries, and Big-O Growth for why asymptotic notation is useful but not enough for traversal-heavy systems.`,
       ],
     },
   ],

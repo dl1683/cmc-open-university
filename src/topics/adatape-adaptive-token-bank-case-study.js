@@ -319,45 +319,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why AdaTape exists',
       paragraphs: [
-        'AdaTape is adaptive computation through elastic input sequences. Instead of changing how many layers an example uses, it changes how many auxiliary tape tokens are appended to the input. Hard examples can receive more tape tokens; easy examples can receive few.',
-        'The paper calls this adaptive computation with a dynamic read-and-write tape. The tape bank supplies candidate tokens, Adaptive Tape Reading selects a variable-length subset, and the transformer processes the base tokens plus selected tape tokens together.',
+        'AdaTape is a way to give a neural network a variable compute budget without changing the depth of the main model. A standard transformer spends the same sequence budget on every example after tokenization or patching. A simple image, a cluttered image, and an algorithmic input with hidden structure all travel through the same number of blocks with the same input length. That is clean for batching, but it wastes compute on easy cases and under-serves hard cases.',
+        'The ICML 2023 paper Adaptive Computation with Elastic Input Sequence proposes a different knob. Instead of asking an example to run for more layers, AdaTape appends a variable number of auxiliary tape tokens to the input. Easy examples can receive few extra tokens. Hard examples can receive more. The model still uses a shared transformer, but the sequence entering that transformer is elastic.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The obvious approach and wall',
       paragraphs: [
-        'The main data structures are a tape bank, an input summary or query vector, selected tape-token ids, an elastic sequence buffer, a sequence mask, position metadata, a maximum tape budget, and telemetry for selected token counts. A production implementation also needs padding buckets so dynamic sequence length does not destroy batching.',
-        'There are two bank styles. An input-driven bank extracts candidate tape tokens from the input using a different view or granularity. A learnable bank stores trainable vectors that behave like reusable scratchpad tokens. Both let the model retrieve extra computational workspace only when the example calls for it.',
+        'The obvious approach to adaptive computation is dynamic depth. Adaptive Computation Time lets a recurrent model decide how many refinement steps to spend. Early-exit models let an example stop at a shallower layer when the answer is already clear. Mixture-of-Depths routes only some tokens through expensive blocks. These methods are reasonable because depth is where much of the work happens.',
+        'The wall is control and hardware regularity. Dynamic depth changes the execution path, which can make batching, caching, and accelerator utilization harder. It also asks the model to decide when enough internal processing has happened. AdaTape keeps the main transformer path more regular and moves adaptivity to the input interface. The question becomes easier to state: how many extra working tokens should this example bring into the shared computation?',
       ],
     },
     {
-      heading: 'Case study: AdaTape',
+      heading: 'Core insight',
       paragraphs: [
-        'The ICML 2023 paper "Adaptive Computation with Elastic Input Sequence" introduces AdaTape as dynamic computation through adaptive tape tokens. The PMLR abstract says AdaTape uses an elastic input sequence with a dynamic read-and-write tape, obtains tape tokens from a trainable or input-derived bank, and proposes Adaptive Tape Reading to obtain dynamic sequence content and length.',
-        'Google Research frames the contribution as a different kind of adaptivity from dynamic depth: AdaTape injects adaptivity into the input sequence. Their post describes a transformer architecture that selects a variable number of tape tokens based on input complexity and reports favorable quality-cost tradeoffs on image and algorithmic tasks.',
+        'The core insight is that extra tokens can act as extra computational workspace. A transformer does not only process tokens as data. Tokens also become slots in the attention graph. Adding a token creates another representation that can attend to the input, collect detail, participate in later layers, and influence the output. If those tokens are selected carefully, input length becomes a compute allocation mechanism.',
+        'This makes AdaTape closer to learned retrieval than to ordinary padding. A tape bank stores candidate tape tokens. A reader looks at the current input and chooses a variable-length subset. The chosen tokens are appended to the base sequence, and the transformer processes the augmented sequence. The invariant is that every example keeps its base tokens, while the selected tape tokens supply additional work only where the controller believes that work will help.',
       ],
     },
     {
-      heading: 'Why it matters',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'AdaTape is a useful bridge between adaptive computation and memory. ACT changes how many recurrent steps an item receives. Mixture-of-Depths changes which tokens receive a block. Early exit changes when a generated token can stop. Perceiver IO uses a fixed latent array as internal working memory. AdaTape changes the interface another way: it provides extra tokens that can carry detail, scratchpad state, or alternative input views.',
-        'That makes the data-structure analogy concrete. The tape bank is a memory table. The reader is a learned retrieval policy. The selected ids are a compact route. The elastic sequence is the materialized working set the transformer actually sees.',
+        'The main data structures are ordinary but easy to get wrong. The system needs a tape bank, an input summary or query vector, selected tape-token ids, an elastic sequence buffer, an attention mask, position metadata, a maximum tape budget, and statistics for selected token counts. In a deployed system it also needs padding buckets, because variable sequence length can fragment batches and create tail-latency spikes.',
+        'The bank can be trainable or input-derived. A trainable bank stores learned vectors that behave like reusable scratchpad slots. An input-derived bank extracts candidate tape tokens from another view of the same example, such as finer image patches or lower-level details. Adaptive Tape Reading scores or ranks candidate tape tokens, chooses a count and content, and materializes the final sequence. The important implementation detail is that selection changes both content and length. A fixed set of memory tokens would add constant cost. AdaTape makes the count part of the route.',
       ],
     },
     {
-      heading: 'Production pitfalls',
+      heading: 'Why it works',
       paragraphs: [
-        'Dynamic sequence length can be expensive. Extra tape tokens increase attention cost, can fragment batches, and can create p99 spikes if hard examples receive many extras. Pad and bucket carefully. Track tape tokens per route. Make the cost knob explicit.',
-        'Masking and ordering are also easy to get wrong. Tape tokens must see the right base tokens, padding must be invisible, and selected-token order must be stable enough to train and serve. A tape bank can also go stale if the input distribution changes or if learned tokens specialize too narrowly.',
+        'AdaTape works when difficulty is uneven across examples and the reader can detect useful extra context before the main computation. If every example needs the same amount of detail, a fixed sequence is simpler. If hard cases can be recognized from a summary, then the reader can give those cases more working slots. The extra slots increase attention opportunities and representation capacity where the input is dense, ambiguous, or algorithmically demanding.',
+        'The correctness argument is not a proof in the classic algorithm sense. It is an inductive-bias argument. The transformer is still trained end to end, so selected tape tokens must learn to carry useful information. The architecture makes one behavior available: conditional workspace. Training rewards the reader when selected tokens improve the task enough to offset any cost penalty. The design is trustworthy only if evaluation shows that token use rises on genuinely harder slices and that quality improves more than a fixed-budget baseline at comparable cost.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost behavior',
       paragraphs: [
-        'Primary sources: PMLR page for Adaptive Computation with Elastic Input Sequence at https://proceedings.mlr.press/v202/xue23e.html, arXiv version at https://arxiv.org/abs/2301.13195, Google Research AdaTape overview at https://research.google/blog/adatape-foundation-model-with-adaptive-computation-and-dynamic-read-and-write/, and the released Scenic project path at https://github.com/google-research/scenic/tree/main/scenic/projects/adatape.',
-        'Study Adaptive Computation Time Halting, Mixture-of-Depths Token Routing, Early-Exit Transformer Layer Skipping, Perceiver IO Latent Array Bottleneck, Attention Mechanism, Transformer Block, Tokenization BPE, Gradient Flow, KV Cache, RAG Pipeline, and Heterogeneous AI Compute Workload Router next.',
+        'Tape tokens are not free. In a full attention transformer, adding tokens increases the attention table. If the base sequence has n tokens and AdaTape appends k tape tokens, the attention work grows with the augmented length, not with k alone. A small k can be cheap. A large k on long inputs can dominate latency and memory. The cost curve is especially visible at p95 and p99 because the hardest examples tend to request the most extra tokens.',
+        'Batching adds a second tax. Accelerators like rectangular work. If every request has a different augmented length, the serving system either pads to the largest example in a batch or creates many small buckets. Padding wastes compute; too many buckets reduce batch size. A practical AdaTape route needs a maximum tape cap, length buckets, and admission rules that keep the worst case bounded.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'AdaTape is useful when examples have uneven complexity and the extra information can be represented as tokens. Vision is a natural fit because some images need fine local evidence while others are globally obvious. Algorithmic tasks are another fit because extra scratchpad-like tokens can help preserve intermediate state. Any setting with cheap summaries and expensive details can use the same pattern: summarize first, then pull detail only when needed.',
+        'It is also a useful mental bridge to retrieval, memory tokens, and latent arrays. Retrieval-augmented generation retrieves external chunks. Perceiver-style models use a fixed latent bottleneck. AdaTape retrieves or selects internal auxiliary tokens with a variable count. The shared lesson is that a model interface is a data structure. The interface decides which information becomes part of the working set and which cost the model pays to use it.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'AdaTape is a poor fit when dynamic length is more expensive than the accuracy gain. It can lose to a fixed larger model if nearly all examples request many tape tokens. It can lose to a smaller fixed model if the reader is noisy and spends tokens on easy examples. It can also fail when the bank content is weak. A learned bank may become a bag of vague vectors. An input-derived bank may copy low-value details. In both cases, the augmented sequence grows without adding useful evidence.',
+        'Masking and position handling are common failure points. Tape tokens must attend to the right base tokens. Padding must remain invisible. Selected-token order must be stable enough for training and serving. A production system must also handle distribution shift. If the route that once needed two tape tokens now needs eight because inputs changed, the system should show that drift before latency and cost surprise operators.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Good evaluation separates quality from cost. Track task score by tape-token count, score by difficulty slice, average and tail selected-token count, augmented sequence length, batch padding waste, attention memory, time to first output, p50 latency, p99 latency, and fallback frequency. A healthy route shows a quality-cost knee: adding tokens helps up to a point, then stops paying. If the curve is flat, the tape is decorative. If cost rises faster than quality, the controller is too generous.',
+        'A good ablation suite compares no tape, fixed tape count, random selected tape, learned bank, input-derived bank, and AdaTape selection under matched compute. The key claim is not that extra tokens help. Extra tokens usually help if enough compute is added. The claim is that adaptive extra tokens spend the budget better than a fixed policy.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources are the PMLR paper page at https://proceedings.mlr.press/v202/xue23e.html, the arXiv version at https://arxiv.org/abs/2301.13195, the Google Research overview at https://research.google/blog/adatape-foundation-model-with-adaptive-computation-and-dynamic-read-and-write/, and the Scenic AdaTape code path at https://github.com/google-research/scenic/tree/main/scenic/projects/adatape.',
+        'Study Adaptive Computation Time to understand halting over recurrent steps. Study Mixture-of-Depths and early-exit transformers for depth-side adaptivity. Study Attention, Transformer blocks, Perceiver IO, retrieval-augmented generation, tokenization, KV cache behavior, and LLM inference cost models to see the broader pattern: adaptive systems work only when the controller improves the quality-cost tradeoff under real serving constraints.',
       ],
     },
   ],

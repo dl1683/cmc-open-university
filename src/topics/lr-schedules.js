@@ -148,41 +148,75 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `A learning-rate schedule changes the step size during training. The demo uses the clean bowl loss = w^2/2, where each Gradient Descent step multiplies distance from the optimum by |1 - lr|. With lr = 1.9, the point ricochets across the bottom and shrinks only by 0.9 per step. With lr = 0.05, it never overshoots but crawls by 0.95 per step. A schedule refuses that false choice: start bold when far away, then become careful when close enough that bouncing is waste.`,
+        'A learning-rate schedule exists because one constant step size is trying to solve several different problems at once. Early in training, the model is far from a useful basin and needs motion. Later in training, it is near a basin and needs precision. A constant rate must choose between covering ground and settling down, so it usually does one of them badly.',
+        'The learning rate is the ambition knob of gradient descent. The gradient points in a direction; the learning rate decides how far to trust that direction. A schedule changes that trust over time. It lets the run start cautiously while estimates are unreliable, become aggressive while useful descent is available, and become careful again when the model should preserve what it found.',
+        'This is why schedules are not cosmetic recipe details. In modern training, especially with Adam-style adaptive optimizers, the schedule can decide whether a run spikes early, escapes poor basins, reaches a good solution, or spends the last third of compute rattling around the floor.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The scheduled curve opens at lr = 1.5 and decays by 0.85 each step until it reaches 0.05. It reaches roughly 0.00006 distance by step 10, while both constants are still visibly away from the optimum after 30 steps. That is the core lesson: far from a minimum, large steps cover ground and can jump out of sharp pockets in Loss Landscapes & Optimization Geometry; near a good basin, small steps stop rattling and let the model settle.`,
-        `The second view draws the schedule zoo. Step decay holds a rate and cuts it at milestones. Cosine annealing glides smoothly from peak toward zero. Warmup plus cosine starts with a short ramp because Momentum, RMSProp & Adam builds its variance estimate from only a few gradients at the beginning. Bias correction fixes the expectation, but it cannot make one sample a trustworthy statistic. Warmup keeps early strides small until the denominator has seen enough batches.`,
+        'The obvious approach is to pick a learning rate that looks stable and leave it alone. On the clean bowl loss in the demo, that already fails. A large constant rate moves quickly but overshoots the optimum and keeps bouncing. A small constant rate is stable but wastes the early run. Real neural networks make the problem worse because the loss surface is curved, noisy, and nonstationary.',
+        'Another obvious approach is to search a few constants and keep the best validation curve. That can work on small problems, but it hides the phase structure of training. The best early rate is not necessarily the best late rate. The best rate before Adam has reliable second-moment estimates is not necessarily safe at step one. A schedule turns that observation into a training policy.',
+        'The mistake is treating the learning rate as a property of the model. It is a property of the run at a moment in time. The right question is not only "what learning rate should this model use?" It is "how should step ambition change as evidence, curvature, noise, and remaining training time change?"',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core insight',
       paragraphs: [
-        `The runtime cost is O(1) per training step: compute a scalar learning rate. The real cost is choosing the peak. The LR range test sweeps the rate upward in one short run, finds the productive descent band, and chooses a peak just before loss explodes. That is a narrow slice of Hyperparameter Search, but cheaper than searching every knob blindly. It also gives a visible failure boundary, which is more useful than folklore like "try 1e-3."`,
+        'The core insight is phase control. Early training often benefits from larger motion because the model is far from a good solution and gradients can point toward broad improvements. Late training needs smaller motion because a large step near a good basin turns progress into oscillation. Warmup adds an even earlier phase: before optimizer statistics are reliable, keep steps small.',
+        'The clean bowl makes the math visible. For loss = w^2/2, one gradient descent step multiplies distance from the optimum by |1 - lr|. A rate near 2 can be technically stable but bouncy; a rate near 0 is safe but slow. A decaying schedule uses larger multipliers early and smaller multipliers late, so the same run can move quickly and then settle.',
+        'In high-dimensional training, the same principle appears as a balance between exploration, noise, and consolidation. Large rates can filter out sharp, fragile minima by refusing to rest in them. Smaller rates later let the model consolidate inside a basin. The schedule is therefore part optimization method, part regularizer, and part compute allocation policy.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'How it works',
       paragraphs: [
-        `Transformers usually use linear warmup followed by cosine decay. Classic CNN recipes often use step decay. Fine-tuning often uses reduce-on-plateau, which watches validation loss from Cross-Validation & Honest Evaluation and cuts the rate when progress stalls. Early Stopping & Patience often pairs with schedules: one decides how hard to step, the other decides whether the run has stopped earning compute. In production training, the schedule is part of the recipe, not an afterthought.`,
+        'Step decay holds a rate for a while and cuts it at chosen milestones. It is blunt but effective when the training recipe is well understood. Cosine annealing smoothly lowers the rate from a peak toward zero or a floor, avoiding hand-picked cliffs. One-cycle schedules increase and then decrease the rate to squeeze strong progress from short training runs.',
+        'Warmup is different because it protects the beginning of training. Adam and related optimizers divide updates by estimates of gradient variance. At step one, those estimates are built from almost no evidence. Bias correction fixes the expected scale, but it cannot make one observed gradient a reliable statistic. Warmup ramps the global rate while those adaptive denominators become less rumor-like.',
+        'The LR range test turns peak selection into an experiment. Sweep the rate upward over a short run and plot loss. The flat region is too timid. The steep descending region is productive. The exploding region is unsafe. A good peak is usually below the explosion boundary, then a schedule such as warmup plus cosine controls how the run approaches and leaves that peak.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the visual is proving',
       paragraphs: [
-        `A schedule is not an optimizer. The optimizer picks direction; the schedule picks ambition. A perfect cosine curve with a peak 10x too high still fails, and warmup does not rescue bad labels or leakage. Do not infer success from training loss alone; the schedule may simply overfit faster. The same explore-then-commit idea appears in Thompson Sampling, but here the exploration is motion through parameter space. Decaying too early can trap a model in a mediocre basin; decaying too late leaves it orbiting the floor.`,
+        'The constant-rate view proves the false choice. A bold constant rate is not simply "better" because it moves quickly; near the optimum it wastes progress by ricocheting. A timid constant rate is not simply "safer" because it stays stable; far from the optimum it spends steps making tiny corrections. The scheduled curve wins because it changes behavior across phases.',
+        'The schedule-zoo view proves that different schedules encode different assumptions. Step decay assumes known milestones. Cosine assumes a smooth commitment path. Warmup plus cosine assumes unreliable early optimizer statistics and a long settling phase. Reduce-on-plateau assumes validation progress is the best trigger. The curves are not decorations. They are beliefs about the run.',
+        'The warmup table is the most operational part of the visual. It connects schedule design to optimizer internals. If the adaptive denominator is based on too few samples, a full-size early step can amplify a fluke coordinate. Warmup keeps the run from trusting statistics before the optimizer has earned that trust.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        `After this, study adaptive optimizers, validation protocols, and the geometry of sharp versus flat minima. The useful mental model is phase control: early training needs motion and noise, middle training needs productive descent, and late training needs a small enough step that the model can keep the solution it found.`,
-        `A good schedule should be explainable in one sentence before you run it. If you cannot say why the rate starts, peaks, decays, and stops where it does, you probably tuned a curve shape instead of solving the training problem.`,
+        'The per-step runtime cost is trivial: compute one scalar and pass it to the optimizer. The real cost is recipe design. You must choose warmup length, peak rate, decay shape, floor, total steps, batch size, optimizer, and sometimes restarts. Those choices interact. Changing batch size without reconsidering the schedule can silently change the effective optimization regime.',
+        'The tradeoff is responsiveness versus predictability. A fixed cosine schedule is predictable and easy to reproduce, but it cannot react if validation loss stalls early. Reduce-on-plateau reacts to validation behavior, but it adds patience windows, noise sensitivity, and more conditional logic. Large-scale training often prefers predictable schedules because they are easier to plan, compare, and debug.',
+        'Schedules also trade exploration against preservation. Decay too early and the model may settle in a mediocre basin before it has explored enough. Decay too late and the model may never stop bouncing around a good basin. Warm up too long and you waste compute. Warm up too short and you risk early instability.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Warmup plus cosine is common in transformer and LLM training because it protects early Adam statistics and gives a smooth landing. Step decay remains useful in classic vision recipes where milestone schedules are well established. One-cycle policies are useful when training budgets are short and the goal is to extract strong performance from a fixed number of epochs.',
+        'Reduce-on-plateau is useful for fine-tuning and smaller experiments where validation loss is cheap and informative. It is less elegant than a planned cosine schedule, but it often works because it waits for evidence that progress has stalled. It pairs naturally with early stopping: one mechanism asks whether to reduce ambition; the other asks whether the run has stopped earning compute.',
+        'Schedules are also useful as communication. A training recipe with explicit warmup, peak, decay, and floor tells future readers what the run believed about stability and convergence. A mysterious constant rate or copied curve tells them almost nothing.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'A schedule is not an optimizer. It does not fix wrong gradients, bad labels, leakage, broken normalization, or a model that cannot represent the task. If the peak rate is ten times too high, a beautiful cosine curve still fails. If the validation protocol is dishonest, reduce-on-plateau will respond to the wrong signal.',
+        'Training loss can be misleading. A schedule may lower training loss faster while hurting generalization, especially when the model overfits late. Always check validation behavior, calibration, task metrics, and stability across seeds. The right schedule is the one that improves the actual objective, not the one with the prettiest loss curve.',
+        'Do not cargo-cult warmup length or cosine decay from a different scale. Optimizer, batch size, dataset, model depth, normalization, gradient clipping, and hardware precision can all change safe step sizes. A schedule copied from a larger or smaller run should be treated as a hypothesis, not a law.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Gradient Descent for the base step rule, Adam Optimizer for adaptive denominators, Loss Landscapes for sharp and flat minima, Gradient Noise Scale for batch-size interactions, Hyperparameter Search for peak-rate selection, Cross-Validation for honest validation signals, and Early Stopping for compute decisions.',
+        'A good exercise is to run the same small model with four schedules: constant, step decay, warmup plus cosine, and reduce-on-plateau. Plot training loss, validation loss, final metric, and gradient norm. The point is not to crown one universal winner. The point is to see how each schedule encodes a different belief about phases of learning.',
+        'Before launching a serious run, write one sentence that explains the schedule: why it starts where it starts, why it peaks where it peaks, why it decays when it decays, and why it ends where it ends. If that sentence is vague, the schedule is probably a ritual rather than a design.',
       ],
     },
   ],

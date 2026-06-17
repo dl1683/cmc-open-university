@@ -141,41 +141,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        `An AVL tree is a Binary Search Tree that refuses to become tall and skinny. Every node stores a balance factor: height(left subtree) minus height(right subtree). The allowed values are -1, 0, and +1. When an insert or delete pushes a node to +2 or -2, the tree repairs the local shape with a rotation. The demo shows this directly: after normal BST insertion, it highlights the first unbalanced node and then performs the appropriate single or double rotation.`,
-        `Adelson-Velsky and Landis introduced AVL trees in 1962, making them the first published self-balancing search tree. Their point was worst-case protection. A plain Binary Search Tree can turn sorted input into a linked chain, so lookup becomes O(n). An AVL tree keeps height below about 1.44 log2(n + 2), which gives search, insert, and delete O(log n) worst-case time. Big-O Growth Rates is the difference between a lookup path that grows like 20 steps for a million items and one that can grow toward a million.`,
+        `A binary search tree gives ordered lookup with a simple rule: smaller keys go left, larger keys go right. The rule is enough to preserve sorted order, but it says nothing about shape. If keys arrive already sorted, each new key becomes the right child of the previous key, and the tree becomes a linked list.`,
+        `AVL trees exist to protect ordered search from that shape failure. Every node tracks the height difference between its left and right subtrees. That balance factor must stay at -1, 0, or +1. When an insertion or deletion pushes a node to +2 or -2, a small rotation repairs the local shape before the height problem spreads.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The obvious ordered map is a plain binary search tree. It is easy to implement, supports in-order traversal, and performs well when insert order happens to keep the tree short.`,
+        `The wall is adversarial or unlucky input. Insert 10, 20, 30, 40, 50 into a plain BST and the search path has length five. Insert a million increasing keys and the worst lookup can walk a million nodes. The data is ordered, but the structure has stopped being a tree in the useful sense.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `Add one shape invariant to the BST invariant. The BST invariant says every left key is smaller and every right key is larger. The AVL invariant says every node's two child heights differ by at most one. Together they give ordered lookup with worst-case logarithmic height.`,
+        `Rotations are the repair operation because they change shape without changing sorted order. A rotation lifts the middle key of a local three-node pattern and pushes the old parent down. The in-order traversal stays the same; only the height profile changes.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `Watch each insertion in two phases. First it behaves like a normal BST insertion: compare downward and attach the new value at a leaf. Then the algorithm audits the path back to the root. The highlighted unbalanced node is the lowest ancestor whose balance factor left the allowed range.`,
+        `The "all cases" input is chosen to show the four repairs. 30, 20, 10 creates a left-left case and a single right rotation. 40 and 50 create the mirror right-right case and a single left rotation. 25 creates a bent shape, which needs a double rotation because the heavy path turns once before reaching the inserted node.`,
+        `The sorted input option shows the reason AVL exists. A plain BST would form a chain. The AVL version keeps rotating as needed, so the final search path stays short even though the insertion order is hostile.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        `Insertion begins exactly like Binary Search: compare downward until you find the leaf position. Then the algorithm walks back up, recomputing heights. Four rotation cases cover every possible imbalance. Left-left means a right rotation; right-right means a left rotation. Left-right rotates the child left, then the culprit right. Right-left is the mirror. The visualization's order 30, 20, 10, 40, 50, 25 is chosen to trigger these cases, while the sorted-order option shows the kind of input that destroys an ordinary tree.`,
-        `A rotation is not a re-sort. It is a small pointer rearrangement that preserves the in-order sequence, so Tree Traversals would still visit the keys in sorted order. For insertion, fixing the deepest unbalanced node takes one single rotation or one double rotation; deletion can require fixes higher up the path. That local repair is the whole trick: the search order stays the same, but the height drops back under control.`,
+        `Insertion starts with ordinary BST search. After the new leaf is attached, each ancestor updates its height or balance factor. The first ancestor with balance factor +2 or -2 is the culprit. Its heavy child tells the case.`,
+        `Left-left means the culprit is too heavy on the left, and its left child is also left-heavy or balanced. One right rotation fixes it. Right-right is the mirror: one left rotation. Left-right means the culprit is left-heavy but the child leans right; rotate the child left, then rotate the culprit right. Right-left is the mirror double rotation.`,
+        `Deletion uses the same invariant but can require more than one repair while walking upward, because removing a node can shorten a subtree and expose imbalance at several ancestors. The visualization focuses on insertion, where the first repaired ancestor is enough to restore the insertion path.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `A rotation preserves sorted order by preserving the in-order sequence. In a right rotation, the left child moves up, the old parent moves down to the right, and the subtree between them becomes the old parent's left child. Every key that was between those two values remains between them. The same argument mirrors for a left rotation.`,
+        `The height guarantee comes from the balance invariant at every node. A subtree of height h must contain enough nodes in its two child subtrees, whose heights can differ by at most one. The smallest AVL tree of height h grows like a Fibonacci recurrence, so height grows logarithmically with the number of nodes. That is why search, insert, and delete stay O(log n) in the worst case.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Insert 30, then 20, then 10. The tree is still ordered, but node 30 has balance factor +2 because its left side is two levels deeper than its right side. The heavy path goes left then left, so a right rotation lifts 20, moves 30 down to the right, and keeps 10, 20, 30 in sorted order.`,
+        `Now insert 40 and 50. The right side becomes too deep, so the mirror repair lifts 40 with a left rotation. Insert 25 after that and the heavy path bends: the unbalanced node leans left, but its child leans right. The tree first rotates the child to straighten the path, then rotates the culprit. That two-step repair is the left-right case.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        `Search takes O(log n) because height is logarithmic. Insert and delete also take O(log n): find the position, update parent links, then repair balance information while returning toward the root. The memory overhead is one height or balance field per node. Compared with Hash Table lookup, AVL is slower for exact-key average-case access, but it preserves sorted order and supports range queries. Compared with B-Trees (How Databases Read), AVL is pointer-heavy and better suited to memory than disk pages.`,
+        `Search takes O(log n) because height is logarithmic. Insert and delete also take O(log n): they perform one ordinary search path, update metadata on the way back, and rotate where needed. Insertion needs at most one single or double rotation after the new leaf is attached. Deletion can rotate at multiple ancestors.`,
+        `The memory overhead is one height or balance field per node. The implementation overhead is parent and child pointer discipline. Compared with a hash table, AVL is slower for average exact-key lookup but supports sorted traversal, predecessor and successor queries, and range scans. Compared with a B-tree, AVL is pointer-heavy and better suited to memory than disk pages.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Where it wins',
       paragraphs: [
-        `AVL trees show up where fast reads and predictable ordered lookup matter. Some in-memory indexes, language runtimes, and teaching libraries use them because their height bound is tighter than looser balanced trees. Database Indexing usually favors B-Trees (How Databases Read), because disk and SSD pages like wide nodes. Skip List structures solve the same sorted-set problem with randomness instead of rotations. The common systems lesson is the same: if input order can be adversarial, the structure must actively prevent degeneration.`,
+        `AVL trees win when reads are frequent, order matters, and worst-case lookup time must be tight. They are useful for in-memory ordered maps, teaching libraries, index structures, and any setting where sorted traversal and predictable search depth matter more than minimizing rotations.`,
+        `They also teach the central lesson behind self-balancing structures: if input order can be adversarial, the data structure must enforce shape. Hope is not an invariant.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it is the wrong tool',
       paragraphs: [
-        `AVL does not mean perfectly level. It means every node's two child heights differ by at most one, which is enough for the logarithmic guarantee. Rotations are also not expensive in themselves; the hard part is updating heights, parent links, and child links without breaking the sorted invariant. Another common mistake is to rotate at the newly inserted leaf. You rotate at the lowest ancestor whose balance factor became invalid. Finally, AVL is not always the right answer: if you only need membership and not order, Hash Table is usually simpler and faster.`,
+        `AVL is usually the wrong tool when you only need membership or exact-key lookup. A hash table is simpler and usually faster on average. AVL is also a poor match for disk-heavy storage engines, where wide B-tree nodes reduce page reads better than binary pointer chains.`,
+        `It may be the wrong balanced tree for write-heavy in-memory maps. Red-black trees keep a looser balance invariant, so they often perform fewer rotations while still guaranteeing O(log n) operations. That is why many standard-library ordered maps use red-black trees rather than AVL trees.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first bug is rotating the wrong node. The repair belongs at the lowest ancestor whose balance factor became invalid, not at the new leaf. The second bug is choosing a single rotation for a bent case. Left-right and right-left patterns need two rotations because the middle value must become the local root.`,
+        `The third bug is breaking the BST invariant while fixing height. Rotations are pointer rearrangements with strict ordering constraints. If the middle subtree is attached to the wrong side, the tree may look balanced while lookup returns wrong answers.`,
+        `The fourth bug is stale metadata. If heights or balance factors are updated in the wrong order after a rotation, later repairs use false information and the tree can drift out of balance.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Study Binary Search Tree first so the failure mode is obvious, then Tree Traversals so rotations feel safe rather than magical. Compare AVL Tree Rotations with Skip List and B-Trees (How Databases Read): all three preserve sorted access, but each pays a different maintenance cost. For performance intuition, revisit Binary Search and Big-O Growth Rates, then look at Database Indexing to see why real storage engines choose wider trees.`,
+        `Study Binary Search Tree first so the shape failure is obvious, then Tree Traversals so the rotation proof feels concrete. Compare AVL with Red-Black Tree, Skip List, and B-Trees: all preserve ordered access, but each pays a different maintenance cost. For performance intuition, revisit Binary Search and Big-O Growth Rates, then study Database Indexing to see why storage engines prefer wide trees.`,
       ],
     },
   ],

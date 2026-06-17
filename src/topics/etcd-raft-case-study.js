@@ -210,43 +210,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why It Exists',
       paragraphs: [
-        'etcd is a replicated, strongly consistent key-value store used as a control-plane database, most famously by Kubernetes. It uses Raft to order changes across members and exposes MVCC revisions, watches, transactions, leases, and range reads to clients.',
-        'This case study connects Raft Leader Election, Raft Log Replication, Raft Snapshots, Write-Ahead Log, MVCC Internals & VACUUM, and Kubernetes Reconciliation Case Study. It is where consensus becomes an operational database.',
-        'The key point is that etcd is small by design. Its value is not raw data volume; its value is giving distributed control planes one durable, ordered, watchable source of truth that all components can coordinate around.',
+        `Distributed control planes need one durable source of truth. If API servers, schedulers, controllers, and operators disagree about desired state, the platform can create duplicate work, lose locks, or reconcile against stale configuration.`,
+        `etcd exists for that control-plane job. It is a replicated, strongly consistent key-value store that orders updates with Raft and exposes MVCC revisions, watches, transactions, leases, and range reads to clients.`,
+        `The design is intentionally narrow. etcd is not trying to be a warehouse, queue, cache, or blob store. It is trying to make small, important facts durable, ordered, and watchable.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'A write goes to the leader, becomes a proposed Raft log entry, is persisted, replicated to a quorum, committed, and then applied to the MVCC key-value backend. The resulting revision becomes the boundary that reads and watches can observe.',
-        'Each member maintains WAL files for Raft state and entries. Snapshots and compaction keep log growth bounded. The backend stores applied key revisions, while watch streams let clients subscribe to ordered changes from a revision.',
+        `The obvious approach is to put configuration in an ordinary database, or to push changes directly to every component. That works while the system is small and failures are clean.`,
+        `The wall appears when components need shared ordering. A controller does not only need the current value of a key. It needs to know which revision it observed, which changes happened before it, which lease is still valid, and whether its watch stream missed anything.`,
+        `An eventually consistent store can make different controllers act on incompatible histories. For a control plane, that is not just stale data. It can become duplicate leadership, lost ownership, or reconciliation loops built on facts that were never globally ordered.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'The cost of etcd is the cost of synchronous coordination. Linearizable writes and reads involve the leader and quorum path. Large values, too many watchers, slow disks, bad compaction settings, or network latency can harm the entire control plane.',
-        'The operational challenge is that etcd is both small and critical. It is not a general analytics store. It wants small keys and values, predictable disk latency, regular snapshots, monitored compaction, and disciplined restore procedures.',
-        'Revision history is another practical boundary. Watches and historical reads depend on retained MVCC revisions. Compaction keeps storage bounded, but clients that fall behind must handle compacted revisions by relisting and restarting from a fresh revision.',
+        `Put every change through one replicated Raft log, then expose the applied result as MVCC revisions. Raft decides the order. The backend stores revisioned key-value state. Watches let clients follow the ordered stream from a known revision.`,
+        `That combination turns a key-value store into a coordination database. Clients can write desired state, read a consistent snapshot, attach a lease, start a watch at revision r, and recover if r has been compacted.`,
+        `The important product is not a value by itself. The product is a value with a revision, an order, and a recovery story.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Reading the etcd Trace',
       paragraphs: [
-        'etcd stores Kubernetes objects, service-discovery data, configuration, leader-election records, distributed coordination keys, and lease-backed metadata for systems that need a single ordered truth.',
-        'A complete case study is a Kubernetes Deployment update. The API server writes the new desired state to etcd. Controllers watch the revision stream, enqueue the changed object, and reconcile Pods until observed state matches the stored spec.',
+        `Use the "write path" view to follow a client request as it moves from the leader into the Raft log, through quorum replication, into commit, and finally into the MVCC backend. The important boundary is the applied revision: that is what reads and watches can observe.`,
+        `Use the "snapshot recovery" view to follow the operational side. WAL records preserve recent Raft entries, snapshots give a compact recovery base, compaction bounds old MVCC history, and restore drills prove that the backup is usable.`,
+        `The trace is not showing a generic database write. It is showing the chain that makes Kubernetes-style control-plane coordination possible: client request, consensus order, durable storage, applied revision, watch delivery, and recovery path.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How It Works',
       paragraphs: [
-        'etcd is not a message queue, data warehouse, or high-cardinality event store. Watches are powerful, but old revisions can be compacted. Snapshots are necessary, but restore drills are what prove that the backup is actually usable.',
+        `A write normally reaches the Raft leader. The leader proposes it as a log entry, persists it, replicates it to followers, and marks it committed after a quorum stores it. Only then is the command applied to the key-value backend.`,
+        `Applying the command creates a new MVCC revision. A range read can observe a consistent revision. A watch can stream changes after a revision. A transaction can compare versions or revisions before writing.`,
+        `Each member maintains write-ahead log files for Raft state and entries. Snapshots let a member compact old Raft log history. Backend compaction removes old MVCC revisions after clients no longer need them. These are separate mechanisms that together keep the store recoverable and bounded.`,
+        `Leases add time-bounded ownership. A key attached to a lease disappears when the lease expires, which makes etcd useful for leader election records, service discovery, and ephemeral coordination metadata.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
+      paragraphs: [
+        `Raft gives etcd one committed order for writes. MVCC turns that order into observable revisions. A watcher can ask to resume from revision r because the system has a total order of applied changes.`,
+        `Quorum protects that order during failures. A minority partition cannot keep accepting writes as if it were the cluster. That is the right trade for control-plane truth: it is better to reject or stall a write than to let two schedulers believe different desired states are both current.`,
+        `The watch API works because the storage layer and the consensus layer agree on revision boundaries. A controller can list at a revision, start a watch after that revision, and avoid missing the gap between initial state and future updates.`,
+      ],
+    },
+    {
+      heading: 'Worked Case Study',
+      paragraphs: [
+        `A Kubernetes Deployment update begins when the API server writes a new desired spec into etcd. That write is ordered through Raft and applied as a new MVCC revision.`,
+        `Controllers do not poll blindly for "whatever looks newest." They watch from known revisions. The Deployment controller sees the changed object, calculates the needed ReplicaSet changes, writes more desired state, and other controllers continue the chain.`,
+        `If a controller falls too far behind and its requested revision has been compacted, it cannot pretend the watch stream is complete. It must relist, obtain a fresh revision, and restart the watch. That relist behavior is part of correctness, not an inconvenience around it.`,
+        `Disaster recovery has the same shape. A snapshot is useful only if restoring it creates a coherent cluster with the right identity and membership assumptions. A backup that has never been restored is only a guess.`,
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        `The main cost is synchronous coordination. Linearizable writes, and linearizable reads when requested, involve the leader and quorum path. Disk latency, network latency, and leader health matter directly to the whole control plane.`,
+        `The second cost is retention management. Watches and historical reads depend on retained MVCC revisions. Compaction keeps storage bounded, but it forces slow clients to handle compacted revisions by relisting.`,
+        `The third cost is operational discipline. Large values, too many watchers, poor compaction settings, slow disks, overloaded members, or careless restore procedures can turn a small coordination database into a platform-wide bottleneck.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `etcd wins for small, important, coordination-heavy data: Kubernetes objects, service-discovery records, configuration, leader-election keys, distributed locks, and lease-backed metadata.`,
+        `It is strongest when clients need more than storage. They need conditional writes, ordered watches, revisioned reads, and a failure model that prefers consistency over accepting conflicting updates.`,
+        `It is also strong as a teaching case because it connects several ideas that are often studied separately: Raft leader election, log replication, write-ahead logging, snapshots, MVCC, leases, watches, and reconciliation loops.`,
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        `etcd fails when used as a general data platform. It is not a message queue, analytics store, blob store, cache, or high-cardinality event log. Pushing large values or noisy events through it harms the systems that depend on it for coordination.`,
+        `It also fails when clients ignore revision boundaries. A watch that silently skips compacted history is a correctness bug. A restore that ignores member identity or cluster membership can create a different kind of outage than the one it was meant to fix.`,
+        `The most common misconception is that "strongly consistent" means "operationally forgiving." etcd is strict, but it is not magic. It rewards small data, fast disks, healthy quorum, regular snapshots, and practiced recovery.`,
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: etcd persistent storage files at https://etcd.io/docs/v3.6/learning/persistent-storage-files/, etcd disaster recovery at https://etcd.io/docs/v3.5/op-guide/recovery/, and the etcd Raft library at https://github.com/etcd-io/raft. Study Raft Log Replication, Raft Snapshots, Write-Ahead Log, MVCC Internals & VACUUM, and Kubernetes Reconciliation Case Study next.',
       ],

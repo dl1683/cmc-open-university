@@ -151,43 +151,59 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `What it is`,
       paragraphs: [
-        'Grouped-query attention is the middle point between standard multi-head attention and multi-query attention. Standard MHA gives each query head its own key and value head. MQA shares one key/value head across all query heads. GQA shares a smaller number of key/value heads across groups of query heads.',
-        'The reason this matters is the KV Cache. During autoregressive decode, the server repeatedly reads cached keys and values for every live token. Query heads are computed for the new token, but K/V heads are stored for the whole context. Fewer K/V heads means fewer resident bytes and less memory bandwidth.',
+        `Grouped-query attention is an attention layout for transformer decoders that keeps many query heads but shares a smaller number of key/value heads. In ordinary multi-head attention, each query head has its own key projection and value projection. During autoregressive generation, the model caches those keys and values for every previous token so it does not recompute them at every step. That cache is the KV Cache. It is essential for fast decoding, but it grows with context length, batch size, layers, and the number of stored key/value heads.`,
+        `GQA changes the cache geometry. A model might keep 32 query heads but store only 8 key/value heads. Each key/value head serves a group of query heads. Multi-query attention is the extreme version, where all query heads share one key/value head. Full multi-head attention is the other extreme, where query heads and key/value heads have the same count. GQA is the middle point: much smaller cache than full multi-head attention, more key/value diversity than multi-query attention.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious approach and the wall`,
       paragraphs: [
-        'In MHA, 32 query heads usually pair with 32 K/V heads. In MQA, 32 query heads may share one K/V head. In GQA, those 32 query heads might share 8 K/V heads, with each K/V head serving a group of four query heads. The output still has many query views, but the cached state is smaller.',
-        'The implementation is mostly a tensor-layout decision, but it changes serving economics. KV cache bytes scale with the number of stored K/V heads. A 32-to-8 reduction cuts that cache dimension by 4x. KV Cache Concurrency Capacity Model turns that directly into more live requests or longer contexts under the same memory budget.',
+        `The obvious modeling approach is full multi-head attention everywhere. It is expressive, familiar, and easy to reason about: every attention head gets its own query, key, and value projections. During training, this gives heads separate channels for different token relationships. During inference, though, every generated token must read the cached keys and values for all previous tokens in every layer. Long prompts, many simultaneous users, and large head counts turn that cache into a memory-capacity and memory-bandwidth problem.`,
+        `A second obvious approach is to share everything. Multi-query attention stores one key/value head per layer while keeping many query heads. That can dramatically reduce decode traffic, but it asks all query heads to look through the same key/value representation. For some models and tasks this is acceptable. For others it removes useful per-head detail. The wall is not only accuracy; it is also operational. A serving team wants lower KV bytes without discovering that rare long-context, code, multilingual, or reasoning cases quietly regressed.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `The core insight`,
       paragraphs: [
-        'MQA offers the strongest memory reduction but can degrade quality because every query head has to use the same key/value representation. GQA trades some of that reduction for more representational diversity. The GQA paper also describes uptraining existing multi-head checkpoints into MQA or GQA variants using a small fraction of original pretraining compute, which matters because retraining from scratch is expensive.',
-        'Do not treat GQA as a universal free win. The best group count depends on model size, training recipe, context length, hardware, kernels, and quality target. A serving team should measure time per output token, KV memory, acceptance by eval tasks, and rare long-context failures.',
+        `The core insight is that query diversity and cache diversity do not have to be identical. Query heads decide how the current token asks questions about the past. Key/value heads define what representation of the past is stored and read. Full multi-head attention couples those counts. GQA decouples them. If four query heads can share one key/value representation without losing too much quality, the model can keep the computational pattern of many query heads while shrinking the persistent state that dominates decode.`,
+        `This matters because decode is different from prefill. During prefill, the model processes the prompt and builds the cache. During decode, each new token repeatedly reads old keys and values. For a 32-head model with 8 key/value heads, the key/value head dimension of the cache is roughly one quarter of the full 32-head layout. That reduction can become more concurrent sessions, longer supported contexts, lower p99 latency, or lower memory pressure for the same hardware.`,
       ],
     },
     {
-      heading: 'Case study',
+      heading: `Mechanism`,
       paragraphs: [
-        'Mistral 7B uses grouped-query attention for faster inference and pairs it with sliding-window attention to reduce long-context cost. The combination is instructive: GQA reduces the cache stored per token, while Sliding-Window Attention Context Policy limits how many old tokens each layer keeps attending to.',
-        'A cloud inference service sees the same pattern. With full MHA, long conversations push KV memory up quickly. Switching to GQA can admit more users per GPU or preserve a larger context budget. PagedAttention can then reduce fragmentation, and KV quantization can reduce bytes per element.',
+        `In implementation terms, attention still computes queries, keys, values, attention scores, a softmax, and a weighted sum of values. The change is the shape of the projections. The query projection produces many query heads. The key and value projections produce fewer heads. At attention time, each query head is assigned to a key/value group. The grouped key/value tensors may be repeated or broadcast logically so the attention kernel can pair every query head with its group's cached keys and values.`,
+        `The grouping ratio is the main design variable. If there are 32 query heads and 8 key/value heads, each key/value head serves 4 query heads. If there are 32 query heads and 4 key/value heads, each serves 8. The smaller the key/value count, the smaller the cache and the stronger the sharing assumption. Some systems train the model with GQA from the beginning. Others convert an existing multi-head checkpoint by pooling or selecting key/value heads and then uptraining so the model adapts. That conversion is a model change, not a harmless file-format rewrite.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Why it works`,
       paragraphs: [
-        'Do not confuse query-head count with KV-head count. A model can keep many query heads while storing fewer K/V heads. Do not assume smaller cache means identical quality; sharing can remove useful per-head detail. Do not evaluate only short prompts. The reason GQA matters often appears most clearly in long-context decode.',
+        `GQA works because many transformer heads are not perfectly independent resources that each require a private cache representation. Heads specialize, but their useful information can be partly shared. The model can learn to use different query projections against a smaller set of key/value memories. That preserves several ways for the current token to ask about the past while reducing the amount of past state that must remain resident and be streamed through memory.`,
+        `The serving win comes from the shape of the bottleneck. LLM generation often spends decode time reading weights and KV cache bytes rather than saturating arithmetic throughput. Shrinking the KV cache does not make attention free, but it reduces one of the largest per-request state tensors. It also compounds with other memory techniques. PagedAttention can reduce cache fragmentation, KV Cache Quantization & Compression can reduce bytes per element, and Sliding-Window Attention Context Policy can bound how many old tokens remain active. GQA reduces the head dimension of the stored state.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Where it is useful`,
       paragraphs: [
-        'Primary sources: Multi-Query Attention at https://arxiv.org/abs/1911.02150, GQA at https://arxiv.org/abs/2305.13245, Mistral 7B at https://arxiv.org/abs/2310.06825, and the JAX inference chapter at https://jax-ml.github.io/scaling-book/inference/. Study Multi-Head Attention, KV Cache, KV Cache Concurrency Capacity Model, Transformer Inference Roofline, and Sliding-Window Attention Context Policy next.',
+        `GQA is most useful in decoder-only language models, high-concurrency inference, long-context serving, chat systems with many active sessions, and deployments where memory bandwidth or cache capacity constrains throughput. It is especially valuable when the product cares about time per output token, total active tokens per GPU, or the number of users that can stay resident without evicting state. A model with a smaller KV cache can often run larger batches or support longer conversations on the same hardware.`,
+        `It is also useful in edge and cost-sensitive settings. If an on-device model has limited memory, fewer key/value heads can make longer local context possible. If a cloud system charges by accelerator time, higher decode throughput changes unit economics. The benefit is not restricted to very large models. Any autoregressive decoder that stores keys and values across time faces the same scaling law: cache bytes grow with layers, context length, batch size, element width, and key/value head count.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `GQA fails when sharing removes information the model needed. The failures may not show up in an average benchmark. They can appear in long-context recall, code completion, multilingual text, rare formats, instruction following, tool-call arguments, or retrieval-grounded answers that depend on a precise token far back in context. A model can look fine on short prompts while degrading on the exact workloads that motivated cache reduction. That is why group count is a quality parameter as much as a systems parameter.`,
+        `It can also fail operationally. If kernels do not support the chosen layout efficiently, the theoretical byte saving may not become latency saving. If the workload is prefill-dominated, GQA may help less than expected because the repeated decode cache read is not the main bottleneck. If weights dominate bandwidth, weight quantization or batching may matter more. If the scheduler is poor, smaller cache may simply expose a different bottleneck. GQA should be evaluated inside the full serving stack, not in an isolated architecture diagram.`,
+      ],
+    },
+    {
+      heading: `Evaluation signals and study next`,
+      paragraphs: [
+        `Measure both model quality and serving behavior. Quality checks should include perplexity, benchmark accuracy, long-context retrieval tasks, code and math slices, multilingual slices, and side-by-side regressions against a full multi-head baseline or a known production checkpoint. Serving checks should include time to first token, time per output token, tokens per second per GPU, max resident tokens, batch capacity, KV bytes per request, HBM bandwidth, p50 and p99 latency, eviction rate, and behavior under mixed prompt lengths. The best group count is the one that meets product quality while changing the real bottleneck.`,
+        `Primary sources are Multi-Query Attention at https://arxiv.org/abs/1911.02150, Grouped-Query Attention at https://arxiv.org/abs/2305.13245, Mistral 7B at https://arxiv.org/abs/2310.06825, and the JAX inference scaling chapter at https://jax-ml.github.io/scaling-book/inference/. Study Attention Mechanism, Multi-Head Attention, KV Cache, Transformer Inference Roofline, KV Cache Concurrency Capacity Model, LLM Serving: PagedAttention, KV Cache Quantization & Compression, Sliding-Window Attention Context Policy, FlashAttention Case Study, DeepSeek Multi-Head Latent Attention, and Benchmark Variance & Model Selection next.`,
       ],
     },
   ],

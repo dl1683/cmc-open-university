@@ -90,18 +90,18 @@ function* provenanceView() {
   yield {
     state: provenanceGraph('Provenance links artifact bytes back to build inputs'),
     highlight: { active: ['source', 'deps', 'build', 'artifact', 'e-source-build', 'e-deps-build', 'e-build-artifact'], compare: ['attest'] },
-    explanation: 'Software provenance answers where, when, how, and by whom an artifact was produced. The artifact digest is the join key between downloaded bytes and the build record.',
+    explanation: 'Provenance starts with the bytes in hand. The artifact digest is the join key that connects those downloaded bytes to a specific source, dependency set, builder, and build run.',
   };
   yield {
     state: provenanceGraph('SLSA provenance records buildDefinition and runDetails'),
     highlight: { active: ['build', 'artifact', 'attest', 'e-build-attest', 'e-artifact-attest'], found: ['source', 'deps'] },
-    explanation: 'A SLSA provenance predicate records the build type, external parameters, resolved dependencies, builder identity, invocation metadata, and output subjects.',
+    explanation: 'A SLSA provenance predicate records what build ran, which parameters and dependencies it used, which builder executed it, and which artifact subjects came out of that run.',
     invariant: 'Provenance must bind artifact digest, builder identity, and inputs together.',
   };
   yield {
     state: provenanceGraph('Signatures and transparency logs make claims verifiable'),
     highlight: { active: ['attest', 'sig', 'rekor', 'e-attest-sig', 'e-sig-rekor'], compare: ['policy'] },
-    explanation: 'The attestation is signed by an identity. Recording that signed claim in a transparency log lets consumers and monitors verify that the claim existed and inspect unexpected events.',
+    explanation: 'The attestation becomes verifiable only after signature checks bind it to an expected identity. Logging the signed claim adds public evidence that monitors can inspect for unexpected builds.',
   };
   yield {
     state: labelMatrix(
@@ -126,7 +126,7 @@ function* provenanceView() {
       ],
     ),
     highlight: { active: ['subject:verify', 'builder:verify', 'deps:verify', 'log:verify'] },
-    explanation: 'The graph is useful because every security decision has a concrete edge to check. No edge, no trust claim.',
+    explanation: 'The graph is useful because every trust decision names an edge to check: digest matches bytes, builder is expected, source is allowed, dependencies are known, and the signing event is visible.',
   };
 }
 
@@ -134,22 +134,22 @@ function* policyVerification() {
   yield {
     state: policyGraph('Start with the bytes you actually downloaded'),
     highlight: { active: ['download', 'digest', 'e-download-digest'], compare: ['attest'] },
-    explanation: 'Verification starts by hashing the artifact in hand. A valid attestation for a different digest is irrelevant.',
+    explanation: 'Verification starts by hashing the artifact in hand. If the digest does not match the attestation subject, the rest of the metadata belongs to different bytes.',
   };
   yield {
     state: policyGraph('Check the signature and signer-builder relationship'),
     highlight: { active: ['sig', 'attest', 'builder', 'e-sig-attest', 'e-attest-builder'], compare: ['deps'] },
-    explanation: 'SLSA emphasizes that consumers should accept only expected signer-builder pairs. A signer allowed for one builder should not automatically speak for another.',
+    explanation: 'The signature is checked against an expected identity and builder relationship. A signer trusted for one workflow should not automatically speak for another builder or source boundary.',
   };
   yield {
     state: policyGraph('Resolve dependency and source expectations'),
     highlight: { active: ['attest', 'deps', 'gate', 'e-attest-deps', 'e-deps-gate'], compare: ['download'] },
-    explanation: 'Policy can require a specific source repository, git commit, workflow, builder, dependency digest, or build type. The provenance graph turns those requirements into fields to check.',
+    explanation: 'Policy turns expectations into graph checks: source repository, git commit, workflow, builder, dependency digest, build type, and output subject all have to match the release rule.',
   };
   yield {
     state: policyGraph('Require transparency inclusion when the workflow depends on it'),
     highlight: { active: ['attest', 'log', 'gate', 'e-attest-log', 'e-log-gate'], found: ['builder'] },
-    explanation: 'A log inclusion proof does not make the artifact safe, but it makes the signing event public and monitorable. That can be a policy requirement.',
+    explanation: 'A transparency proof does not make an artifact safe. It makes the signing event public and monitorable, which is useful only when policy or monitoring actually consumes that evidence.',
   };
   yield {
     state: labelMatrix(
@@ -174,7 +174,7 @@ function* policyVerification() {
       ],
     ),
     highlight: { removed: ['digest:action', 'builder:action', 'source:action'], active: ['ok:action'] },
-    explanation: 'Provenance turns supply-chain trust into a graph query plus cryptographic checks. That is stronger than reading a package name and hoping.',
+    explanation: 'Provenance turns supply-chain trust into cryptographic checks plus a graph query over expected build facts. A familiar package name is not enough evidence.',
   };
 }
 
@@ -188,44 +188,104 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A software supply-chain provenance graph records the path from source inputs to built artifact. It ties a downloaded binary or container digest to source commit, build definition, external parameters, resolved dependencies, builder identity, invocation metadata, signature, and transparency-log evidence.',
-        'SLSA v1.2 defines build provenance as an attestation about how artifacts were produced, including buildDefinition, runDetails, builder identity, and artifact subjects, so consumers can verify that an artifact was built according to expectations and optionally rebuild it: https://slsa.dev/spec/v1.2/build-provenance.',
+        `Modern software arrives as packages, containers, binaries, generated code, plugins, and dependencies built by systems the consumer did not personally watch. A name and version string do not prove where the bytes came from. A familiar registry, project name, or maintainer account can still deliver bytes that were built by the wrong workflow, from the wrong commit, or with unexpected dependencies.`,
+        `A provenance graph records the path from source inputs to built artifact. It connects a source commit, dependency set, builder, build run, artifact digest, attestation, signature identity, transparency-log entry, and policy decision. The graph gives the verifier concrete edges to check instead of relying on reputation alone.`,
+        `This exists because supply-chain attacks often exploit missing joins. The source may be clean while the build runner is compromised. The signature may be valid but attached to a build path the policy never intended to trust. The image tag may look correct while the digest points to new bytes. Provenance makes those joins explicit.`,
+      ],
+    },
+    {
+      heading: 'The simple approach and the wall',
+      paragraphs: [
+        `The simple approach is to trust the package name, version, maintainer, registry, or signature. If the artifact is called the right thing and a cryptographic check passes, the deployment gate lets it through. That is better than no check, but it is not enough for a serious release path.`,
+        `A signature proves that an identity signed some bytes or metadata. It does not automatically prove that the bytes came from the expected source, were built by the expected builder, used the expected workflow, or included only expected dependencies. A trusted identity can sign the wrong thing, and a compromised build path can produce a signed artifact from clean source.`,
+        `The wall is missing structure. The verifier needs to connect the bytes in hand to the build story. Without a digest-linked graph, it cannot tell whether an attestation belongs to this artifact, whether the builder is allowed for this source, whether dependencies were resolved as expected, or whether the signing event is publicly monitorable.`,
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        `The artifact digest is the anchor. Every useful claim must attach to the exact bytes being consumed. The verifier starts by hashing the artifact it actually downloaded. If that digest does not match the attestation subject, the rest of the metadata may be valid but it is about different bytes.`,
+        `From that anchor, provenance becomes a graph query. The artifact was produced by a build. The build used source and dependencies. The build ran on a builder. The builder and parameters appear in an attestation. The attestation is signed by an identity. The signed claim may appear in a transparency log. A policy decides whether that whole path is allowed.`,
+        `The graph does not prove software is safe. It proves whether the build story matches the rule. Safety still depends on the source code, dependencies, review process, runtime controls, and the policy itself. Provenance narrows one important question: are these bytes the result of the build process we intended to trust?`,
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        `The provenance view shows the build story as a chain of linked evidence. Source and dependency inputs feed a builder. The builder produces an artifact. The artifact digest and build details appear in an attestation. The attestation is signed, optionally logged, and then evaluated by policy. The point is the linkage, not the diagram shape.`,
+        `The policy-verification view starts with the bytes in hand. That order matters. A verifier should not begin by admiring metadata. It should hash the downloaded artifact, check that the digest is the attestation subject, verify the signature, then test whether the builder, source, dependencies, and log proof match policy.`,
+        `The matrix frames show common deny cases. A digest mismatch means the metadata is about different bytes. A bad builder means the trusted source may have used an untrusted build path. A wrong source means the artifact did not come from the expected repository. A missing log proof may mean the event is not monitorable, depending on policy.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The artifact digest is the anchor. A SLSA provenance attestation has a subject containing artifact digests, a buildDefinition containing build type, external parameters, internal parameters, and resolved dependencies, and runDetails containing builder identity and invocation metadata. The attestation is then signed. Consumers verify the artifact digest, signature, builder identity, expected source, expected workflow, and dependency constraints.',
-        'SLSA recommends provenance through the in-toto attestation framework for external verification. The SLSA attestation model describes attestations as authenticated metadata about software artifacts and recommends the SLSA Provenance format for claims of SLSA levels: https://slsa.dev/attestation-model. The in-toto attestation repository defines the SLSA provenance predicate type: https://github.com/in-toto/attestation/blob/main/spec/predicates/provenance.md.',
+        `A provenance attestation is authenticated metadata about an artifact. In SLSA-style provenance, the subject identifies artifact digests, the build definition describes the build type and parameters, resolved dependencies can record external inputs, and run details identify the builder and invocation. SLSA v1.2 describes build provenance at https://slsa.dev/spec/v1.2/build-provenance.`,
+        `SLSA recommends using the in-toto attestation framework for external verification. The SLSA attestation model explains this relationship at https://slsa.dev/attestation-model, and the in-toto provenance predicate is defined at https://github.com/in-toto/attestation/blob/main/spec/predicates/provenance.md. The key idea is that provenance is machine-checkable evidence, not a human release note.`,
+        `A verifier usually follows a concrete sequence. Hash the artifact. Retrieve the attestation. Verify the attestation signature against an expected identity. Check that the subject digest matches the artifact. Check builder identity, build type, source repository, commit, workflow, parameters, and dependency constraints. If the workflow requires transparency, verify that the signed claim appears in the expected log.`,
+        `A policy engine turns those checks into an allow, deny, or escalate decision. The policy might say that production containers must be built by a hosted builder, from a protected branch, using a specific workflow, with provenance signed by a particular identity, and with a transparency-log inclusion proof. Another environment might accept weaker evidence but require manual review.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'Why it works',
       paragraphs: [
-        'The provenance graph has nodes for artifacts, digests, source repos, commits, build templates, parameters, dependencies, builders, byproducts, attestations, signatures, transparency-log entries, and policy decisions. Edges express produced-by, depended-on, signed-by, logged-in, and allowed-by. This is Claim Graph & Source Ledger for executable artifacts.',
-        'Content-Addressed Merkle DAG Object Store supplies byte-level integrity. Transparency Log Witnessing supplies public inclusion and append-only evidence. Git Internals supplies source identity. SLSA Build & Source Trust Ladder explains the level model for source and build trust. Sigstore Keyless Signing Transparency explains the identity, certificate, signature, and log records that can sign this graph. The policy gate combines those facts into an allow, deny, or escalate decision.',
+        `Digest matching prevents metadata substitution. If an attacker hands you a valid attestation for one image and different image bytes, the digest edge fails. The verifier does not need to understand the attack. It only needs to refuse to attach claims to bytes they do not name.`,
+        `Signatures bind the attestation to an identity. Policy then decides what that identity is allowed to say. A signer trusted for a documentation workflow should not automatically be trusted for a production container build. A builder trusted for one organization should not automatically be trusted for another source boundary.`,
+        `Transparency-log inclusion adds public evidence that the signed claim existed. It does not make an artifact safe, and it does not replace policy. Its value is monitorability. If a suspicious build is signed, monitors can discover that event instead of relying only on private deployment logs.`,
+        `The graph works because each claim has a join key and each join can be checked independently. Bytes join to digest. Digest joins to attestation subject. Attestation joins to builder, source, and dependencies. Signature joins to identity. Log proof joins to public inclusion. Policy joins those facts to the release rule.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'A Kubernetes admission controller receives a container image. It hashes the image digest, retrieves a signed SLSA provenance attestation, checks the signature identity, verifies the subject digest matches the image, checks that the builder is the expected hosted builder, verifies the source repo and commit are allowed, checks resolved dependency digests when required, verifies Rekor inclusion, and then admits or rejects the image.',
-        'If the image name is correct but the digest differs, the graph fails at the first edge. If the digest matches but the builder is a self-hosted runner outside the trust boundary, policy fails at the builder edge. If a new dependency appears, policy can escalate even though the signature is cryptographically valid.',
+        `A Kubernetes admission controller receives a container image for production. The image name is familiar, but the controller does not trust the name. It resolves the digest, fetches the image metadata, and looks for a signed provenance attestation whose subject names that digest.`,
+        `The controller verifies the signature identity, checks that the builder is the expected hosted build platform, checks that the source repository and commit match an allowed release, checks that the workflow is the release workflow rather than an arbitrary job, checks dependency digests when policy requires them, and verifies Rekor or another transparency-log inclusion proof if the organization depends on public monitoring.`,
+        `Now consider three failure cases. If the image tag is right but the digest differs, the first edge fails. If the digest matches but the builder is a self-hosted runner outside the trust boundary, the builder edge fails. If a new dependency appears that the policy does not recognize, the gate can deny or escalate even though the signature is cryptographically valid.`,
+        `This is why provenance is a graph, not a badge. A badge that says "signed" hides the actual decision. A graph can explain which edge failed and what evidence would be needed to pass.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'A signature alone does not prove safe provenance. It proves that some identity signed something. The verifier must know which identity is allowed to sign for which builder, source, and artifact. Transparency-log inclusion does not make an artifact good either; it makes the event public and monitorable.',
-        'Another mistake is overclaiming dependency completeness. SLSA provenance captures resolvedDependencies if known, but completeness depends on build platform level and ecosystem integration. Policy should distinguish required checks from best-effort metadata.',
+        `The first cost is build-system integration. Builders must emit useful attestations, sign them, and preserve enough detail for verification. If the build system cannot reliably name source, parameters, builder identity, and dependencies, policy will either be weak or noisy.`,
+        `The second cost is storage and distribution. Attestations must travel with artifacts or be discoverable by digest. Signatures and log proofs must be retrievable during verification. Policy engines need failure handling for missing metadata, stale logs, network errors, and artifacts built before the provenance requirement existed.`,
+        `The third cost is policy design. A policy that denies every missing optional field may block legitimate releases. A policy that accepts every missing field may provide only theater. Good policies distinguish required evidence, best-effort evidence, escalation cases, and environment-specific rules. Development, staging, and production may need different gates.`,
+        `Dependency completeness is especially hard. Provenance can record resolved dependencies when the build platform and ecosystem support it, but not every toolchain exposes complete dependency evidence. A mature policy treats dependency claims with clear confidence levels instead of pretending all ecosystems provide the same graph.`,
+      ],
+    },
+    {
+      heading: 'Where it wins and where it does not',
+      paragraphs: [
+        `Provenance wins at release gates, container admission controllers, artifact registries, package mirrors, high-risk dependency updates, regulated pipelines, and incident response. It gives teams a way to answer "where did these bytes come from?" without reconstructing the whole build by hand.`,
+        `It works best when artifacts are content-addressed, builders have strong identities, source repositories and workflows are constrained, signatures are verified, transparency logs are monitored, and policy is explicit about which graph edges are required. The more deterministic and automated the build pipeline is, the more useful provenance becomes.`,
+        `It does not prove that software is bug-free, non-malicious, or well-designed. If the expected source contains a vulnerability, provenance can faithfully prove the vulnerable artifact came from that source. That is still useful, but it is not a substitute for code review, dependency scanning, testing, sandboxing, runtime policy, or vulnerability response.`,
+      ],
+    },
+    {
+      heading: 'Misconceptions and pitfalls',
+      paragraphs: [
+        `The biggest misconception is "signed equals safe." A signature is necessary evidence in many workflows, but it is not a complete policy. The verifier must know which identity may sign for which source, builder, workflow, and artifact class. Otherwise a valid signature can become a universal permission slip.`,
+        `Another pitfall is trusting tags. Tags and version strings are mutable or ecosystem-dependent labels. Digests are the stable anchor. A policy that checks image names but not digests can accept unexpected bytes while appearing strict.`,
+        `A third pitfall is logging without monitoring. A transparency log is useful because unexpected entries can be found. If nobody monitors the log, inclusion still provides auditability after the fact, but it loses much of its early-warning value.`,
+        `A fourth pitfall is overclaiming dependency evidence. Some provenance records include resolved dependencies. Some do not. Some include them incompletely. Policies should say exactly which dependency edges are required and what happens when an ecosystem cannot provide them.`,
+      ],
+    },
+    {
+      heading: 'Building a good policy',
+      paragraphs: [
+        `A good policy starts from the asset and environment. A production payment-service container deserves stricter evidence than a development tool image. The policy should name allowed source repositories, protected branches or release tags, build workflows, builder identities, signing identities, required attestation predicates, and whether transparency inclusion is mandatory.`,
+        `The policy should also define actions. A digest mismatch should deny. An unexpected builder should deny for production. A missing optional dependency list might escalate for review. A missing log proof might deny in production but warn in staging. These distinctions keep the gate useful instead of turning it into either a rubber stamp or a permanent blocker.`,
+        `Finally, a good policy is explainable. When it rejects an artifact, it should report the failed edge: digest, signer, builder, source, workflow, dependency, or log proof. Supply-chain security improves faster when teams can see exactly which evidence is missing or wrong.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: SLSA Build Provenance at https://slsa.dev/spec/v1.2/build-provenance, SLSA Build Track Basics at https://slsa.dev/spec/v1.2/build-track-basics, in-toto attestation provenance predicate at https://github.com/in-toto/attestation/blob/main/spec/predicates/provenance.md, Sigstore in-toto attestations at https://docs.sigstore.dev/cosign/verifying/attestation/, and Sigstore Rekor at https://docs.sigstore.dev/logging/overview/. Study Content-Addressed Merkle DAG Object Store, Transparency Log Witnessing Case Study, Git Internals, Claim Graph & Source Ledger, TUF Update Metadata Case Study, SLSA Build & Source Trust Ladder, Sigstore Keyless Signing Transparency, OPA Rego Policy Decision Graph, Kubernetes Admission Policy Gate, and Zanzibar Authorization Case Study next.',
+        `Primary sources: SLSA Build Provenance at https://slsa.dev/spec/v1.2/build-provenance, SLSA Build Track Basics at https://slsa.dev/spec/v1.2/build-track-basics, in-toto attestation provenance predicate at https://github.com/in-toto/attestation/blob/main/spec/predicates/provenance.md, Sigstore in-toto attestations at https://docs.sigstore.dev/cosign/verifying/attestation/, and Sigstore Rekor at https://docs.sigstore.dev/logging/overview/.`,
+        `Study Content-Addressed Merkle DAG Object Store for digest anchoring, Transparency Log Witnessing Case Study for public inclusion, Git Internals for source identity, Claim Graph and Source Ledger for evidence graphs, TUF Update Metadata Case Study for signed update metadata, SLSA Build and Source Trust Ladder for trust levels, Sigstore Keyless Signing Transparency for identity-backed signing, OPA Rego Policy Decision Graph for admission policy, and Kubernetes Admission Policy Gate for deployment enforcement.`,
+        `A useful next exercise is to write a tiny admission rule in plain English. Name one artifact class, one allowed source, one allowed builder, one signer identity, one required digest match, and one response for missing provenance. If the rule cannot say what evidence it needs, the graph cannot save it.`,
       ],
     },
   ],

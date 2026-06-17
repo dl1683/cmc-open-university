@@ -211,11 +211,89 @@ export const article = {
     { title: 'EMBL-EBI: How does AlphaFold 3 work?', url: 'https://www.ebi.ac.uk/training/online/courses/alphafold/alphafold-3-and-alphafold-server/introducing-alphafold-3/how-does-alphafold-3-work/' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['AlphaFold 3 is a biomolecular structure prediction system that uses a diffusion module to predict raw atom coordinates for complexes. The important data-structure shift is that the model can represent proteins, nucleic acids, ligands, ions, and modified residues in one prediction problem.', 'This topic extends Diffusion Models beyond images. The sample is not a pixel array; it is an all-atom coordinate set conditioned by sequence, MSA, template, and pair-token representations.'] },
-    { heading: 'Data structures', paragraphs: ['The core records are molecular tokens, single-token embeddings, pair embeddings, atom coordinates, diffusion timesteps, sampled structures, mmCIF outputs, and confidence metrics. Tokens can represent standard residues, nucleotides, individual ligand atoms, ions, or modified atoms depending on the molecule type.', 'The Pairformer-style pair representation is a routing table for molecular relationships. The diffusion module uses conditioning from the trunk while updating noisy atom positions into plausible coordinates.'] },
-    { heading: 'How it works', paragraphs: ['Training corrupts atom coordinates with Gaussian noise and trains a denoiser to recover the correct coordinates under molecular conditioning. Sampling starts from a random atom cloud and iteratively moves atoms toward a structure that fits the input complex.', 'The supplementary material describes a point-cloud diffusion model over all heavy atoms, conditioned by trunk features. The model then returns coordinates and confidence values so the output can be inspected rather than accepted blindly.'] },
-    { heading: 'Complete case study', paragraphs: ['A team submits a protein and candidate ligand. The system tokenizes the protein mostly by residues and the ligand by atoms, builds pair features, samples several diffusion trajectories, and returns multiple structures.', 'The team ranks candidates using ipTM and related interface confidence, inspects PAE for uncertain packing, checks local pLDDT around ligand atoms, and treats the result as a hypothesis for experimental validation rather than as a final experimental fact.'] },
-    { heading: 'Pitfalls', paragraphs: ['The model can be accurate and still be uncertain in the exact region a scientist cares about. Local atom confidence, domain placement, and interface confidence must be read separately.', 'Another trap is treating diffusion as magic chemistry. The denoiser learns from structural data and conditioning; it does not replace physical validation, assay design, cryo-EM, crystallography, or domain expertise.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: Nature AlphaFold 3 at https://www.nature.com/articles/s41586-024-07487-w, AlphaFold 3 supplementary information at https://www.nature.com/articles/s41586-024-07487-w#Sec30, and EMBL-EBI AlphaFold 3 tutorial at https://www.ebi.ac.uk/training/online/courses/alphafold/alphafold-3-and-alphafold-server/introducing-alphafold-3/how-does-alphafold-3-work/. Study Diffusion Models, Graph Neural Networks, Attention, Multi-Head Attention, and Saliency Maps next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'AlphaFold 3 is a useful case study because it moves diffusion models out of the usual image-grid setting and into biomolecular structure prediction. The object being generated is not a picture. It is a 3D arrangement of atoms for proteins, nucleic acids, ligands, ions, and modified residues in one complex.',
+        'The data-structure lesson is that the model needs several linked representations at once: molecular tokens, pair relationships, atom coordinates, diffusion timesteps, sampled structures, mmCIF outputs, and confidence metrics. The output is a structured scientific hypothesis, not just a coordinate file.',
+      ],
+    },
+    {
+      heading: 'Baseline and wall',
+      paragraphs: [
+        'A naive baseline would handle each molecule type with separate rules: predict a protein backbone, dock a ligand afterward, model nucleic acids separately, and patch confidence together late. That loses the joint interaction problem. Interfaces, ligand poses, ions, and modified residues can all depend on each other.',
+        'Another baseline is deterministic coordinate regression: feed the sequence and directly predict one final structure. The wall is uncertainty. Biomolecular complexes can have multiple plausible arrangements, weak evidence in some regions, and interfaces where the local atom geometry looks plausible but the global placement is uncertain.',
+        'AlphaFold 3 uses conditional diffusion to make sampling part of the representation. It starts from noisy atom coordinates and repeatedly denoises under molecular context, then reports confidence so users can separate a high-confidence hypothesis from a weak one.',
+      ],
+    },
+    {
+      heading: 'Core invariant',
+      paragraphs: [
+        'The central invariant is that every coordinate update stays tied to molecular conditioning. Sequence, MSA, template, and pair features are not discarded when diffusion starts. They keep informing how the noisy atom cloud should move toward a plausible complex.',
+        'Tokenization is the first important design choice. Standard residues and nucleotides can be represented at token level, while ligands, ions, and chemically detailed pieces may need atom-level treatment. The model has to preserve chemical detail without turning every large biomolecule into an unaffordable flat atom sequence.',
+        'The second invariant is that coordinates and confidence travel together. A predicted structure without pLDDT, PAE, pTM, ipTM, or related confidence signals is not enough for scientific use, because the risky region is often exactly the region the user cares about.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the atom-cloud view, read the scattered C, N, O, and P nodes as atom coordinates under refinement. The pair node is not a visible bond list; it represents learned pairwise context that biases how atoms should move relative to the rest of the complex.',
+        'The denoising frame shows a point cloud becoming more coherent. That does not mean the model is simulating physical time. It means each sampling step updates coordinates so they better match the learned distribution conditioned on the input molecules.',
+        'In the confidence-ledger view, the best-looking sample is not automatically the selected sample. The plot and table separate local atom confidence, domain placement uncertainty, and interface confidence. The right reading is: coordinates plus confidence form the prediction bundle.',
+      ],
+    },
+    {
+      heading: 'Mechanics',
+      paragraphs: [
+        'The input is converted into molecular records: chains, residues, nucleotides, ligands, ions, atom names, and connectivity-related context. The trunk builds single-token and pair representations from sequence, MSA, templates, and molecular context.',
+        'During training, true atom coordinates are corrupted with noise, and the denoising module learns to recover cleaner coordinates under the trunk conditioning. During sampling, the model starts with a noisy all-atom coordinate cloud and iteratively updates positions over denoising steps.',
+        'The final output is a bundle. It includes coordinates, usually exported in a structure format such as mmCIF, plus confidence metrics. Multiple diffusion samples can be generated, ranked, and inspected before a scientist decides which hypotheses are worth downstream validation.',
+      ],
+    },
+    {
+      heading: 'Correctness and evidence',
+      paragraphs: [
+        'This topic does not have the same kind of correctness proof as a tree rotation or shortest-path invariant. The model is statistical. The right question is whether the representation preserves the needed evidence, whether the training objective matches coordinate recovery, and whether confidence metrics expose likely failure regions.',
+        'Local confidence and interface confidence answer different questions. pLDDT-style local confidence can say whether atom neighborhoods look reliable. PAE-style pair error can reveal uncertain relative placement of domains. ipTM-style interface confidence is especially important for complexes because the interface is often the biological point of the prediction.',
+        'A responsible workflow treats the prediction as a ranked hypothesis. Strong confidence can prioritize an experiment. Weak confidence should trigger inspection, alternative samples, additional evidence, or a different experimental plan.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a drug-discovery team submits a protein and a candidate ligand. The protein is represented largely through residue-level tokens, while the ligand needs atom-level detail because small changes in ligand pose can determine whether the hypothesis is useful.',
+        'The model builds pair features for the combined molecular context, samples several noisy atom clouds, and denoises each one into a possible complex. The team does not simply choose the prettiest 3D shape. It ranks samples using interface confidence, inspects PAE around the binding region, checks local confidence around ligand atoms, and looks for clashes or unsupported geometry.',
+        'The output that survives that triage becomes an experimental hypothesis. It may guide assay design, mutagenesis, docking follow-up, or structural experiments, but it does not replace those checks.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'All-atom diffusion is more expressive than backbone-only thinking, but it is computationally heavier. More atoms, more molecular types, and multiple samples increase memory and runtime. The system spends that cost to model interactions directly instead of stitching separate predictions together afterward.',
+        'The model also trades deterministic output for sampling. Sampling can reveal alternative plausible structures and improve ranking, but it creates an ensemble-selection problem. The confidence ledger is therefore part of the method, not an optional report.',
+        'There is also a data tradeoff. Learned structure priors are powerful where training data and conditioning are informative, but unusual chemistry, flexible regions, weak interfaces, and out-of-distribution complexes can still be unreliable.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'The approach is strongest when the question is joint biomolecular structure: proteins with ligands, nucleic acids, ions, modified residues, or interfaces where separate modeling would miss dependencies. It is also valuable when multiple sampled hypotheses can be ranked and triaged quickly.',
+        'As a curriculum topic, it is a clean bridge between diffusion models, graph-like molecular representations, attention over pairs, point clouds, and scientific confidence reporting. It shows that a generated artifact can be a structured object plus an uncertainty ledger.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The model can be impressive and still be uncertain in the exact region that matters. A ligand pose, a flexible loop, or a protein-protein interface can be the biological question and also the lowest-confidence part of the prediction.',
+        'It also fails as a workflow when users treat diffusion as magic chemistry. The denoiser learns from structural data and conditioning; it does not replace physical validation, assay design, cryo-EM, crystallography, medicinal chemistry, or domain expertise.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Nature AlphaFold 3 at https://www.nature.com/articles/s41586-024-07487-w, AlphaFold 3 supplementary information at https://www.nature.com/articles/s41586-024-07487-w#Sec30, and EMBL-EBI AlphaFold 3 tutorial at https://www.ebi.ac.uk/training/online/courses/alphafold/alphafold-3-and-alphafold-server/introducing-alphafold-3/how-does-alphafold-3-work/.',
+        'Study Diffusion Models, Graph Neural Networks, Attention, Multi-Head Attention, Point Cloud Networks, Protein Folding, and Saliency Maps next. A useful follow-up exercise is to map each output confidence metric to the scientific decision it should and should not support.',
+      ],
+    },
   ],
 };

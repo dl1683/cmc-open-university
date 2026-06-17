@@ -189,42 +189,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A transparency log is a public append-only log backed by an authenticated data structure. It does not prevent every bad event. It makes events visible and tamper-evident so monitors can detect them. Certificate Transparency logs certificate issuance; Sigstore Rekor logs software-signing metadata and attestations.',
-        'RFC 6962 describes Certificate Transparency as publicly auditable append-only logs where anyone can verify log correctness and monitor new entries: https://datatracker.ietf.org/doc/html/rfc6962. Sigstore Rekor provides a transparency log for software supply chain metadata and supports inclusion proof, integrity verification, and entry retrieval: https://docs.sigstore.dev/logging/overview/.',
+        'Many security failures are not caused by weak cryptography. They are caused by a real key, issuer, registry account, or build service doing something it should not have done. A certificate authority can issue a certificate for a domain it should not control. A package maintainer token can publish a poisoned release. A build system can sign an artifact with the right key after the build pipeline was compromised.',
+        'A signature proves that some key signed something. It does not prove that the event was expected, visible to the owner, or shown consistently to everyone. Transparency logs exist to move those events out of private conversations and into an append-only public record that other parties can audit.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'Each entry is hashed into a Merkle tree leaf. The log periodically signs a tree size and root hash, producing a signed tree head or checkpoint. An inclusion proof gives the sibling hashes needed to recompute the signed root from one leaf. A consistency proof connects an older tree head to a newer one and shows the log grew by appending rather than rewriting.',
-        'Witnesses add a second line of defense. A witness remembers previous checkpoints and signs only newer checkpoints that are consistent with what it already saw. Monitors download and inspect entries for unexpected certificates, package releases, builder identities, keys, or artifact digests. Auditors verify inclusion and consistency proofs for clients.',
+        'The obvious approach is to trust the issuer directly. A browser asks a certificate authority whether a certificate is valid. A package installer asks a registry whether a release exists. A verifier checks whether an artifact carries a valid signature.',
+        'That approach hits two walls. First, the party that answers may be the party that made the mistake. Second, a malicious service can equivocate: show a clean history to monitors, a different history to victims, and deny the bad event later. Without a shared public commitment to history, victims have little evidence and monitors may never know what to inspect.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The Core Insight',
       paragraphs: [
-        'The core structures are an append-only leaf list, Merkle tree, signed tree head, inclusion proof path, consistency proof, witness checkpoint map, monitor cursor, and alert ledger. Merkle Mountain Range Append-Only Log is a useful adjacent lesson because it shows how append-only accumulators can keep compact peaks while supporting old-prefix proofs.',
-        'Transparency logs are authenticated data structures plus operations discipline. The log must be append-only. The witness must reject inconsistent heads. The monitor must scan entries. The owner must know what entries are expected. Without monitoring, the log is only an archive.',
+        'Put every relevant event into an append-only Merkle log, publish signed checkpoints for the log, and make clients demand proofs against those checkpoints. The log does not decide whether an event is good. It commits to the fact that the event happened in a specific history.',
+        'Then split the security work among independent actors. The log stores entries and proves them. Witnesses remember checkpoints and refuse to cosign inconsistent history. Monitors scan the stream for events that violate policy. Auditors verify compact proofs for clients that cannot download the whole log.',
       ],
     },
     {
-      heading: 'Case studies',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Certificate Transparency exposed unexpected certificates by making certificate issuance public and auditable. Rekor applies the pattern to software artifacts: signatures, public keys, artifact hashes, and attestations can be recorded and later verified. The same pattern appears in package registries, binary transparency, key transparency, and supply-chain provenance.',
-        'A complete deployment checks several things: the artifact digest matches the downloaded file, the signature verifies, the signing identity is allowed, the Rekor entry is included in the log, the log checkpoint is consistent, and a monitor has not found unexpected events for that identity.',
+        'In the log proof path view, follow one event as it becomes a leaf, then a Merkle root, then a signed tree head. The inclusion proof answers one question: is this entry inside the signed tree? The consistency proof answers a different question: did the newer tree grow from the older tree without rewriting the prefix?',
+        'In the witness and monitor view, watch the split-view risk. A log can try to present STH A to one audience and STH B to another. A witness is useful because it has memory and signs only consistent checkpoints. A monitor is useful because it reads the actual entries and knows what would be suspicious for a domain, package, builder, or key.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How It Works',
       paragraphs: [
-        'Transparency is not trust by itself. A malicious package can be logged honestly. A compromised identity can sign bad metadata and appear in the log. Inclusion proves that an event was recorded, not that it should be accepted. Policy, identity verification, monitoring, and incident response are still required.',
-        'Another mistake is assuming a client must download the whole log. Inclusion and consistency proofs let clients verify specific claims cheaply, while monitors perform the expensive full-log scanning.',
+        'Each logged event is encoded and hashed as a leaf. The leaves form a Merkle tree. The log periodically signs a checkpoint, often called a signed tree head, containing at least the tree size and root hash. That signature is a compact commitment to every leaf in that prefix of the log.',
+        'A client that sees an entry asks for an inclusion proof. The proof contains the sibling hashes needed to recompute the signed root from that one leaf. A client or auditor that has seen an older checkpoint asks for a consistency proof to show that the older tree is a prefix of the newer tree.',
+        'Witnesses add independent memory. A witness stores the latest checkpoint it accepted for a log and cosigns only a new checkpoint that is consistent with the old one. Monitors add semantic inspection. They download entries, match them against policy, and alert the real owner when something appears that should not exist.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
+      paragraphs: [
+        'A collision-resistant Merkle root binds the log to a specific set and order of leaves. If the log changes one old entry, removes one entry, or inserts something into the middle, the root changes. Inclusion proofs let a small client verify one entry against that root without replaying the whole log.',
+        'Consistency proofs are what make append-only more than a promise. They connect two signed checkpoints and show that the later tree extends the earlier tree. A log that cannot provide that proof is either broken, unavailable, or trying to rewrite history.',
+        'Witnessing turns equivocation into a coordination problem for the attacker. To keep a split view alive, the log must either isolate victims from honest witnesses and monitors or obtain signatures on incompatible checkpoints. That is much harder than lying to one client in private.',
+      ],
+    },
+    {
+      heading: 'Worked Case Study',
+      paragraphs: [
+        'Suppose a compromised certificate authority issues a certificate for bank.example. The certificate is cryptographically valid, so a simple signature check would not catch the problem. With transparency, the certificate must appear in a public log. The browser can require proof that the certificate is included under a signed checkpoint.',
+        'The domain owner runs or uses a monitor that watches for bank.example. When the unexpected certificate appears, the monitor alerts the owner. If the log tries to hide the certificate from monitors while showing it to victims, the log has to maintain incompatible views. Witness-backed checkpoints and consistency checks make that split view detectable when views are compared.',
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        'Client proofs are small, usually logarithmic in the number of log entries. Monitoring is not small. Someone has to download, index, and understand the entries that matter. The design intentionally keeps ordinary clients light and moves continuous inspection to monitors.',
+        'The system also creates public metadata. That is often the point for certificates and software releases, but it can leak timing, identity, and deployment information. Private or sensitive ecosystems need to decide what can safely be logged.',
+        'Availability matters. If logs, witnesses, or monitors are unreachable, clients must choose between blocking, accepting stale evidence, or failing open. Different ecosystems make different choices because they have different tolerance for outages and compromise.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Transparency wins when the main danger is hidden history: unexpected certificate issuance, unauthorized package publication, suspicious build attestations, key changes, and supply-chain metadata that should be visible to owners and relying parties.',
+        'It also wins when many clients need compact verification but only a few parties can afford full monitoring. Browsers, package installers, and policy agents can verify proofs while specialized monitors do the expensive scanning.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'Transparency does not make a bad event harmless. A malicious package can be logged honestly. A stolen key can sign a real artifact. Inclusion proves that the event is in the log, not that a client should trust it.',
+        'It also fails quietly when nobody monitors the right names, keys, packages, or builders. A log with no monitor is mostly a tamper-evident archive. The practical security result depends on policy, ownership knowledge, alerting, and response.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: Certificate Transparency RFC 6962 at https://datatracker.ietf.org/doc/html/rfc6962, RFC 9162 at https://www.rfc-editor.org/rfc/rfc9162.html, Certificate Transparency overview at https://certificate.transparency.dev/howctworks/, Sigstore Rekor docs at https://docs.sigstore.dev/logging/overview/, Trillian transparent logging guide at https://google.github.io/trillian/docs/TransparentLogging.html, and Rekor repository at https://github.com/sigstore/rekor. Study Merkle Tree, Merkle Mountain Range Append-Only Log, Software Supply Chain Provenance Graph, Sigstore Keyless Signing Transparency, Content-Addressed Merkle DAG Object Store, Write-Ahead Log, and Claim Graph & Source Ledger next.',
       ],

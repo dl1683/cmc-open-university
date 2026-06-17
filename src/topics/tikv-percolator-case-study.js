@@ -191,26 +191,100 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'TiKV is a distributed transactional key-value store used under TiDB. Its transaction model is based on Google\'s Percolator: snapshot reads with MVCC timestamps, a prewrite phase that installs locks and tentative values, and a commit phase that makes the primary key the transaction decision point.',
-      'This is a useful case study because it composes several ideas that are often taught separately. MVCC provides old versions for readers. A timestamp oracle orders transactions. Two-phase commit coordinates multiple keys. Raft replicates each region underneath the transaction protocol.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'A transaction obtains a start timestamp and reads from that snapshot. During prewrite, it checks for conflicts and writes locks plus tentative values. One key is chosen as the primary key, and secondary locks point back to it. If prewrite succeeds, the coordinator obtains a commit timestamp and commits the primary first.',
-      'Once the primary is committed, the transaction is logically committed. Secondary keys can be committed later or by other clients that encounter their locks. This is why lock metadata must point to the primary: it lets the system recover a correct decision after coordinator failure.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'The cost is more than two network round trips. Each key belongs to a region, each region is replicated, and lock resolution may add retries. Large transactions touch many keys and therefore many regions. Contention on hot keys can turn optimistic concurrency into repeated aborts or lock waits.',
-      'The implementation pitfalls are subtle: choosing a primary, expiring abandoned locks, preserving snapshot visibility, handling region leader changes, and cleaning old MVCC versions without breaking old readers.',
-      'The timestamp service is another important design point. A global timestamp oracle simplifies ordering, but it must be highly available and fast enough for the workload. The transaction protocol depends on those timestamps to decide what each snapshot can see.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'Imagine transferring inventory between two warehouse keys in different regions. The transaction prewrites both keys, choosing one as the primary. It commits the primary after receiving a commit timestamp. If the coordinator crashes before committing the secondary, a later reader sees the secondary lock, checks the primary, discovers the transaction committed, and resolves the secondary forward.',
-      'That recovery path is the core lesson. Distributed transactions are not only about the happy path. The data structures and records must carry enough information for another actor to finish or safely roll back incomplete work.',
-      'The same pattern appears in secondary-index maintenance. Updating a row and its index entries touches multiple keys that may live in different regions. Percolator metadata gives later readers and cleanup workers enough information to keep row data and index data consistent after partial failure.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: TiKV Percolator deep dive, https://tikv.org/deep-dive/distributed-transaction/percolator/, TiKV distributed transaction introduction, https://tikv.org/deep-dive/distributed-transaction/introduction/, and the Google Percolator paper, https://www.usenix.org/legacy/event/osdi10/tech/full_papers/Peng.pdf. Study MVCC & Vacuum, Two-Phase Commit, Raft Log Replication, Spanner, and FoundationDB next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'TiKV stores data as a distributed, replicated key-value system, while TiDB exposes SQL transactions above it. A single SQL transaction can update rows, indexes, and metadata that live in different key ranges, on different leaders, replicated by different Raft groups.',
+        'Percolator-style transactions exist to make those multi-key changes atomic under partial failure. The hard case is not the clean success path. The hard case is a coordinator crash after some keys have durable locks, before every key has a final committed record.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is to send writes to every affected key and report success if they all return. That works only when failures are clean. In a distributed store, one region can accept its write while another times out, moves leaders, or is still retrying.',
+        'The wall is ambiguity. A later reader can find a tentative value or a lock and have no idea whether it belongs to a transaction that committed, aborted, or lost its coordinator. Without a recoverable decision record, atomicity depends on remembering what a dead client meant to do.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Use MVCC timestamps to define visibility, then split commit into a prewrite phase and a commit phase. During prewrite, every key gets a lock and tentative value. One key is chosen as the primary. Secondary locks point back to that primary.',
+        'The primary key becomes the transaction status record. Once the primary is committed with a commit timestamp, the transaction is logically committed. If another client later finds a secondary lock, it can check the primary and resolve the secondary forward or roll it back.',
+      ],
+    },
+    {
+      heading: 'What the views teach',
+      paragraphs: [
+        'In the prewrite commit view, follow the transaction from client to TiDB, then to the timestamp oracle and the regions holding the primary and secondary keys. The primary lock is not just another lock. It is the place other actors inspect to learn the transaction outcome.',
+        'In the lock resolution view, read the reader as a recovery participant. It encounters a secondary lock, follows the pointer to the primary, and uses that primary status to decide whether the secondary should be committed or cleaned up.',
+        'The important point is that recovery work is part of the normal protocol, not an emergency side channel. Any later actor that finds a lock can follow the same metadata path. That is why the diagram includes the reader: reads are not passive when they encounter unresolved transactional state.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A transaction obtains a start timestamp from the timestamp oracle and reads a snapshot at that timestamp. The client buffers writes. At commit time, prewrite checks for conflicts and writes locks plus tentative values into the affected key ranges. Each of those writes is still made durable by the local storage and Raft machinery under that region.',
+        'If prewrite succeeds, the coordinator obtains a commit timestamp. It commits the primary first by writing the final MVCC commit record. After that point the transaction has a durable decision. The coordinator then commits secondaries, and if it dies before finishing them, later lock resolution can complete the work.',
+        'Readers use MVCC to read the newest committed version visible at their timestamp. If a reader sees a lock that could affect its snapshot, it may have to wait, push, or resolve the lock by checking the primary transaction record.',
+        'The conflict check protects snapshot isolation rules. A prewrite must detect whether another transaction has already committed a newer version that conflicts with the transaction start timestamp. The timestamp oracle gives a total order, but the storage nodes still need per-key metadata to reject writes that would make the snapshot story false.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because ambiguity has a path to an answer. A secondary lock carries enough metadata to find the primary. The primary tells whether the transaction committed, is still pending, or should be rolled back after timeout or cleanup rules.',
+        'Timestamps make visibility deterministic: a reader at timestamp 100 should not see a version committed at timestamp 120. Raft makes each region write durable, but Raft alone only protects one key range. Percolator-style metadata ties those independently replicated writes into one transaction outcome.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a transaction moves one unit of inventory from warehouse A to warehouse B. The key stock:sku42:A lives in Region A and stock:sku42:B lives in Region B. The transaction reads a snapshot, buffers A = A - 1 and B = B + 1, then prewrites both keys. The A key is chosen as primary, and the B lock points back to A.',
+        'The coordinator gets a commit timestamp and commits A. It crashes before committing B. Later, a reader of B sees the secondary lock and checks A. Because A shows the transaction committed, the reader or cleanup path can commit B at the same commit timestamp. The transfer is not left half-visible.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The protocol spends network trips, storage writes, lock metadata, and recovery work to buy atomicity. A transaction that touches many regions fans out prewrite and commit work across many leaders. Long transactions keep locks alive longer and increase conflict or cleanup pressure.',
+        'Hot keys are expensive. If many transactions touch the same primary or index key, optimistic conflict checks can turn into retries and pessimistic modes can turn into waits. The timestamp service is also a critical ordering dependency, so it must be highly available and carefully engineered.',
+        'There is also garbage-collection pressure. MVCC keeps old versions so historical snapshots can read a consistent view, but those versions cannot grow forever. Safe point management, lock TTLs, and transaction duration limits are part of the same design because old readers, old locks, and old versions interact.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Percolator-style transactions win when applications need SQL-like atomicity over sharded storage: row updates plus secondary indexes, account state plus audit records, metadata changes across tables, and multi-key invariants that cannot be reduced to one key.',
+        'They are strongest when transactions are small enough to keep contention manageable and when the system can tolerate the extra commit latency in exchange for a clear correctness model.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails as a performance tool when used to paper over bad data layout. Very large transactions, hot rows, long lock TTLs, and workloads that constantly cross many regions can spend most of their time in conflict handling, lock resolution, and retry.',
+        'It also does not make business contention disappear. A distributed transaction protocol can preserve correctness under partial failure, but it cannot make a single hot inventory counter, account balance, or global sequence cheap at unlimited write rates.',
+        'It can also surprise teams that expect one-shard latency. A transaction touching two indexes and three regions may need timestamp requests, replicated prewrites, primary commit, secondary cleanup, and possible retries. The protocol gives a clear answer after failure, but that answer is paid for with coordination.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Keep transactions small, short, and aligned with data locality when possible. Choose primary keys that are stable and likely to remain reachable, avoid huge fan-out writes, and watch metrics for lock wait time, write conflict rate, retry count, region leader changes, and transaction duration.',
+        'When debugging, separate MVCC visibility from replication durability. A Raft log entry can make a lock durable inside one region while the global transaction is still pending. Use transaction status, lock metadata, startTS, commitTS, and primary-key resolution evidence before deciding whether a symptom is a replication problem or a transaction-resolution problem.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'The protocol is easiest to misunderstand if you focus only on two-phase commit. The durable data structures are the point: MVCC versions, start and commit timestamps, primary locks, secondary locks, and lock metadata that tells the next actor how to recover.',
+        'Distributed transactions are not just a coordinator algorithm. They are a set of records designed so that after a crash, a different participant can still answer the question: did this transaction commit or not?',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Sources: TiKV Percolator deep dive, https://tikv.org/deep-dive/distributed-transaction/percolator/, TiKV distributed transaction introduction, https://tikv.org/deep-dive/distributed-transaction/introduction/, and the Google Percolator paper, https://www.usenix.org/legacy/event/osdi10/tech/full_papers/Peng.pdf. Study MVCC & Vacuum, Two-Phase Commit, Raft Log Replication, Spanner, and FoundationDB next.',
+      ],
+    },
   ],
 };

@@ -220,38 +220,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'An LLM guardrail policy engine is a deterministic control plane around an LLM application. It labels trust, filters retrieval, validates output shape, checks semantic policy, gates tool calls, escalates risky actions, and writes audit traces. It is not one clever system prompt. It is the set of non-model mechanisms that decide what the model is allowed to see, say, and do.',
-        'This module builds on Prompt Injection Threat Model. OWASP lists prompt injection as LLM01 in the 2025 GenAI risk taxonomy and describes direct and indirect injections where external content alters model behavior: https://genai.owasp.org/llmrisk/llm01-prompt-injection/. NCSC argues prompt injection is better viewed as an exploitation of an inherently confusable deputy than as ordinary SQL-style injection: https://www.ncsc.gov.uk/blog-post/prompt-injection-is-not-sql-injection.',
+        'An LLM application is rarely just a text box connected to a model. A useful assistant may read private documents, summarize email, query a vector index, call tools, draft messages, change tickets, update databases, or trigger payments. That means the system has two very different jobs. It needs the model to produce flexible language and plans, but it also needs a reliable boundary around data access and side effects.',
+        'The hard part is that the model sees mixtures of authority. A system prompt may say one thing, a user may ask another, a retrieved page may contain hidden instructions, and a tool schema may expose a privileged operation. The model can be helpful, but it is not a security kernel. A guardrail policy engine is the deterministic control plane that decides what context may enter the prompt, what output shape is acceptable, what actions are authorized, which decisions need review, and what evidence must be logged.',
       ],
     },
     {
-      heading: 'Architecture',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The policy pipeline has three phases. Before the model, classify input trust, apply retrieval access control, remove secrets that are not needed, and mark untrusted content as data. During generation, use structured output, constrained decoding, tool schemas, and model-side refusal guidance. After generation, run deterministic checks over the proposed answer or action: authorization, data-loss prevention, semantic safety, rate limits, reversibility, and required human approval.',
-        'Microsoft Learn recommends defenses for indirect prompt injection that include security guardrails, information-flow control, least privilege, and short-lived privileges: https://learn.microsoft.com/en-us/security/zero-trust/sfi/defend-indirect-prompt-injection. NIST AI RMF and the Generative AI Profile give the broader govern, map, measure, and manage risk frame: https://www.nist.gov/itl/ai-risk-management-framework and https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf. Google SAIF gives a security framework for AI systems: https://safety.google/intl/en_in/safety/saif/.',
+        'The first attempt is usually a better prompt. Tell the model not to reveal secrets, not to follow untrusted instructions, not to perform unsafe actions, and not to violate policy. This is worth doing because it gives the model local guidance. It is not enough because the model still processes instructions and data in the same channel and may be persuaded, confused, or forced into an edge case.',
+        'The second attempt is a single after-the-fact checker: a regular expression, a deny list, a toxicity classifier, or one LLM judge. These checks catch some obvious mistakes, but they do not create a complete authorization boundary. A valid JSON tool call can still request a forbidden transfer. A harmless-looking answer can still include private data. A judge model can share blind spots with the generator. A real policy engine needs several different gates, each tied to a different kind of failure.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The wall',
       paragraphs: [
-        'The core structures are a trust map, a permission table, a tool-effect taxonomy, a policy decision record, and an audit log. The trust map labels text as system, user, retrieved public source, retrieved private source, tool output, or untrusted external content. The permission table maps users, agents, tools, scopes, resources, and expiry. The effect taxonomy separates read, draft, send, write, delete, purchase, permission change, and external publication. The policy decision record stores allow, block, or escalate with reasons. The audit log makes later investigation and regression testing possible.',
-        'Constrained Decoding is useful but insufficient. It can guarantee that an answer is valid JSON or matches a schema, yet a schema-valid call can still send a private file to the wrong address. Zanzibar Authorization Case Study explains the permission side. OAuth PKCE Token Lifecycle Case Study explains short-lived credential flow. Model Context Protocol Case Study explains why tool capability boundaries need negotiation and security review. Agent Tool Permission Lattice turns those boundaries into an effect-ranked decision table. Seccomp BPF Sandbox Policy explains how risky tools should be contained at runtime. Distributed Tracing explains how to keep the evidence trail for every decision.',
+        'The wall is prompt injection and confused authority. A retrieved document can say "ignore previous instructions" even though it is supposed to be evidence, not policy. A user can ask the assistant to summarize a file and then slip in a request to reveal another user account. A tool can be technically callable but unsafe for this user, this resource, this time, or this risk level. The dangerous condition is not bad wording; it is a system that lets untrusted text influence privileged behavior.',
+        'A second wall is auditability. If the assistant blocks a request, allows a tool call, or asks for human approval, the organization needs to know why. Which input was untrusted? Which rule fired? Which credential scope was used? Which document ids entered context? Without a decision record, every incident becomes a memory test. The guardrail engine should turn decisions into evidence that can be reviewed, replayed, and converted into regression cases.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'Imagine an enterprise research assistant that can read emails, search internal docs, draft responses, and create tickets. A retrieved email contains hidden text telling the assistant to forward private attachments. The trust map marks the email body as untrusted external content. Retrieval ACL limits which attachments enter context. The model may still propose a send-email tool call. The schema gate checks required fields. The semantic policy gate flags private attachment exfiltration. The permission table sees that the model has draft scope but not send-with-attachment scope. The action is escalated or blocked, and the full event becomes a red-team regression case.',
-        'This is the difference between prompt-based safety and policy-engine safety. The model can be confused, but the control plane should not be. The model proposes a plan in natural language or JSON. The guardrail engine binds that proposal to typed resources, users, scopes, risk class, and approval state before anything changes outside the chat window.',
+        'Treat model output as a proposal, not an authorization. The model may propose an answer, a citation, a tool call, or a plan. The control plane decides whether the proposal is allowed. That decision should be based on typed resources, user identity, tenant, data classification, tool effect, credential scope, risk class, and approval state. The model can describe intent; the policy engine binds that intent to concrete authority.',
+        'The key data structures are ordinary but powerful. A trust map labels inputs as user instruction, system instruction, retrieved evidence, tool output, or untrusted external content. A permission table maps users and agents to resources and actions. A tool-effect taxonomy distinguishes reads, previews, drafts, sends, writes, deletes, purchases, and administrative changes. A policy decision record captures rule inputs and outcomes. An audit log preserves the event stream. Together these structures decide what the model may see, say, and do.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'What the visualization shows',
       paragraphs: [
-        'Do not rely on hidden prompts as secrets. Do not use deny-list phrases as the main defense. Do not give an agent a global token when a short-lived scoped token would do. Do not let one LLM judge be the only safety layer. Do not silently block everything without recording why. Do not confuse output formatting with action safety. The policy engine should make every high-risk decision inspectable and every attack attempt reusable as a test.',
-        'Study Prompt Injection Threat Model, Taint Analysis Source-to-Sink Case Study, Data-Flow Worklist Analysis, Multi-Agent Orchestration Topologies, Contract Net Agent Task Allocation, Constrained Decoding, Model Context Protocol Case Study, Agent Tool Permission Lattice, Seccomp BPF Sandbox Policy, JSON-RPC Protocol Case Study, Zanzibar Authorization Case Study, OAuth PKCE Token Lifecycle Case Study, Capability Security & Attenuation, Macaroon Caveat Chain Case Study, UCAN Delegation Proof Chain, OPA Rego Policy Decision Graph, PII Redaction Token Span Pipeline, Model Inversion Confidence Attack, LLM Training Data Extraction, Rate Limiter, Circuit Breakers, Distributed Tracing, Claim Graph Source Ledger, Software Supply Chain Provenance Graph, LLM Evaluation Harnesses, AI Audit Evidence Packet Case Study, RAG Evaluation, and AIOps Incident Response next. Local sources include prompt-attack and agentic-systems documents in the provided corpus.',
+        'The policy pipeline view separates the model from the decision boundary. Input enters through trust labeling and retrieval access control before it reaches the prompt. The model then emits a proposal, but the proposal still has to pass schema validation, semantic policy checks, tool authorization, and audit capture before an external effect occurs.',
+        'The risk controls view shows why one guardrail cannot cover the whole space. Prompt injection, exfiltration, tool abuse, and policy drift leave different evidence and require different controls. Use the highlighted nodes to ask which layer is making the decision, what proof it has, and which failure would pass if that layer were removed.',
+      ],
+    },
+    {
+      heading: 'Mechanics',
+      paragraphs: [
+        'Before generation, the system classifies every source. User instructions, system policy, retrieved documents, tool outputs, and external pages get different trust labels. Retrieval is filtered by access control before prompt assembly, so a document the user cannot read never becomes latent context. Sensitive fields can be redacted or minimized when the requested task does not require them. Prompt construction should preserve the distinction between instructions and evidence instead of flattening everything into one blob.',
+        'During generation, the application can constrain output shape with schemas, tool definitions, typed arguments, and constrained decoding. Shape is only the first gate. After generation, deterministic checks evaluate the proposed answer or action: authorization, data-loss prevention, semantic policy, rate limits, tenant boundaries, reversibility, and approval requirements. Allowed, blocked, and escalated decisions all create audit events with enough detail to explain the outcome later.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine an enterprise research assistant that can search internal documents, read email threads, draft responses, and create support tickets. A user asks it to summarize a vendor email and prepare a reply. The email contains hidden text asking the assistant to forward private attachments to an external address. The email body is useful evidence, but it is not trusted instruction.',
+        'The guardrail engine labels the email as untrusted retrieved content. Retrieval access control confirms that the user can read the email but does not automatically grant permission to send attachments. The model proposes a reply and perhaps a send-email tool call. The schema gate verifies the tool arguments. The semantic policy gate flags private attachment exfiltration. The permission table sees that the assistant has draft scope, not send-with-attachment scope. The result is a safe preview, a blocked send, or a human review request, plus an audit event that records the document id, proposed action, rule outcome, and final disposition.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The design works because it refuses to let one component carry every safety property. Schema checks catch malformed outputs. Semantic checks catch prohibited meaning. Permission checks catch unauthorized effects. Trust labels reduce indirect prompt injection by making retrieved content data, not policy. Scoped credentials limit blast radius if the model is manipulated. Audit logs turn blocked and allowed decisions into test fixtures.',
+        'It also works because it changes the question from "can the model be perfectly safe?" to "can the surrounding system reduce likelihood and impact?" That is the practical framing for LLM security. A model can remain probabilistic while the control plane remains explicit about resources, scopes, approvals, and effects.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost is friction and maintenance. Policies need owners. Resource labels need to be correct. Tool schemas need stable semantics. Credentials need scopes and expiration. Logs need retention, privacy review, and searchability. Too many false positives will push users around the system, while too many silent allowances will make the guardrail meaningless.',
+        'There is also latency and product complexity. A low-risk summary may need only retrieval filtering and output checks. Sending email, deleting records, changing permissions, or moving money may need confirmation, approval, replay protection, and stronger identity binding. Good systems make risk proportional to proof: more autonomy and more external effect require more evidence.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'A guardrail policy engine wins in enterprise assistants, customer-support automation, coding agents, RAG systems, workflow agents, and internal copilots that combine private data with tools. It is strongest when the action surface is typed: read a document, draft a message, send a message, create a ticket, write to a database, change access, delete data, or publish externally.',
+        'It also wins in regulated or high-accountability settings because it leaves evidence. Security review, incident response, compliance reporting, and regression testing all need durable records. A plain prompt cannot explain why a tool call was allowed last Thursday. A policy decision record can.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The design fails when it is only decorative. A prompt-only safety rule can be ignored by conflicting context. A deny-list phrase can be paraphrased. A single LLM judge can miss the same attack pattern as the generator. A global service token can turn a small prompt injection into a broad data breach. A silent block can prevent learning because nobody reviews the pattern.',
+        'It also fails when policies are disconnected from product semantics. If every tool is labeled "call API", the engine cannot reason about effect. If all documents share one access label, retrieval filtering becomes fake. If the audit log omits inputs, rule ids, and credential scopes, the organization cannot distinguish a safe refusal from a broken workflow.',
+      ],
+    },
+    {
+      heading: 'Failure modes to test',
+      paragraphs: [
+        'Test direct override attempts, indirect instructions in retrieved documents, cross-tenant document references, private data in citations, unsafe tool arguments hidden in valid JSON, approval bypasses, stale policy versions, unlogged denials, and credential overreach. Include benign near misses so the system does not learn to block every difficult request.',
+        'A useful test case should say what the model saw, what it proposed, which policy should fire, which action should be blocked or escalated, and what audit record should exist afterward. That turns guardrails from vague safety language into an executable contract.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources for this topic include OWASP guidance on LLM application risks at https://owasp.org/www-project-top-10-for-large-language-model-applications/, NCSC prompt-injection guidance at https://www.ncsc.gov.uk/blog-post/prompt-injection-is-not-sql-injection, the NIST AI Risk Management Framework at https://www.nist.gov/itl/ai-risk-management-framework, and the NIST Generative AI Profile at https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence.',
+        'Good next topics are Prompt Injection Threat Model, Taint Analysis Source-to-Sink Case Study, Constrained Decoding, Agent Tool Permission Lattice, OPA Rego Policy Decision Graph, Zanzibar Authorization Case Study, OAuth PKCE Token Lifecycle Case Study, Capability Security and Attenuation, PII Redaction Token Span Pipeline, Distributed Tracing, AI Audit Evidence Packet Case Study, and RAG Claim Verification Support Ledger.',
       ],
     },
   ],

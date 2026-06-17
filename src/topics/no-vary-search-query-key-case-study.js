@@ -198,38 +198,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'No-Vary-Search is an HTTP response header for cache matching. It lets an origin declare rules for whether query parameters affect the cached representation, so equivalent URLs can reuse one stored response instead of fragmenting the cache.',
-        'MDN marks No-Vary-Search as experimental and describes it as rules for how URL query parameters affect cache matching: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/No-Vary-Search. The HTTP working group draft defines it as an extension to HTTP caching: https://httpwg.org/http-extensions/draft-ietf-httpbis-no-vary-search.html.',
+        'HTTP caches normally treat the target URI as part of the cache key, including the query string. That is safe, but it can be wasteful. `/story?id=42&utm_source=newsletter` and `/story?id=42&utm_source=social` may return the same article while occupying two cache entries.',
+        'The problem is query-key fragmentation. Tracking fields, referral tags, and harmless parameter ordering differences can turn one representation into many cache misses. Hit ratio falls, origin traffic rises, and users wait for duplicate work.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'Context',
       paragraphs: [
-        'The cache still starts from the request URL, freshness metadata, validators, and Vary rules. No-Vary-Search adds a query canonicalization step before lookup: drop ignored parameters, keep exception parameters, and optionally normalize key order.',
-        'This is the URL-search companion to HTTP Vary Cache-Key Normalization. Vary says which request headers matter. No-Vary-Search says which URL query fields do not matter, or which ones must remain in the key.',
+        'A cache key is a correctness boundary. It decides when a stored response can answer a later request. HTTP already has tools such as `Vary` for request-header dimensions, validators for revalidation, freshness metadata, and cache-control rules for storage and reuse.',
+        'No-Vary-Search targets one narrow dimension: the URL search component. It lets an origin describe which query parameters do not vary the representation, or how parameter ordering should be normalized before cache matching.',
+        'The core insight is that cache keys should represent response selection, not accidental URL noise. Query strings are often overloaded: some fields select content, some select presentation, some carry analytics, and some are irrelevant leftovers from navigation. No-Vary-Search gives the origin a way to separate those roles without asking the cache to guess.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The tempting bug',
       paragraphs: [
-        'A news site receives the same article under /story?id=42&utm_source=newsletter, /story?id=42&utm_source=social, and /story?utm_source=ads&id=42. The body is selected only by id. The origin sends a No-Vary-Search rule that ignores utm_source and normalizes key order. The browser or cache can reuse the article response across campaign URLs.',
-        'The team does not ignore page, sort, q, color, or account parameters because those change content. Rollout starts with one route, diffing response bodies for candidate ignored parameters and observing hit ratio with Cache-Status or provider logs.',
+        'The conservative bug is keying by every byte of query spelling even when the server ignores some fields. Marketing links then defeat the cache for no user-visible reason.',
+        'The aggressive bug is worse: stripping parameters because they look like noise. A field named `variant`, `page`, `sort`, `color`, `currency`, `preview`, `account`, or `debug` may change the body, headers, permissions, or experiment assignment. If the cache ignores it, users can receive the wrong response.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Core mechanism',
       paragraphs: [
-        'No-Vary-Search is not a cache-busting control. It does the opposite: it makes selected query variations less significant for cache matching. It should not be used for parameters that change content, permissions, personalization, or experiment assignment.',
-        'Because the header is still experimental, production systems need compatibility assumptions. Unsupported caches fall back to ordinary full-URL matching, so correctness should remain safe and the feature should be treated as an optimization.',
+        'No-Vary-Search adds a canonicalization step before lookup. The browser or cache receives a request URL, applies the origin-declared search-parameter rule, and compares the canonical key against stored responses. The visible URL does not have to change.',
+        'The rule vocabulary can ignore named parameters, keep only exceptions, or normalize key order. The cache still respects the rest of HTTP caching: method, status, freshness, `Cache-Control`, `Vary`, credentials rules, validators, and storage policy.',
+        'This is not route rewriting. The origin still receives and logs the original URL when a network request happens. The optimization is about whether a later request can reuse an already stored representation.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Representation safety',
+      paragraphs: [
+        'The safety test is representation equality. An ignored parameter must not change the response body, relevant response headers, cacheability, authorization result, personalization, language, price, experiment arm, or any other observable response dimension.',
+        'That test belongs at the origin contract, not in a cache guess. The server team must know that `utm_source` is analytics-only for article pages, while `id` selects the article and must remain in the key.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A news site serves article pages at `/story?id=42`. Campaign links add `utm_source`, `utm_medium`, and `utm_campaign`. The article body, title, cache headers, permissions, and language are selected by `id`, not by the UTM fields.',
+        'The first request to `/story?id=42&utm_source=newsletter` stores a cacheable response with a rule that ignores the UTM fields and normalizes key order. A later request for `/story?utm_source=social&id=42` can canonicalize to the same cache key and reuse the stored response.',
+        'The same site does not ignore `preview=true`, `lang=fr`, `subscriber=1`, or `ab=checkout-redesign` unless those fields are proven not to affect the representation on that route.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the query-params view, follow the request into `params`, then into the No-Vary-Search rule, then into the canonical key. The important point is that the user-facing URL can still contain tracking fields while the lookup key drops fields that the origin says are irrelevant.',
+        'In the safety-rules view, read the table as an audit. UTM fields are candidates for ignoring. Variant, pagination, sorting, and product options are kept because they usually change content. The plot shows why the rule matters: raw query keys fragment as campaign URLs multiply, while a correct canonical key keeps reuse high.',
+        'The visual should make students suspicious of global rules. A parameter can be harmless on one route and meaningful on another. The right mental model is route-specific representation safety: only remove a query dimension after proving that it does not change the response for that route family.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because cache identity can be looser than raw URL spelling when the origin proves the representation is the same. The key only needs to preserve dimensions that can change the response.',
+        '`Vary` and No-Vary-Search solve mirror-image problems. `Vary` adds request-header dimensions that matter. No-Vary-Search removes query dimensions that do not matter. Both are declarations about representation selection.',
+      ],
+    },
+    {
+      heading: 'Tradeoffs',
+      paragraphs: [
+        'The upside is fewer duplicate cache entries, higher hit ratio, less origin load, and lower latency for public content reached through noisy links.',
+        'The cost is policy risk and deployment reality. The header is still experimental, so unsupported caches fall back to ordinary full-URL matching. That fallback is safe but loses the optimization.',
+        'The operational burden is proof. Teams need route-by-route parameter audits, response diffs, logs, and cache observability. A global rule that ignores a parameter everywhere is usually too broad.',
+        'The right adoption posture is conservative. Treat the header as a performance optimization for routes that already have stable cache semantics, not as a way to repair unclear URL design. If product or experimentation teams cannot say whether a parameter changes representation, keep it in the key.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The worst failure is serving the wrong representation: the wrong product color, stale pagination, a different search result page, an incorrect locale, a hidden preview, or a personalized response reused for the wrong request.',
+        'Another failure is misunderstanding the header as cache busting. It does the opposite. It tells caches that selected query variation is less important, so it should never be used for parameters meant to force distinct cache entries.',
+        'Duplicate parameter names and order-sensitive server parsing can also break assumptions. A key-order rule is safe only when the route treats parameter order as irrelevant.',
+      ],
+    },
+    {
+      heading: 'Practical rollout',
+      paragraphs: [
+        'Start with one public route family, such as article pages or documentation pages. List every query parameter seen in logs. Mark which fields select content, which fields select presentation, which fields affect permissions, and which fields are analytics-only.',
+        'Before rollout, diff responses for candidate ignored parameters across status, body, selected headers, cache-control, language, and personalization state. During rollout, watch hit ratio, origin traffic, `Cache-Status` where available, and error reports for wrong-content symptoms.',
+        'Keep a safe fallback. Caches that do not understand the header will continue using the full URL. That means the rule can improve supporting caches without making unsupported caches less correct.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MDN No-Vary-Search at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/No-Vary-Search, the IETF HTTP draft at https://httpwg.org/http-extensions/draft-ietf-httpbis-no-vary-search.html, RFC 9111 HTTP Caching at https://www.rfc-editor.org/rfc/rfc9111, and MDN Vary at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary.',
-        'Study next: HTTP Vary Cache-Key Normalization for header dimensions, HTTP Cache ETag Revalidation for validators, Cache-Status HTTP Observability for rollout measurement, CDN Request Flow for where query fragmentation hurts, Resource Hints: Preload & Preconnect for navigational reuse, and Tail Latency & p99 Thinking for the user-visible cost of avoidable misses.',
+        'Then study HTTP Vary Cache-Key Normalization, HTTP Cache ETag Revalidation, Cache-Status HTTP Observability, CDN Request Flow, Resource Hints: Preload & Preconnect, and Tail Latency & p99 Thinking. No-Vary-Search is small, but it sits inside the full cache correctness stack.',
       ],
     },
   ],

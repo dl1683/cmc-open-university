@@ -110,40 +110,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `What Cross-Validation Is`,
       paragraphs: [
-        `Cross-validation is the discipline of estimating how a model will behave on data it did not train on. Training accuracy can be pure self-flattery: the demo's memorizer gets 100% on training data and 52% on new data. A single random split can also be noisy: the same model scores 78%, 84%, 71%, 88%, and 80% across five splits. Cross-Validation & Honest Evaluation turns that lottery into a repeatable protocol: rotate which chunk validates, average the grades, and keep the final test set sealed until the end.`,
+        `Cross-validation is a protocol for estimating how a model will perform on examples it did not use for fitting. That sounds modest, but it is one of the central disciplines in machine learning. A model can look excellent on its training data because it memorized quirks, repeated rows, label leakage, or accidental shortcuts. Cross-validation forces the model to answer a stricter question: if we hide some training examples, fit the model without them, and then ask the fitted model to predict the hidden examples, how well does the pattern survive?`,
+        `The usual k-fold version splits the available training data into k folds. Each round holds out one fold for validation and trains a fresh model on the other folds. After k rounds, every example has served once as validation data and k minus one times as training data. The fold scores are averaged, and their spread is kept as evidence about stability. The result is not a magic truth number. It is a better estimate than training accuracy and usually a less arbitrary estimate than one random train-validation split.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Obvious Approach And The Wall`,
       paragraphs: [
-        `In k-fold cross-validation, split the training data into k chunks, usually 5 or 10. The demo uses five chunks. Fold 1 trains a fresh model on chunks 2 through 5 and validates on chunk 1, scoring 78%. Fold 2 trains again on the other four chunks and validates on chunk 2, scoring 84%. Continue until every example has been in validation exactly once. The five validation scores are 78%, 84%, 71%, 88%, and 80%; the mean is 80.2%, and the 71-88 spread tells you how unstable one lucky split could be.`,
-        `The payoff is clean model selection. To choose a value for Regularization: L1 & L2, the demo runs the full five-fold ritual for lambda = 0, 0.01, 0.1, and 1. The best mean validation score is 83% at lambda = 0.1. Only after that choice do you retrain on all training data and open the true test set once. Hyperparameter Search is allowed to spend validation folds; the test set is a one-shot final exam.`,
+        `The obvious approach is to train a model and report how many training examples it got right. That fails because training data is the material the model was allowed to adapt to. A flexible model can store exceptions instead of learning a general rule. Even a simple model can benefit from preprocessing choices, feature engineering, and thresholds that were tuned after looking at the same rows. Training accuracy answers, "Did the model fit this table?" It does not answer, "Will the model work tomorrow?"`,
+        `The next obvious approach is a single holdout split: train on 80 percent and validate on 20 percent. That is better, but it introduces a second wall. The estimate now depends on which examples happened to land in the holdout set. With a small dataset, one split may be too easy because it contains many typical examples, or too hard because it contains rare cases and outliers. Two honest splits can give noticeably different scores. Cross-validation is the standard response to this sampling noise: do several honest splits according to a fixed rule and summarize them together.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The Core Insight`,
       paragraphs: [
-        `If one training run costs T, k-fold costs about k*T for one setting. Four lambda values with five folds means 20 fits, not four. You usually keep only the final retrained model, not every fold model. The extra cost buys a mean score and a variance estimate, both more informative than one split. For small datasets the cost is worth it; for very large data, a single validation split may be enough, but the same chain-of-custody rules still apply.`,
+        `The core insight is that validation data must be unseen by the fitted model, but the role of unseen can rotate. You do not need to permanently sacrifice one chunk of scarce data for validation during model selection. You can train several models, each hiding a different chunk, and use the hidden-chunk scores as repeated measurements of generalization. No individual fold model is usually the final deployed model. The fold models are instruments for measurement.`,
+        `This distinction matters. Cross-validation is not a way to train one better model by exposing it to everything. It is a way to choose modeling decisions under controlled evidence. Once the modeling decision is chosen, you normally retrain a final model on all available training data and then evaluate once on a separate test set that was not used during selection.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Mechanism And Data Structures`,
       paragraphs: [
-        `Teams use cross-validation to tune Logistic Regression, Gradient Boosting, thresholds, feature sets, and preprocessing choices before committing to a test report. Imbalanced Data: When 99% Is One Class often needs stratified folds so each fold contains rare positives. Patient data needs grouped folds so one person's rows do not appear on both sides. Time-series forecasting needs temporal folds: train on the past, validate on the future. Learning Curves & Bias–Variance should also be measured on honest validation data, or its diagnosis is fiction.`,
+        `A clean implementation is mostly bookkeeping. Start with a row index for the dataset. Build a fold assignment vector that maps each row to a fold id from 0 to k minus 1. For ordinary classification, stratified k-fold keeps class proportions similar across folds. For grouped data, the assignment is made at the group level so rows from the same patient, user, account, document, or machine do not appear on both sides of a fold. For time series, the fold plan is chronological rather than randomly shuffled.`,
+        `Each fold creates two index sets: train indexes and validation indexes. The pipeline is cloned or rebuilt from scratch for that fold. Every fitted step runs only on the train indexes: imputers, scalers, tokenizers with learned vocabularies, target encoders, feature selectors, oversamplers, dimensionality reducers, and the estimator itself. The fitted pipeline then predicts the validation indexes. The score for that fold is appended to a score table that stores fold id, hyperparameters, metric values, sample counts, and sometimes confusion-matrix cells or calibration bins.`,
+        `Hyperparameter search wraps another loop around this procedure. For each candidate setting, run all folds and compute the mean and spread. The selected setting is the one with the best validation evidence under the chosen metric and tie-breaking rule. If the search itself is expensive, teams may use randomized search, Bayesian optimization, early stopping, or successive halving, but the same fold isolation rule applies.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Why It Works`,
       paragraphs: [
-        `The dangerous mistake is fitting preprocessing before the split. A scaler, imputer, feature selector, target encoder, or SMOTE step trained on all rows has already peeked at the validation fold. That is Data Leakage & Contamination, even if the cross-validation loop itself is written correctly. Every fitted step belongs inside the fold's training portion. Leakage-Safe Target Encoding Case Study shows the stricter version: training rows need out-of-fold category statistics, not a map fit on their own labels. Do not average fold models and call that the final model unless you intentionally build an ensemble. Do not keep checking the test set after each idea; repeated peeking turns it into training data with extra steps.`,
+        `Cross-validation works because it separates fitting from grading repeatedly. Each validation prediction is made by a model that did not train on that row. That gives every row an out-of-sample prediction, which is far more informative than an in-sample prediction. Averaging across folds reduces dependence on one unlucky split, and comparing fold scores reveals instability that a single score hides.`,
+        `The method also makes bias-variance tradeoffs visible. A model that is too simple will underperform in most folds. A model that overfits may show high training performance but inconsistent validation performance. A preprocessing idea that only helps because it leaked labels will look good in a careless implementation and then collapse when every fitted operation is moved inside the fold. Cross-validation is therefore both a measurement tool and a leak detector.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Evaluation And Operational Signals`,
       paragraphs: [
-        `Study A/B Testing & p-values after cross-validation when you need to know whether one model's improvement is statistically meaningful. Calibration & Reliability Diagrams checks whether validation probabilities mean what they claim. Data Leakage & Contamination is the audit checklist for keeping folds honest from raw data through final report. Leakage-Safe Target Encoding Case Study turns the same rule into a concrete categorical-feature pipeline.`,
+        `The minimum report is not just mean accuracy. Report the metric that matches the task, the number of folds, the split rule, the fold scores or standard deviation, and whether preprocessing was folded into the pipeline. For imbalanced classification, accuracy is often the wrong target; use precision, recall, F1, area under the precision-recall curve, cost-weighted loss, or a threshold selected on validation data. For probability models, check log loss, Brier score, and calibration, not only rank metrics. For regression, inspect mean absolute error, root mean squared error, residual patterns, and performance by important slices.`,
+        `Operationally, strong cross-validation scores are only one gate. Compare validation performance with final test performance. A large gap can mean distribution shift, leakage in validation, an unlucky test set, or over-selection during hyperparameter search. Compare fold performance by time, geography, user segment, device type, label source, or data vendor. Watch for high variance across folds because it tells you the model depends heavily on which examples are available. In production, monitor the same slices again with live outcomes, drift statistics, missing-feature rates, and calibration decay. Cross-validation estimates launch risk; it does not eliminate post-launch monitoring.`,
+      ],
+    },
+    {
+      heading: `Where It Is Useful`,
+      paragraphs: [
+        `Cross-validation is most useful when data is limited, model selection matters, and the training process is affordable enough to repeat. It is common for tabular models, logistic regression, gradient boosting, support vector machines, nearest-neighbor methods, small neural networks, classical NLP pipelines, and scientific datasets where a single split would waste too much evidence. It is also useful for estimating out-of-fold predictions that feed stacking ensembles, target encoding, model diagnostics, and unbiased residual analysis.`,
+        `Large deep learning systems often use a fixed validation set instead because each training run is expensive and datasets are huge. Even there, the philosophy survives. The validation set is for development. The test set is for final judgment. Any preprocessing or data curation decision that can learn from labels must respect the split boundary.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `Cross-validation fails when the split rule does not match the way future data arrives. Random folds are wrong for forecasting if they let the model train on the future and validate on the past. Random row folds are wrong for medical or user behavior data if the same person appears in multiple folds. Random folds are wrong for near-duplicate documents if copies cross the boundary. In each case, the validation rows are technically hidden but practically familiar.`,
+        `It also fails when the test set is reused as a development tool. If you run cross-validation, pick a model, open the test set, dislike the result, change the features, and try again, the test set has joined the tuning loop. Another failure is using cross-validation to hide weak problem formulation. If labels are noisy, features are unavailable at serving time, or the deployment distribution differs from the training collection, a neat fold table can still describe the wrong world.`,
+      ],
+    },
+    {
+      heading: `What To Study Next`,
+      paragraphs: [
+        `Study data leakage to understand why split boundaries must cover preprocessing, labels, and feature availability. Study bias and variance to interpret fold means and spreads. Study calibration when predictions are probabilities rather than only rankings. Study A/B testing when an offline validation win must be confirmed against real users. Study time-series validation, grouped validation, and nested cross-validation when the simple k-fold recipe is too optimistic for the structure of the data.`,
       ],
     },
   ],

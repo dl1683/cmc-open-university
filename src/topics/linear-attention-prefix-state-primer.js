@@ -205,37 +205,109 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Linear attention is an attention variant that replaces the softmax attention matrix with kernel feature maps so causal attention can be computed through prefix state. Instead of appending every old key and value to a KV cache, the layer keeps a key-value state matrix and a normalization vector.',
-        'This is the missing primitive underneath several later architectures. RetNet, DeltaNet, Gated DeltaNet, Kimi Delta Attention, and SSD-style models all reuse the idea that sequence history can be represented as updateable state rather than a full list of past token vectors.',
+        'Softmax attention is powerful partly because every token can compare itself to every earlier token. The price is that autoregressive decoding keeps a growing KV cache and each new token has more history to address.',
+        'Linear attention exists to ask a data-structure question: can the useful part of the past be stored in fixed-size prefix state instead of a full list of keys and values?',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to keep exact attention and optimize the cache. That is still the right answer for many workloads. Exact KV state preserves token-level interactions and makes copy, retrieval, and inspection easier.',
+        'The wall appears when context gets long, serving memory becomes the bottleneck, or latency grows with every generated token. Compression becomes tempting, but compression means some interactions are no longer individually available.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is the softmax. Standard attention normalizes a query against the actual set of previous keys. You cannot simply sum values and call it attention; the denominator is part of the computation.',
+        'The second wall is approximation. Feature maps can make the algebra associative, but they change the attention kernel or approximate it. Faster memory is useful only when the lost exact interactions are not the ones the task needs.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Use a kernel feature map so the attention sum can be rearranged. Instead of computing each query against every past key-value pair, accumulate prefix state first and let the current query read from that state.',
+        'There are two states, not one. S stores accumulated key-value outer products for the numerator. Z stores accumulated key features for the denominator. Forgetting Z is the common explanation bug.',
       ],
     },
     {
       heading: 'Data structures',
       paragraphs: [
-        'The core records are phi(q), phi(k), value v, numerator state S, denominator state Z, epsilon or stabilization metadata, precision policy, and per-layer state reset policy. S is usually an accumulated sum of key-value outer products. Z is the accumulated key feature state used to normalize the output.',
-        'This looks like a small database index: writes add key-value evidence, reads query the index, and normalization keeps scores comparable. The difference is that every operation must remain differentiable and accelerator-friendly.',
+        'The core records are phi(q), phi(k), value v, numerator state S, denominator state Z, epsilon or stabilization metadata, precision policy, and per-layer reset policy. S is usually an accumulated sum of key-value outer products. Z is the accumulated key-feature vector used to normalize reads.',
+        'This looks like a small database index. Writes add key-value evidence, reads query the index, and normalization keeps scores comparable. The difference is that every operation must remain differentiable and accelerator-friendly.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The prefix-state view shows the algebraic bargain. Instead of keeping every old key and value, the layer keeps accumulated S and Z states. A new query reads through those states and then the current token updates them.',
+        'The normalization view shows why this is still attention-shaped. The numerator alone is not enough. The denominator state keeps the output scaled by the accumulated key features, and bad normalization can break an otherwise attractive memory design.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The algebra relies on associativity. Instead of computing each query against every previous key and value separately, the model accumulates key-value products into prefix state. A query then multiplies that state to get a numerator and divides by a query-normalizer product to get the output.',
-        'During autoregressive decode, this is recurrent. The layer updates S and Z once per token and carries them forward. During training, implementations may use scans or chunking to expose more parallelism. That is why this topic belongs beside RWKV, Mamba, RetNet, and Mamba-2.',
+        'The algebra relies on associativity. A token writes phi(k) outer-product v into S and adds phi(k) into Z. A later query computes phi(q)S for the numerator and phi(q)Z for the denominator, then divides.',
+        'During autoregressive decode, this is recurrent. The layer updates S and Z once per token and carries them forward. During training, implementations use scans or chunking to expose parallelism instead of running a fully serial loop.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works when the feature map preserves the interactions the task actually needs. The model no longer stores a row for every old token, but it still has an updateable summary that future queries can read.',
+        'It also works because the state size can be independent of sequence length. That changes the serving budget: memory and per-token decode can depend more on feature dimension than on the number of previous tokens.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost moves from KV-cache length to feature dimension, state matrices, numerical stability, and kernel quality. A large feature map can erase the practical win. A small one can blur important distinctions.',
+        'Production systems should track denominator minima, NaNs, precision casts, state reset boundaries, long-context recall, output drift, and actual accelerator speed. A theoretical linear curve is not enough.',
+        'The state also changes observability. With exact KV cache, a system can inspect or reason about individual token positions more directly. With compressed prefix state, the past has been folded into matrices. Debugging a missed citation, copied identifier, or old timestamp may require task-level probes rather than token-level cache inspection.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Linear attention wins when the workload benefits from long streaming state and does not require exact token-level recall at every layer. It is attractive for streaming summarization, some long-signal modeling, and hybrid architectures that reserve exact attention for selected layers or windows.',
+        'It is also the conceptual bridge to RetNet, DeltaNet, Gated DeltaNet, Kimi Delta Attention, and SSD-style models. Those systems differ in update rule and gating, but they share the prefix-state question.',
+        'It is especially useful as a teaching bridge because it forces the learner to ask what memory means. A KV cache is a list of past token evidence. A prefix state is a compressed sufficient-statistic candidate. Those are different promises.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the compressed state loses rare but important interactions: exact IDs, code symbols, citations, timestamps, or needle-in-context facts. Retrieval-heavy tasks often expose this faster than average language-model loss.',
+        'It also fails when the explanation ignores normalization. A numerator-only story is not attention. A denominator that gets too small or unstable can produce bad outputs even if the high-level algorithm sounds right.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'A team builds a streaming summarizer for long logs. Full attention is too expensive because the log keeps growing. A linear-attention layer stores prefix state for old log lines. The current token reads from that state, emits output, then writes its own key-value evidence. The serving system logs state size, denominator minima, numerical overflows, recall tests, and latency.',
-        'The quality gate is strict. The model must still find old error IDs, timestamps, and causal chains. If exact retrieval fails, the architecture may need periodic full attention, a retrieval tool, or a hybrid budget rather than pure linear state.',
+        'A team builds a streaming summarizer for long logs. Full attention is too expensive because the log keeps growing. A linear-attention layer stores prefix state for old log lines. The current token reads from that state, emits output, then writes its own key-value evidence.',
+        'The quality gate is strict. The model must still find old error IDs, timestamps, and causal chains. If exact retrieval fails, the architecture may need periodic full attention, an external retrieval tool, or a hybrid state budget rather than pure linear state.',
       ],
     },
     {
-      heading: 'Pitfalls and sources',
+      heading: 'Deployment review',
       paragraphs: [
-        'Do not say linear attention is simply softmax attention made faster. Feature maps change the attention kernel, and approximations can lose exact interactions. Do not ignore the denominator state. Do not evaluate only short contexts, where the memory benefit is least important and recall failures may be hidden.',
+        'A deployment review should compare exact-attention baselines, linear-state variants, and hybrid designs on the same long-context tasks. Measure not only average loss, but needle retrieval, citation accuracy, code-symbol recall, streaming latency, memory footprint, and numerical failures.',
+        'The key policy question is where exact memory is still needed. Some architectures keep exact attention over a local window and linear state for distant context. Others add retrieval or periodic summary tokens. The best design is usually a memory budget, not a slogan about linear complexity.',
+        'Numerical health belongs in the review. Prefix states can accumulate over long streams, and small denominator values, low-precision accumulation, or reset mistakes can produce unstable outputs. A fast linear layer that silently drifts is not a usable memory system.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Consider a decoder reading a long sensor stream. Each new token contributes a key feature and value to S and Z. The next query reads the accumulated state to produce an output without scanning every prior token. If the task is smoothing or summarizing broad trends, that fixed state can be enough.',
+        'Now change the task: the model must remember one exact serial number from 40,000 tokens ago. A compressed prefix state may blur that rare fact. The architecture may need exact local attention, retrieval, or a special memory mechanism. The example shows why linear attention is a tradeoff, not a free replacement for full attention.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
         'Primary sources: Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention at https://arxiv.org/abs/2006.16236, Rethinking Attention with Performers at https://arxiv.org/abs/2009.14794, and Linear Transformers Are Secretly Fast Weight Programmers at https://arxiv.org/abs/2102.11174. Study Fast Weight Delta-Rule Memory Case Study, Mamba-2 Structured State Space Duality Case Study, RetNet Retention State Case Study, Kimi Linear Attention, KV Cache, Attention, and Hybrid Attention State Budget Case Study next.',
       ],
     },

@@ -209,31 +209,86 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A CUDA graph shape cache is a runtime map from serving shapes to captured CUDA graph executions. CUDA graphs can reduce CPU launch overhead by capturing a repeated GPU work graph and replaying it. In LLM serving, the hard part is not the idea of capture; it is deciding which dynamic request shapes are stable enough to capture, how to key them, when to fall back, and when to evict stale captures.',
-        'PyTorch explains the basic benefit: CUDA graphs can eliminate CPU overhead when tensor shapes are static by capturing kernel calls once and launching the whole graph with a single operation later: https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/. NVIDIA documents dynamic-pattern handling and notes that CUDA graphs traditionally require the same sequence of operations with the same memory addresses every replay: https://docs.nvidia.com/dl-cuda-graph/latest/torch-cuda-graph/handling-dynamic-patterns.html.',
+        'GPU kernels can be fast while CPU launch overhead still hurts latency. A model-serving request may launch many small kernels, synchronize around memory work, and repeat almost the same decode step thousands of times. The GPU is doing the math, but the CPU still pays to submit the work.',
+        'CUDA graphs solve part of that problem by capturing a repeated sequence of GPU operations and replaying it with much lower launch overhead. The catch is that replay is only valid when the captured assumptions still hold: shapes, kernel choices, device state, and memory addresses need to match.',
+        'LLM serving makes this hard. Batch size changes. Sequence lengths grow. A prefill step is not the same as a decode step. Allocators move buffers. Models roll forward. A CUDA graph shape cache decides which serving shapes are stable enough to capture and when the runtime must fall back to ordinary eager execution.',
       ],
     },
     {
-      heading: 'Data structure',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The cache key should include the assumptions that make replay legal: model version, kernel variant, batch size or bucket, decode versus prefill shape, sequence length class, dtype, device, and memory-pool identity. The cache value stores the captured graph executable, static input and output buffers, warmup/capture threshold state, hit counters, last-used time, and a safe eager fallback. That makes it closer to an LRU Cache plus Hash Table than a compiler checkbox.',
-        'The reason memory-pool identity matters is that captured graphs can bake in addresses. If replay uses different addresses from capture, the graph may be invalid or unsafe. A serving runtime may therefore allocate stable buffers per hot shape, pad rare shapes into buckets, or skip capture for shapes that churn too much.',
+        'The obvious approach is eager execution: for every request, launch the kernels in order. That path is simple and flexible. It handles odd shapes, dynamic control flow, new buffers, and model changes without a capture protocol.',
+        'The wall appears when the work is repeated and latency-sensitive. Decode loops often run the same kernel sequence for common batch and sequence buckets. Paying CPU launch overhead every time is wasteful. Capturing every possible shape is also wasteful because rare shapes consume warmup time and graph memory without enough hits to pay back the capture.',
+        'The cache exists between those extremes. Hot shapes replay. Cold or unsafe shapes fall back.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'Consider an LLM server with continuous batching. Decode traffic mostly arrives at batch sizes 8, 16, 24, and 32 for single-token decode steps. The runtime captures graphs for those hot shapes after warmup. When the scheduler forms a batch of 16, it computes the shape key and replays the cached graph. When an unusual batch of 19 appears, the runtime can pad to 24 if the cost is acceptable, use eager fallback, or count misses until 19 proves hot enough to capture.',
-        'This interacts with Length-Aware Batching for LLM Serving and GPU Memory Pool Fragmentation Ledger. If the scheduler creates stable buckets, the CUDA graph cache sees fewer shapes and the allocator can reserve stable pools for hot shapes. If the scheduler constantly produces odd shapes, the cache churns and the memory pool accumulates awkward leftovers. The right design is joint: batching policy, memory allocator, graph cache, and Accelerator Kernel Compatibility Matrix must agree on which shapes are worth making stable and legal.',
+        'The cache key must include every assumption that makes replay legal: model version, kernel variant, batch bucket, decode versus prefill, sequence length class, dtype, device, and memory-pool identity. Leaving one out can replay the wrong graph.',
+        'The value is not just an executable. It also stores static buffers, capture warmup state, hit counters, last-used time, memory pressure, and an eager fallback. This is a hash table plus LRU policy plus safety guard.',
+        'That safety guard is the main idea. A graph cache is not a memoized function result. It is memoized execution structure. The key must prove that replaying the old structure will run the right kernels over the right buffers.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the cache-lookup view, read the shape key as the proof object. The request is not allowed to replay a graph merely because it is "close enough." The key has to cover the assumptions captured into the graph. A hit means those assumptions match. A miss means the runtime keeps correctness by using fallback or capture policy.',
+        'In the dynamic-shapes view, watch the heavy tail. A few shapes usually dominate traffic, while many shapes are rare. The right cache captures the hot prefix, buckets some nearby shapes if padding is acceptable, and lets rare shapes stay eager. Capturing everything is not discipline; it is memory pressure.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The runtime observes traffic. After a shape appears enough times, it warms up, captures the graph, and inserts it into the cache. Later requests compute the same shape key and replay the graph when the key matches and buffers are valid.',
+        'When an unusual batch appears, the runtime has choices: pad to a nearby captured bucket, run eager fallback, or count misses until that shape proves hot. Each choice trades latency, wasted compute, memory stability, and implementation risk.',
+        'A practical entry needs more than a graph handle. It needs static input and output buffers or a memory-pool contract, the captured executable, a model/version stamp, hit and miss counters, last-used time, invalidation rules, and a pointer to the eager path. Without the fallback, the optimization becomes a correctness risk.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'CUDA graph replay works when the operation sequence and memory assumptions match capture. The cache works when the key fully names those assumptions and the serving scheduler produces enough repeated shapes to amortize capture.',
+        'The joint design matters. Stable batching creates cache hits. Stable memory pools make addresses safe. Eviction prevents captured graphs from pinning too much memory. Observability tells you whether the cache is reducing latency or just hoarding buffers.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The win is lower launch overhead and steadier decode latency for hot shapes. The cost is capture overhead, pinned buffers, shape bucketing waste, invalidation logic, and cache memory.',
+        'A low hit rate is a warning sign. If traffic shape churns, replay latency is unchanged, or memory pressure rises, the cache is not paying for itself.',
+        'The decision is workload-specific. A shape that appears twice should probably not be captured. A shape that appears millions of times in a decode loop probably should be. A shape that can be padded into a hot bucket may or may not be worth the extra GPU work. The ledger needs hit rate, replay latency, eager latency, capture cost, memory pinned, fallback rate, eviction count, and output checks.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It works best for hot, repeated decode shapes in serving systems with stable model versions, predictable buckets, and allocator discipline.',
+        'It also wins when the scheduler cooperates. Length-aware batching, fixed decode buckets, stable memory pools, and predictable kernel dispatch all create reusable shapes. The cache and scheduler should be designed together, not bolted together after latency gets bad.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when shapes are too dynamic, kernels change frequently, buffers move, or the scheduler fights the cache by producing endless odd batch shapes. In those cases eager execution or coarser bucketing may be safer.',
+        'It also fails when the key is incomplete. Replaying a graph captured for a different dtype, model revision, memory pool, or kernel variant can produce wrong results or runtime errors. The most dangerous cache bugs look like performance work until they corrupt correctness.',
+        'Finally, it can fail economically. If capture warms up slowly, pins too much memory, or increases padding work, the latency win may be smaller than the operational cost. CUDA graphs are a serving optimization, not a blanket rule.',
+      ],
+    },
+    {
+      heading: 'A worked case',
+      paragraphs: [
+        'Suppose decode traffic has four hot buckets: batch 1, 2, 4, and 8 at a fixed token step. The runtime sees batch 4 repeatedly, warms it up, captures the graph, and stores it under a key that includes model version, dtype, device, decode mode, batch bucket, and memory-pool identity. Later batch-4 requests replay the graph instead of launching the whole kernel sequence eagerly.',
+        'Now a batch-5 request arrives. The system can pad it to batch 8 and replay, run eager fallback, or eventually capture batch 5 if it becomes hot. Each option is defensible under different traffic. The educational point is that the cache is a policy object, not just a map from shape to graph.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary and official sources: NVIDIA CUDA Graphs programming guide at https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html, NVIDIA CUDA Graph Best Practice for PyTorch at https://docs.nvidia.com/dl-cuda-graph/, NVIDIA dynamic pattern guidance at https://docs.nvidia.com/dl-cuda-graph/latest/torch-cuda-graph/handling-dynamic-patterns.html, PyTorch CUDA graphs blog at https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/, and vLLM documentation noting CUDA/HIP graph execution in the serving stack at https://docs.vllm.ai/.',
-        'Study Inference Kernel Fusion & CUDA Graphs, GPU Memory Pool Fragmentation Ledger, Accelerator Kernel Compatibility Matrix, Length-Aware Batching for LLM Serving, LLM Continuous Batching, Transformer Inference Roofline, KV Cache, Hash Table, LRU Cache, and Tail Latency next. Local source: Inference Scaling.txt in the provided document corpus.',
+        'Primary sources: NVIDIA CUDA Graphs programming guide at https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cuda-graphs.html, NVIDIA CUDA Graph Best Practice for PyTorch at https://docs.nvidia.com/dl-cuda-graph/, NVIDIA dynamic pattern guidance at https://docs.nvidia.com/dl-cuda-graph/latest/torch-cuda-graph/handling-dynamic-patterns.html, PyTorch CUDA graphs blog at https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/, and vLLM documentation at https://docs.vllm.ai/.',
+        'Study Inference Kernel Fusion & CUDA Graphs, GPU Memory Pool Fragmentation Ledger, Accelerator Kernel Compatibility Matrix, Length-Aware Batching for LLM Serving, LLM Continuous Batching, Transformer Inference Roofline, KV Cache, Hash Table, LRU Cache, and Tail Latency next.',
       ],
     },
   ],

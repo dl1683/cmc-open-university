@@ -100,7 +100,7 @@ function* topologyMap() {
   yield {
     state: topologyGraph('Start with the cheapest topology that can solve the task'),
     highlight: { active: ['task', 'selector', 'e-task-selector'], compare: ['single', 'supervisor', 'handoff'] },
-    explanation: 'Multi-agent design starts with a routing decision. The selector reads the task shape, uncertainty, tool needs, risk, and budget, then chooses the smallest coordination topology that gives the system enough coverage.',
+    explanation: 'The selector is the important node. It asks whether one loop is enough before spending on more agents. Extra agents only help when the task has independent branches, specialized handoffs, scarce workers, or critique that changes the answer.',
   };
 
   yield {
@@ -168,7 +168,7 @@ function* researchCaseStudy() {
   yield {
     state: researchGraph('Subagents write evidence, not final prose'),
     highlight: { active: ['subA', 'subB', 'subC', 'ledger', 'board', 'e-a-ledger', 'e-b-ledger', 'e-c-board'], compare: ['synth'] },
-    explanation: 'The data contract matters. Subagents should return claims, citations, snippets, uncertainty, and open questions. If they return polished mini-essays, the lead agent loses provenance and duplicates work.',
+    explanation: 'Read the worker outputs as records, not mini-answers. Subagents should return claims, citations, snippets, uncertainty, and open questions. If they return polished prose, the reducer loses provenance and repeats work.',
   };
 
   yield {
@@ -223,44 +223,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Multi-agent orchestration is the design layer that decides how several agent loops communicate, divide work, merge results, and stop. A single agent loop already has a planner, tools, observations, memory, and evaluation. A multi-agent system adds coordination records: task graphs, mailboxes, handoff state, shared boards, bid queues, source ledgers, merge reducers, budgets, and traces.',
-        'Anthropic defines a multi-agent system as multiple agents autonomously using tools in a loop and working together, and describes a production research feature where a lead agent plans research and launches parallel search agents: https://www.anthropic.com/engineering/multi-agent-research-system. The reason is not aesthetic; breadth-heavy work benefits from isolated context windows and parallel exploration.',
+        `Multi-agent orchestration exists because one agent loop is not always the right shape for the work. A single loop can plan, call tools, observe results, revise, and stop. That is enough for many tasks. It starts to strain when the task has many independent branches, when different parts need different tools or instructions, when evidence must be gathered from many places, or when independent critique is valuable enough to pay for.`,
+        `The phrase "multi-agent" can make the design sound like adding more intelligence. The more useful view is coordination. The system is deciding who owns a subtask, what state moves between workers, how partial results are merged, what evidence is kept, how budget is spent, and who is allowed to stop the run. The hard part is not that several language models talk. The hard part is making their work add up to one reliable outcome.`,
+        `A production research workflow is a good example. A lead agent can decompose a question into source discovery, document reading, data extraction, contradiction search, and synthesis. Parallel workers can explore these branches in separate context windows. The lead then has to reduce the outputs into claims with citations, unresolved uncertainty, and a final answer. Without that orchestration layer, parallelism becomes duplicated search and unverifiable prose.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'The first decision is whether the task needs multiple agents at all. If the work is sequential, use one agent with strong tools, a trace log, and evaluation. If the task has independent branches, use a supervisor topology: a lead agent decomposes the work, dispatches workers, and reduces their outputs. If the workflow moves through roles, use handoffs: each specialist receives the relevant state and becomes responsible for the next step. OpenAI Swarm documented this lightweight idea with two primitives, agents and handoffs: https://github.com/openai/swarm.',
-        'When the task is evidence-driven, a blackboard topology is often better than chat between agents. Every agent reads and writes a shared working memory of claims, hypotheses, confidence, and evidence. When capacity is scarce or specialized workers have private costs, a contract-net topology broadcasts a task and awards it to the best bidder. When correctness depends on independent critique, debate or map-reduce topologies generate multiple candidate answers and run a reducer or evaluator over them.',
+        `The obvious approach is to run one strong agent with a long context window and a good set of tools. This should be the baseline. It has one conversation state, one tool history, one plan, and one place where intent can be preserved. It is easier to debug because every decision appears in one run. It is cheaper because the system is not paying several models to rediscover the same background.`,
+        `The wall appears when the work is wide rather than merely long. A single agent has to serialize all searches, carry all evidence in one context, and decide which branches to abandon before it knows what is inside them. It can also become overconfident because all critique is generated by the same context that wrote the first answer. More context helps, but it does not create independent exploration, role-specific tools, or parallel latency reduction by itself.`,
+        `A bad multi-agent system makes this wall worse. It launches workers with vague prompts, accepts narrative summaries, and asks another agent to combine them. The output looks busy, but the reducer cannot tell which claims are supported, which sources were checked, which branch failed, or why one worker should be trusted over another. The right move is to add agents only after the required coordination records are clear.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'Core Insight',
       paragraphs: [
-        'A topology is a data-structure choice. Supervisor systems use a task DAG so the lead can avoid duplicate work and know when a dependency is ready. Handoff systems use a handoff envelope: user intent, completed work, unresolved questions, permissions, and next-role constraints. Blackboard systems use shared hypothesis tables with provenance and freshness. Contract-net systems use message queues and priority heaps over bids. Debate systems use candidate sets, critique records, and merge rules.',
-        'The trace is the universal record. Without a trace, there is no way to explain why the system launched an extra worker, why it trusted one source over another, why a bidder won, or why a final answer ignored a contradiction. The orchestration layer should emit structured events just like Distributed Tracing emits spans: dispatch, observe, bid, award, handoff, merge, gate, escalate, and stop.',
+        `The core insight is that an orchestration topology is a data-structure choice. A supervisor topology is a task DAG plus mailboxes. A handoff topology is a chain of role-owned state envelopes. A blackboard topology is a shared table of claims, hypotheses, evidence, and freshness. A contract-net topology is a broadcast queue and a bid ledger. A debate or map-reduce topology is a candidate set, critique set, reducer, and evaluation gate.`,
+        `The invariant is simple: every worker output must be reducible. It must carry enough structure for the coordinator to merge it without guessing. A useful worker result says what task it handled, what it found, what evidence supports it, what assumptions it made, what remains uncertain, what budget it spent, and what it recommends next. The more expensive the run, the more important this invariant becomes.`,
+        `This is why the topology should follow the shape of the problem. Independent branches want fan-out. Role transitions want handoffs. Evolving hypotheses want a blackboard. Scarce specialized workers want bidding. High-stakes synthesis wants independent candidates and critique. A topology chosen for style rather than problem shape usually adds cost before it adds quality.`,
       ],
     },
     {
-      heading: 'Case studies',
+      heading: 'Visualization Guide',
       paragraphs: [
-        'Research agents are the cleanest modern case study. Anthropic reports that multi-agent research performs especially well for breadth-first queries where many independent directions can be explored at once, and it frames token usage, tool calls, and model choice as major drivers of performance: https://www.anthropic.com/engineering/multi-agent-research-system. Effective Context Engineering for AI Agents also says multi-agent architectures fit complex research and analysis where parallel exploration pays dividends: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents.',
-        'AutoGen is a framework-level case study: Microsoft Research presents it as a way to compose customizable, conversable agents that can use LLMs, tools, and human input, with flexible conversation patterns programmed in natural language and code: https://www.microsoft.com/en-us/research/publication/autogen-enabling-next-gen-llm-applications-via-multi-agent-conversation-framework/. CAMEL is a research case study in role-playing communicative agents and autonomous cooperation: https://arxiv.org/abs/2303.17760. These systems differ in implementation, but they all force the same core question: what record moves between agents, and who is allowed to mutate it?',
+        `The topology map is a selection chart. The task enters a selector, and the selector asks whether one loop is enough. If the answer is yes, the system should stay single-agent and invest in better tools, better context, and better evaluation. If the answer is no, the selector chooses the smallest coordination shape that covers the missing property: breadth, specialization, shared evidence, bidding, or independent critique.`,
+        `The research case study shows the same idea as a concrete workflow. The lead agent creates branches, workers return evidence into ledgers and boards, synthesis reduces those records, and the gate checks quality and remaining budget. The important signal is that worker outputs are records, not mini final answers. Records preserve provenance; polished summaries often hide it.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How It Works',
       paragraphs: [
-        'The largest mistake is paying multi-agent cost for a problem that needed better context engineering. More agents means more tokens, more latency, more coordination failure, more prompt surface, and more opportunities for inconsistent state. A multi-agent system is justified when independent exploration, specialization, scarce capacity, or independent critique changes the result enough to pay for the overhead.',
-        'The second mistake is letting agents talk in unconstrained prose. Messages should have contracts: task id, assumptions, evidence, confidence, permissions, budget used, unresolved items, and requested next action. The third mistake is confusing parallel search with verified synthesis. A final answer can still be wrong if the reducer drops citations, ignores contradictions, or merges incompatible partial results.',
+        `A supervisor topology begins with decomposition. The lead turns a user goal into subquestions or work packets, assigns each packet to a worker, waits for results, and reduces those results. This works when branches are mostly independent: scanning different repositories, searching different source families, generating candidate designs, extracting facts from separate documents, or running separate red-team passes.`,
+        `A handoff topology passes control from one specialist to another. The state envelope matters more than the prompt. It should include user intent, completed steps, current constraints, open questions, permissions, tool outputs, and the reason for transfer. Handoff is a good fit for workflows like support triage to billing to retention, incident intake to diagnosis to remediation, or research planning to source collection to final editing.`,
+        `A blackboard topology uses shared state instead of direct conversational dependency. Workers read the board, add claims or hypotheses, mark contradictions, and update confidence. The board should track provenance and freshness so old facts do not look equal to newly verified facts. A contract-net topology adds worker selection: tasks are announced, workers bid with capability, cost, latency, and confidence, and the coordinator awards work. Debate and map-reduce generate independent answers or critiques, then use a reducer to combine them.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
       paragraphs: [
-        'Primary and official sources: Anthropic Multi-Agent Research System at https://www.anthropic.com/engineering/multi-agent-research-system, Anthropic Effective Context Engineering for AI Agents at https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents, AutoGen at https://arxiv.org/abs/2308.08155 and Microsoft Research at https://www.microsoft.com/en-us/research/publication/autogen-enabling-next-gen-llm-applications-via-multi-agent-conversation-framework/, CAMEL at https://arxiv.org/abs/2303.17760, and OpenAI Swarm at https://github.com/openai/swarm. Study Agentic AI Patterns, Agent Model Router & Context Handoff Ledger, Agent2Agent Protocol Task State Case Study, Blackboard Architecture Agent Coordination, Contract Net Agent Task Allocation, Deep Research Agent Architecture Case Study, Claim Graph & Source Ledger, Distributed Tracing, Message Queue, Temporal Workflow Case Study, and LLM Guardrail Policy Engine next.',
+        `The design works when it creates useful independence. Separate context windows can search different parts of the space without crowding each other out. Separate roles can use different instructions and tools without mixing policies. Separate candidate generators can expose disagreement. Separate critics can catch unsupported claims that the original writer missed. The coordinator earns its cost only when those separations change the final answer.`,
+        `The reducer is the safety point. It should not average opinions. It should join records by claim, source, entity, time, and uncertainty. If two workers disagree, the reducer should expose the disagreement or ask for targeted follow-up. If a worker gives an unsupported claim, the reducer should either drop it or mark it as unsupported. If the remaining budget is low, the reducer should stop expanding and produce a scoped answer rather than launching another broad wave.`,
+        `Budgets make the system honest. Multi-agent runs can multiply token use and tool calls quickly. The orchestrator should know the expected value of another worker: what missing branch it covers, what uncertainty it may reduce, and what deadline or cost it consumes. A system that cannot answer that question is not coordinating; it is spending.`,
+      ],
+    },
+    {
+      heading: 'Records To Model',
+      paragraphs: [
+        `The task graph records subquestions, dependencies, priority, owner, status, and stop conditions. It prevents duplicate work and lets the coordinator know when enough evidence exists to synthesize. The mailbox records messages between agents, but messages should be typed: request, observation, bid, handoff, critique, merge proposal, or escalation. Free-form chat is easy to build and hard to audit.`,
+        `The source ledger records sources, quotes or snippets, retrieval time, authority, claim links, and freshness. The claim board records normalized claims, contradictions, confidence, and support. The budget ledger records model calls, tool calls, tokens, wall time, and expected remaining work. The run trace records dispatch, observe, merge, gate, and stop decisions. These are ordinary software records; the language model is only one component mutating them.`,
+      ],
+    },
+    {
+      heading: 'Choosing A Topology',
+      paragraphs: [
+        `Use a single loop when the task is sequential, the context fits, and one agent can see the important state. Add a supervisor when breadth dominates latency or coverage. Use handoffs when the workflow naturally changes responsibility and each role has different tools or policy. Use a blackboard when facts accumulate over time and many workers must share evidence without overwriting each other.`,
+        `Use a contract-net pattern when workers are expensive, heterogeneous, or capacity-limited. The bid should be concrete: capability, estimated cost, expected latency, required permissions, and confidence. Use debate or map-reduce when the main risk is premature consensus or unsupported synthesis. In that case, keep candidates independent long enough for disagreement to surface, then reduce with explicit criteria instead of a popularity vote.`,
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        `Start with one coordinator process and durable records. Resist the urge to make every agent fully autonomous at first. Define task schemas, worker result schemas, source ledger schemas, and stop rules. Give each worker a narrow contract and require structured output. Store raw evidence separately from summaries so the reducer can inspect support instead of trusting a worker statement.`,
+        `Make idempotency part of the design. Workers may retry, time out, or return after the coordinator has moved on. Task ids, output hashes, source ids, and merge versions let the system ignore duplicates and stale responses. Add cancellation and budget limits early. A worker that continues searching after the answer is already gated can waste more than a single-agent run would have spent in total.`,
+        `Evaluation should be local to the topology. For supervisor research, measure source coverage, contradiction handling, citation accuracy, and cost per useful claim. For handoffs, measure lost intent and rework. For blackboards, measure stale claims and merge conflicts. For contract nets, measure bid accuracy. For debate, measure whether critique changes wrong answers or merely adds style noise.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `Multi-agent orchestration wins in breadth-first research, codebase audits, incident response, policy review, data extraction across many documents, candidate generation with later judging, and workflows where specialized tools or permissions should be isolated. It also helps when latency matters: five independent searches can run at once instead of in sequence.`,
+        `It is also useful for governance. A source-gathering worker can be kept separate from a synthesis worker. A critic can be denied write access to production tools. A budget gate can be implemented outside the language model. These separations reduce the blast radius of mistakes and make the final answer easier to audit.`,
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        `It fails when the task is actually sequential, when workers need the same scarce context, or when the reducer cannot inspect evidence. It fails when agents are launched without a clear stop rule. It fails when every worker is asked to write final prose and the coordinator has to merge style instead of facts. It fails when the system confuses more tokens with more certainty.`,
+        `The most common production failure is state drift. One worker assumes a constraint has changed, another uses the old constraint, and the reducer does not notice. The second common failure is lost provenance: a claim survives into the final answer after its source was dropped or contradicted. The third is false consensus: several workers repeat the same weak source and the reducer treats repetition as independent support.`,
+      ],
+    },
+    {
+      heading: 'Complete Case Study',
+      paragraphs: [
+        `Consider a deep research agent answering whether a vendor is suitable for a regulated deployment. A single agent could search the web, read docs, inspect security pages, compare competitors, and write a recommendation. A multi-agent design can split the work: one worker gathers official security documents, one reads pricing and service terms, one searches incident history, one maps integrations, and one extracts requirements from the buyer policy.`,
+        `The lead stores sources in a ledger and claims on a board. The synthesis step joins claims by requirement: data residency, audit logs, retention, SSO, encryption, incident response, pricing, and integration risk. A quality gate checks that every recommendation has support, that old documents are not treated as current, and that contradictions are called out. This is not better because there are more agents. It is better because the topology preserves evidence while covering more ground.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        `Study Agentic AI Patterns for the single-agent loop before adding topology. Study Agent Model Router & Context Handoff Ledger for handoff state, Blackboard Architecture Agent Coordination for shared evidence, Contract Net Agent Task Allocation for bidding, Claim Graph & Source Ledger for provenance, Distributed Tracing for run records, Message Queue for asynchronous dispatch, Temporal Workflow Case Study for durable orchestration, and LLM Guardrail Policy Engine for policy gates.`,
+        `Useful sources and reference points include Anthropic's multi-agent research system writeup, Anthropic's context engineering notes, AutoGen, CAMEL, and OpenAI Swarm. Read them with one question in mind: what structured record crosses the boundary between agents, and how does the system know that record is good enough to merge?`,
       ],
     },
   ],

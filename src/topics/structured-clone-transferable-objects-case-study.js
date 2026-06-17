@@ -242,42 +242,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Structured clone is the browser platform mechanism for copying rich JavaScript data between realms and APIs. Workers use it for postMessage. IndexedDB uses it for stored values. The standalone structuredClone function exposes the same family of behavior directly.',
-        'Transferable objects are the escape hatch for resources that should move instead of copy. An ArrayBuffer in a transfer list gives its backing store to the receiver and detaches the sender. A MessagePort in a transfer list hands one endpoint of a channel to another execution context.',
+        'Browser programs constantly cross realm boundaries. A page sends data to a worker. A worker sends a result back. IndexedDB stores a value for later. A service worker talks to a client. These boundaries are useful because they isolate work, but they also require a clear rule for what it means to pass a JavaScript value from one realm to another.',
+        'JSON was never enough for that job. It loses Maps, Sets, Dates, typed arrays, ArrayBuffers, cycles, repeated references, errors, blobs, and many platform objects. It also pretends every message is text-shaped. Structured clone exists as the platform serialization mechanism for supported data graphs. Transferable objects exist for the cases where copying a resource is wasteful or where ownership should move instead of duplicate.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The structured clone algorithm recursively walks the input and keeps a map of already visited references. That is why cycles and repeated references can be preserved without JSON serialization. The result is a fresh object graph in the receiving realm, with supported built-in values reconstructed as data.',
-        'The algorithm rejects values that are not serializable, including functions and DOM nodes. It also does not preserve every JavaScript object feature. MDN notes that property descriptors, setters, getters, private class elements, and prototype chains are not duplicated. Treat messages as data contracts, not as object identity teleportation.',
+        'The first attempt is JSON.stringify on the sender side and JSON.parse on the receiver side. That works for small plain data and is still a useful wire format when the boundary is a server, a log file, or a language-neutral API. It also makes the copy obvious: the receiver gets data, not live behavior.',
+        'The wall appears as soon as the message is a real browser value instead of a plain object tree. Cycles throw. Repeated references become separate objects. Dates become strings unless handled manually. Binary data becomes slow and bulky. A Map becomes an object only after a custom conversion that may lose key identity. JSON is a text codec, not the browser object-passing algorithm.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The data boundary',
       paragraphs: [
-        'Cloning is proportional to the reachable graph and the bytes that must be copied. That cost is often paid by the sending agent before the message can leave. Small configuration objects are fine. Large ArrayBuffers, images, decoded columns, and model tensors should usually move by transfer or use shared memory when both sides truly need the same bytes.',
-        'Transfer reduces copy cost but adds ownership discipline. After transfer, the sender cannot keep using the moved resource. That makes transfer ideal for staged pipelines and dangerous for code that assumes both sides keep mutable access.',
+        'Structured clone is broader than JSON, but it is still a data boundary. It can clone many built-in values, including Maps, Sets, Dates, ArrayBuffers, typed arrays, Blobs, and many Error objects. It does not clone functions or DOM nodes. It does not preserve property descriptors, accessors, class private elements, or prototype-chain behavior as live semantics.',
+        'That boundary is a feature. A message between a page and a worker should be a contract made of data. If the receiver could keep closures, DOM identity, getters, or prototype behavior from the sender realm, the boundary would stop being a boundary. DataCloneError is the platform saying that the value belongs to a running realm, not to a portable message.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core clone algorithm',
       paragraphs: [
-        'Consider a browser CSV importer. The page receives a File, reads it into an ArrayBuffer, and posts the buffer to a worker with postMessage({ name, buffer }, [buffer]). The page keeps metadata but loses ownership of the bytes. The worker parses the file, builds typed columns, and transfers a compact result buffer back. The main thread remains responsive because it avoided both CPU parsing and large deep copies.',
-        'If the importer instead posted a giant array of row objects after parsing on the worker, the return path would pay a heavy structured-clone bill. A better design sends typed buffers, offsets, and a small schema object. Apache Arrow Columnar Memory Case Study and WebAssembly Linear Memory Case Study show the same byte-buffer discipline in other runtimes.',
+        'The structured clone algorithm walks the reachable object graph and builds a new graph in the target realm. The key structure is a visited-reference map from source objects to destination objects. When the traversal sees an object for the first time, it creates the corresponding destination object. When it sees the same source object again, it reuses the destination object already recorded in the map.',
+        'That map solves two problems at once. It prevents infinite recursion on cycles, and it preserves sharing. If two fields point to the same Map before cloning, the receiver should see two fields pointing to the same cloned Map. Without the map, a cyclic graph would never finish and a shared graph would silently become a tree.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Transfer changes ownership',
       paragraphs: [
-        'Do not use JSON.stringify as your mental model. Structured clone supports values JSON cannot express, but it also has platform-specific exclusions and metadata loss. Do not include a transferable only in the message payload and expect it to move; it must appear in the transfer list. Do not reuse a transferred ArrayBuffer on the sender side.',
-        'SharedArrayBuffer is not a faster transfer. It is shared memory. The underlying data block remains visible to multiple agents, and coordination must happen through Atomics or a higher-level protocol.',
+        'Cloning copies supported data. Transfer moves ownership of a transferable resource. An ArrayBuffer is the clean example: the receiving realm gets the backing memory, and the sender side is detached. Its byteLength becomes zero, and old typed-array views can no longer use the moved bytes.',
+        'The transfer list is a separate part of the operation. Including a transferable object somewhere inside the message payload does not automatically move it. The transfer list tells the platform which resources should move rather than be cloned. The resource also has to be attached to the data being sent, or the receiver has no path to use it.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How it works in a pipeline',
+      paragraphs: [
+        'A worker message often combines both ideas. The metadata is cloned: file name, parse options, schema version, counters, and offsets. The large ArrayBuffer is transferred so the worker owns the bytes. The worker parses the buffer into typed columns, creates a compact result buffer, and transfers that result back to the main thread with cloned metadata describing it.',
+        'This pattern keeps the UI responsive for two separate reasons. CPU parsing happens off the main thread, and the big binary payload does not bounce through repeated deep copies. The sender must drop or replace references after transfer, because the old buffer no longer owns the resource.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Structured clone is correct because serialization and deserialization agree on a graph shape, not on object identity across realms. The receiver gets distinct objects in its own realm, but the relationships inside the cloned graph match the relationships that were serializable in the sender graph.',
+        'Transfer is correct because it changes the ownership invariant. After transfer, there is one active owner of the moved resource. That prevents two independent agents from mutating the same ArrayBuffer through ordinary non-atomic views. If both agents truly need shared access, the right tool is SharedArrayBuffer plus an explicit synchronization protocol.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The clone view makes the visited map visible. The algorithm is not doing naive recursive copying. It records which source objects already have destination counterparts, reconnects repeated references to those counterparts, and rejects values that cannot cross the data boundary.',
+        'The transfer view makes detachment visible. The ArrayBuffer can be present in the message payload, but the transfer list is what moves the backing store. After transfer, the worker has the usable bytes and the sender side has an empty shell. That is not a bug; it is the ownership rule.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Clone cost is proportional to the reachable graph and copied bytes. A deep object graph with many row objects can be expensive even if each row is small, because the algorithm must allocate and recreate the structure. A large typed array can be expensive because the bytes must be copied unless its buffer is transferred.',
+        'Transfer reduces copy cost for the moved resource, but it adds a lifecycle cost. The sender has to treat the transferred object as gone. APIs must make ownership clear, avoid accidental reuse after detachment, and define who sends a result or returns ownership later. For small messages, that ceremony is often not worth it.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Structured clone wins for ordinary cross-realm data: worker messages, IndexedDB values, service-worker client messages, BroadcastChannel payloads, and local deep copies where object identity should not cross the boundary. It is especially useful when the data contains cycles or supported built-ins that JSON would distort.',
+        'Transfer wins for staged binary and graphics pipelines. A file importer can transfer an input buffer to a worker. An image pipeline can transfer an ImageBitmap or OffscreenCanvas-related resource where supported. MessagePort transfer can hand a private reply channel to another context, turning a broad connection into a narrow endpoint with clear ownership.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Structured clone fails when the real need is behavior, DOM identity, live prototypes, accessors, or shared mutable state. Trying to send a rich class instance with important prototype methods usually means the message contract is wrong. Send plain data plus a type tag, then reconstruct behavior intentionally in the receiver.',
+        'It also fails as a performance strategy when code posts giant arrays of object records. Typed buffers, offsets, dictionaries, and a small schema are often better. Transfer fails when both sides expect to keep using the same resource. SharedArrayBuffer is the separate shared-memory tool, and it requires Atomics or another synchronization protocol.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MDN structured clone algorithm at https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm, MDN structuredClone at https://developer.mozilla.org/en-US/docs/Web/API/Window/structuredClone, MDN Transferable Objects at https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects, and the HTML structured-data standard at https://html.spec.whatwg.org/multipage/structured-data.html.',
         'Study Web Workers: A Second Thread first, then OffscreenCanvas Worker Renderer for a concrete transferable rendering resource. SharedArrayBuffer & Atomics Wait/Notify covers the shared-memory alternative. Browser Message Channels & Broadcast Coordination shows how MessagePort transfer becomes a reply pipe. IndexedDB Object Store Case Study, Apache Arrow Columnar Memory Case Study, WebAssembly Linear Memory Case Study, Message Queue, and Backpressure show the same serialization boundary in storage and distributed systems.',

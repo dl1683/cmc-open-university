@@ -104,42 +104,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'What CAP Actually Says',
       paragraphs: [
-        `CAP theorem says a replicated data system cannot guarantee all three properties under a network partition: Consistency, Availability, and Partition tolerance. Eric Brewer stated the conjecture in 2000; Gilbert and Lynch proved a formal version in 2002. Here, consistency means linearizability: operations appear to happen in one global order, so a read after a completed write sees that write. Availability means every request to a non-failing node eventually receives a non-error response. Partition tolerance means the system keeps operating despite lost or delayed messages between groups of nodes.`,
-        `The practical reading is narrower than the slogan. You do not choose C, A, or P on a whiteboard forever. During a partition, if one side cannot communicate with the other, it must either refuse some operations to preserve one-copy truth, or answer locally and risk stale or conflicting state.`,
+        'CAP is a theorem about replicated state under a network partition. If two replicas cannot communicate, and a client can still reach one side, the system cannot guarantee both linearizable consistency and availability for every request.',
+        'The useful reading is narrow and operational. Partitions are not a product setting. They are a failure the system must survive. Once the link breaks, a replica that cannot hear the rest of the system has only two honest choices: refuse work that might need fresher state, or answer from local state that may already be stale.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The Real Problem',
       paragraphs: [
-        `Suppose two replicas both hold x = 5. A client writes x = 9 to replica A, but the link to replica B fails before B learns the write. A client now asks B for x. A CP design refuses the read or redirects it until a quorum can prove the latest value. etcd does this with Raft Leader Election and Raft Log Replication: a minority partition cannot elect or contact a leader, so it stops serving writes and many reads. An AP design lets B answer x = 5 and reconciles later. The answer arrived, but it was stale.`,
-        `When the network heals, AP systems must merge. Last-write-wins is simple but can lose an update if clocks skew. Version vectors preserve causality but are harder to expose. CRDTs make certain merges mathematically safe, but only for data types whose operations commute. Cassandra-style systems use Consistent Hashing, replicas, hints, read repair, and tunable quorums to decide how much consistency each operation buys.`,
+        'A replicated service wants nearby reads, nearby writes, and one global truth. In a healthy network this looks easy: write to one replica, copy the update to the others, then let any replica answer.',
+        'The hard case starts when communication stops after one side accepts a write. Suppose N1 and N2 both store x = 7. A client writes x = 9 to N1, then the N1-to-N2 link fails. A different client asks N2 for x. N2 cannot tell whether N1 accepted a newer write, whether N1 is down, or whether no write happened at all.',
+        'That uncertainty is the wall. Returning x = 7 keeps the service available but can expose stale state. Refusing the read protects a single-copy view of the data but makes an otherwise reachable node unavailable for that operation.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The Three Letters',
       paragraphs: [
-        `CP systems pay with unavailable partitions and quorum latency. A five-node Raft group can tolerate two failures; if only two nodes are reachable, it must stop committing. AP systems pay with conflict semantics, background repair, and application logic. PACELC adds the everyday cost: if there is no partition, else latency versus consistency still matters. A cross-continent round trip can add 70-150 ms even on a healthy network, so global strong consistency is visible to users.`,
+        'Consistency in CAP means every operation behaves as if it ran against one up-to-date copy, usually the linearizable model: once a write completes, later reads cannot return the old value.',
+        'Availability means every request sent to a non-failing node eventually receives a non-error response. It is stricter than a good uptime graph. Returning "try later" from the only node a client can reach violates CAP availability for that request.',
+        'Partition tolerance means the system continues to have a defined behavior even when messages between replicas are lost, delayed, or separated into islands. In real distributed systems, this is not optional. Links fail, packets vanish, routers misroute, regions isolate, and clients keep retrying.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Worked Example',
       paragraphs: [
-        `Kubernetes stores control-plane truth in etcd because two contradictory schedulers would be worse than a temporary outage. Financial ledgers, inventory decrements, and unique username claims usually prefer CP or at least a strongly coordinated path. Social feeds, metrics pipelines, DNS caches, shopping recommendations, and offline-first mobile apps often accept AP behavior. Cassandra stores writes in LSM Trees (How Cassandra Writes) and exposes per-operation consistency levels; Dynamo-style systems emphasized availability and repair. Many products mix both: a CP payment ledger beside AP notifications and feeds.`,
+        'Start with two replicas, N1 and N2, both holding x = 5. A client writes x = 7 while the network is healthy, so both replicas converge on x = 7. Nothing in CAP is interesting yet because communication lets the replicas preserve both freshness and responsiveness.',
+        'Now split the network. A client on the N1 side writes x = 9. N1 can store the write locally, but N2 cannot receive it. When a client on the N2 side asks for x, the CP and AP designs diverge.',
+        'The CP design refuses the read, redirects to a side with a quorum, or waits until it can prove freshness. The AP design returns x = 7 immediately and records enough metadata to repair the disagreement later. The same partition has produced two different user experiences and two different operational debts.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'How CP Systems Work',
       paragraphs: [
-        `CAP consistency is not the C in ACID, and availability is not uptime on a status page. It is a formal property about every non-failing node returning a response. Another trap is believing quorum settings alone make a database linearizable. R + W > N can prevent some stale reads, but clocks, read repair, leader leases, and failure detection still matter. Two-Phase Commit (2PC) gives atomic commit across participants, but it can block under coordinator failure; it is not a magic CAP escape hatch.`,
-        `Sagas are not a CAP escape either. Saga Pattern designs choose visible intermediate states plus compensations because the business can tolerate them. Sharding & Partitioning and a Gossip Protocol change placement and membership; they do not remove the C-versus-A decision during a partition.`,
+        'A CP system protects ordered truth by requiring an authority that can prove which operations committed. Many designs use a leader plus a majority quorum. A write commits only after enough replicas acknowledge it; a read either goes through the leader, verifies leadership, or contacts a quorum that overlaps with committed writes.',
+        'Quorum overlap is the important data-structure fact. If every successful write quorum and every successful read quorum share at least one replica, the read path can see evidence of the latest committed state. When a partition leaves a side without a quorum, that side stops committing operations that require strong consistency.',
+        'This is why etcd, ZooKeeper-style coordination, Raft groups, many metadata stores, lock services, and control planes accept refusal under partitions. Duplicate schedulers, double-issued leases, and contradictory membership decisions are worse than a temporary outage.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'How AP Systems Work',
       paragraphs: [
-        `Read Raft Leader Election and Raft Log Replication for the CP path. Read Consistent Hashing, Sharding & Partitioning, and Gossip Protocol for AP-style placement and membership. Then compare Two-Phase Commit (2PC) and Saga Pattern to see how distributed transactions choose between blocking atomicity and compensating availability.`,
+        'An AP system keeps serving from reachable replicas and treats divergence as a normal repair problem. The local answer may be old, or two sides may accept conflicting writes, so the system must carry causality, timestamps, tombstones, or merge-specific state.',
+        'The simplest repair rule is last-write-wins. It is cheap, but it can drop a real update if clocks are skewed or if two users wrote different fields. Version vectors preserve causal history and can detect concurrent writes, but they push conflict handling into storage or application code. CRDTs make some operations merge safely by construction, but only when the data type and product semantics fit commutative updates.',
+        'AP is not careless consistency. It is a deliberate shift from "never answer stale" to "answer now, then converge." Shopping carts, social feeds, metrics, DNS, presence indicators, and offline-first documents often prefer this shape because temporary staleness is less damaging than refusal.',
+      ],
+    },
+    {
+      heading: 'Why The Tradeoff Is Unavoidable',
+      paragraphs: [
+        'The proof intuition is indistinguishability. During the partition, N2 cannot distinguish "N1 accepted x = 9 and I have not heard it" from "no later write exists." The local observations at N2 are identical in both worlds.',
+        'If N2 must always answer, there is a possible world where its answer is stale. If N2 must never answer stale, there is a possible world where it must wait or refuse. No header, retry loop, transaction coordinator, or clever cache can manufacture information that the partition prevents from arriving.',
+        'This is also why CAP is a theorem about behavior, not branding. A database may offer CP reads, AP reads, tunable quorums, stale read options, leader-only writes, and local fallback paths. Each operation chooses a point on the tradeoff surface.',
+      ],
+    },
+    {
+      heading: 'Costs and Limits',
+      paragraphs: [
+        'CP systems pay in latency and refusal. A five-node quorum can tolerate two failed nodes, but a two-node island cannot keep committing majority-protected writes. Cross-region CP also pays healthy-network latency because coordination has to cross distance even when there is no partition.',
+        'AP systems pay in correctness work after the response. They need anti-entropy, read repair, hinted handoff, conflict detection, merge policy, tombstone handling, and user-facing semantics for "both things happened." The cost does not disappear; it moves from the request path into reconciliation and product design.',
+        'CAP also does not cover every consistency question. It does not choose isolation levels inside a database transaction. It does not measure durability. It does not tell you whether a cache invalidation strategy is good. It only nails the partition moment when freshness and universal response cannot both be guaranteed.',
+      ],
+    },
+    {
+      heading: 'Where The Choice Fits',
+      paragraphs: [
+        'Choose CP when stale or conflicting answers cause real harm: financial ledgers, inventory decrements, account uniqueness, lock ownership, cluster membership, authorization policy, and control-plane state. A refused request is visible, but a contradictory answer may corrupt the world the system is supposed to protect.',
+        'Choose AP when the product can tolerate old data, merge data, or a temporary disagreement: feeds, recommendations, telemetry, caches, collaborative drafts, offline-first notes, shopping carts, and edge-readable configuration with bounded staleness.',
+        'Many products mix both. A bank may run an AP marketing page, an eventually updated activity feed, and a CP ledger. A commerce site may keep browsing and carts available while routing payment capture and inventory finalization through stricter coordination.',
+      ],
+    },
+    {
+      heading: 'Common Failure Modes',
+      paragraphs: [
+        'The most common mistake is treating CAP as "pick any two." In a partitioned distributed system, P is already in the room. The live choice is C versus A for the affected operation.',
+        'Another mistake is treating stale reads as harmless because they are rare. Rare stale reads can still double-spend, overwrite a newer profile, resurrect a deleted permission, or send a job to two owners. The business invariant decides the tradeoff, not the storage engine label.',
+        'The opposite mistake is forcing CP semantics onto data that could have stayed useful locally. If a social counter, draft note, or cached product page refuses during every regional issue, the system has paid the cost of coordination without needing its strongest guarantee.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'PACELC extends the everyday lesson: if there is a partition, choose availability or consistency; else, even in a healthy network, choose latency or consistency. Strong cross-region coordination costs round trips whether or not anything is broken.',
+        'Study Raft Leader Election and Raft Log Replication for the CP path. Study Consistent Hashing, Quorums, Read Repair, Gossip Protocol, Version Vectors, CRDTs, Two-Phase Commit, and Saga Pattern to see how real systems place data, coordinate commits, detect conflicts, and compensate when they choose a more available path.',
       ],
     },
   ],

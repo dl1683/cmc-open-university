@@ -36,7 +36,7 @@ export function* run(input) {
   yield {
     state: hashTableState(buckets, meta()),
     highlight: {},
-    explanation: `An empty table with ${capacity} buckets. The magic trick: a key's bucket is computed directly from the key (key mod ${capacity}), so lookups jump straight there — no scanning, O(1) on average.`,
+    explanation: `An empty table with ${capacity} buckets. A hash function turns a key into a home bucket, so lookup starts near the answer instead of scanning every entry.`,
   };
 
   for (const key of keys) {
@@ -44,7 +44,7 @@ export function* run(input) {
     yield {
       state: hashTableState(buckets, meta()),
       highlight: { active: [`b${index}`] },
-      explanation: `insert(${key}): hash it — ${key} mod ${capacity} = ${index}. Aim for bucket ${index}.`,
+      explanation: `insert(${key}): hash the key, then reduce it to a bucket index. ${key} mod ${capacity} = ${index}, so bucket ${index} is the first place to try.`,
     };
 
     let alreadyPresent = false;
@@ -54,7 +54,7 @@ export function* run(input) {
         yield {
           state: hashTableState(buckets, meta()),
           highlight: { found: [`b${index}`] },
-          explanation: `Bucket ${index} already holds ${key} — the key is in the table, nothing to add.`,
+          explanation: `Bucket ${index} already holds ${key}. The probe sequence found the existing key, so insertion becomes an update/no-op instead of a duplicate.`,
         };
         break;
       }
@@ -62,7 +62,7 @@ export function* run(input) {
       yield {
         state: hashTableState(buckets, meta()),
         highlight: { collision: [`b${index}`], active: [`b${next}`] },
-        explanation: `Collision! Bucket ${index} is taken by ${buckets[index].key}. Linear probing says: just try the next bucket (${next}), wrapping around the end if needed.`,
+        explanation: `Collision: bucket ${index} holds ${buckets[index].key}. Linear probing preserves findability by trying the next bucket (${next}) on the same path lookup will later follow.`,
         invariant: 'A key is always findable by walking forward from its hash index until it appears or an empty bucket proves it absent.',
       };
       index = next;
@@ -74,7 +74,7 @@ export function* run(input) {
     yield {
       state: hashTableState(buckets, meta()),
       highlight: { found: [`b${index}`] },
-      explanation: `${key} lands in bucket ${index}. Load factor: ${size}/${capacity} = ${(size / capacity).toFixed(2)}.`,
+      explanation: `${key} lands in bucket ${index}. The load factor is now ${size}/${capacity} = ${(size / capacity).toFixed(2)}; as it rises, collisions become more likely.`,
     };
 
     if (size / capacity >= LOAD_LIMIT) {
@@ -91,7 +91,7 @@ export function* run(input) {
       yield {
         state: hashTableState(buckets, meta()),
         highlight: {},
-        explanation: `Load factor hit ${LOAD_LIMIT} — too crowded, probes were getting long. The table doubled from ${oldCapacity} to ${capacity} buckets, and EVERY key was re-hashed, because its index depends on the capacity (key mod ${capacity} now). This occasional O(n) rebuild is the price of keeping inserts O(1) on average.`,
+        explanation: `Load factor hit ${LOAD_LIMIT}, so probes were getting long. The table doubled from ${oldCapacity} to ${capacity} buckets and rehashed every key because bucket indexes depend on capacity.`,
       };
     }
   }
@@ -101,7 +101,7 @@ export function* run(input) {
   yield {
     state: hashTableState(buckets, meta()),
     highlight: { active: [`b${index}`] },
-    explanation: `lookup(${lookup}): hash it — ${lookup} mod ${capacity} = ${index}. Jump straight to bucket ${index}; no other bucket needs to be considered first.`,
+    explanation: `lookup(${lookup}): hash it to bucket ${index}. If the key was inserted, it must be at this bucket or later on the same probe path.`,
   };
 
   let probes = 1;
@@ -110,7 +110,7 @@ export function* run(input) {
     yield {
       state: hashTableState(buckets, meta()),
       highlight: { collision: [`b${index}`], active: [`b${next}`] },
-      explanation: `Bucket ${index} holds ${buckets[index].key}, not ${lookup}. It might have been displaced by a collision — probe forward to ${next}.`,
+      explanation: `Bucket ${index} holds ${buckets[index].key}, not ${lookup}. A collision may have displaced the target, so lookup follows the same forward probe path to ${next}.`,
     };
     index = next;
     probes += 1;
@@ -120,13 +120,13 @@ export function* run(input) {
     yield {
       state: hashTableState(buckets, meta()),
       highlight: { found: [`b${index}`] },
-      explanation: `Found ${lookup} in bucket ${index} after ${probes} probe${probes === 1 ? '' : 's'}. Compare that with scanning a list of every key — hashing earns its O(1) average.`,
+      explanation: `Found ${lookup} in bucket ${index} after ${probes} probe${probes === 1 ? '' : 's'}. The table avoided a full scan because the hash chose where the search should begin.`,
     };
   } else {
     yield {
       state: hashTableState(buckets, meta()),
       highlight: { visited: [`b${index}`] },
-      explanation: `Bucket ${index} is empty — and that PROVES ${lookup} is absent: if it had been inserted, probing would have placed it before any empty bucket on this path.`,
+      explanation: `Bucket ${index} is empty, which proves ${lookup} is absent. If the key had been inserted, the same probe path would have found it before the first empty bucket.`,
     };
   }
 }
@@ -134,37 +134,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `A hash table stores key-value pairs by running each key through a hash function and using the result to choose an array bucket. Instead of checking keys one by one with a linear scan, the structure jumps straight to the likely location. With a good hash function and enough empty space, lookup, insert, and delete feel constant time, which is why JavaScript Map, Python dict, Ruby Hash, and many runtime object tables use this idea.`,
-        `The catch is collisions. Two different keys can land in the same bucket because the array has finite size. The demo uses open addressing with linear probing: if the home bucket is full, walk forward until you find the key or an open slot. Other implementations use chaining, where each bucket points to a small list, or more advanced probing strategies. The table is fast because collisions are kept rare, not because collisions are impossible.`,
+        `Hash tables exist because repeated exact lookup is too expensive with a plain scan. If a server needs user 43192, a compiler needs the symbol named total, or a cache needs the entry for a URL, checking every stored key wastes work that a lookup table can avoid.`,
+        `The structure stores key-value pairs in an array of buckets. A hash function turns the key into a number, and the table reduces that number to a bucket index. With a good hash function and enough empty space, lookup, insert, and delete are average O(1), which is why JavaScript Map, Python dict, Ruby Hash, and many runtime object tables use this idea.`,
+      ],
+    },
+    {
+      heading: `The obvious approach and the wall`,
+      paragraphs: [
+        `The obvious approach is an array of pairs: store [key, value], scan until the key matches, then return the value. That is easy and works for small maps. The wall is repeated lookup. If there are n entries, every miss costs n comparisons, and every hit can still take a long walk.`,
+        `A sorted array improves lookup with Binary Search, but insertion can shift many entries and range order may not matter. A hash table chooses a different trade: give up sorted order so exact lookup can jump straight to the likely bucket.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `The core insight is that a key can choose its own search path. The hash function maps the key to a home bucket. If that bucket is occupied by another key, the collision rule defines the next bucket to try. Lookup repeats the same path, so it can find a displaced key later.`,
+        `The demo uses open addressing with linear probing: on collision, walk forward one bucket at a time and wrap around at the end. Other implementations use chaining, where each bucket points to a small list. The table is fast because collisions are kept rare, not because collisions are impossible.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `Read the active bucket as the current position on the key's probe path. The first active bucket is the home bucket from hashIndex(key, capacity). If it is occupied by a different key, the collision highlight means the table has not failed; it is following the deterministic path that lookup will later repeat.`,
+        `When the table grows, every key moves because bucket index depends on capacity. A key that mapped to 7 in an eight-bucket table may map somewhere else after capacity doubles. That is why resizing is called rehashing rather than copying: the table must recompute each key's placement under the new bucket count.`,
+        `During lookup, the first empty bucket is proof of absence. The proof only works because insertion would have stopped at that same empty bucket. This is the invariant behind open addressing, and it is why deletion needs tombstones or a rebuild.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Insertion starts by hashing the key and reducing the hash to an index, often with modulo capacity. If the bucket is empty, store the entry. If the bucket holds the same key, update the value. If it holds another key, probe forward and wrap around the end until a usable slot appears. Lookup repeats the exact probe sequence; stopping at an empty slot proves the key was never inserted along that path.`,
-        `Deletion is the detail beginners miss. In an open-addressed table, you usually cannot simply clear a removed bucket, because later lookups might stop too early and miss keys that were displaced beyond it. Many tables leave a tombstone marker: "deleted, but keep probing through me." Too many tombstones slow the table down, so resizing or rebuilding eventually cleans them out. Rehashing also happens when load factor gets high, commonly around 0.7 for linear probing, because crowded tables create long clusters.`,
+        `Insertion hashes the key and reduces the hash to an index, often with modulo capacity. If the bucket is empty, store the entry. If the bucket holds the same key, update the value. If it holds another key, probe forward until a usable slot appears.`,
+        `Lookup uses the exact same probe sequence. If it sees the key, it returns the value. If it sees an empty bucket, it can stop: the key would have been placed before that empty bucket during insertion. Rehashing happens when load factor gets high, commonly around 0.7 for linear probing, because crowded tables create long clusters.`,
+        `Deletion is the detail beginners miss. In an open-addressed table, you usually cannot simply clear a removed bucket, because later lookups might stop too early and miss keys displaced beyond it. Many tables leave a tombstone marker that means "deleted, but keep probing through me." Too many tombstones slow the table down, so resizing or rebuilding eventually cleans them out.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Why it works`,
       paragraphs: [
-        `Average lookup, insertion, and deletion are O(1). Worst case is O(n), either because many keys collide or because an attacker deliberately supplies keys that collide under a predictable hash. Space is O(n), but the backing array is intentionally larger than the number of live entries. Rehashing costs O(n) at the moment it happens, yet the amortized cost per insertion remains O(1) because resizing is rare. Big-O Growth Rates helps explain why that average-case O(1) lookup is so powerful compared with Binary Search at O(log n) when sorted order is not needed.`,
+        `Correctness comes from using the same deterministic path for insert and lookup. If a key is inserted, it lands at the first available slot on its path. Later lookup starts at the same home bucket and follows the same collision rule, so it must reach that slot unless it finds the key earlier.`,
+        `The empty-bucket stopping rule is safe only because insertion would never skip an empty slot on that path. Tombstones preserve that rule after deletion: they do not hold a live key, but they also do not let lookup stop too early.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Cost and tradeoffs`,
+      paragraphs: [
+        `Average lookup, insertion, and deletion are O(1). Worst case is O(n), either because many keys collide or because an attacker deliberately supplies keys that collide under a predictable hash. Space is O(n), but the backing array is intentionally larger than the number of live entries.`,
+        `Rehashing costs O(n) at the moment it happens, yet amortized insertion stays O(1) because resizing is rare. The tradeoff is memory and ordering. A hash table spends extra buckets to keep probes short and does not support sorted iteration or range queries well. Big-O Growth Rates helps compare that average O(1) lookup with Binary Search at O(log n) when sorted order is not needed.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
       paragraphs: [
         `Compilers use hash tables for symbol tables: variable names map to scope and storage information. Web servers use them for headers and session maps. LRU Cache combines Hash Table lookup with linked-list ordering so reads, writes, and evictions stay O(1). Rate Limiter (Token Bucket) implementations often map user IDs or API keys to counters. Consistent Hashing extends the same hash idea across machines, spreading keys around a ring so adding one server moves only part of the data.`,
         `Hashing also appears where the stored value is the hash itself. Merkle Tree uses hashes to summarize chunks of data, while Git names objects by content hash. Bloom Filter uses several hash positions to answer "definitely not present" with tiny memory. Database indexing usually chooses tree structures for range scans, but hash indexes are still useful for exact-match workloads.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
         `The biggest misconception is that O(1) is a promise for every operation. It is an average under assumptions: good distribution, controlled load factor, and no adversarial collision pattern. Security-sensitive runtimes often use randomized or keyed hash functions for strings to prevent collision attacks; a cryptographic hash is not always necessary, but predictability is dangerous.`,
         `Another trap is using plain JavaScript objects as maps without understanding coercion and prototype keys. Object property keys are strings or symbols; Map is safer when keys can be objects. Mutable keys are risky in languages where hash codes depend on object state. Finally, hash tables do not keep sorted order. If you need ordered iteration or range queries, a balanced search tree, B-Trees (How Databases Read), or sorted arrays with Binary Search may be the better tool.`,
+      ],
+    },
+    {
+      heading: `Complete case study`,
+      paragraphs: [
+        `Imagine a web service storing active sessions by session ID. A request arrives with cookie abc123. Linear Search would compare abc123 with every active session. A hash table hashes abc123, jumps to the probe path for that key, and usually finds the session in a few memory touches.`,
+        `The same design needs the real tradeoffs. If the service must list sessions by creation time, the hash table alone is the wrong shape because it has no sorted order. If an attacker can force many colliding session IDs, lookup can degrade. Production systems respond with better hash functions, controlled load factor, resizing, and sometimes a second structure for ordering.`,
+        `A JavaScript example is a Map keyed by request object. A plain object would coerce many keys to strings and collide semantically; Map preserves object identity. That difference is not cosmetic. The hash table idea is the same, but the language-level equality and key model decide what "same key" means.`,
       ],
     },
     {

@@ -217,7 +217,7 @@ function* crossFitPipeline() {
   yield {
     state: crossFitGraph('Out-of-fold target encoding pipeline'),
     highlight: { active: ['folds', 'fit', 'holdout', 'encode', 'concat', 'e-folds-fit', 'e-folds-holdout', 'e-fit-encode', 'e-holdout-encode'], found: ['model'] },
-    explanation: 'The animation is the exact pipeline shape. Split the training rows. Fit an encoder map on all folds except the holdout. Encode the holdout. Repeat until every training row has an encoding produced by a map that did not see that row target. Then train the downstream model on the concatenated out-of-fold features.',
+    explanation: 'The pipeline preserves the no-own-label invariant. Each held-out fold receives encodings from a map fit on other folds, then the encoded holdouts are concatenated so the downstream model never trains on a category statistic that already saw that row target.',
   };
 
   yield {
@@ -308,10 +308,17 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
         'Target encoding converts a categorical value into a statistic of the target for that value. Instead of giving merchant_42 a one-hot column, encode it as the smoothed fraud rate observed for merchant_42. Instead of one-hotting publisher_id, encode it as historical click-through rate. This is a compact, high-signal data structure: category key -> sum, count, prior, smoothing policy, timestamp or fold boundary, and version.',
         'The danger is built into the name: the encoder uses y. If a training row receives a statistic that includes its own label, the row has leaked part of the answer into its features. High-cardinality categories make this especially bad. A near-unique user_id can become an almost perfect label copier unless the encoding is ordered, cross-fitted, smoothed, or replaced by a safer native categorical method. Feature Hashing Signed Projection Primer is the sibling option when you need bounded memory and streaming rather than label-rate statistics.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Every edge into the encoder map is a possible leak path. A safe encoding can use other rows, earlier rows, or other folds; it cannot use the target from the row being encoded.',
+        'In the cross-fit view, the held-out fold is the correctness boundary. The encoder map is fit without that fold, applied to that fold, and then rotated until every training row has an out-of-fold value. The invariant is simple: no row may help compute its own feature value.',
       ],
     },
     {
@@ -329,6 +336,13 @@ export const article = {
       ],
     },
     {
+      heading: 'Why it works',
+      paragraphs: [
+        'Ordered and cross-fitted encodings work because they make the training feature generation resemble prediction time. At prediction time, the model never knows the label of the row it is scoring. A safe training encoder preserves that ignorance while still using historical or out-of-fold aggregate signal.',
+        'Smoothing works because rare categories are noisy. A merchant with one fraud event should not receive a perfect fraud-rate feature. Pulling the category statistic toward a global or segment prior reduces variance and prevents rare ids from becoming memorized labels.',
+      ],
+    },
+    {
       heading: 'Complete case study: marketplace fraud',
       paragraphs: [
         'A marketplace fraud model has merchant_id, buyer_region, card_bin, shipping_zip, device_family, order_amount, and a delayed fraud label. merchant_id has 900,000 possible values, so one-hot encoding is too wide. A naive SQL target encoding groups all training rows by merchant_id, computes fraud_rate, joins it back, and reports excellent validation AUC. The score is fake if the join used each order fraud label to encode that same order, or if chargeback labels from the future updated earlier rows.',
@@ -343,9 +357,23 @@ export const article = {
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Limits and failure modes',
       paragraphs: [
         'Do not run target encoding before the train/test split. Do not compute a global category mean and join it back to the same rows. Do not use random folds when entities, time, or groups define the real leakage boundary. Do not let rare categories become perfect rules. Do not deploy a model without the encoder map version it was trained with. And do not assume every library uses the same categorical strategy: CatBoost ordered Ctrs, scikit-learn cross-fitted TargetEncoder, and LightGBM native categorical splits solve adjacent but different engineering problems.',
+        'The method is also weak for cold-start categories unless the fallback policy is good. Unknown keys need a global prior, segment prior, hierarchy, hash fallback, or native categorical handling. If unseen-category rate rises after launch, the model may still run but its most useful categorical feature has gone stale.',
+      ],
+    },
+    {
+      heading: 'Operational checklist',
+      paragraphs: [
+        'Version the encoder as part of the model, not as a casual preprocessing step. Record the aggregation window, fold policy, time cutoff, smoothing strength, prior, unknown-category fallback, and source tables. A model cannot be reproduced if its category map is missing or rebuilt with a different label horizon.',
+        'Monitor the feature, not only the model score. Track unknown-category rate, low-count-category volume, shifts in encoded means, delayed-label backfill, and differences between offline point-in-time values and online serving values. Most target-encoding failures look like ordinary model drift until the feature pipeline is inspected closely.',
+        'Decide what the category means operationally. A merchant id, user id, publisher id, and zip code age differently, leak differently, and need different fallback rules. The fold or time boundary should follow that business meaning, not the convenience of a random split.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
         'Primary sources: CatBoost categorical transformation docs at https://catboost.ai/docs/en/concepts/algorithm-main-stages_cat-to-numberic, CatBoost categorical feature docs at https://catboost.ai/docs/en/features/categorical-features, CatBoost paper at https://arxiv.org/abs/1706.09516, scikit-learn TargetEncoder docs at https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.TargetEncoder.html, scikit-learn TargetEncoder cross-fitting example at https://scikit-learn.org/stable/auto_examples/preprocessing/plot_target_encoder_cross_val.html, and LightGBM categorical feature docs at https://lightgbm.readthedocs.io/en/latest/Advanced-Topics.html. Study Data Leakage & Contamination, Cross-Validation & Honest Evaluation, Tabular Feature-Basis Orientation Primer, Feature Hashing Signed Projection Primer, Tabular Deep Learning vs GBDT Case Study, Gradient Boosting, Feature Store, Point-in-Time Feature Join Index, and Benchmark Variance & Model Selection next.',
       ],
     },

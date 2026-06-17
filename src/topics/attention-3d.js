@@ -127,7 +127,63 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
+      paragraphs: [
+        `Attention exists because sequence models need a flexible way to move information between positions. In language, the useful context for a token is not always next to it. A pronoun may point back several words. A closing parenthesis may depend on an opening one far earlier. A code identifier may need a definition from a previous block.`,
+        `A fixed window, convolution, or recurrent state can carry some of that information, but each has a wall. Fixed windows miss distant dependencies. Convolutions need many layers to connect far positions. Recurrent state compresses the past into one moving summary. Attention gives each token a direct, weighted lookup over visible tokens.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The obvious approach is to give each token a local neighborhood. A word can read the words just before it, and deeper layers can slowly spread information farther. This resembles a convolutional receptive field: local at first, broader after repeated layers.`,
+        `Another obvious approach is recurrence. Read tokens one at a time and update a hidden state. The state carries memory forward. This helped earlier language models, but the state is a narrow bottleneck. A later token cannot directly ask for one earlier token; it receives whatever the running state kept.`,
+      ],
+    },
+    {
+      heading: 'Where the obvious approach fails',
+      paragraphs: [
+        `Local neighborhoods fail when the needed relation is distant and content-dependent. In the sentence "The cat sat on the mat because it...", the token "it" should use information from "cat", not merely the immediately previous token. Distance alone cannot choose that link.`,
+        `A single recurrent state fails for a different reason: compression. It may remember that some animal was mentioned, but the later computation cannot inspect all earlier token states directly. Attention removes that bottleneck by making earlier token representations addressable.`,
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        `The core insight is content-addressed lookup. Each token creates a query vector. Every visible token creates a key vector and a value vector. The query compares itself with keys, turns those scores into a probability distribution, and uses that distribution to mix values.`,
+        `The attention matrix is the visible record of those probabilities. Rows are queries: the tokens doing the looking. Columns are keys: the tokens being looked at. Each row sums to 1 after softmax. In the 3D view, height is attention weight, so a peak shows where one token pulls information from.`,
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        `For one head, the model projects token representations into Q, K, and V matrices. It computes scores with Q times K transpose, scales the scores to keep gradients stable, masks illegal positions, applies softmax row by row, and multiplies by V. The result is a new representation for each query token.`,
+        `The mask matters. In an autoregressive language model, token q cannot look at key positions greater than q because those future tokens do not exist during generation. The causal mask sets those scores to negative infinity before softmax, so their final probabilities become zero. The future is removed from the distribution, not merely penalized.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `Attention works because it separates address from content. Keys decide where to read. Values decide what information is read. Queries decide what kind of information a token is asking for. This lets the same sequence support many relation types without a fixed hand-written rule.`,
+        `Multi-head attention strengthens the idea by running several lookups in parallel. One head may focus on nearby syntax. Another may focus on a previous entity. Another may copy delimiters or track induction patterns. The next layer receives the combined outputs and can decide which relations matter for the task.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Treat masking as part of correctness, not a display option. Apply the causal or padding mask before softmax. If masked positions receive probability mass, the model can leak information or learn from padding tokens. The bug may not crash; it can silently train the wrong behavior.`,
+        `Use numerically stable softmax by subtracting the row maximum before exponentiation. Keep tensor shapes explicit: batch, heads, query positions, key positions, and head dimension. Many attention bugs are shape bugs that still run but mix the wrong axes.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `The main failure is cost. Full attention has O(n squared) score computation and attention memory with sequence length n. Long context is expensive because every extra token can interact with many other tokens. Sliding windows, sparse patterns, grouped-query attention, memory compression, retrieval, and state-space alternatives all trade away some form of unrestricted lookup.`,
+        `The second failure is interpretability. Attention weights show where probability mass went, but they do not prove why the model made a decision. A high weight from "it" to "cat" is evidence of a relation in that head, not a complete explanation of the model output. Ablations, causal tracing, saliency methods, and representation analysis are needed for stronger claims.`,
+      ],
+    },
+    {
+      heading: `Attention table basics`,
       paragraphs: [
         `Attention is how transformers relate words. Given a sentence like "The cat sat on the mat because it…," every token (word) looks at every other token and decides: how much of its meaning do I need? The "it" at the end asks this question hundreds of times in parallel, in many different ways. In one "head" it might say "I am 62% about 'cat'" (to solve coreference — what does 'it' refer to?). In another head it might say "I am 70% about the word before me" (to track syntax). Attention visualizes as a table of numbers: rows are queries (the looking token), columns are keys (the tokens being looked at), and each cell is a weight — a probability. When you render this table as a 3D landscape, something remarkable happens: the table becomes a terrain with three distinct landmarks — a diagonal ridge, a semantic mountain, and a causal cliff — and the geometry teaches you what attention actually does.`,
       ],
@@ -138,6 +194,13 @@ export const article = {
         `Start with the three landmarks you will see in the visualization. The LOCALITY RIDGE runs along the diagonal of the attention landscape: most tokens attend heavily to themselves and their immediate neighbors, because language is local — adjacent words encode tightly related meaning. The ridge is not a wall, though; attention "leaks" off it toward semantically relevant tokens. The verb "sat" can reach back to its subject "cat," and the visualization shows this as height flowing downhill, semantically downstream. Each query row (each word doing the looking) is a probability distribution that sums to exactly 1 — the model must give all its attention somewhere.`,
         `The COREFERENCE MOUNTAIN is landmark 2. The token "it" in our sentence does NOT stay on the diagonal. Its attention erupts at "cat" with a weight of 0.62 — six tokens back, a peak in the terrain. This is pronoun resolution: a learned, content-based lookup that fetch meaning from anywhere in the sequence, ignoring distance. No fixed window or simple convolution could do this. That mountain is how transformers understand "it was cold, so it closed its eyes" — "it" looks up 'what was cold,' fetches the concept 'the cat,' and the next layer uses that meaning to predict 'closed.' One mountain = one resolved pronoun.`,
         `The CAUSAL CLIFF is landmark 3. The entire half of the terrain where key > query is dead flat at zero. This is the causal mask: a token may only attend to the past. "The" cannot look at "cat" yet; at generation time "cat" does not exist. In a 2D heatmap this looks like a gray triangle; in relief it is a sheer escarpment. Every autoregressive LLM (every model generating text token by token) lives entirely on the landward side of this cliff. The KV Cache is precisely a cache of terrain already computed on the cliff-side, so future tokens do not recompute ancient history.`,
+      ],
+    },
+    {
+      heading: `Visual landmarks`,
+      paragraphs: [
+        `Start with the axes. A query row is the token doing the looking; a key column is the token being looked at; height is the attention weight. For any query, the visible row is a probability distribution, so peaks show where that token is pulling information from.`,
+        `Read the three landmarks in order: the diagonal ridge is local context, the "it" to "cat" mountain is content lookup across distance, and the causal cliff is the future being masked to zero. The positional-head view is the caution: a different head can ignore meaning and track structure instead, so one attention map is evidence, not a full explanation.`,
       ],
     },
     {
@@ -166,4 +229,3 @@ export const article = {
     },
   ],
 };
-

@@ -202,26 +202,117 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'InnoDB, MySQL\'s default transactional storage engine, stores each table around a clustered index. The clustered index is usually the primary key, and its leaf pages contain the row data. That means the primary key is not just a logical constraint; it is the physical organization of the table.',
-      'Secondary indexes work differently. Their leaf entries store secondary-key values plus the primary key of the row. If a query needs columns not available in the secondary index, InnoDB uses that primary key to perform a second lookup in the clustered index.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'For a query by primary key, the engine descends the primary B-tree and lands on a leaf record containing the full row and MVCC metadata. For a query by secondary key, it descends the secondary B-tree, obtains the primary key, and then descends the clustered B-tree to fetch the row unless the secondary index covers the query.',
-      'This explains why primary-key choice matters. A narrow, stable, mostly increasing primary key keeps secondary entries smaller and often makes inserts friendlier. A random or wide primary key can increase page splits, cache churn, and secondary-index storage.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'The asymptotic model is B-tree search, but the practical cost is page reads, cache hits, page splits, and whether the query is covering. A secondary range scan that fetches many rows can become expensive if it performs many scattered primary-key lookups.',
-      'The common misconception is that every index points to a row stored elsewhere. In InnoDB, the clustered primary index is where the row lives. Secondary indexes point back to that clustered key.',
-      'This is why EXPLAIN output and index design need to be read together. Seeing "Using index" can mean a covering read, while seeing a secondary index plus many row fetches can mean the clustered tree is still doing substantial work behind the scenes.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'Consider a user service with endpoints for lookup by id and lookup by email. GET /users/42 is a direct clustered lookup. GET /users?email=m@example.com uses the email secondary index to find id=42, then uses the clustered index to fetch the full row. If the endpoint only needs email and status, a covering secondary index can avoid the second walk.',
-      'This is a concrete example of data structures shaping API performance. The B-tree is not abstract decoration; it determines whether a request is one page path, two page paths, or many random row fetches after a range scan.',
-      'A migration from integer ids to random public ids should therefore be treated as a storage design change, not only an API change. If the random id becomes the clustered primary key, insert locality and every secondary index entry change together.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: MySQL InnoDB clustered and secondary index documentation, https://dev.mysql.com/doc/refman/8.0/en/innodb-index-types.html, and InnoDB physical index structure, https://dev.mysql.com/doc/refman/8.0/en/innodb-physical-structure.html. Study B-Trees, B+ Tree Leaf Sibling Scan Case Study, Database Indexing, Bw-Tree Delta Chain & Mapping Table, PostgreSQL Query Planner, Write-Ahead Log, and MVCC & Vacuum next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        `InnoDB is MySQL's default transactional storage engine, and its central storage choice is easy to miss: the table is organized around a clustered index. In ordinary MySQL schemas that clustered index is the primary key. The leaf pages of that B+ tree contain the row data itself, not just pointers to rows stored somewhere else.`,
+        `That makes the primary key more than a logical identifier. It is the physical order of the table, the path for direct row lookup, the unit of locality in the buffer pool, the key carried by secondary indexes, and a major influence on insert behavior. A schema designer who treats the primary key as only an application ID is ignoring the storage layout.`,
+      ],
+    },
+    {
+      heading: 'The obvious model',
+      paragraphs: [
+        `A common first model says a table is a heap of rows and every index points to a row location in that heap. Some engines and storage layouts are close to that model. It is easy to teach: rows live in one place, indexes are lookup structures, and an index leaf stores a row pointer.`,
+        `InnoDB does not use that model for normal tables. The clustered primary-key B+ tree is where the rows live. A primary-key lookup descends the clustered tree and lands on a leaf record containing the full row and MVCC metadata. A secondary index leaf stores the secondary key plus the primary key of the row, not a stable heap pointer.`,
+      ],
+    },
+    {
+      heading: 'Why the model fails',
+      paragraphs: [
+        `The heap mental model hides the cost of secondary lookups. If a query uses an index on email and needs the whole row, InnoDB first searches the email index, obtains the primary key, and then searches the clustered index. That is two B+ tree walks unless the secondary index covers the query.`,
+        `The model also hides how primary-key choice spreads through the system. A wide natural key is copied into every secondary index entry. A random key changes insert locality and page split behavior. A missing explicit primary key gives InnoDB less application guidance and can leave the table organized by a key the schema designer did not really choose.`,
+      ],
+    },
+    {
+      heading: 'The core mechanism',
+      paragraphs: [
+        `InnoDB stores table records in clustered index leaf pages. Internal pages guide the search by key ranges. Leaf pages contain ordered records, row payload columns, and transaction metadata such as MVCC information needed for consistent reads. The structure is usually described as a B+ tree because records live in leaves and leaves are linked for ordered scans.`,
+        `A primary-key lookup is therefore direct in storage-engine terms. The engine walks from root to internal page to leaf page and finds the row there. A range scan over the primary key can continue through neighboring leaf pages in order. This is why clustering key locality matters: rows close in primary-key order can be close in page order.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `Clustered storage collapses row storage and primary-key indexing into one structure. The primary-key leaf is not a pointer to the row; it is where the row is stored. Secondary indexes are separate B+ trees whose leaves contain secondary key columns and the clustered primary key needed to find the row.`,
+        `That single fact explains many InnoDB performance surprises. A direct lookup by primary key is one tree walk. A non-covering secondary lookup is a secondary-tree walk followed by a clustered-tree walk. A secondary range scan that matches many rows may cause many scattered clustered lookups. A covering secondary index can avoid that second walk because the needed columns are already in the secondary leaf.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The clustered index works because it makes the primary-key order and the physical row layout the same structure. A primary-key lookup does not first find a pointer and then chase a separate heap tuple. The B+ tree descent lands at the leaf page that contains the row itself, so the search path is also the row access path.',
+        'Secondary indexes work because their leaves store the indexed key plus the primary key. That keeps each secondary index independent of physical page addresses that can change during splits, movement, or maintenance. The cost is the second lookup: a secondary index often finds the primary key first, then follows it through the clustered index to the full row.',
+      ],
+    },
+    {
+      heading: 'What the views show',
+      paragraphs: [
+        `The clustered-lookup view follows a query such as WHERE id = 42. The search descends the primary-key tree and ends at a leaf page containing the row payload. The buffer pool matters because each page on that path may already be cached or may require I/O.`,
+        `The secondary-lookup view follows a query such as WHERE email = 'm@example.com'. The secondary index finds email -> id 42. If the query asks for columns not stored in the secondary index, the engine uses id 42 to descend the clustered tree. The extra hop is the main cost model this case study is trying to make visible.`,
+      ],
+    },
+    {
+      heading: 'Primary key design',
+      paragraphs: [
+        `A good InnoDB primary key is usually narrow, stable, and chosen with access patterns in mind. Narrow matters because the primary key is stored in secondary index leaves. Stable matters because changing a primary key means moving the row in the clustered tree and updating secondary references. Access pattern matters because primary-key order drives physical locality.`,
+        `Sequential integer keys are append-friendly, though they can create a hot right edge under high write concurrency. Random UUIDs spread inserts across the tree, which can increase page splits, cache churn, and write amplification. Wide natural keys can be useful for business meaning but expensive when copied into every secondary index. There is no universal key, but there is always a storage consequence.`,
+      ],
+    },
+    {
+      heading: 'Secondary indexes',
+      paragraphs: [
+        `A secondary index in InnoDB is still a B+ tree, but its leaf payload is different from the clustered tree. The leaf stores the indexed columns and the primary key. This design avoids storing physical row addresses that would become unstable as pages split and rows move.`,
+        `The cost is indirection. If the secondary index does not cover the query, the primary key from the secondary leaf becomes a lookup key into the clustered tree. This is why a secondary index can be excellent for filtering and still expensive for fetching. The index narrows the candidate set, but row retrieval may dominate if many candidates are scattered across clustered pages.`,
+      ],
+    },
+    {
+      heading: 'Covering indexes',
+      paragraphs: [
+        `A covering index is a secondary index that contains every column needed by a query. In MySQL EXPLAIN output, this often appears as Using index. The storage-engine win is direct: if the answer can be produced from the secondary leaf, InnoDB does not need to perform the clustered lookup.`,
+        `Covering should be used deliberately. Adding every column to an index makes writes heavier and consumes memory. The right target is a hot query with a narrow projection, a selective predicate, and a stable access pattern. A covering index for email and status can be excellent for an authentication or account-state check; a huge covering index for an occasional dashboard may not be worth the write cost.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Consider a user table with primary key id and a secondary index on email. GET /users/42 is a clustered lookup. The engine walks the primary-key tree and lands on the leaf record for id 42. If the needed pages are in the buffer pool, this is mostly CPU and latch work. If they are not cached, page reads dominate.`,
+        `GET /users?email=m@example.com is different. The email index returns id 42. If the endpoint needs the full profile, InnoDB then walks the clustered tree to fetch the row. If the endpoint only needs email and status, an index on email, status can cover the query and avoid the second walk. A small API change can therefore change the storage path from one tree walk to two tree walks or back to one covering read.`,
+      ],
+    },
+    {
+      heading: 'Write-path consequences',
+      paragraphs: [
+        `Clustered indexes affect writes because inserting a row means placing it into primary-key order. Append-like keys tend to touch a small moving area of the tree. Random keys touch many pages. Page splits, redo logging, undo records, change buffering for some secondary index work, and buffer-pool pressure all depend on how keys arrive.`,
+        `Secondary indexes also pay for every insert, delete, and relevant update. Because each secondary entry contains the primary key, changing a primary key is especially expensive. It is usually better to keep the clustered key stable and use separate public identifiers when API design requires non-sequential or opaque IDs.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Use EXPLAIN and runtime counters to check the model. The clustered-index theory predicts possible costs, but the optimizer chooses plans based on statistics, selectivity, and available indexes. Look for whether a query is using the primary key, a secondary index, a covering index, or a secondary range scan with many row fetches.`,
+        `Watch index size, buffer-pool hit rate, page split behavior, rows examined, and query latency under real data distribution. A schema that works on a small development table can change shape when secondary indexes no longer fit in memory or when a range scan fetches thousands of scattered clustered records.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The most common failure is choosing a primary key without understanding that it is the table layout. Very wide natural keys enlarge every secondary index. Random clustered keys can make writes and caching worse. Mutable keys force row movement. Missing primary keys give InnoDB less explicit guidance.`,
+        `Query-level failures include assuming every index lookup is one hop, ignoring covering opportunities for hot paths, adding too many overlapping indexes, and reading EXPLAIN too casually. A secondary index can make a predicate fast while still leaving row retrieval expensive. The question is not only which index filters the rows, but whether the query can finish at that index.`,
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        `Clustered indexing matters most in OLTP systems with frequent primary-key lookups, secondary lookups, range scans, and write-heavy workloads. It shapes user tables, order tables, event ledgers, job queues, financial records, and any system where page locality and index size control latency.`,
+        `It is also a useful comparison point across storage engines. PostgreSQL heap tables, LSM-tree engines, column stores, and document stores make different tradeoffs about row location, secondary references, and write amplification. InnoDB's clustered index is one concrete answer to the general question: where does the row live?`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Sources: MySQL InnoDB clustered and secondary index documentation at https://dev.mysql.com/doc/refman/8.0/en/innodb-index-types.html and InnoDB physical index structure at https://dev.mysql.com/doc/refman/8.0/en/innodb-physical-structure.html.`,
+        `Study B-Trees, B+ Tree Leaf Sibling Scan Case Study, Database Indexing, PostgreSQL Buffer Pool Clock Sweep, Write-Ahead Log, MVCC & Vacuum, LSM Tree, RocksDB LSM Case Study, and MySQL InnoDB Change Buffer next. The useful comparison question is always the same: what does the index leaf store, and how does the engine reach the row?`,
+      ],
+    },
   ],
 };

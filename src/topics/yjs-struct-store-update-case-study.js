@@ -57,7 +57,7 @@ function* structStore() {
   yield {
     state: yjsGraph('Yjs represents shared types through list items'),
     highlight: { active: ['type', 'itemA', 'itemB', 'e-type-a', 'e-type-b'], found: ['store'] },
-    explanation: 'Yjs exposes friendly shared types such as Y.Text, Y.Array, and Y.Map. Internally, the shared document is organized around list-like Item structs with stable client-clock identities.',
+    explanation: 'The public API is friendly, but the merge machinery works on structs. Y.Text, Y.Array, and Y.Map changes become Item-like records with stable client-clock identities that can be ordered and synced.',
     invariant: 'The public type is convenient; the merge algorithm works on stable structs.',
   };
 
@@ -82,13 +82,13 @@ function* structStore() {
       ],
     ),
     highlight: { found: ['actor:why', 'clock:why'], active: ['origin:meaning', 'right:meaning'] },
-    explanation: 'A Yjs struct is named by client id plus clock. Origins connect it into the sequence. The internals note calls out originRight as an optimization for heavy concurrent inserts at the same position.',
+    explanation: 'Client id plus clock is the stable address. Origins tie an item to nearby sequence context, while originRight helps disambiguate dense concurrent inserts at the same place. The fields exist so order can be recovered later.',
   };
 
   yield {
     state: yjsGraph('The struct store groups structs by client clock ranges', { store: 'ranges', sv: 'next clock', update: 'diff' }),
     highlight: { active: ['itemA', 'itemB', 'store', 'sv', 'e-a-store', 'e-b-store', 'e-store-sv'], found: ['update'] },
-    explanation: 'A state vector summarizes the next expected clock for each client. If a peer says it has A up to clock 12, the local document can encode only structs after that point.',
+    explanation: 'The state vector is the missing-work summary. If a peer has client A through clock 12, the sender can encode only structs after that range instead of replaying the whole document.',
   };
 
   yield {
@@ -112,7 +112,7 @@ function* structStore() {
       ],
     ),
     highlight: { active: ['delete:record', 'render:effect'], compare: ['gc:record'] },
-    explanation: 'Deletes are not ordinary string splices. The delete set records deleted clock ranges so the document can hide content while preserving enough structure for remote updates and sync.',
+    explanation: 'Deletes hide content, but they also create sync metadata. The delete set records clock ranges so peers can converge on what is invisible while still retaining anchors needed by remote updates.',
   };
 
   yield {
@@ -136,7 +136,7 @@ function* structStore() {
       ],
     ),
     highlight: { found: ['structs:job', 'updates:job'], compare: ['provider:job'] },
-    explanation: 'The important separation is API, CRDT structs, binary updates, and provider transport. Provider code should move updates; it should not redefine convergence.',
+    explanation: 'This map keeps the Yjs layers separate. Shared types are the API, structs are the CRDT state, updates are the storage/wire unit, and providers are transport. Mixing those responsibilities makes debugging much harder.',
   };
 }
 
@@ -144,7 +144,7 @@ function* updateSync() {
   yield {
     state: yjsGraph('Document updates are binary CRDT deltas', { update: 'binary', peer: 'merge' }),
     highlight: { active: ['store', 'sv', 'del', 'update', 'e-sv-update', 'e-del-update'], found: ['peer'] },
-    explanation: 'Yjs encodes document changes into compact Uint8Array updates. The docs state that updates are commutative, associative, and idempotent: apply them in any order, even repeatedly, and replicas still converge once they have all updates.',
+    explanation: 'A Yjs update is a compact binary CRDT packet. The important contract is commutative, associative, and idempotent application: once all needed updates arrive, replicas converge even if delivery was reordered or duplicated.',
     invariant: 'The update is a mergeable data packet, not a command that must run once in a single global order.',
   };
 
@@ -175,7 +175,7 @@ function* updateSync() {
   yield {
     state: yjsGraph('Updates can be merged without loading a Y.Doc', { store: 'encoded', sv: 'from update', update: 'merge', peer: 'later' }),
     highlight: { active: ['store', 'sv', 'update', 'e-store-sv', 'e-sv-update'], compare: ['type'] },
-    explanation: 'The README documents update-level APIs such as mergeUpdates, encodeStateVectorFromUpdate, and diffUpdate. That lets storage servers compact or diff update blobs without materializing the editor state.',
+    explanation: 'These update-level APIs let storage infrastructure do useful work without loading a Y.Doc. A server can merge update blobs, compute a state vector from them, and produce missing bytes for a peer.',
   };
 
   yield {
@@ -223,7 +223,7 @@ function* updateSync() {
       ],
     ),
     highlight: { active: ['history:control', 'auth:control'], compare: ['delete:risk'] },
-    explanation: 'A Yjs update log is not a permission system or retention policy. Production systems still need document-level access control, storage compaction, room lifecycle rules, and a plan for update-format compatibility.',
+    explanation: 'The pitfall table is the production boundary. A valid update can still be unauthorized, retained too long, compacted too early, or encoded in a format your clients do not all support.',
   };
 }
 
@@ -237,43 +237,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Yjs is a CRDT implementation for collaborative software. Its public API exposes shared types such as Y.Text, Y.Array, and Y.Map. Internally, those shared types are backed by CRDT structs, client ids, clocks, delete sets, state vectors, and binary updates.',
-        'This page is about the implementation shape rather than the product API. The important lesson is that collaborative editing becomes tractable when every inserted unit has stable identity and every sync message can be applied in any delivery order without breaking convergence.',
+        'Yjs exists to make collaborative local-first data structures practical in real applications. A user can type into a shared text document, go offline, reconnect, receive remote edits, and converge without one central server deciding a single global order for every operation.',
+        'The reason it is worth studying is that Yjs connects CRDT theory to production machinery: shared types for application code, stable structs for merge logic, compact binary updates for transport and storage, and provider boundaries for WebSocket, WebRTC, IndexedDB, or custom sync.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'Yjs internals describe the system as a list CRDT. Arrays, text, and map entries are represented through list-like Items. Each client receives a unique client id, and structs are addressed by client id plus clock. Text can group several characters in one Item for efficiency, and maps use entries where the latest inserted entry for a key wins while older duplicates are marked deleted.',
-        'Document updates are compact binary Uint8Array values. Yjs documents say updates are commutative, associative, and idempotent. State vectors summarize the next expected clock for each client, letting a peer encode only missing differences. Delete sets record deleted ranges so rendering can hide content while sync still has the causal anchors it needs.',
+        'The obvious sync shortcut is to send the whole document after each change. That is simple, but it wastes bandwidth, makes offline merge hard, and gives storage servers too much responsibility. Another shortcut is to invent an app-specific patch format. That often works until concurrent edits, duplicate delivery, and reconnect gaps appear.',
+        'Collaborative editing needs updates that survive retries, reordering, partial delivery, and storage compaction. A patch that means insert this character at current index five is fragile because current index five can change on another replica. Yjs uses identities and struct relationships instead of trusting transient positions.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The cost is metadata. Client clocks, origins, delete ranges, and shared-type structure have to exist so peers can merge without a central order. Yjs reduces overhead through binary updates, struct grouping, state-vector diffs, update merging, and provider-agnostic transport.',
-        'The operational cost is lifecycle management. Providers need to persist and relay updates, compact history safely, gate access, and handle update-format choices such as V1 versus V2. A provider that drops needed history or applies permissions after merging untrusted updates can still create product-level failures even if the CRDT algorithm is correct.',
+        'The core insight is that the friendly shared type is not the merge unit. Y.Text, Y.Array, and Y.Map are developer-facing APIs. Under them, Yjs stores structs with stable client-clock identities, origins, delete metadata, and enough ordering information to merge remote work later.',
+        'The durable unit of sync is a binary update. An update is not a command that must run once in a single order. It is CRDT state encoded as bytes. Correctly applied updates are designed to be commutative, associative, and idempotent, so replicas can converge after different delivery paths.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Struct identity',
       paragraphs: [
-        'A browser user types into a Y.Text document. Yjs creates Item structs owned by that client id and clock range, updates the shared type, and emits a binary update. A WebSocket provider sends that update to peers and persists it. A peer applies the update, merges the new structs into its store, updates its state vector, and renders the same text. If the peer already saw the update, applying it again is harmless.',
-        'Later, the server wants to reduce storage overhead. It can merge multiple updates into one compact update and compute state vectors from stored update blobs. That means the server can act like a durable relay for CRDT data without understanding the editor DOM or replaying every keystroke into an application-specific model.',
+        'Every Yjs client has an id, and each local insertion advances a clock. Together, client id plus clock range form a stable address for inserted content. That address is much safer than an array index because it does not change just because another user inserted text earlier in the document.',
+        'Origins connect a new item to neighboring sequence context. In a text CRDT, concurrent inserts can target the same visible position. The merge algorithm needs stable anchors and tie-breaking information so replicas can place items consistently even when they hear about edits in different orders.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Struct store and state vectors',
       paragraphs: [
-        'Yjs convergence does not mean authorization, audit, or retention are solved. A malicious update can still be a valid CRDT update. Access control must happen at the document or room boundary. Deleting visible content also does not necessarily delete all causal history immediately; offline peers and future merges may require retained metadata.',
+        'The struct store groups known structs by client and clock ranges. That organization makes it possible to summarize what a replica has without listing the whole document. A state vector says, for each client, the next clock the replica expects. It is a compact missing-work summary.',
+        'When peer A sends its state vector to peer B, B can encode only the structs A is missing. That is the incremental-sync boundary. The system does not need to replay the entire document on every reconnect if both sides can describe their known clock ranges.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Deletes and retention',
       paragraphs: [
-        'Primary sources: Yjs repository at https://github.com/yjs/yjs, Yjs internals at https://github.com/yjs/yjs/blob/main/INTERNALS.md, Yjs internals docs at https://docs.yjs.dev/api/internals, Yjs document updates at https://docs.yjs.dev/api/document-updates, and Yjs README update API at https://github.com/yjs/yjs/blob/main/README.md. Study Sequence CRDTs for Collaborative Text, Local-First Sync Engine Case Study, Delta-State CRDT Anti-Entropy Case Study, Collaborative Awareness Presence CRDT, Collaborative Undo/Redo Intention Stack, and Automerge Change Graph & Columnar Storage next.',
+        'Deletion in Yjs is not the same as pretending an item never existed. A delete set records clock ranges that are no longer visible. Rendering can skip deleted content, but sync still needs enough metadata to understand future updates that refer to old anchors.',
+        'This is one of the hard production tradeoffs in CRDT systems. Keeping history forever grows storage. Garbage collecting too early can break peers that still need old structure to merge. Yjs gives mechanisms, but application infrastructure still needs a retention and compaction plan.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The struct-store view follows the hidden path behind a friendly editor operation: shared type to item structs, item structs to the store, store to state vector and delete set, and those summaries into an update. The point is that the merge state is more structured than visible text.',
+        'The update-sync view shows the provider boundary. Providers can persist, relay, batch, merge, and rebroadcast updates, but they should not replace the CRDT rules with their own ordering semantics. The update format and struct store carry the convergence contract.',
+      ],
+    },
+    {
+      heading: 'Why it converges',
+      paragraphs: [
+        'Yjs convergence depends on stable identities and mergeable update application. If two replicas eventually receive the same set of relevant updates, duplicate delivery should not create duplicate content, and different delivery order should not produce different final documents.',
+        'That property is what lets Yjs work across unreliable networks and mixed providers. A WebSocket server, an IndexedDB cache, and a peer-to-peer channel can all move the same update bytes. They do not need to understand every application-level edit, but they must preserve the update data needed for peers to catch up.',
+        'State vectors make catch-up precise. A reconnecting peer can ask for only the client-clock ranges it lacks. A server that stores merged updates or snapshots can answer that request without replaying every keystroke through an editor model. The CRDT layer defines what missing means.',
+        'That precision is what keeps sync incremental instead of repeatedly becoming full-document transfer.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost is metadata and lifecycle complexity. Client ids, clocks, origins, delete ranges, state vectors, update blobs, snapshots, awareness messages, and provider protocol details all exist because concurrent local editing is harder than last-write-wins storage.',
+        'Binary updates keep the overhead manageable, but not free. Large documents need compaction strategies. Long-lived rooms need storage policies. Multi-version clients need an update-format plan. Offline peers need a path back to consistency without forcing every server to hold infinite history.',
+        'There is a latency tradeoff too. Local edits can apply immediately, which gives the user a fast editor, but remote peers still need update delivery and awareness messages. Providers decide how quickly to broadcast, persist, batch, and retry, so operational behavior depends on the transport even when convergence belongs to Yjs.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Yjs wins in collaborative editors, shared whiteboards, local-first note tools, multiplayer interface state, design tools, and apps that need offline edits to merge later. The same document model can move over different providers because the important unit is the update, not a transport-specific command.',
+        'It is also strong when the server should be simpler than the collaboration logic. A provider can authenticate a room, persist update bytes, answer state-vector diffs, and broadcast messages. It does not have to be the single authority that rewrites every document operation into one total order.',
+        'That separation lets teams change transports without rewriting the document model. A prototype can start with IndexedDB and WebSocket, then add peer-to-peer or server snapshots while keeping update semantics stable.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Yjs convergence does not solve authorization. A structurally valid update can still be malicious or sent by the wrong user. Access control must happen before updates enter a document room, and applications may need audit logs or moderation rules above the CRDT layer.',
+        'Other failures come from deleting history too aggressively, mixing incompatible update formats, trusting provider delivery order, failing to snapshot large histories, or confusing awareness presence with durable document state. Presence can be ephemeral. Document updates are the durable merge input.',
+        'A provider can also fail by becoming too clever. If it rewrites updates as custom operations, assumes one delivery order, drops old ranges that offline clients still need, or treats snapshots as proof of authorization, it has moved outside the Yjs contract. Keep transport logic boring and explicit.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: the Yjs repository at https://github.com/yjs/yjs, Yjs INTERNALS at https://github.com/yjs/yjs/blob/main/INTERNALS.md, the internals docs at https://docs.yjs.dev/api/internals, and document updates at https://docs.yjs.dev/api/document-updates.',
+        'Study Sequence CRDTs for Collaborative Text, Delta-State CRDT Anti-Entropy Case Study, Local-First Sync Engine Case Study, Collaborative Awareness Presence CRDT, Collaborative Undo/Redo Intention Stack, and Automerge Change Graph and Columnar Storage next.',
       ],
     },
   ],

@@ -184,35 +184,107 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A depth buffer, or z-buffer, is a per-pixel texture that stores visibility depth. During rasterization, each fragment compares its depth against the stored value. If it passes, the fragment can write color and update depth. If it fails, the fragment is hidden by something closer.',
-        'The structure is just a 2D array, but it changes the rendering problem. Opaque surfaces no longer need perfect painter-order sorting. The fixed-function depth test lets the GPU resolve most hidden-surface visibility while drawing triangles.',
+        'A renderer must decide which surface is visible at each pixel. In a 3D scene, triangles overlap constantly, and the order in which the CPU submits triangles is rarely the same as the visible order on screen.',
+        'The depth buffer is the per-pixel data structure that makes this local. Instead of globally sorting every triangle, the GPU lets each fragment compete against the current stored depth at its pixel.',
+        'That turns hidden-surface removal into a simple repeated rule: if the candidate fragment is closer than the value already stored, it can become visible; otherwise it is hidden.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is painter order: draw far objects first and near objects later. That works for simple 2D layers and some sorted transparency cases.',
+        'The wall is geometry. Triangles can intersect. One mesh can be partly in front and partly behind another. Sorting whole objects cannot answer visibility for each pixel. Even sorting triangles is expensive and still awkward for intersections.',
+        'The z-test lets the GPU answer visibility where it actually matters: at the sample being written.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A depth buffer is a per-pixel table of the nearest accepted depth so far. Every fragment carries a candidate depth. The z-test compares the candidate against the stored value and accepts only the fragment that satisfies the configured comparison.',
+        'The invariant for ordinary opaque rendering is simple: after processing fragments, each pixel stores the closest visible opaque surface seen so far.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the z-test view, follow the fragment into the compare node. The fragment carries a screen coordinate and depth. The depth attachment stores the best depth accepted so far for that coordinate. The comparison decides whether the fragment writes color, updates depth, or gets rejected.',
+        'In the precision-and-order view, separate opaque rendering from transparency. Opaque fragments can usually rely on depth to produce the nearest surface. Transparent fragments are different because blending depends on color order, not only nearest depth.',
+        'The important engineering lesson is that the depth buffer solves opaque visibility, not every visual layering problem.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A render pipeline configures a depth/stencil format, depth compare operation, and depth-write behavior. A render pass attaches a depth texture. Each generated fragment carries a depth value, and the GPU compares it with the attachment value at the same sample location.',
-        'The Vulkan specification describes the depth test as comparing the depth value in the depth/stencil attachment with the sample depth value for a fragment: https://docs.vulkan.org/spec/latest/chapters/fragops.html#fragops-depth. WebGPU exposes the same idea through GPUDepthStencilState and depthStencilAttachment: https://www.w3.org/TR/webgpu/.',
+        'A render pipeline configures a depth/stencil format, a depth compare operation, and whether passing fragments write depth. A render pass attaches a depth texture. Rasterization generates fragments, each with a depth value in the chosen convention.',
+        'The GPU compares the fragment depth with the stored depth at the same sample. If the comparison passes, the fragment may write color and update depth. If it fails, it is hidden by a previously accepted fragment.',
+        'Compare modes depend on projection convention. Normal depth often uses less or less-equal. Reversed-Z pipelines commonly use greater with floating-point depth to improve precision distribution.',
       ],
     },
     {
-      heading: 'Complete case study: first-person scene',
+      heading: 'Why it works',
       paragraphs: [
-        'A first-person renderer draws walls, props, and characters. The depth buffer starts cleared. As opaque triangles rasterize, nearer fragments win and write depth. Hidden fragments behind walls fail the z-test. Later post-processing can also sample the depth texture for effects such as SSAO, fog, edge outlines, and depth of field.',
-        'If the scene has glass or particles, those usually render after opaque geometry. They can test against depth to avoid drawing behind walls, but normal alpha blending still needs ordering or a specialized transparency method.',
+        'For opaque surfaces, visibility is local per pixel. The fragment with the nearest depth wins regardless of object submission order, as long as the depth convention, compare mode, and write settings are correct.',
+        'This is why opaque geometry can often render in many orders and still produce the same final surface. Order still affects performance: front-to-back rendering and early depth rejection can skip expensive fragment shading.',
+        'The invariant is per-pixel: after processing a set of opaque fragments, the depth buffer stores the nearest accepted depth and the color buffer stores the corresponding visible surface.',
+        'The reason this scales is that pixels are independent for opaque visibility. The renderer does not need one global sorted list; each sample keeps its own current winner.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Depth is not linear in many projection conventions. A very small near plane and very large far plane waste precision and can cause z-fighting. Reversed-Z with floating-point depth is a common precision-improvement strategy in modern engines.',
-        'The depth buffer also does not make transparency order independent. Opaque visibility and alpha compositing are different problems. For alpha, sort, use alpha test/cutout where possible, or use an order-independent transparency technique.',
+        'A wall fragment at depth 0.3 writes first. A crate behind it at depth 0.6 reaches the same pixel later. With a less-than depth test, 0.6 fails because 0.3 is already closer, so the hidden crate fragment does not change the frame.',
+        'If the crate draws first, it writes 0.6. The wall at 0.3 then passes and replaces it. The final opaque result is the same. The performance may differ, because drawing the wall first can let the GPU reject the crate before running costly shading.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost is a depth attachment, depth bandwidth, precision management, and pipeline constraints. Early-z can save fragment shader work, but shaders that discard, write depth, or use certain side effects can reduce early rejection opportunities.',
+        'Precision is not uniform in many projection conventions. A very small near plane and very large far plane waste precision and can cause z-fighting. Reversed-Z with floating-point depth is a common modern fix.',
+        'A depth prepass is another tradeoff. It draws geometry once to fill depth, then draws again for color so expensive shading can be rejected early. It helps when overdraw and shading cost are high; it hurts when the extra geometry pass costs more than it saves.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Choose the projection and compare mode together. A normal depth convention with smaller values nearer uses less or less-equal. A reversed-Z convention usually clears depth to 0 and uses greater or greater-equal with floating-point depth. Mixing those settings produces scenes that render inside out or fail every depth test.',
+        'Set near and far planes from the actual scene, not from fear. Pulling the near plane extremely close wastes precision across the rest of the range. If the application has huge worlds, use reversed-Z, camera-relative rendering, cascades, or partitioned passes instead of one careless depth range.',
+        'Decide which passes write depth. Opaque depth writes are normal. Transparent objects often test against depth but avoid writing it, or they use specialized methods. Decals may need polygon offset, depth bias, or a separate pass to avoid fighting the surface they sit on.',
+      ],
+    },
+    {
+      heading: 'Debugging symptoms',
+      paragraphs: [
+        'If objects flicker where surfaces overlap, suspect z-fighting or poor depth precision. If everything disappears, check clear value, compare function, depth write enable, projection convention, and whether the depth attachment is actually bound. If transparent objects look wrong, check sorting and blend order before blaming the z-test.',
+        'Depth visualization is one of the fastest debugging tools. Rendering depth as grayscale or linearized depth can reveal a bad near plane, reversed convention mismatch, or a pass that failed to write depth at all.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'The z-test wins for opaque 3D scenes: walls, terrain, props, characters, CAD solids, and any workload where nearest-surface visibility dominates.',
+        'Depth textures also become inputs to SSAO, fog, depth of field, edge outlines, decals, shadow techniques, and post-processing passes.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Depth buffering does not make transparency order independent. Alpha blending accumulates colors, so transparent objects usually render after opaque objects, often sorted or handled with order-independent transparency.',
+        'Coplanar surfaces, decals, shadow bias, and extreme depth ranges require care. The buffer answers "which depth wins," not "which visual layering did the artist intend."',
+        'It also does not solve visibility for all rendering techniques. Particles, hair, glass, volumetrics, and order-dependent blending need extra algorithms or approximations.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        'A first-person renderer draws walls, props, and characters. The depth buffer starts cleared. As opaque triangles rasterize, nearer fragments win and write depth. Hidden fragments behind walls fail the z-test. Later post-processing samples the depth texture for SSAO, fog, outlines, and depth of field.',
+        'If the scene has glass or particles, those render after opaque geometry. They can test against depth to avoid drawing behind walls, but normal alpha blending still needs ordering or a specialized transparency method.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: WebGPU specification at https://www.w3.org/TR/webgpu/, Vulkan fragment operations and depth test at https://docs.vulkan.org/spec/latest/chapters/fragops.html#fragops-depth, and WGSL fragment shader built-ins including position and frag_depth at https://www.w3.org/TR/WGSL/#builtin-values.',
         'Study WebGPU Buffer & Bind Group Case Study, Texture Atlas & Mipmaps, Render Graph Framegraph Resource Lifetimes, Bounding Volume Hierarchy, Scene Graph Transform Hierarchy, and Dirty Rectangle Damage Tracking next.',

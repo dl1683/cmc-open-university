@@ -196,11 +196,95 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: ['A geofence system decides whether a moving point is inside a polygonal zone and emits enter or exit events. It combines spatial indexing, exact geometry predicates, boundary policy, GPS-noise controls, and event state.'] },
-    { heading: 'How it works', paragraphs: ['Use an R-tree, GiST, or cell index to find candidate polygons by bounding box. Run exact point-in-polygon only on candidates. Then compare the new inside/outside state with the previous state to emit a deduplicated event.'] },
-    { heading: 'Case study', paragraphs: ['A delivery app checks whether a driver entered a pickup zone. The location point hits two candidate bounding boxes. Exact polygon logic says one is inside and one is outside. The state machine emits enter only if the previous state for that fence was outside.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not turn a bounding-box hit into an event. Do not ignore boundary semantics. Do not use invalid polygons. Do not let GPS flapping emit repeated enter/exit events around a border.'] },
-    { heading: 'Why it matters', paragraphs: ['Geofencing looks like a geometry predicate, but production behavior is mostly data structures: spatial indexes, candidate sets, ordered sample state, policy versions, and replayable audit logs.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: PostGIS ST_Contains at https://postgis.net/docs/ST_Contains.html, PostGIS spatial indexing workshop at https://postgis.net/workshops/postgis-intro/indexing.html, and Turf booleanPointInPolygon at https://turfjs.org/docs/api/booleanPointInPolygon. Study R-tree, PostGIS GiST Spatial Index, HMM Map Matching, and Finite State Machine next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        `A geofence system turns noisy position samples into operational decisions. A delivery van entered the depot. A courier left the paid service zone. A forklift crossed a safety boundary. A phone spent enough time inside a store to count as a visit. The product wants one clear event, but the input is a stream of latitude-longitude points and a changing catalog of polygons.`,
+        `This topic exists because the simple geometry question is not the full system question. Point-in-polygon tells you whether one point is inside one shape. A production geofence system must answer that question quickly for many devices and many fences, then turn repeated classifications into audited enter and exit events. The visual separates those responsibilities so scale and semantics do not get mixed together.`,
+      ],
+    },
+    {
+      heading: 'The obvious solution',
+      paragraphs: [
+        `The obvious approach is brute force: for every GPS sample, test the point against every polygon. That is fine for a demo with ten fences. It is also attractive because it seems honest. There is no approximate index, no caching, and no extra data structure to maintain. Every possible fence gets an exact answer.`,
+        `The approach fails as soon as either side grows. Ten thousand devices reporting every few seconds against thousands of fences becomes millions of polygon checks per minute. Worse, raw containment still does not decide the product behavior. A point on a border may be inside for a retail visit but outside for a legal boundary. A polygon may have holes. A GPS sample may arrive late. A repeated inside result is not another enter event. Brute force solves only the smallest part of the problem.`,
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        `The core idea is a two-stage decision. First, use a spatial index to find a safe superset of fences that might contain the point. Second, run exact point-in-polygon only on that candidate set. The index is allowed to return extra work. It is not allowed to hide a fence that could contain the point.`,
+        `This split is the same reason database systems use spatial indexes for predicates such as contains and intersects. Bounding boxes, R-trees, GiST indexes, S2 cells, H3 cells, and geohash grids are fast because they reason about coarse covering shapes. Exact geometry is slower because it reasons about rings, vertices, holes, and boundary rules. The safe pattern is maybe first, exact answer second, event transition third.`,
+      ],
+    },
+    {
+      heading: 'Data model',
+      paragraphs: [
+        `A fence record should contain more than a polygon. It needs a stable fence id, tenant or owner, active time window if one exists, normalized geometry, bounding box, geometry version, coordinate reference system, and boundary policy. If the fence came from user input, the record should also store validation results so bad geometry is not silently accepted.`,
+        `A device-fence state record is separate. It stores the previous classification, last accepted sample time or sequence, last event emitted, and sometimes the confidence or GPS accuracy that supported the decision. This state is what turns geometry into a stream system. Without it, every inside point looks like a new arrival and replaying late samples can change history.`,
+      ],
+    },
+    {
+      heading: 'Index and candidates',
+      paragraphs: [
+        `At ingestion time, the system validates each fence and builds a lookup structure. An R-tree groups bounding boxes so a point query visits only nearby tree branches. A cell index stores which fences cover each coarse geospatial cell. A database index such as PostGIS GiST uses bounding boxes to narrow the search before exact predicates run.`,
+        `The candidate table in the visual is the important contract. Fence A and fence B have bounding-box hits, so they move to exact point-in-polygon. Fence C and fence D miss the coarse filter, so they are skipped. A hit is not a membership event. It is only permission to spend more CPU on the exact check.`,
+      ],
+    },
+    {
+      heading: 'Exact geometry',
+      paragraphs: [
+        `The exact check must implement the real geometry rules, not a sketch of them. A polygon can have an exterior ring and interior rings. A multipolygon can contain several disconnected areas. A warehouse fence may exclude a public road through a hole. A point can lie exactly on an edge or vertex. Invalid rings may self-intersect.`,
+        `The boundary policy belongs here. Some products want covers semantics, where boundary points count as inside. Others want strict contains semantics, where only the interior counts. Neither answer is universally correct. The policy must be attached to the fence or query and recorded with the event so a later audit can reproduce the decision.`,
+      ],
+    },
+    {
+      heading: 'Event state',
+      paragraphs: [
+        `A point-in-polygon result is a classification, not an event. Events come from transitions. If the previous state was outside and the new state is inside, emit enter. If the previous state was inside and the new state is outside, emit exit. If the state did not change, update bookkeeping and stay quiet.`,
+        `This layer must handle ordering and idempotence. Mobile samples can arrive late, repeat after retry, or appear with coarse accuracy. The state machine should reject old sequence numbers, dedupe repeated samples, and make retry safe. A geofence dispute is usually a replay problem: what did the system know, which geometry version did it use, and why did it emit that transition?`,
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        `The candidate-filter view proves that the index and the exact predicate have different jobs. The index makes the search small by returning possible fences. The exact predicate makes the answer true by rejecting false positives. The event node appears only after state changes, because geometry alone does not know whether this sample is the first inside sample or the hundredth.`,
+        `The boundary-policy view proves that many hard cases sit after the index. Holes, boundary points, invalid geometry, GPS accuracy, dwell time, and hysteresis cannot be decided by a bounding box. They are policy and state decisions wrapped around exact geometry. If those decisions are implicit, two teams can run the same polygon and produce different business events.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The algorithm is correct when the candidate stage has no false negatives and the exact stage implements the promised geometry semantics. Returning extra candidates only costs time. Dropping a possible fence breaks correctness because the exact predicate never gets a chance to recover it.`,
+        `The stream layer is correct when transitions are computed over an ordered state per device and fence. That is why replay metadata matters. If the system can reconstruct the candidate set, geometry version, boundary rule, sample timestamp, previous state, and exact result, it can explain why an enter or exit was emitted and avoid creating a different answer during retry.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `Index lookup cost is usually small compared with scanning every fence, but it is not free. Dense downtown regions, many overlapping polygons, and large administrative boundaries can return many candidates. Exact cost then depends on candidate count, vertex count, and predicate implementation. Simplifying geometry can help, but over-simplification can move borders and change events.`,
+        `Updates also cost something. Stable fences are easy to index. Frequently edited fences require versioning, incremental index updates, or batch rebuilds. GPS noise adds a product tradeoff: hysteresis, dwell-time gates, accuracy filters, and map matching reduce border flapping, but they can delay real events or suppress short visits.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `This structure wins when many moving points are checked against a relatively stable set of polygons. Delivery zones, pickup areas, campus boundaries, industrial safety regions, toll regions, store visits, fleet alerts, and IoT asset tracking all fit the pattern. The more fences and samples you have, the more valuable the candidate filter becomes.`,
+        `It also wins when events need evidence. A system that records only enter and exit strings cannot answer disputes. A system that records sample id, device id, fence id, geometry version, boundary policy, candidate method, exact predicate, previous state, and emitted transition can replay the decision. That audit trail is part of the design, not paperwork added later.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The dangerous shortcut is treating a bounding-box hit as inside. Another is leaving boundary behavior implicit. Invalid polygons, mixed coordinate systems, antimeridian-crossing shapes, polar regions, stale fence versions, and indoor GPS drift can all produce surprising results. So can planar predicates run on latitude-longitude data without understanding projection error.`,
+        `Stream failures are just as common. Out-of-order samples can create impossible enter and exit sequences. Devices that report too rarely can miss short visits. Retry without idempotence can duplicate events. A full implementation protects both geometry correctness and event correctness, because users experience the event, not the predicate.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study next: R-tree Spatial Indexing for candidate search, Point-in-Polygon Predicates for exact geometry, Finite State Machines for enter and exit transitions, Stream Deduplication for retry safety, Coordinate Reference Systems for projection risk, HMM Map Matching Viterbi for noisy GPS traces, and PostGIS Spatial Indexes for a production database implementation of the same two-stage idea.`,
+      ],
+    },
   ],
 };

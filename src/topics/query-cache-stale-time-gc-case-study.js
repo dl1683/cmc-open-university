@@ -200,35 +200,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A client query cache is a data structure for server state. It maps query keys to records that store payload, status, error, timestamps, an observer set, and sometimes an in-flight promise. The goal is to share one answer across many components while keeping the answer repairable when the server changes.',
-        'The two important clocks are stale time and garbage-collection time. Stale time controls freshness. Garbage-collection time controls how long inactive cached data remains after the last observer unmounts.',
+        'Client apps often need the same server data in several places: a list, a badge, a detail drawer, and a chart. If every component owns its own fetch, the app wastes network work and can show inconsistent copies of the same server fact.',
+        'A query cache exists because server state is shared, remote, and time-sensitive. It needs identity, observers, freshness rules, deduped fetches, invalidation, and memory cleanup.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is `useEffect` plus local component state: fetch on mount, set loading, set data, set error, and clean up on unmount. That is enough for an isolated widget.',
+        'The second attempt is a plain global object keyed by URL. That shares data, but it usually lacks observers, stale clocks, in-flight promise dedupe, targeted invalidation, and garbage collection.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Local fetch state has no shared identity. Two components asking for the same resource can race two requests and render two answers. A mutation can update one copy while another copy stays stale.',
+        'A plain object cache has the opposite failure: it can keep data forever or treat old data as fresh forever. Server state needs repair paths because the server can change without the current component knowing.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A query cache is an identity map from query key to entry. The entry is a small state machine plus metadata: data, status, error, updated time, observer set, stale policy, inactive timer, and maybe an in-flight promise.',
+        'Stale time answers whether cached data can be trusted without refetching on normal triggers. Garbage-collection time answers how long inactive data should remain after the last observer leaves.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the cache-lifecycle view, follow one query key through states: missing, loading, fresh, stale, fetching, inactive, and collected. The same data can be visible while it is stale; stale means eligible for repair, not unusable.",
+        "In the observer-graph view, watch components attach to the cache entry rather than creating their own fetches. The observer set is what lets one request feed several UI surfaces and what tells the cache when data has become inactive.",
+        "The key distinction is stale time versus garbage-collection time. Stale time controls trust. GC time controls memory retention after nobody is watching.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "A dashboard shows a user name in the header, a profile card, and an audit panel. All three subscribe to `['user', userId]`. The first component starts the request. The other two join the same cache entry and share the in-flight promise. When the result arrives, all observers receive the same data and timestamp.",
+        'After ten seconds, the entry may become stale. The UI can still render the old name while a focus event triggers background refetch. When every component unmounts, the entry becomes inactive. If the user returns before GC time expires, the cache can show data immediately and repair it if stale. If GC time expires, the entry is deleted and the next mount starts over.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A component subscribes with a query key. If the entry is missing, the cache creates it and starts the query function. If the entry exists, the component receives cached data immediately and joins the observer set. If the entry is stale, the cache can refetch in the background while old data stays visible.',
-        'This turns loading from a component-local boolean into a cache-level state machine. One key can have many observers. One stale entry can have one deduped fetch. One mutation can invalidate a family of keys so only affected data repairs itself.',
+        'A component subscribes with a query key. If no entry exists, the cache creates one and runs the query function. If an entry exists, the component joins the observer set and receives cached data immediately. If a fetch is already in flight for that key, the observer shares it.',
+        'When the request resolves, the entry stores data and an updated timestamp. When stale time elapses, the data is not deleted; it becomes eligible for background refetch on triggers such as mount, focus, reconnect, polling, or invalidation.',
+        'When the observer set becomes empty, the entry becomes inactive. A garbage-collection timer decides whether to keep it for quick return navigation or delete it to reclaim memory.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Consider an issue tracker. The issue list, unread badge, search sidebar, and issue detail drawer all read server state. Without a query cache, each component invents a fetch lifecycle and the app can show four inconsistent copies. With a keyed cache, the list uses posts:list filters, detail uses post:id, badge uses notifications, and each record owns status, observers, freshness, and retention.',
-        'The design lesson is cache identity. A sloppy key merges unrelated data. A too-specific key prevents reuse. A stale time that is too short creates noisy background traffic. A garbage-collection time that is too long retains data users will not revisit.',
+        'The invariant is that one query key owns one cache entry. Observers do not subscribe to fetch calls; they subscribe to entries. That is why many components can share one result and one in-flight request.',
+        'Invalidation is safe because it changes freshness, not identity. Marking matching keys stale says the cached answer is suspect while still allowing the UI to render the last known value until repair finishes.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'A query cache is not the source of truth. The server is. Cached data can be stale, incomplete, filtered, or personalized. Invalidation marks suspicion; it does not prove that the new fetch will return the intended state.',
-        'Do not use one global stale time as a doctrine. A stock quote, a user profile, a terms-of-service PDF, and a historical chart have different freshness economics. This page connects HTTP Cache ETag Revalidation to the client-side server-state cache: both are about named copies with repair paths.',
+        'A key lookup is expected constant time, but hashing structured keys and comparing filters add real constants. Fetch cost dominates misses. Notification cost grows with the number of observers on the changed entry.',
+        'Space grows with cached entries, payload size, metadata, in-flight promises, and observer records. Short stale time increases background traffic. Long stale time increases the chance of old UI. Short garbage-collection time saves memory but loses reuse on back navigation. Long garbage-collection time keeps useful data and useless data alike.',
+        'Mutation handling adds another cost. After a write, the cache needs either an optimistic patch, a targeted invalidation, a direct update from the server response, or a broader refetch. The right choice depends on whether the mutation response contains enough truth to update related query keys safely.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Key design',
+      paragraphs: [
+        'A query key should include every input that changes the server answer: resource id, filters, pagination, tenant, locale, permissions boundary, and feature flag if it affects the response. Leaving out an input merges unrelated data. Adding irrelevant inputs prevents sharing and creates cache fragmentation.',
+        'Keys should also be stable. Creating a new object shape or function identity on every render can defeat reuse in libraries that depend on structured key equality. Good cache design is partly API design: name the server fact clearly enough that every component can ask for the same fact the same way.',
+      ],
+    },
+    {
+      heading: 'Choosing stale time',
+      paragraphs: [
+        'Freshness should follow the domain. A feature flag, stock quote, incident status, and legal PDF should not share one stale-time default. Ask how expensive a wrong answer is, how often the server changes, whether users can tolerate background repair, and whether the data is pushed elsewhere by subscriptions or invalidation.',
+        'A short stale time is not automatically safer. It can create refetch storms, flicker, and load on the same server the UI depends on. A long stale time is not automatically wrong if the data is genuinely stable or if mutations invalidate the relevant keys precisely.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Query caches win for shared server state: dashboards, issue trackers, detail pages, feeds, notification badges, search filters, and any screen where several components read the same remote fact.',
+        'They also win when stale data is better than blank UI. A user can keep reading the old result while a background refetch repairs the entry.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A query cache is not the source of truth. The server is. Cached data can be stale, filtered, personalized, partially hydrated, or based on permissions that have changed.',
+        'Bad keys are a correctness bug. A sloppy key merges unrelated data. A too-specific key prevents reuse. One global stale time is also wrong: a stock quote, a user profile, a terms-of-service PDF, and a historical chart have different freshness economics.',
+        'It also fails when teams use it for local UI state. Modal open state, form draft state, and selected tabs do not become better because they live in a server-state cache. Keep local interaction state local, and use the query cache for remote facts with freshness and repair semantics.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: TanStack Query caching guide at https://tanstack.com/query/v5/docs/framework/react/guides/caching, TanStack Query important defaults at https://tanstack.com/query/v5/docs/framework/react/guides/important-defaults, TanStack Query query keys guide at https://tanstack.com/query/v5/docs/framework/react/guides/query-keys, and SWR cache and revalidation docs at https://swr.vercel.app/docs/revalidation. Study React Suspense Resource Cache, HTTP Cache ETag Revalidation, Cache Invalidation & Versioning, CORS Preflight Cache, Optimistic UI Mutation Log, and UI State Machine Workflow next.',
       ],

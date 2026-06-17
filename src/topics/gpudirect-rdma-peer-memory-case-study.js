@@ -202,44 +202,71 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why GPUDirect RDMA Exists',
       paragraphs: [
-        'GPUDirect RDMA is NVIDIA technology for letting third-party PCIe devices, especially network adapters, exchange data directly with GPU memory. It is the GPU-specialized version of the broader RDMA idea: avoid staging through host DRAM when the useful endpoint is GPU HBM.',
-        'NVIDIA describes GPUDirect RDMA as enabling a direct path for data exchange between the GPU and third-party peer devices such as network interfaces, video acquisition devices, and storage adapters: https://docs.nvidia.com/cuda/gpudirect-rdma/. The developer overview frames remote direct memory access as direct access to GPU memory that avoids required buffer copies through system memory: https://developer.nvidia.com/gpudirect.',
+        `GPUDirect RDMA exists because modern GPU systems often need data to arrive in GPU memory, not merely on the host. In distributed training, gradients and activations live in HBM. In inference, KV-cache blocks, embeddings, logits, and intermediate tensors may be GPU-resident. In storage and media pipelines, the producer or consumer can be a GPU kernel. If every transfer has to stop in host DRAM, the system pays extra PCIe traffic, CPU scheduling, cache pollution, and latency before the GPU can do useful work.`,
+        `The ordinary safe path is a bounce buffer: copy GPU data to host memory, let the network adapter or storage device DMA from that host buffer, then copy again on the receiving side if the destination is also a GPU. That path is simple and widely compatible, but it turns the CPU and host memory hierarchy into a staging area for data that neither side actually wants to compute on.`,
+        `GPUDirect RDMA is the peer-memory path that lets a capable third-party PCIe device, commonly an RDMA-capable NIC or HCA, read from or write to GPU memory directly. It does not mean uncontrolled access. The memory must be allocated, mapped, registered, permissioned, and synchronized. The point is to remove unnecessary host copies from the hot path while keeping the transfer inside explicit driver and verbs machinery.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Naive Wall',
       paragraphs: [
-        'The application allocates GPU memory and registers or exposes it through peer-memory machinery. The GPU memory is represented through PCIe-visible address windows, and the HCA receives enough mapping information to DMA to or from that memory. The work request still flows through RDMA verbs; the difference is that the registered target can be GPU memory rather than ordinary host memory.',
-        'NVIDIA documents that GPUDirect RDMA uses standard PCI Express features and that peer devices issue reads and writes to peer BAR addresses similarly to system memory. It also notes a major platform constraint: the peer devices generally need to share the same upstream PCIe root complex, and limitations depend on the platform.',
+        `The naive implementation copies through host memory and then optimizes around that. For small transfers or rare events, this may be acceptable. For sustained GPU-to-GPU communication, it becomes a wall. The bytes cross PCIe more times than necessary, CPU threads manage staging buffers, and the measured latency includes operations that exist only because the devices were not allowed to talk as peers.`,
+        `A second naive assumption is that installing CUDA, an RDMA stack, and a modern NIC automatically enables the peer path. That is dangerous because the fallback path can still produce correct output. A benchmark may pass, a training job may converge, and an inference pipeline may return answers, while the data movement silently bounces through host DRAM and misses the latency or throughput target.`,
+        `The real wall is platform legality. PCIe topology, upstream root complexes, Access Control Services, IOMMU behavior, BAR address windows, kernel modules such as nvidia-peermem, driver versions, permissions, and synchronization rules decide whether the HCA can DMA into a GPU allocation. GPUDirect RDMA is a hardware-software contract, not a flag that always works.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight',
       paragraphs: [
-        'The performance reason is straightforward. A host bounce path moves data GPU-to-host and then host-to-NIC, or the reverse. That adds copies, PCIe traffic, CPU coordination, and latency. A peer path removes the bounce buffer. In distributed AI systems, that can matter for activations, gradients, checkpoints, storage reads, video ingest, or KV-cache movement.',
-        'The complexity is that the platform must actually support the peer path. Root complex layout, IOMMU and ACS behavior, driver modules, memory registration, BAR sizing, permissions, CUDA stream synchronization, and completion semantics all matter. A system that silently falls back to host copies can look correct in a functional test while failing a latency or cost target.',
+        `The core insight is that a GPU allocation can become peer memory for another PCIe device when the platform exposes a legal mapping. The NIC does not understand CUDA tensors as high-level objects. It receives registered memory, address translation, access keys, and work requests. The CUDA and peer-memory layers make GPU memory visible enough for DMA while preserving ownership and lifetime rules.`,
+        `From the application point of view, the path still resembles RDMA verbs. A buffer is registered, a queue pair posts work, the HCA performs a read or write, and a completion queue reports progress. The difference is the physical target. Instead of host DRAM, the registered region points at GPU memory through the peer mapping. This is why the technology is often described as zero-copy, but a better phrase is controlled direct copy: the data still moves, but it avoids an unnecessary host staging copy.`,
+        `The deepest correctness rule is that two execution domains now share a buffer. The network domain has completion queues and ordering rules. The GPU domain has CUDA streams, kernels, and memory visibility rules. A completion in one domain is not automatically permission to reuse memory in the other. Correct systems treat lifetime and synchronization as part of the data structure.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism',
       paragraphs: [
-        'GPUDirect RDMA appears in GPU clusters, high-performance storage, media pipelines, distributed training, and inference systems that need to move GPU-resident state. It pairs naturally with RDMA Queue Pair & Work Request Case Study because the network side still uses queue pairs, work requests, keys, and completion queues.',
-        'It also connects to Weka Filesystem Case Study and KV Cache Transfer Fabric Case Study. Both care about making storage or network state feel closer to GPU execution by avoiding host-mediated copies where possible.',
+        `A typical send path starts with a CUDA allocation. The application or framework obtains a GPU pointer and passes it into an RDMA-aware layer. The peer-memory module cooperates with the NVIDIA driver so that the HCA can register the GPU pages or their PCIe-visible address window. The HCA receives the information needed to DMA from that memory, and the application posts a work request through the verbs interface.`,
+        `For receives, the direction reverses: the HCA writes incoming data directly into a registered GPU buffer. A completion queue entry tells the application that the network work reached a defined point, but the program must still coordinate with CUDA stream work that produces or consumes the buffer. In practice, high-performance libraries hide much of this sequencing, but the underlying rule remains: do not free, reuse, or read a buffer until both the network and GPU sides have reached the correct ordering point.`,
+        `The platform gates are not optional details. Peer devices may need to share an upstream PCIe root complex for efficient peer-to-peer routing. ACS settings can force traffic upstream and block direct peer behavior. IOMMU configuration can affect address translation. BAR size and mapping limits can constrain what is visible. Driver mismatches can disable registration. A robust system detects these gates and exposes whether it used peer DMA or fell back to a bounce buffer.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What The Visual Proves',
       paragraphs: [
-        'The biggest misconception is that GPUDirect is a magic fast path that always turns on. It is conditional. Platform topology, kernel modules, device support, and driver behavior decide whether the path is legal. The application needs telemetry that distinguishes peer DMA from fallback copies.',
-        'Another trap is treating RDMA completion and CUDA completion as the same thing. Network completions and GPU stream dependencies must be coordinated. Reusing a GPU buffer too early can corrupt data even when the network operation looked complete from the HCA side.',
+        `The zero-copy path visual compares two physical routes. In the bounce route, data leaves GPU memory, lands in host DRAM, then the HCA performs DMA to or from that host buffer. In the peer route, the GPU memory is mapped through a peer-memory layer and the HCA transfers directly. The visual proves the performance claim at the structural level: fewer copies, fewer CPU-managed staging steps, and fewer trips through host memory.`,
+        `The safety-gates visual proves the opposite half of the lesson. Direct access is conditional. Root complex topology, IOMMU mapping, ACS routing, pointer lifetime, stream ordering, and fallback behavior sit on the critical path. The peer path is faster only when those gates are satisfied and observable. A system that silently falls back may be correct at the API level and wrong at the SLO level.`,
+        `The latency plot is illustrative rather than a universal benchmark. Its role is to show why fallback telemetry matters. At small sizes, bounce overhead may hide in noise. At larger transfers or tight pipelines, the extra copy can erase the budget. Production systems should record the path actually used, not merely that an RDMA operation completed.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
       paragraphs: [
-        'Primary sources: NVIDIA GPUDirect RDMA documentation at https://docs.nvidia.com/cuda/gpudirect-rdma/ and NVIDIA GPUDirect overview at https://developer.nvidia.com/gpudirect. Study RDMA Queue Pair & Work Request Case Study, GPU Memory Pool Fragmentation Ledger, KV Cache Transfer Fabric Case Study, Weka Filesystem Case Study, NVLink/NVSwitch GPU Fabric Case Study, and Backpressure & Flow Control next.',
+        `It works because data movement is often the limiting resource in GPU systems. A GPU can compute quickly once data is in HBM, and an RDMA NIC can move data without CPU copying once memory is registered. GPUDirect RDMA aligns those facts: the NIC moves bytes directly to or from the memory where GPU kernels operate. Removing the host staging copy reduces latency, frees CPU cycles, and lowers pressure on PCIe and host memory bandwidth.`,
+        `It is especially valuable when communication and computation are pipelined. Distributed training overlaps gradient exchange with backpropagation. Inference systems may move KV-cache blocks, embeddings, or activations between GPUs and machines. Storage systems may load checkpoint shards or datasets into GPU memory. Media systems may stream frames into GPU processing kernels. In each case, the avoided copy is not a micro-optimization; it can decide whether the pipeline stays full.`,
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        `The cost is stricter deployment. The host-bounce path works on more machines and is easier to reason about. GPUDirect RDMA requires compatible GPUs, NICs, drivers, kernel modules, PCIe routing, firmware settings, and memory registration behavior. It can also make debugging harder because a failure may appear as a registration error, a topology limitation, a permission problem, a synchronization bug, or a silent performance regression.`,
+        `The second tradeoff is memory management. Registered memory is not just an ordinary pointer. It has lifetime, pinning, access rights, and ordering constraints. Holding too many registered regions can pressure resources. Reusing a GPU allocation too early can corrupt data. Freeing memory before outstanding work completes can produce undefined behavior. High-level frameworks must turn these low-level rules into safe buffer pools and explicit handoff protocols.`,
+        `The third tradeoff is observability. Because fallback can be functionally correct, correctness tests are not enough. A production path needs counters for peer registrations, failed registrations, bytes sent through peer DMA, bytes sent through bounce buffers, latency by path, and topology warnings. Without those signals, the system can lose the entire reason for using GPUDirect RDMA while still returning correct answers.`,
+      ],
+    },
+    {
+      heading: 'Uses And Failure Modes',
+      paragraphs: [
+        `Common uses include distributed GPU training, multi-node inference, GPU-aware MPI, high-performance storage, video acquisition, scientific instruments, database acceleration, and any pipeline where network or storage devices exchange large buffers with GPU kernels. In LLM serving, the same concept appears when GPU-resident KV-cache blocks or activations need to move across hosts without paying extra copies through CPU memory.`,
+        `Failure modes cluster around hidden fallback, bad topology, and bad synchronization. Hidden fallback passes functional tests but misses throughput. Bad topology means the HCA and GPU cannot use the desired peer route. Bad synchronization means one side believes a buffer is ready while the other side is still producing or consuming it. Security and isolation also matter: direct memory access must be permissioned carefully because the whole point is to let a device bypass normal CPU load and store paths.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        `Study RDMA Queue Pair and Work Request Case Study first to understand verbs, queue pairs, memory registration, and completions. Then connect this topic to GPU Memory Pool Fragmentation Ledger, NVLink/NVSwitch GPU Fabric Case Study, KV Cache Transfer Fabric Case Study, Weka Filesystem Case Study, Backpressure and Flow Control, and Zero-Copy Buffer Management. Primary references are NVIDIA GPUDirect RDMA documentation and NVIDIA's GPUDirect overview. The durable lesson is that zero-copy performance is a contract among hardware topology, memory registration, synchronization, and observability.`,
       ],
     },
   ],

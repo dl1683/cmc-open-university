@@ -328,44 +328,65 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why Informers Exist',
       paragraphs: [
-        'A Kubernetes informer is the data-structure layer underneath many controllers. It turns API-server list/watch streams into a local cache, typed deltas, event callbacks, and workqueue keys. Kubernetes Reconciliation explains the controller pattern; this case study explains the machinery that makes that pattern efficient and retryable.',
-        'The key separation is events versus state. A watch event says something changed. The shared indexer cache stores the latest observed objects. The workqueue stores object keys that need reconciliation. The worker reads current state before acting, so a burst of ten updates can collapse into one reconcile of the newest object.',
+        "Kubernetes controllers are built around reconciliation: observe desired state, compare it with actual or external state, and take steps to move the world closer to the desired state. The controller pattern sounds simple until thousands of objects are changing, many controllers need the same objects, watches disconnect, and external APIs fail. Informers are the data-structure layer that makes controllers efficient enough to run inside a busy cluster.",
+        "The naive controller polls the API server. Every few seconds it lists all Pods, Deployments, or custom resources, scans for work, and writes fixes. That approach is easy to understand and terrible at scale. It creates redundant reads, burns API-server capacity, reacts slowly between polls, and still has to solve retries. If ten controllers each poll the same resource, the cluster pays ten times for almost the same information.",
+        "An informer turns the API server's list/watch model into a local read model. It lists once to seed state, watches for changes, buffers deltas, updates a shared cache, calls lightweight event handlers, and lets controllers enqueue reconcile keys. The main separation is events versus state. Events wake the controller. The cache holds the latest observed object state. The workqueue stores stable addresses for work."
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Core insight: List, Watch, And ResourceVersion',
       paragraphs: [
-        'The Reflector lists a resource, records the returned resourceVersion, then watches for changes from that version. Watch events become DeltaFIFO entries such as Added, Updated, Deleted, Replaced, and Sync. A SharedIndexInformer consumes those deltas, updates the local store and indexes, and calls event handlers.',
-        'Handlers should stay cheap. They usually compute a namespace/name key and add it to a rate-limited workqueue. Worker goroutines pop keys, read the latest object from cache or API, run the reconcile function, and then either Forget the key on success or AddRateLimited on failure.',
-        'Indexes make the cache useful. A controller can look up by namespace/name, list by namespace, find child objects by owner UID, or attach custom indexes such as pods by node. That reduces API-server load and keeps reconcile loops focused on local reads plus intentional writes.',
+        "The pipeline starts with a LIST request. The API server returns the current objects and a resourceVersion, which acts as a cursor into the stream of changes for that resource. The client then opens a WATCH from that cursor. Watch events report added, modified, deleted, bookmark, or error conditions. Bookmark events can advance the cursor even when no object changed, which helps clients know they are still making progress.",
+        "This design avoids the polling wall, but it is not magic. Watch history is finite. If a controller falls too far behind and asks to resume from an old resourceVersion, the API server can return a gone error. The controller must relist, rebuild its local view, and resume watching from a fresh cursor. Correct informer code treats relist as a normal recovery path, not an exceptional disaster.",
+        "The Reflector in client-go owns this list/watch loop. It talks to the API server, maintains the resourceVersion, and pushes observed changes into a DeltaFIFO. Above it, a SharedIndexInformer consumes those deltas, updates a local store, maintains indexes, and invokes registered handlers. This layering keeps watch mechanics, cache maintenance, and controller-specific work separate."
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'DeltaFIFO',
       paragraphs: [
-        'The local cache saves API calls, but it costs memory proportional to watched objects and indexes. Broad watches over Pods, Secrets, or ConfigMaps can be large. Slow handlers or blocked workers can make a watcher fall behind; if the resourceVersion is too old, the client must relist. Retry loops also need rate limiting, or one broken dependency can overload the API server.',
+        "DeltaFIFO is the buffer between the watch stream and the informer consumer. It stores object changes as typed deltas: Added, Updated, Deleted, Replaced, and Sync. The FIFO part preserves processing order by key. The delta part preserves what kind of change happened. A relist can produce replacement deltas. A periodic resync can produce sync deltas even if the object did not change.",
+        "The value of DeltaFIFO is that it smooths a live event stream into a consumable sequence while giving the cache enough information to update itself correctly. Deletes are especially important. A delete may arrive with a tombstone when the final object is not available in the usual form. Consumers must handle that path because caches still need to remove the right key.",
+        "The hard lesson is that deltas are not a substitute for idempotent reconcile logic. They help maintain the local cache and notify handlers, but a controller should not base irreversible action on an old event payload. By the time a worker acts, the object may have changed again or disappeared. The durable work address is the key, usually namespace/name. The worker should reread current state before acting."
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Shared Indexer Cache',
       paragraphs: [
-        'A certificate operator watches Certificate custom resources and Secrets. Informers maintain local caches for both object types. An Add or Update handler enqueues the certificate key. The worker reads the latest certificate and referenced secret, creates or renews an external order if needed, records status, and requeues with backoff when the certificate authority is unavailable.',
-        'This shape is why controllers are not just event callbacks. The informer gives a consistent local read model, the queue gives deduplication and retry, and reconcile logic decides from current state. A missed event, duplicate event, restart, or temporary failure should still converge.',
+        "The SharedIndexInformer cache is a local map from keys to the latest observed objects, plus optional secondary indexes. The basic key is namespace/name for namespaced resources or name for cluster-scoped resources. Secondary indexes let controllers answer common questions without API calls: list all objects in a namespace, find children by owner UID, find Pods scheduled to a node, or find custom resources referencing a Secret.",
+        "This cache is why many controllers can run without hammering the API server. A reconcile worker can read the watched object from memory, list related objects through indexes, and issue only the writes or uncached reads it truly needs. Multiple controllers in the same process can share one informer instead of opening duplicate watches and maintaining duplicate caches.",
+        "The tradeoff is memory and staleness. The cache holds copies of watched objects and index entries. Broad watches over high-cardinality resources such as Pods, Secrets, ConfigMaps, or custom resources can be expensive. Indexes multiply memory. The cache is also eventually consistent with the API server. Controllers must tolerate that the latest write may not have arrived in the local cache yet, especially during startup, relist, or watch recovery."
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Workqueue Semantics',
       paragraphs: [
-        'Do not block inside informer event handlers. Do not assume the event object is the freshest state. Do not watch every object in the cluster if a narrower namespace, field selector, label selector, or custom index will do. Do not forget rate limiting and status: retries without backoff create storms, and users need to know why convergence is stuck.',
+        "Informer event handlers should be cheap. A good handler usually computes a key and adds it to a workqueue. It does not call slow external APIs, perform long writes, or block the informer. Blocking the handler path delays cache updates and can cause the watch consumer to fall behind.",
+        "The client-go workqueue is not a plain array. It tracks dirty keys, queued keys, keys currently being processed, delayed retries, and rate limits. If the same key is added ten times while it is already queued, the queue can coalesce those adds. If a key is added while a worker is processing it, the dirty state ensures it can be processed again after the current run finishes. That prevents duplicate in-flight reconciles while still preserving the fact that another change arrived.",
+        "A worker loop pops a key, reads fresh state, reconciles, and then calls Done. On success it calls Forget to clear rate-limit history. On transient failure it uses AddRateLimited so the key returns after backoff. On permanent absence, such as a deleted object, reconcile should perform cleanup if needed and then succeed. This makes retries explicit and keeps a broken dependency from creating a tight loop."
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Concrete Operator Case Study',
       paragraphs: [
-        'Primary sources: Kubernetes API concepts on watches and resourceVersion at https://kubernetes.io/docs/reference/using-api/api-concepts/, client-go cache package docs at https://pkg.go.dev/k8s.io/client-go/tools/cache, client-go workqueue package docs at https://pkg.go.dev/k8s.io/client-go/util/workqueue, and the client-go workqueue example at https://github.com/kubernetes/client-go/blob/master/examples/workqueue/main.go.',
-        'Study Kubernetes Reconciliation, Kubernetes Scheduler Priority Queue & Preemption Case Study, etcd Raft Case Study, Queue, Message Queue, Backpressure, Rate Limiter, Cache Invalidation, Idempotency Keys, and Distributed Tracing next.',
+        "Consider a certificate operator. It watches Certificate custom resources and Secrets. The Certificate informer tells the controller when desired certificate state changes. The Secret informer tells it when issued key material appears, changes, or disappears. Both informers maintain local caches. Event handlers map Certificate events directly to certificate keys. Secret events may use an owner index or label index to find which Certificate keys are affected.",
+        "A worker pops a certificate key and reads the latest Certificate and referenced Secret from the cache. If the Certificate was deleted, it cleans up external orders if finalizers require it. If the Secret is valid and not near expiry, it records healthy status. If renewal is needed, it calls the certificate authority. If the authority is unavailable, it records a condition and requeues with backoff. If the authority succeeds, it writes the Secret and updates status.",
+        "This is not just event handling. Duplicate events, missed events, restarts, relists, and external failures should still converge because the worker decides from current state. The queue dedupes and retries. The cache supplies a local view. Status tells users why progress is stuck. The controller's correctness comes from idempotent reconciliation, not from receiving a perfect event sequence."
+      ],
+    },
+    {
+      heading: 'Failure Modes And Signals',
+      paragraphs: [
+        "The predictable informer failures are falling behind watch history, blocking handlers, unbounded caches, retry storms, stale reads, and bad ownership mapping. A gone error from an old resourceVersion requires relist. A slow handler should be moved to workers. A broad cluster-wide watch may need namespaces, field selectors, label selectors, or narrower controllers. A retry storm needs rate limiting and a clear permanent-error path. A stale cache read needs idempotency and sometimes direct API reads for critical confirmation.",
+        "Useful metrics include list duration, watch restarts, resourceVersion gone errors, queue depth, add rate, worker duration, retry count by key, rate-limiter delay, cache object count, index sizes, handler latency, reconcile result, and external dependency latency. Logs should include the key, observed generation, resourceVersion when relevant, decision, and requeue reason. Status conditions should expose progress to users instead of hiding failures in controller logs.",
+        "There are design tradeoffs. A shared cache lowers API load but uses memory. Narrow watches save memory but can miss relationships if selectors are wrong. More indexes speed lookups but cost memory and update time. More workers increase throughput but can overload external services. Longer backoff protects dependencies but delays recovery. The right controller makes these choices intentionally and validates them under event bursts, restarts, and API-server disruption."
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        "Primary sources are Kubernetes API concepts for watches and resourceVersion, client-go cache package documentation, client-go workqueue documentation, and the client-go workqueue examples. Next study Kubernetes reconciliation, etcd Raft, queues, message queues, backpressure, rate limiters, cache invalidation, idempotency, owner references, finalizers, and distributed tracing. Those topics explain why informer-based controllers treat events as hints, keys as durable work addresses, and current state as the source for action."
       ],
     },
   ],

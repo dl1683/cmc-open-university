@@ -49,7 +49,7 @@ function* dlinearDecomposition() {
       ],
     }),
     highlight: { active: ['raw'], found: ['now'] },
-    explanation: 'Long-term time-series forecasting starts with an ordered numeric sequence. The DLinear paper argues that for many benchmark tasks, preserving temporal order with a simple model can beat more complex Transformer variants.',
+    explanation: 'Start with the raw ordered sequence. The point of the case study is that forecasting is not language modeling with different tokens: order, lag structure, trend, and seasonality often matter more than content-addressed lookup. DLinear asks whether a plain model with that bias can beat attention-heavy models on long-horizon benchmarks.',
   };
 
   yield {
@@ -69,7 +69,7 @@ function* dlinearDecomposition() {
       ],
     }),
     highlight: { active: ['trend', 'season'] },
-    explanation: 'DLinear first decomposes the series into a moving-average trend and a residual seasonal component. This gives the model an explicit bias for common forecasting structure.',
+    explanation: 'The highlighted lines are the inductive bias. A moving average pulls out the slow trend; subtracting it leaves the residual seasonal wiggle. DLinear does not ask a Transformer to discover this decomposition from scratch. It builds the decomposition into the model, then learns simple forecasts for the two pieces.',
     invariant: 'Raw series = trend plus residual component.',
   };
 
@@ -93,7 +93,7 @@ function* dlinearDecomposition() {
       ],
     }, { title: 'DLinear is deliberately simple' }),
     highlight: { active: ['decomp', 'trend', 'season'], found: ['yhat'] },
-    explanation: 'Two one-layer linear heads forecast the two components, and the outputs are summed. There is no attention map, no token mixing stack, and very little hyperparameter ceremony.',
+    explanation: 'Read the pipeline as a deliberately short signal path: raw window, decomposition, one linear head for trend, one linear head for residual, sum. There is no attention map, no token-mixing stack, and little hyperparameter ceremony. That simplicity is not a weakness until a harder task proves it lacks the needed interactions.',
   };
 
   yield {
@@ -117,7 +117,7 @@ function* dlinearDecomposition() {
       ],
     ),
     highlight: { found: ['path:benefit', 'order:benefit', 'speed:benefit'], compare: ['inspect:tradeoff'] },
-    explanation: 'The case study is not anti-deep-learning. It is pro-baseline: if the temporal signal is mostly trend and seasonal structure, a simple model can be the right inductive bias.',
+    explanation: 'This scorecard is the responsible conclusion. Simplicity can win when the task rewards short paths, order preservation, speed, and inspectable lag weights. It can fail when cross-variate structure, external covariates, regime changes, or nonlinear interactions dominate. The lesson is pro-baseline, not anti-Transformer.',
   };
 }
 
@@ -143,7 +143,7 @@ function* baselineAudit() {
       ],
     ),
     highlight: { found: ['split:question', 'horizon:question', 'scale:question', 'baseline:question'] },
-    explanation: 'Time-series evaluation is easy to contaminate. A good paper must specify temporal splits, horizons, scaling, and strong simple baselines before architecture claims matter.',
+    explanation: 'This checklist is the part of forecasting papers to read first. If the split is not time-ordered, the future leaks backward. If scaling was fit on all data, the test set helped train the model. If horizons differ or simple baselines are weak, an architecture win may be an evaluation artifact.',
   };
 
   yield {
@@ -162,7 +162,7 @@ function* baselineAudit() {
       ],
     }),
     highlight: { active: ['dlinear'], compare: ['transformer'], found: ['long'] },
-    explanation: 'The paper reports that LTSF-Linear variants outperform several Transformer-based forecasting models on multiple long-horizon benchmarks. The visual lesson is the shape of the comparison, not this toy number set.',
+    explanation: 'The toy curve shows the reported pattern: as horizon grows, the simple linear baseline degrades more slowly than the Transformer-style line. Do not memorize the numbers; inspect the shape and then ask whether the real benchmark used equal horizons, equal tuning, and leakage-free preprocessing.',
   };
 
   yield {
@@ -186,7 +186,7 @@ function* baselineAudit() {
       ],
     ),
     highlight: { active: ['time:structure', 'linear:model bias'], compare: ['text:structure', 'attn:model bias'] },
-    explanation: 'Self-attention is powerful for semantic relationships among tokens. Forecasting often asks for ordered temporal dynamics, where direct lag weights and decomposition can be a better prior.',
+    explanation: 'This table explains the mismatch. Attention is excellent when pairwise semantic relationships matter; forecasting often wants ordered lag weights, trend, seasonality, and horizon-specific dynamics. Position encodings can help attention recover order, but DLinear asks whether a direct ordered window is the cleaner prior.',
   };
 
   yield {
@@ -208,7 +208,7 @@ function* baselineAudit() {
       ],
     ),
     highlight: { found: ['lesson:better'], compare: ['claim:too strong', 'rebuttal:too strong'] },
-    explanation: 'The durable lesson is not architecture tribalism. It is benchmark discipline: any complex model must beat a tuned simple baseline under the same data and evaluation protocol.',
+    explanation: 'The last table rules out both lazy conclusions. It does not prove Transformers never work for time series, and it does not let Transformer fashion skip baselines. The durable lesson is benchmark discipline: every complex model must beat a tuned simple baseline under the same data, horizon, and evaluation protocol.',
   };
 }
 
@@ -222,42 +222,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why DLinear exists',
       paragraphs: [
-        'The DLinear case study comes from "Are Transformers Effective for Time Series Forecasting?" The paper challenged a growing habit in long-term time-series forecasting: taking Transformer success in language and assuming attention-heavy architectures must also dominate ordered numeric forecasting. The authors introduced LTSF-Linear, a family of very simple one-layer linear baselines, including DLinear and NLinear.',
-        'DLinear decomposes a series into a trend component and a residual seasonal component, applies a linear layer to each, and sums the forecasts. It is intentionally plain. That plainness is the point: if a complicated architecture cannot beat a simple model with the right inductive bias, the complexity is not earning its keep.',
+        'DLinear is a forecasting baseline from the paper Are Transformers Effective for Time Series Forecasting? The case study matters because it attacked a common shortcut in machine learning research: if transformers work well for language, then attention-heavy models should also dominate long-term numeric forecasting. The paper introduced LTSF-Linear, a family of one-layer linear baselines, and showed that those simple models were hard to beat on several long-horizon benchmarks.',
+        'DLinear is the decomposition member of that family. It splits a time series into a trend component and a residual seasonal component, applies a linear forecasting head to each, and adds the two forecasts. The model is deliberately small. That is the lesson. Complexity is useful only when it captures structure the simple model misses. If the task mostly rewards ordered lag weights, trend, and repeated seasonal shape, a direct linear bias can be stronger than an expensive attention stack.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and wall',
       paragraphs: [
-        'The DLinear pipeline begins with decomposition. A moving-average kernel estimates trend. The residual captures seasonal or short-term variation. Two linear heads forecast the future horizon from those components, and their outputs are added. The model has an O(1) maximum signal traversing path length in the authors discussion, few parameters, fast inference, and inspectable weights.',
-        'This contrasts with self-attention. Attention is excellent at semantic pairwise relationships in text, images, and multimodal tokens, but time-series forecasting often depends on ordered lag relationships, trend, seasonality, scale shifts, and horizon-specific behavior. Position encodings can add order back to attention, but the baseline result asks whether that machinery is needed for the task.',
+        'The obvious modern approach is to convert the lookback window into tokens and use a transformer-like sequence model. That is not a foolish idea. Transformers can model long-range interactions, mix information across positions, and scale with data and compute. For multivariate forecasting, attention seems attractive because one channel can depend on another channel far back in time.',
+        'The wall is that time series are not text with smaller vocabularies. Numeric forecasting often cares about order, lag, trend, seasonality, scale, calendar effects, and horizon-specific dynamics. Self-attention is weakly tied to order unless positional information and architecture choices recover it. It can spend capacity learning relationships that a moving average and direct lag weights already express. The result can be a large model that looks advanced but loses to a baseline that matches the data geometry.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'DLinear is cheap to train and cheap to serve. It has far fewer parameters than Transformer forecasting models and fewer hyperparameters to tune. That makes it valuable even when it does not win outright: a simple baseline sets a price that every complex model must justify. If a Transformer improves error by a tiny amount but costs much more compute and operational complexity, the practical winner may still be the linear model.',
-        'The evaluation details matter. Time-series experiments must avoid future leakage, normalize using training data only, compare the same horizons, and include strong classical and simple neural baselines. Without those checks, forecasting papers can accidentally reward leakage, preprocessing choices, or uneven tuning rather than architecture quality.',
+        'The core insight is that a strong baseline should encode the easiest true structure before a complex model is allowed to claim victory. DLinear assumes that much of the forecast can be separated into slow movement and residual variation. A moving average extracts the slow component. Subtracting it leaves the residual. Two simple linear maps then learn how the lookback window should project into the future horizon.',
+        'That choice gives the model a short signal path. A value from the lookback window can influence a future value through one linear weight after decomposition. There is no deep stack, no attention map, and little opportunity for training instability to hide inside the architecture. The weights are not a full explanation of the forecast, but they make the lag structure more visible than a large transformer block.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'The lesson applies to demand forecasting, energy load prediction, traffic forecasting, finance, inventory planning, supply-chain monitoring, and anomaly detection. Many production systems should start with ARIMA-style methods, exponential smoothing, gradient boosting, or simple linear neural baselines before reaching for deep sequence models. Complex models are useful when they capture cross-series structure, exogenous variables, regime changes, or nonlinear interactions that simple baselines miss.',
+        'The data structures are the lookback matrix, the decomposition filter, two learned weight matrices, and the forecast horizon vector. For a univariate series, the lookback window is an ordered array of length L. The trend branch applies a moving-average kernel to that array. The residual branch stores raw minus trend. Each branch maps L past positions to H future positions with a linear layer. The outputs are summed element by element.',
+        'In multivariate settings, implementations can use separate per-channel heads or shared weights depending on the variant. That design choice matters because cross-variate structure is exactly where a plain linear model may be too weak. A direct linear head is excellent when each channel mostly follows its own lag pattern. It is less expressive when the future of one variable depends on nonlinear interactions among many variables, external covariates, or regime switches.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Do not conclude that Transformers are useless for all time series. Later work has argued that equivalent-size Transformer comparisons and better protocols can change the result. Do conclude that architecture fashion is dangerous. A baseline that is cheap, interpretable, and strong should be treated as a serious competitor, not an afterthought. Also, a univariate DLinear model may be weak when the task requires rich cross-variate dependencies or external covariates.',
+        'DLinear works when the forecasting problem is close to a weighted combination of past lags after trend removal. Many operational signals have exactly that shape for long stretches. Electricity load, traffic, inventory demand, and sensor readings often contain slow drift plus repeated patterns. A decomposition layer gives the model a good prior before learning begins, so the linear heads do not need to discover the split from scratch.',
+        'The correctness claim is statistical rather than exact. DLinear does not guarantee the true future. It makes a modeling bet: if the future horizon can be approximated by stable linear relationships over recent history and residual seasonal movement, then a shallow model will estimate those relationships with fewer parameters and less variance. That can beat a deeper model when training data is limited, benchmarks are noisy, or the deeper model spends capacity on spurious relationships.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost behavior',
       paragraphs: [
-        'Primary sources: Are Transformers Effective for Time Series Forecasting? at https://arxiv.org/abs/2205.13504, the AAAI page at https://ojs.aaai.org/index.php/AAAI/article/view/26317, and the official implementation at https://github.com/cure-lab/LTSF-Linear. For an important counterpoint, read the Hugging Face Autoformer discussion at https://huggingface.co/blog/autoformer. Study Attention Mechanism, Transformer Block, Cross-Validation, Data Leakage & Contamination, Learning Curves, and Regression Discontinuity next.',
+        'The cost advantage is straightforward. A linear head over a fixed lookback window has far fewer moving parts than a transformer. Training is faster, inference is faster, and the hyperparameter surface is smaller. When the lookback length doubles, the linear maps grow with the input length and horizon, but there is no all-pairs attention table. The practical cost is dominated by matrix multiplication and the decomposition filter, not by repeated deep token mixing.',
+        'This cheapness changes evaluation. A complex model should not be compared only on lowest error. It should be compared on error, training time, inference time, parameter count, tuning effort, robustness across seeds, and maintainability. A transformer that wins by a tiny margin after heavy tuning may be the wrong production choice if DLinear is simpler, cheaper, and easier to monitor.',
+      ],
+    },
+    {
+      heading: 'Benchmark discipline',
+      paragraphs: [
+        'The deeper lesson is about benchmarks. Forecasting experiments are easy to contaminate. Splits must respect time. Scaling and normalization must be fit on training data only. The forecast horizon must be identical across models. Hyperparameter tuning should be comparable. A strong simple baseline should be present before a paper attributes improvement to architecture.',
+        'The DLinear paper became influential because it made the missing-baseline problem visible. It did not prove that transformers can never work for time series. It proved that some reported transformer wins were not convincing unless they beat a simple model under a clean protocol. That distinction matters. The responsible conclusion is pro-baseline, not anti-transformer.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'DLinear is useful as a first serious neural baseline for long-term forecasting. It belongs in demand forecasting, energy load prediction, traffic forecasting, inventory planning, capacity planning, industrial monitoring, and anomaly pipelines where the first question is whether recent ordered history explains the future. It is also valuable as a guardrail in research. If a new architecture cannot beat DLinear, the architecture probably has not earned its complexity on that dataset.',
+        'It is also useful operationally because failure is easier to inspect. When error rises, an engineer can look at drift in trend, residual variance, lag weights, horizon-specific error, and per-channel behavior. A large attention model may still be better, but DLinear gives the team a transparent price floor for accuracy and cost.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'DLinear fails when the future depends on interactions that a direct lag map cannot express. External covariates, holidays, promotions, weather, supply shocks, sensor faults, control actions, and regime changes can all break the trend-plus-residual assumption. Multivariate systems can also require causal or nonlinear cross-channel structure. A plain channel-wise linear model may miss that one signal leads another after a variable delay.',
+        'It can also fail under nonstationarity. A lag weight learned from old data may become harmful after a policy change, market shift, hardware replacement, or new user behavior. Long lookback windows can include stale patterns. Short windows can miss slow cycles. The model is simple, but the data pipeline still needs drift detection, rolling validation, and slice-level error monitoring.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Monitor mean absolute error, mean squared error, horizon-wise error, per-series error, scale-normalized error, residual autocorrelation, drift in input distribution, and error by known calendar or business slice. Watch whether the trend branch or residual branch dominates. If the residual branch carries most of the forecast, the decomposition may not be separating useful structure. If long horizons degrade sharply, the lookback window may not contain enough information.',
+        'A fair evaluation should include naive seasonal repeat, moving average, exponential smoothing, ARIMA-style baselines, gradient boosting when covariates exist, NLinear, DLinear, and at least one tuned deep sequence model. The point is not to crown the simplest model by default. The point is to make every added mechanism pay rent.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources are the arXiv paper at https://arxiv.org/abs/2205.13504, the AAAI page at https://ojs.aaai.org/index.php/AAAI/article/view/26317, and the official implementation at https://github.com/cure-lab/LTSF-Linear. Read them with the benchmark checklist open: split, horizon, scaling, tuning, baselines, and cost.',
+        'Study moving averages, exponential smoothing, ARIMA, cross-validation for temporal data, data leakage, learning curves, attention, transformer blocks, Autoformer-style decomposition, and feature-store point-in-time joins next. The durable skill is not memorizing DLinear. It is learning to ask what structure the data already gives you before reaching for a larger architecture.',
       ],
     },
   ],

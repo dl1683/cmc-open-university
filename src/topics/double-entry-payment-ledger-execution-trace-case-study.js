@@ -231,38 +231,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A double-entry payment ledger execution trace records a payment as an append-only, balanced journal entry plus request identity, authorization evidence, retry state, outbox publication, and audit proof. It is a financial version of execution grounding: state transitions are accepted only if they preserve the ledger invariant.',
-        'This is a natural vertical companion to Code World Models. A payment domain has objective oracles, but they are not Python interpreters. The oracles are balance checks, idempotency checks, authorization proofs, settlement matching, and reversal semantics.',
+        'A payment is a distributed side effect with financial consequences. The customer presses pay, the processor authorizes, the ledger records, an event leaves the service, settlement arrives later, and any network hop can fail after doing real work.',
+        'The hard question is not whether the happy path can charge a card. The hard question is whether the system can prove, after a timeout or dispute, that one intended payment created exactly one durable money movement and that every later correction is visible.',
+      ],
+    },
+    {
+      heading: 'The reasonable first attempt',
+      paragraphs: [
+        'A small system can start with balance rows: subtract from one account, add to another, emit a receipt, and retry the HTTP request if the client does not hear back. This is easy to build and easy to explain.',
+        'That design works only while failures stay polite. It stores the latest answer, not the chain of facts that produced the answer. When the response disappears after the write, the retry path cannot tell whether it should return the old result, create a new charge, or repair a half-finished operation.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Partial failure turns direct balance mutation into a trap. Authorization may succeed while the ledger write fails. The ledger write may commit while the response times out. The notification may publish before the transaction is durable. Settlement may disagree days later.',
+        'Auditability is the second wall. A financial system cannot secretly rewrite yesterday because the facts changed today. A wrong capture, refund, fee, chargeback, or reversal must become a new durable fact that explains the current balance.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Model money movement as an append-only double-entry journal, not as a direct balance edit. Each journal entry contains line items whose debits and credits balance. Balances are projections from the journal, not the source of truth.',
+        'Add idempotency keys around externally visible operations. A retry with the same key and same parameters returns the saved result. A reused key with different parameters is rejected. A real correction appends a reversal or refund entry instead of mutating the original entry.',
+      ],
+    },
+    {
+      heading: 'What the diagram emphasizes',
+      paragraphs: [
+        'In the journal-invariant view, watch the graph move from request identity and authorization into a balanced journal entry, then into outbox and audit nodes. The important state change is the commit point: once the balanced entry is durable, events and proofs can refer to a fact rather than a hope.',
+        'In the idempotent-payment view, the plot is the lesson. The unsafe line creates another side effect for every retry. The safe line stays flat because the key maps repeated attempts back to one stored result. The rejection path matters too: idempotency prevents duplicate execution, not semantic drift under the same key.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Every money movement appends a journal entry with line items. Debits and credits must balance. A capture, refund, settlement, fee, chargeback, or correction becomes a new entry, not a mutation of old history. The ledger can project balances, but the source of truth is the ordered journal plus proof metadata.',
-        'Square described Books as an immutable double-entry accounting database service and emphasized that journal entries must balance to zero: https://developer.squareup.com/blog/books-an-immutable-double-entry-accounting-database-service/. Stripe documents idempotent requests as the API mechanism that lets clients retry safely without creating duplicate operations: https://docs.stripe.com/api/idempotent_requests and https://stripe.com/blog/idempotency.',
+        'The request first gets a stable operation identity. Authorization evidence records what the external payment network allowed. The ledger transaction appends one journal entry with multiple book entries, such as cash, merchant payable, processing fee, or refunds receivable. The entry is accepted only if the line items balance.',
+        'The service saves the result under the idempotency key after execution begins. Future retries with the same key and same parameters return that result. Outbound notifications are staged through an outbox tied to the same durable transaction, so consumers hear about entries that actually exist.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A client submits a $100 payment with idempotency key k1. The server authorizes the payment, appends a balanced journal entry, saves the result for k1, and publishes a ledger event through an outbox. The network drops before the client sees the response. The client retries with k1. The server returns the saved result and does not append a second entry. If the client changes the amount under k1, the server rejects the mismatch. If a real correction is needed, the system appends a refund or reversal.',
-        'That makes the trace trainable. A model can learn that timeout does not imply "try a new charge," that duplicate keys return stored results, that balance is mandatory, and that corrections are new facts rather than edits to history.',
+        'The double-entry invariant is a conservation law. A journal entry cannot create or destroy money inside the ledger because every debit has matching credit. If a local write omits one side, the entry does not balance and should not commit.',
+        'Idempotency handles uncertainty at the request boundary. The network can lose responses, but the key survives the retry. The outbox handles uncertainty at the event boundary by making publication depend on a durable ledger fact. Together they create a replayable proof chain from user request to audit record.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Worked example',
       paragraphs: [
-        'The hard part is not summing debits and credits. It is exactly where distributed systems meet finance: partial failures, duplicate requests, delayed settlement files, idempotency windows, outbox delivery, reconciliation, fraud review, chargebacks, and ledger migrations. Each one needs explicit state, not comments in an incident doc.',
-        'A production trace should connect the payment request, idempotency key, authorization response, journal entry, outbox event, reconciliation record, and audit references. If any link is missing, the example is incomplete training data.',
+        'A client submits a $100 capture with key k1. The processor authorizes it. The ledger appends a balanced entry: debit cash $100, credit merchant payable $97, and credit fee revenue $3. The result is stored under k1, and an outbox row announces the committed journal entry.',
+        'The response times out, so the client retries with k1. The server compares the parameters, finds the saved result, and returns it without appending another entry. If the client retries k1 with $120 or a different merchant, the server rejects the mismatch. If the original $100 was wrong, the correction is a new reversal or refund entry.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Do not overwrite financial history. Do not rely on best-effort duplicate detection when an idempotency key is available. Do not publish events before the ledger entry is durable. Do not treat refunds as negative side effects hidden inside the original payment. Do not train payment agents on transcripts without the journal invariant and retry semantics.',
-        'Primary sources: Stripe idempotent requests at https://docs.stripe.com/api/idempotent_requests, Stripe idempotency design article at https://stripe.com/blog/idempotency, and Square Books at https://developer.squareup.com/blog/books-an-immutable-double-entry-accounting-database-service/. Study Agent Payments Protocol Mandate Ledger Case Study, Idempotency & Exactly-Once Delivery, Write-Ahead Log, Transactional Outbox, Kafka Transactions & Exactly-Once Case Study, Saga Pattern, Two-Phase Commit, Hot Rows & Append-and-Aggregate, and Financial Contract Lifecycle Event Model next.',
+        'The cost is write amplification and stricter modeling. One business action may create several journal lines, idempotency records, outbox rows, reconciliation links, and audit references. Those writes buy traceability.',
+        'The operational cost is lifecycle discipline. Idempotency records need retention windows, keys need enough entropy, outbox delivery needs replay, settlement needs reconciliation, and schema changes must preserve old entries. The ledger gives proof, but it does not remove the work of operating finance.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'This model fits card payments, wallets, marketplace balances, subscriptions, bank transfers, card issuing, fees, payouts, chargebacks, credits, and regulated reporting. The common pattern is irreversible or expensive side effects plus a later need to prove what happened.',
+        'It is also useful as a training domain for agents and verifiers. The rules are crisp: balanced entries, stable idempotency identity, no duplicate side effects on retry, durable event publication, and append-only corrections.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'A full double-entry ledger is heavy for disposable counters, UI-only balances, cache statistics, or toy systems where no external party relies on the result. If the state can be recomputed cheaply and no audit trail matters, a simpler event log or direct aggregate may be enough.',
+        'It is also the wrong abstraction if teams use it as a decorative wrapper around mutable balances. Without enforced balance checks, idempotency comparisons, transaction boundaries, and reconciliation, the ledger vocabulary gives false confidence.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The common failures are duplicate keys with different payloads, keys pruned too early, event publication outside the ledger transaction, refunds implemented as hidden mutations, settlement files not reconciled, and account models that cannot represent fees, holds, chargebacks, or pending balances cleanly.',
+        'A deeper failure is confusing idempotency with exactly-once delivery. The network does not give exactly-once execution. The service builds a stable record so repeated attempts converge on the same durable outcome.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Make balance checks database-enforced, not only application comments. Store journal lines with a transaction id, account id, side, amount, currency, and effective time, then enforce that every posted entry balances per currency and cannot be edited after posting.',
+        'Bind idempotency to both key and semantic request shape. The saved record should include amount, currency, merchant, recipient, external authorization reference, and caller identity where relevant. A retry that changes those fields is not the same operation and should not receive the old success response.',
+        'Reconcile against external systems as a normal workflow. Processor captures, settlement files, bank statements, chargebacks, and refunds should link back to ledger entries or create explicit exception records. The ledger is strongest when every outside fact has a place to land.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Stripe idempotent requests at https://docs.stripe.com/api/idempotent_requests, Stripe idempotency design at https://stripe.com/blog/idempotency, and Square Books at https://developer.squareup.com/blog/books-an-immutable-double-entry-accounting-database-service/.',
+        'Study Write-Ahead Log for durability, Transactional Outbox for event publication, Saga Pattern for long-running workflows, Two-Phase Commit for cross-system atomicity, Hot Rows and Append-and-Aggregate for balance projection, and Financial Contract Lifecycle Event Model for richer money-state transitions.',
       ],
     },
   ],

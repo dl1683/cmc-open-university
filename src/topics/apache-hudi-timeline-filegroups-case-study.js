@@ -61,7 +61,7 @@ function* timelineFileGroups() {
   yield {
     state: hudiGraph('Hudi orders table changes through a timeline'),
     highlight: { active: ['writer', 'timeline', 'fg', 'e-writer-timeline', 'e-timeline-fg'], found: ['reader'] },
-    explanation: 'A Hudi table has a timeline of instants. Commits, delta commits, compactions, cleans, and rollbacks record how the table moved from one state to the next.',
+    explanation: 'A Hudi table moves through timeline instants. Commits, delta commits, compactions, cleans, and rollbacks tell readers which physical files belong to a valid table snapshot.',
   };
 
   yield {
@@ -85,14 +85,14 @@ function* timelineFileGroups() {
       ],
     ),
     highlight: { active: ['c:what', 'd:what', 'p:use'], compare: ['r:use'] },
-    explanation: 'The timeline is the table log. Readers use completed instants to decide which file slices are visible, while writers and services use pending instants to coordinate table services.',
+    explanation: 'The timeline is the table log. Completed instants are visible to readers; requested and inflight instants let writers and table services coordinate without exposing partial file slices.',
     invariant: 'A reader chooses a table state by filtering timeline instants.',
   };
 
   yield {
     state: hudiGraph('File groups evolve through file slices'),
     highlight: { active: ['fg', 'base1', 'log', 'base2'], found: ['timeline'] },
-    explanation: 'A file group is identified by a file id. Over time it contains file slices: a base file plus optional log files. This is the data structure that lets Hudi update immutable lake files incrementally.',
+    explanation: 'A file group is the stable home for a record range. Over time it contains file slices: a base file plus optional log files, so Hudi can update immutable lake files without rewriting unrelated groups.',
   };
 
   yield {
@@ -124,7 +124,7 @@ function* cowVersusMor() {
   yield {
     state: hudiGraph('Copy-on-write rewrites base files for fast reads'),
     highlight: { active: ['writer', 'base1', 'base2', 'e-log-base2'], compare: ['log'] },
-    explanation: 'In copy-on-write tables, updates create new base files. Reads are simpler because they only scan base files, but writes pay the rewrite cost when records change.',
+    explanation: 'Copy-on-write pays the merge during write. The update creates a new base slice, so snapshot reads can stay close to ordinary Parquet scans.',
   };
 
   yield {
@@ -148,13 +148,13 @@ function* cowVersusMor() {
       ],
     ),
     highlight: { active: ['cow:write', 'mor:read'], found: ['snap:read'], compare: ['ro:read'] },
-    explanation: 'Merge-on-read appends row-based delta logs to file groups and merges them with base files at read time for snapshot queries. Read-optimized queries can skip logs and read only base files.',
+    explanation: 'Merge-on-read moves part of the merge to query time. Delta logs make writes cheaper and fresher, while snapshot reads must combine logs with the latest base file.',
   };
 
   yield {
     state: hudiGraph('Compaction turns delta logs into a fresh base slice'),
     highlight: { active: ['log', 'base2', 'e-log-base2'], found: ['reader'], compare: ['base1'] },
-    explanation: 'Compaction is the pressure-release valve for merge-on-read. It combines accumulated delta logs with base files into newer base files so future reads do not merge long log chains.',
+    explanation: 'Compaction repays accumulated read debt. It combines delta logs with a base file into a newer base slice, shortening the merge chain for future snapshot reads.',
   };
 
   yield {
@@ -194,41 +194,98 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'Apache Hudi is a lakehouse table format focused on record-level upserts, deletes, incremental pulls, and table services. Its core mechanics are the timeline, file groups, file slices, copy-on-write tables, merge-on-read tables, and compaction.',
-        'This case study extends Delta Lake Case Study, Apache Iceberg Table Format Case Study, Parquet Columnar Format Case Study, Debezium CDC Case Study, RocksDB MANIFEST & VersionSet, and Write-Ahead Log. The key lesson is how update-heavy lake tables organize immutable files into evolving file groups.',
+        'Apache Hudi is a lakehouse table format for record-level upserts, deletes, incremental pulls, and table services over object-store files. Its main data structures are the timeline, file groups, file slices, indexes, copy-on-write tables, merge-on-read tables, and compaction.',
+        'The key lesson is that an update-heavy lake table is a storage engine. It cannot pretend that Parquet files are mutable database pages. It has to map record keys to file groups, write new immutable pieces, and let readers reconstruct a valid table state from committed history.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Hudi timeline records table actions as instants: commits, delta commits, compactions, cleans, rollbacks, and other table-service events. Readers inspect completed instants to decide which files are visible. Writers and table services coordinate around pending and completed instants.',
-        'Data is organized into file groups. A file group has a file id and evolves through file slices. A slice may contain a base Parquet file and, for merge-on-read tables, log files with newer changes. Snapshot queries merge the latest base file with relevant log records.',
+        'Data lakes were originally strongest at append-heavy analytical data. Modern analytics also needs corrections, deletes, late-arriving events, CDC ingestion, incremental consumers, and long-running readers. Hudi exists because teams want those database-like behaviors without leaving cheap lake storage.',
+        'The constraint is physical. Object-store files are large immutable objects, and Parquet is built for columnar scans. Updating one record in place is the wrong model. Hudi makes mutation practical by routing records into stable file groups and recording table evolution through a timeline.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Obvious approach and wall',
       paragraphs: [
-        'Copy-on-write makes reads fast because queries scan base files, but updates rewrite affected base files. Merge-on-read makes writes cheaper by appending delta logs, but snapshot reads pay merge cost until compaction creates fresh base files.',
-        'The operational tradeoff is table services. Compaction, cleaning, clustering, indexing, and rollback policies determine whether the table stays healthy. Too little compaction leaves long log chains. Too aggressive compaction steals IO from ingestion and queries.',
+        'The obvious lake approach is to append new Parquet files forever. That works for inserts and audit logs. It breaks for upserts because older versions of the same key remain visible unless every reader understands how to pick the latest valid record.',
+        'The opposite baseline is to rewrite whole partitions whenever a record changes. That keeps reads simple, but an update-heavy CDC stream can turn small logical changes into large rewrite jobs. The wall is choosing where to pay: write latency, read latency, compaction IO, index cost, or operational complexity.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'A CDC pipeline ingests orders from MySQL into a data lake. Updates arrive every few seconds. A merge-on-read Hudi table appends delta logs to affected file groups so ingestion stays low-latency. Dashboard snapshot queries merge base files and logs. A compaction service later rewrites hot file groups into fresh base files during low-traffic windows.',
-        'For a read-heavy dimension table that updates once per day, copy-on-write is simpler. Each update rewrites affected base files, and BI queries only read Parquet base files without log merging.',
+        'The core insight is to separate table history from physical file layout. The timeline says which actions are committed. File groups say where versions of a record range live. File slices say which base file and log files make up a visible version of that group.',
+        'The invariant is snapshot visibility. A reader should see only file slices allowed by completed timeline instants. Files produced by failed, inflight, rolled-back, cleaned, or not-yet-committed actions cannot become part of the reader view. That invariant is what turns many immutable files into one coherent table.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism: timeline and file groups',
       paragraphs: [
-        'The common mistake is treating copy-on-write and merge-on-read as universal winners. CoW moves cost to writes; MoR moves cost to reads and compaction. Another trap is ignoring file-group skew. If updates cluster around a small number of file groups, those groups become compaction and query hot spots.',
+        'The timeline records actions as instants. Commits, delta commits, compactions, cleans, rollbacks, and savepoints each describe a table event. Instants move through requested, inflight, and completed states. Readers use completed instants to choose a table state; writers and services use pending instants to coordinate work.',
+        'File groups provide update locality. A file group has a file id. Each group evolves through file slices. A slice contains a base Parquet file and, for merge-on-read tables, optional log files with newer changes. The table index maps record keys to file groups so writers can update the right group without scanning the whole lake.',
+        'Copy-on-write creates new base files when records change. Merge-on-read appends changes to delta logs and lets snapshot queries merge those logs with the base file. Compaction later writes a fresh base slice so read-time merge chains do not grow forever.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: Apache Hudi concepts at https://hudi.apache.org/docs/concepts/, table and query types at https://hudi.apache.org/docs/table_types/, and Hudi merge-on-read discussion at https://hudi.apache.org/blog/2025/07/21/mor-comparison/. Study Delta Lake Case Study, Apache Iceberg Table Format Case Study, Debezium CDC Case Study, Parquet Columnar Format Case Study, and RocksDB MANIFEST & VersionSet next.',
+        'The correctness argument is that visibility is derived from committed history, not from whatever files happen to exist in storage. A failed writer may leave files behind, but without a completed instant those files do not belong to the snapshot. A cleaning service may remove old slices only when retention rules say they are no longer needed.',
+        'File groups make updates stable. Once a record key maps to a file group, later versions of that record stay in that group. A reader does not need to search every file for every key; it reconstructs the latest visible slice for each group and applies the table type rules.',
+        'This is similar to database storage engines. Logs, pages, manifests, snapshots, and compaction turn changing records into durable layout. Hudi applies that storage-engine pattern to lake files, where the units are Parquet base files, row-oriented logs, timeline instants, and table services.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Copy-on-write makes reads fast because snapshot queries scan base files, but updates rewrite affected base files. Merge-on-read makes writes cheaper by appending logs, but snapshot reads pay merge cost until compaction produces fresh base files.',
+        'The table-services budget decides whether the design stays healthy. Too little compaction leaves long log chains and slower reads. Too much compaction steals IO from ingestion and queries. Cleaning reclaims old slices, but aggressive cleaning can break lagging incremental readers if retention is wrong.',
+        'Indexing is another cost. Upsert systems must locate the file group for a key. Bloom filters, metadata tables, partitioning, key distribution, and record-key stability all affect write throughput. A poor key design can concentrate updates in hot file groups and make compaction uneven.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Hudi wins when lake data is update-heavy and readers still need table semantics. CDC ingestion, order states, user profiles, corrections to event streams, slowly changing dimensions, privacy deletes, and incremental downstream jobs are natural fits.',
+        'For a CDC orders table, merge-on-read can append frequent updates to logs so ingestion remains low latency. Dashboard snapshot queries merge base files and logs. A compaction service rewrites hot file groups during low-traffic windows. The same timeline can feed an incremental consumer asking for changes since a prior instant.',
+        'For a read-heavy dimension table that updates once per day, copy-on-write can be simpler. Each update rewrites affected base files, and BI queries read Parquet base files without log merging. The right table type follows the workload, not a universal ranking.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'Hudi fails as a zero-maintenance file dump. A table needs compaction policy, cleaning policy, clustering choices, index tuning, key design, and monitoring. If the workload is pure append and read-mostly, a simpler append table can be easier to operate.',
+        'It is also the wrong tool for low-latency point transactions that need database-style locking and millisecond reads. Hudi improves lake mutation, but it is still a lakehouse table format over large files. If every request needs one row now, a database or serving store may be the better system.',
+        'Common hazards are stale timeline assumptions, file-group skew, unstable record keys, compaction backlog, metadata lag, and retention settings that clean files needed by old readers. These failures look like query slowness or missing records, but the cause is often table-service debt.',
+      ],
+    },
+    {
+      heading: 'Practical guidance',
+      paragraphs: [
+        'Review a Hudi table by asking how records find their file groups, how long log chains may grow, when compaction runs, how old slices are cleaned, how failed writes roll back, and how downstream consumers choose timeline instants. Those questions decide whether the table behaves like a storage system or a folder of mysterious files.',
+        'Choose CoW when read simplicity dominates and update volume is modest. Choose MoR when ingestion freshness matters and the team can operate compaction. Watch file sizes, log-chain length, compaction delay, small-file growth, failed instants, cleaner retention, and incremental reader lag.',
+        'Make key design explicit. If record keys are not stable, upserts become duplicates. If partitioning fights the update pattern, writers and compactors concentrate on hot groups. If keys are too skewed, one group can become the read and compaction bottleneck.',
+      ],
+    },
+    {
+      heading: 'What the visual shows',
+      paragraphs: [
+        'The timeline view shows state transitions. Completed instants are part of reader visibility. Requested and inflight instants explain work in progress. Rollback, clean, and compaction instants are not background noise; they preserve a coherent snapshot model.',
+        'The file-group view shows update locality. The timeline answers which instant is visible. The file group answers where the latest versions for a record range live. The CoW/MoR view shows where the merge is paid: at write time for CoW, at read and compaction time for MoR.',
+      ],
+    },
+    {
+      heading: 'Misconceptions',
+      paragraphs: [
+        'The common mistake is treating copy-on-write or merge-on-read as a universal winner. CoW moves cost to writes. MoR moves cost to reads and compaction. Neither removes the cost of mutation; each moves it to a different part of the system.',
+        'A second mistake is treating compaction as optional cleanup. In merge-on-read tables, compaction is part of the read-performance contract. If it lags, queries pay longer merge chains and operators debug symptoms that are really table-service debt.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Apache Hudi concepts at https://hudi.apache.org/docs/concepts/, table and query types at https://hudi.apache.org/docs/table_types/, and Hudi merge-on-read discussion at https://hudi.apache.org/blog/2025/07/21/mor-comparison/.',
+        'Study Delta Lake Case Study and Apache Iceberg Table Format Case Study for neighboring table formats, Debezium CDC Case Study for update streams, Parquet Columnar Format Case Study for base-file layout, RocksDB MANIFEST & VersionSet for versioned file metadata, and Write-Ahead Log for committed-history thinking.',
       ],
     },
   ],

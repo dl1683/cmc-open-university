@@ -197,35 +197,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Monte Carlo Tree Search, or MCTS, is a best-first simulation search method. It builds a search tree incrementally, using sampled outcomes to decide which branches deserve more computation. UCT, Upper Confidence bounds applied to Trees, balances exploitation of high-value branches with exploration of under-visited branches.',
-        'The core loop is selection, expansion, simulation, and backpropagation. Each node stores visits N, total value W, and average value Q. Selection uses those statistics to decide where the next simulation should go.',
+        'Many decision problems sit between two simpler worlds. Exhaustive minimax or dynamic programming is too expensive because the tree is enormous. Pure random simulation is too wasteful because the choices are not equally promising.',
+        'Monte Carlo Tree Search exists for that middle ground. It treats computation as a budget to allocate. The algorithm grows only the parts of the tree that have earned attention, while still reserving some budget for choices that have not been tested enough.',
+        'That budget framing is the reason MCTS remains useful outside board games. When a system can try only a limited number of plans, proofs, tool calls, or action sequences, it needs a disciplined way to spend samples on both promising and uncertain branches.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The core idea',
       paragraphs: [
-        'Selection walks from the root to a leaf by maximizing a UCT-style score such as Q + c * sqrt(log(parent visits) / child visits). Expansion adds one new child. Simulation estimates the outcome from that child, either by random rollout, a policy, a learned value function, or an external verifier. Backpropagation updates every node on the path.',
-        'The algorithm is attractive because it is anytime. More iterations usually improve estimates, but there is always a current best move. That makes it useful when exhaustive search is impossible and the system has a fixed budget.',
+        'Each node stores statistics, not a final truth: visit count N, accumulated value W, and average value Q = W / N. A child with high Q looks promising. A child with low N is still uncertain.',
+        'UCT, Upper Confidence bounds applied to Trees, turns that tension into a score: Q + c * sqrt(log(N_parent) / N_child). The first term exploits observed value. The second term explores children that have received too little attention. The constant c controls how aggressively the search pays for uncertainty.',
+      ],
+    },
+    {
+      heading: 'The mechanics',
+      paragraphs: [
+        'One iteration has four phases. Selection walks down existing tree edges by UCT. Expansion adds one untried child at the selected frontier. Simulation estimates the outcome from that child with a rollout, learned value model, test run, environment call, or verifier. Backpropagation updates every node on the selected path.',
+        'The final move is usually chosen by visit count at the root, not by a single lucky value estimate. A heavily visited child has survived repeated attempts to disprove it. That makes the root policy more stable than choosing the largest Q after a small number of samples.',
+      ],
+    },
+    {
+      heading: 'Invariant and proof idea',
+      paragraphs: [
+        'The local invariant is accounting: after k iterations, a node has N equal to the number of simulations whose selected path passed through that node, W equal to the sum of backed-up rewards for those simulations, and Q equal to W / N when N is positive. Backpropagation is the operation that preserves this invariant.',
+        'The exploration term is the self-correction mechanism. If a child is ignored while its parent keeps receiving visits, log(N_parent) rises while N_child stays fixed, so the child becomes more attractive. If a child is selected often, its bonus shrinks and it must keep winning on value. Under clean bandit assumptions this is what makes UCB-style allocation converge toward better arms. In tree search, the same idea is useful, but the assumptions depend on rollout quality and game dynamics.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the select-expand-rollout-backprop view, read the first frame as the whole loop, then follow the highlighted path from root to B. That highlight means B receives the next simulation; it does not mean B is permanently best.',
+        'When B2 appears, the tree is spending one expansion on one new child, not materializing the full game tree. When rollout and value light up, the algorithm is producing one sample. In the backprop frame, check that only B2, B, and root change statistics. That is the accounting invariant in motion.',
+        'In the UCT exploration view, read the score table left to right. Q is the current value estimate, N is how much evidence exists, the bonus is the uncertainty payment, and score is the selection priority. The visit plot then shows the expected behavior: early spread, later concentration, and occasional revisits to weaker branches because their uncertainty term never disappears completely.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'One iteration costs a descent through the current tree, optional child creation, one evaluation, and a backpropagation over the same path. If depth is d and the evaluation costs E, the rough cost is O(d + E) per iteration. Memory is O(number of expanded nodes).',
+        'The algorithm is anytime. After ten iterations it has a current recommendation; after ten thousand it usually has a better one. That property matters in games, robotics, and agent planning because the caller can stop at a latency or compute budget instead of waiting for complete search.',
+      ],
+    },
+    {
+      heading: 'Design checklist',
+      paragraphs: [
+        'Before using MCTS, define the state representation, legal-action generator, transition rule, terminal condition, value signal, and budget. If any of those are vague, the tree will look scientific while optimizing a poorly specified process. For agent workflows, this means deciding exactly what counts as an action and exactly which verifier produces the backed-up value.',
+        'Tune exploration against the evaluation noise. A high exploration constant keeps checking uncertain branches, which helps when early values are unreliable. A low constant commits faster, which helps when the value signal is strong and budget is tight. The right value is empirical; log visit counts and root choices under different budgets instead of treating c as a magic constant.',
+      ],
+    },
+    {
+      heading: 'Testing search quality',
+      paragraphs: [
+        'Use small games or toy planning problems where the optimal move is known. Check that more iterations improve the root choice on average, that visit counts concentrate on stronger actions, and that the algorithm still explores an initially under-sampled winner. These tests catch sign errors in reward backup and mistakes in the UCT formula.',
+        'For noisy or learned evaluators, compare against ablations: random rollouts only, policy priors only, value-only selection, and exhaustive search on small instances. MCTS earns its complexity only when the loop beats simpler ways to spend the same compute.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'MCTS is strong when legal actions can be generated, states can be advanced or evaluated, and many imperfect samples are more useful than one shallow heuristic. Go programs, game-playing systems, robot planning, program search, and verifier-guided reasoning all fit this shape when the value signal is meaningful.',
+        'It also fits domains where action quality is uneven. If one branch starts producing better evidence, the tree naturally gives it more simulations without deleting the alternatives.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'MCTS fails when the simulator lies, the verifier rewards the wrong thing, rollouts are too noisy, or evaluations are so expensive that the search cannot gather enough samples. It also struggles when the branching factor is huge and there is no policy to propose plausible actions.',
+        'For LLM planning, the warning is sharper: search does not create a trustworthy objective. If the proposal model and verifier share the same blind spot, MCTS can spend more computation becoming confidently wrong.',
+        'It can also overfit the search budget. A move that looks best after 100 rollouts may not be best after 10,000, and a production system may only have time for 100. Treat the chosen budget as part of the algorithm, not as an implementation detail.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'At the root, actions A, B, and C have different visit counts and win estimates. B currently has the best average value, but C has fewer visits and therefore a larger exploration bonus. UCT computes a score for each child and selects the next branch to simulate. After a rollout returns +1, the selected leaf, its parent, and the root all update their visit and value statistics.',
-        'This same shape appears in modern AI planning. AlphaZero-style systems use neural policy and value networks to guide MCTS. LLM planning systems can use a proposal model for actions and a verifier or environment rollout for value, although the quality of the simulator and verifier becomes the limiting factor.',
+        'Suppose the root has actions A, B, and C. B has the best current average value, C has fewer visits, and A is middling on both. UCT computes all three scores. If B still wins after paying C its exploration bonus, B receives the next descent.',
+        'The selected path reaches B2, a new leaf. A rollout returns +1. Backpropagation increments B2, B, and root, adds +1 to their accumulated values, and changes their averages. On the next iteration, the tree is not starting over; it is selecting with a slightly better map of the search space.',
       ],
     },
     {
-      heading: 'Cost and complexity',
-      paragraphs: [
-        'Each iteration costs one tree descent, one expansion, one rollout or evaluation, and one backpropagation along the selected path. Total cost is the number of iterations times the rollout or verifier cost. Memory grows with the number of expanded nodes. A large branching factor or expensive simulator can dominate quickly.',
-        'MCTS is robust to partial information, but not immune to bad signals. If rollouts are biased, if the value function is miscalibrated, or if the simulator omits important constraints, the search can become confidently wrong. This is the same verifier-quality lesson taught by Process Reward Models & Verifier Search.',
-      ],
-    },
-    {
-      heading: 'Primary sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Michael C. Fu, Monte Carlo Tree Search: A Tutorial at https://www.informs-sim.org/wsc18papers/includes/files/021.pdf and Browne et al., A Survey of Monte Carlo Tree Search Methods at https://www.incompleteideas.net/609%20dropbox/other%20readings%20and%20resources/MCTS-survey.pdf.',
         'Study Multi-Armed Bandits for exploration bonuses, Thompson Sampling for uncertainty-driven allocation, Tree Traversals for the explicit tree, Value Iteration for planning with known transitions, Tree of Thoughts Search Case Study for LLM thought search, and Process Reward Models & Verifier Search for learned step scoring.',

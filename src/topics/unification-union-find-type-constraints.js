@@ -137,37 +137,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Unification solves equations between symbolic terms. In type inference, those terms are types: int, bool, a, list a, or a -> b. The solver finds a substitution that makes every constraint true, such as a := int and b := bool.',
-        'The important word is general. A most-general unifier keeps as much freedom as possible while satisfying the equations. That is why unification is the engine under Hindley-Milner style inference rather than just a pile of special-case casts.',
+        'A type checker often knows how a value is used before it knows what the value is. In f(x), the argument type, function type, and return type may all start unknown.',
+        'The compiler needs one set of type assignments that makes every use agree. If x is tested in an if condition, x must be bool. If f(x) is added to 1, the result of f must be int. Those facts must meet in one solver.',
+        'Unification is the equality solver for this problem. It takes equations between type terms and returns the most general substitution that makes the equations true.',
       ],
     },
     {
-      heading: 'Data structure model',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A practical solver stores type variables in Union-Find (Disjoint Sets), structured type nodes in an arena, and constraints in a queue or stack. Equal variables are merged. A representative can carry a binding to a concrete structure. When two function types unify, the solver adds constraints for their argument and return types.',
-        'The occurs check is the safety rail. Before binding a variable to a structure, the solver asks whether that variable appears inside the structure. If it does, the binding would create an infinite type such as a = a -> b, so ordinary HM inference rejects it.',
+        'The first attempt is local checking. Give 1 the type int, give true the type bool, check each function call against the function annotation, and report an error when a local rule fails.',
+        'That works for annotated code. It breaks down when the program leaves types implicit and lets one unknown flow through several expressions. A local checker either guesses too early or keeps rediscovering that several variables are really the same unknown.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Where the naive approach breaks',
       paragraphs: [
-        'For f(x) where x is later used as an int and the result is used as a bool, the inferencer may create x:a, f:b, result:c, then emit a = int, b = a -> c, and c = bool. Unification solves those equations into f:int -> bool and x:int.',
-        'If the program applies a value to itself, as in x(x), the solver gets a constraint like a = a -> b. The occurs check rejects it in a non-recursive type system. That failure is not a runtime problem; it is the type graph refusing to represent an infinite shape.',
+        'The missing structure is equality between unknowns. If b and c are the same result type, solving them separately can duplicate work and produce inconsistent errors.',
+        'The other missing guard is the occurs check. If the solver accepts a = a -> b, it has said that a type contains itself. Ordinary Hindley-Milner inference rejects that infinite type rather than hiding it inside a substitution.',
       ],
     },
     {
-      heading: 'Implementation notes',
+      heading: 'The core insight',
       paragraphs: [
-        'Good diagnostics require provenance. Every constraint should know which AST node produced it, and each unification failure should keep the chain of equations that led to the conflict. Without provenance, the type solver may be correct but unusable.',
-        'A small language can implement substitutions with maps first. A larger compiler benefits from union-find representatives, path compression, rank or size heuristics, and compact arenas for type structures. Hash Table is usually used to map source names and type variable ids into those internal records.',
+        'Do not guess a type. Create fresh variables, collect equality constraints from program use, and solve only what the constraints force.',
+        'Union-Find stores equal type variables as one equivalence class. Structured type terms store constructors such as int, bool, list a, and a -> b. A class can be bound to a structure only when doing so passes the occurs check.',
+        'The target is the most-general unifier. If the program only proves a = b, the solver should merge a and b, not invent int. More specific answers can come later from more constraints.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'Primary sources: Robinson resolution paper at https://www.cs.tufts.edu/~nr/cs257/archive/john-alan-robinson/resolution.pdf, Cornell type inference and unification notes at https://www.cs.cornell.edu/courses/cs3110/2011sp/Lectures/lec26-type-inference/type-inference.htm, Cornell type inference summary at https://www.cs.cornell.edu/courses/cs3110/2016fa/l/17-inference/notes.html, and Aarhus type analysis notes on union-find unification at https://cs.au.dk/~amoeller/spa/2-type-analysis.pdf. Study Union-Find (Disjoint Sets), Pratt Parser Expression AST, Hindley-Milner Algorithm W & Let Polymorphism, and Symbolic Execution Path Constraints next.',
+        'Inference first walks the expression tree. It gives fresh variables to unknown expressions and emits equations from usage: applying f to x emits f = a -> b, using a value as an int emits a = int, and returning two branch values emits left = right.',
+        'The solver keeps a worklist of equations. If the equation is a = a, it is done. If it is a = b, the two classes are unioned. If it is a = int, the class for a is bound to int. If it is a -> b = int -> c, the solver decomposes it into a = int and b = c.',
+        'Different constructors fail immediately. int cannot unify with bool, and list a cannot unify with a function type. A variable can bind to a structure only if that variable does not occur inside the structure.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Every solver rule preserves the set of possible substitutions. Merging a = b is safe because any solution must assign them the same type. Binding a = int is safe when no previous binding conflicts. Decomposing function equality is safe because two function types are equal only when their argument and result types are equal.',
+        'The occurs check preserves finite types. If a occurs inside t, binding a := t would require expanding a forever. Rejecting that equation prevents the solver from manufacturing a recursive type the language did not ask for.',
+        'Generality comes from restraint. Union-Find records equalities without choosing concrete types until a concrete type is forced. That is why the result can be reused in more call sites.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the unify-variables view, follow the path from AST to fresh variables to equality constraints. The important state change is when separate unknowns become one Union-Find class; after that, every later binding applies to the whole class.',
+        'In the constraint table, the solver action column is the rule being applied. "bind a" narrows one representative. "decompose" replaces one structural equation with smaller equations. "union b,c" says the two names no longer carry separate information.',
+        'In the occurs-check view, the highlighted self-reference is the boundary between a valid substitution and an infinite type. The rejected row is not an implementation detail; it is what keeps ordinary inference sound.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose the compiler sees f(x) + 1. Give x the fresh type a, give f(x) the fresh type b, and introduce a fresh result type c for f. The function call gives the equation f = a -> c. The addition gives c = int and the whole expression has type int.',
+        'If x is also used in if x then ..., the condition emits a = bool. The solver binds the class for a to bool and the class for c to int, so f must have type bool -> int.',
+        'No guess was needed. The program uses forced each binding. If a later constraint says f = string -> int, unification reaches bool = string and reports the conflict at the source spans that produced those constraints.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Union-Find makes repeated equality between variables cheap. With path compression and union by rank or size, find and union are amortized inverse-Ackermann time, effectively constant for normal compiler inputs.',
+        'The expensive work is usually structural: walking type terms during decomposition, running occurs checks, normalizing representatives, and carrying source provenance for diagnostics.',
+        'A teaching compiler can use maps and recursive type trees. A production compiler usually uses compact arenas, representative IDs, binding records, levels for generalization, and delayed normalization so the solver does not rebuild large trees on every lookup.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Unification is the core mechanism behind Hindley-Milner inference, many logic-programming systems, symbolic term solving, and equality-heavy static analyses.',
+        'It fits when the relation is equality and the answer should stay as general as possible. It also fits compiler diagnostics when each constraint carries provenance; the solver can explain which expression forced int = bool instead of exposing internal variable names.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'Plain first-order unification solves equality. It does not by itself solve subtyping, overload resolution, type classes, effects, row polymorphism, higher-rank polymorphism, ownership, lifetimes, or gradual type boundaries.',
+        'Languages with explicit recursive types need different rules than ordinary HM inference. In those languages, the question is not whether a variable occurs in a type, but whether the recursive type is introduced through an allowed form.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Skipping the occurs check is the classic unsound shortcut. It may make easy programs pass, then produce infinite types or crashes when recursive constraints appear.',
+        'Guessing concrete types too early loses the most-general unifier. That can make a valid program fail later because the solver committed to int where the constraints only required a shared unknown.',
+        'Poor provenance turns a correct solver into a bad user experience. The compiler should report the source expressions that created the conflicting constraints, not only the final internal equation.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Union-Find (Disjoint Sets) for the representative data structure, Pratt Parser Expression AST for where constraints come from, Hindley-Milner Algorithm W & Let Polymorphism for full inference, Symbolic Execution Path Constraints for another constraint-solving workflow, and Gradual Typing Boundaries for a contrasting type relation that is not just equality.',
+        'Good references: Robinson resolution paper at https://www.cs.tufts.edu/~nr/cs257/archive/john-alan-robinson/resolution.pdf, Cornell type inference and unification notes at https://www.cs.cornell.edu/courses/cs3110/2011sp/Lectures/lec26-type-inference/type-inference.htm, Cornell type inference summary at https://www.cs.cornell.edu/courses/cs3110/2016fa/l/17-inference/notes.html, and Aarhus type analysis notes on union-find unification at https://cs.au.dk/~amoeller/spa/2-type-analysis.pdf.',
       ],
     },
   ],

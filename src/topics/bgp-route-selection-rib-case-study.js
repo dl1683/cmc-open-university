@@ -229,44 +229,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'BGP is a path-vector routing protocol, but the implementation lesson here is state discipline. A router receives candidate paths from neighbors, stores them, applies policy, selects the best local routes, and exports selected forwarding information to the FIB. RFC 4271 names the key routing information bases: Adj-RIBs-In, Loc-RIB, and Adj-RIBs-Out.',
-        'Adj-RIBs-In holds routing information learned from peers. Loc-RIB holds the routes selected by the local BGP speaker decision process. Adj-RIBs-Out holds routes selected for advertisement. The FIB is outside BGP itself: it is the packet-forwarding table built from selected routes.',
+        'BGP is the protocol that lets independently operated networks exchange reachability. Your network may learn several possible paths for the same prefix from transit providers, peers, route reflectors, internal routers, or customer links. The router cannot treat those updates as packet-forwarding truth. It has to store candidates, apply policy, choose one local view, decide what to advertise, and then program the forwarding plane.',
+        'The RIB split is the data model that keeps those duties separate. Adj-RIB-In is what neighbors have told the router. Import policy filters or rewrites that candidate state. Loc-RIB is the router\'s selected local routing information. Adj-RIB-Out is what this router is prepared to tell a neighbor after export policy. The FIB is the packet-speed table used by forwarding hardware or the kernel datapath.',
+        'That separation is why this belongs in a data-structures curriculum. BGP is not only a protocol message format. Operationally, it is a set of evolving records, indexes, policies, comparisons, and publications. A bad record in the control plane can program a very fast forwarding plane with the wrong answer.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'For each prefix, the router may learn multiple paths. Import policy can reject paths or modify attributes such as local preference. The decision process ranks the remaining candidate records. The selected route enters Loc-RIB, may be advertised after export policy, and may be installed into the FIB so packets can be forwarded by longest-prefix match.',
-        'The toy comparison in the animation uses a common teaching ladder: validate the path, prefer higher local preference, consider AS-path length, then other attributes and deterministic tie-breakers. Production routers and vendors have specific rules and policy hooks, so the important transferable idea is the ordered reduction over candidate route records.',
+        'The obvious approach is to install the latest update for a prefix directly into the FIB. That is simple, and it resembles a last-writer-wins map from prefix to next hop. It is also wrong. A new path might violate import policy, have an unreachable next hop, be worse than an existing path, carry attributes that should not be exported, or come from a neighbor that is allowed to announce only a narrow set of routes.',
+        'Another tempting shortcut is to think of BGP route choice as the same thing as packet longest-prefix match. They are different stages. BGP chooses a best path among candidates for one prefix. The FIB later chooses the most specific matching prefix for a packet destination. Confusing those two layers makes routing behavior look arbitrary when it is actually two ordered decisions composed together.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'A full internet table contains hundreds of thousands of IPv4 routes and a large IPv6 table, with multiple candidate paths per prefix on many routers. The data structures must support update storms, withdrawals, policy recomputation, alternative-path retention, and safe publication to the FIB. Memory pressure is real because Adj-RIB-In can keep routes that are not currently selected.',
-        'Time scale matters. BGP convergence is control-plane work; it can take seconds or longer under churn. FIB lookup is data-plane work; it must answer per packet. Mixing those concerns is how route leaks, blackholes, and slow reconvergence become outages.',
+        'The wall is policy. The shortest AS path is not always the path an operator wants. A paid customer route may outrank a peer route. A route from one neighbor may be accepted only for certain prefixes. A route may carry communities that request no-export behavior, blackhole handling, prepending, or local preference changes. The router needs a programmable decision surface before packets are affected.',
+        'The second wall is churn. Paths are withdrawn, links fail, route reflectors update, prefixes flap, and validation state changes. If the router discards every losing candidate, a failure of the current winner forces a slow rediscovery process. If it retains alternatives, the best-path process can promote a backup already present in Adj-RIB-In.',
+        'The third wall is blast radius. BGP mistakes propagate. A route leak can redirect traffic across the wrong network. A prefix hijack can attract traffic to an unauthorized origin. A stale next hop can blackhole traffic. The data structure is not academic; its invariants are operational safety rules.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'A router learns 203.0.113/24 from three peers. Peer A has local preference 200, peer B has local preference 150, and peer C is rejected by import policy. Even though peer B has a shorter AS path in the toy table, local policy chooses peer A. The selected route enters Loc-RIB and programs the FIB entry used by packet forwarding.',
-        'Later, peer A withdraws the route. Because peer B remains in Adj-RIB-In and still passes policy, the decision process promotes peer B into Loc-RIB and the FIB is updated. The router did not need to query every neighbor again; it used retained candidate state. That is the data-structure lesson behind reconvergence.',
+        'For each prefix, store route candidates as records with attributes. Import policy decides which records survive and how their attributes are normalized. The decision process ranks the survivors in a deterministic order. The selected route enters Loc-RIB. Export policy decides what, if anything, is placed into Adj-RIB-Out for each neighbor. The forwarding process turns selected routes into FIB entries.',
+        'The transferable idea is ordered reduction over candidate records with retained backups. BGP does not just keep a single answer. It keeps enough structured state to explain where the answer came from, why other answers lost, what should be advertised, and what can replace the winner if the world changes.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the animation teaches',
       paragraphs: [
-        'Do not confuse BGP best path with longest-prefix match. BGP chooses the best route for a particular prefix from candidate paths. The FIB later chooses the most specific matching prefix for each packet. These are different decisions at different layers.',
-        'Do not treat the simplified comparison ladder as a universal standard order for every router. RFC 4271 defines the broad decision process and RIB concepts, while vendors and operators add policy, local preference, route reflection behavior, multipath, validation, and deployment-specific constraints.',
+        'The RIB pipeline view shows candidate state becoming selected state. Updates from peers first land as possibilities. Policy then changes the candidate set: it can reject a path, set local preference, tag a community, or make a route ineligible for export. Only after that does the decision process choose a best path.',
+        'The best-path case shows why policy dominates raw path shape. Peer A wins because local preference is higher. Peer C disappears because policy filters it. Peer B is not useless just because it lost; it remains a backup candidate that can be promoted if the current winner withdraws.',
+        'The important thing to watch is not the animation movement itself. Watch where state changes meaning. A route in Adj-RIB-In means "a neighbor said this." A route in Loc-RIB means "this router selected this." A FIB entry means "packets may now follow this action." Each transition raises the level of commitment.',
+      ],
+    },
+    {
+      heading: 'How the pipeline works',
+      paragraphs: [
+        'A BGP UPDATE message announces or withdraws reachability for one or more prefixes. For an announcement, the router records path attributes such as AS_PATH, NEXT_HOP, LOCAL_PREF inside iBGP contexts, MED, origin information, communities, and other metadata. The exact record shape varies by implementation, but the conceptual unit is a candidate route for a prefix from a neighbor.',
+        'Import policy runs before the candidate can become local truth. Policy can reject the route, prefer it, lower its preference, attach tags, modify attributes allowed by the deployment, or route it into a particular table. This is where business intent enters the algorithm. The best mathematical path and the best commercial path are often different.',
+        'The decision process compares eligible candidates. Common simplified ladders begin with validity and next-hop reachability, then operator preference, AS path length, origin type, MED in constrained cases, eBGP over iBGP, IGP cost to next hop, and deterministic tie breaks. Vendor behavior and configuration details matter, so a curriculum should teach the ladder as a model, not as a replacement for device documentation.',
+        'Once a winner exists, Loc-RIB stores the selected local route. Export policy then decides what should be advertised to each neighbor. A customer may receive a different exported set than a peer or provider. The FIB receives forwarding-ready information derived from the selected route, often after recursive next-hop resolution through the interior routing system.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Assume the router learns three candidates for 203.0.113.0/24. Peer A offers AS path "64501 64496" with local preference 200. Peer B offers AS path "64502" with local preference 150. Peer C offers an even lower MED but matches an import filter that rejects it. A naive shortest-path rule would be tempted by B or C. The actual policy-shaped decision picks A.',
+        'That result is not a bug. Local preference is an operator-controlled signal, and it usually dominates AS path length. The network is saying that traffic should leave through A even if B appears shorter in the path vector. Peer C never reaches the comparison because policy removes it from eligibility.',
+        'Now peer A withdraws the route. If peer B is still retained as a candidate and its next hop remains reachable, the router can rerun the decision process and promote B into Loc-RIB. The FIB update still has to be published carefully, but the control plane does not need to ask the entire internet for a fresh answer.',
+      ],
+    },
+    {
+      heading: 'Why retaining losers matters',
+      paragraphs: [
+        'A losing route is not necessarily bad data. It may be a valid backup, a less preferred commercial path, a path that is useful only under failure, or a route that should be advertised to some neighbors but not others after policy. Keeping alternatives gives the router memory.',
+        'This is the same reason many algorithms keep frontier state, backup candidates, or predecessor information. The current answer is a projection over richer internal state. If you collapse the internal state too early, every change becomes more expensive and less explainable.',
+        'In operations, that richer state helps with troubleshooting. Engineers can ask what the neighbor announced, what policy did, which candidate won, why another candidate lost, whether the route was exported, and whether the FIB actually received the forwarding entry. Those questions map almost exactly to Adj-RIB-In, policy, Loc-RIB, Adj-RIB-Out, and FIB.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The design works because it separates claim, preference, selection, export, and forwarding. A neighbor\'s claim is not immediately trusted as local truth. Local truth is not automatically exported to every neighbor. Exported control-plane state is not identical to packet-forwarding state. Each boundary lets operators enforce a different invariant.',
+        'The design also works because the comparison is deterministic. Given the same eligible candidates and policies, the router can choose the same best path. Determinism matters because routing changes need to converge. If every router made unstable or opaque choices, failures would become longer and harder to diagnose.',
+        'Finally, the design works because BGP is incremental. The internet is too large for every small change to rebuild everything from scratch. Route updates modify candidate sets, decision processes rerun for affected prefixes, selected routes change, and forwarding tables are updated for the consequences.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This model wins anywhere reachability is shaped by policy rather than a single shortest-path metric. Interdomain routing is built from business relationships, filtering, validation, traffic-engineering intent, and failure handling. A RIB pipeline gives those concerns somewhere explicit to live.',
+        'It also wins as a teaching model for route leaks, prefix hijacks, route reflection, add-path, multipath, validation, and convergence. Once you understand the RIB stages, many routing incidents become state-machine failures: the wrong route was accepted, the wrong preference was assigned, the wrong route was exported, or the selected route failed to install correctly.',
+        'For data-structure study, BGP connects maps, priority comparisons, records, filtering pipelines, incremental maintenance, and publication boundaries. It is a realistic example of why an algorithm\'s output is often less important than the state kept around that output.',
+      ],
+    },
+    {
+      heading: 'Where it can fail',
+      paragraphs: [
+        'Control-plane mistakes become forwarding incidents. Exporting too much can create a route leak. Accepting a false origin can enable a hijack. Choosing a path with an unreachable next hop can blackhole traffic. Letting unstable routes churn can consume CPU and delay convergence. The FIB may be fast, but it can only forward according to the control-plane answer it was given.',
+        'The simplified comparison ladder can also mislead beginners. Real networks add vendor-specific behavior, route reflector rules, multipath, BGP communities, RPKI origin validation, policy language, dampening or suppression strategies, and internal routing interactions. The right lesson is the shape of the decision, not a belief that every router follows one tiny table printed in a tutorial.',
+        'BGP also does not provide global optimality. Each autonomous system applies local policy with limited visibility. The result can be stable and useful without being globally shortest, cheapest, or fastest. That is not a failure of implementation; it is part of the protocol\'s decentralized contract.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Remember the verbs. Adj-RIB-In receives. Policy filters and rewrites. The decision process ranks. Loc-RIB records the local choice. Adj-RIB-Out advertises. The FIB forwards. Most BGP confusion comes from mixing those verbs together.',
+        'Remember the safety boundary too: a route is not equally trusted at every stage. The further it moves through the pipeline, the more consequences it has. That is why mature networks invest so much effort in import policy, export policy, validation, route monitoring, and staged rollout of routing changes.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RFC 4271, "A Border Gateway Protocol 4 (BGP-4)", especially the RIB definitions and Decision Process: https://datatracker.ietf.org/doc/html/rfc4271. RFC 9069 discusses Loc-RIB access through BMP and restates the Loc-RIB role: https://datatracker.ietf.org/doc/html/rfc9069. Study IP FIB Longest-Prefix Match Case Study next, then PATRICIA Trie, Hash Table, Binary Heap, Message Queue, Distributed Tracing, and Cilium eBPF Datapath Case Study.',
+        'Primary sources: RFC 4271, "A Border Gateway Protocol 4 (BGP-4)", especially the RIB definitions and Decision Process: https://datatracker.ietf.org/doc/html/rfc4271. RFC 9069 discusses Loc-RIB access through BMP and restates the Loc-RIB role: https://datatracker.ietf.org/doc/html/rfc9069. Study IP FIB Longest-Prefix Match Case Study next, then PATRICIA Trie, Hash Table, Binary Heap, Message Queue, Distributed Tracing, Cilium eBPF Datapath Case Study, and Consistent Hashing.',
       ],
     },
   ],

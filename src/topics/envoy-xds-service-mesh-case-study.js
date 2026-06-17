@@ -199,43 +199,62 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Envoy is commonly used as a programmable data-plane proxy in gateways and service meshes. The control plane decides desired configuration. Envoy instances enforce that configuration near traffic. xDS is the family of discovery APIs used to deliver listeners, routes, clusters, endpoints, secrets, and related resources dynamically.',
-        'The Envoy dynamic configuration overview explains that LDS, RDS, CDS, EDS, and related services allow most aspects of Envoy to be configured at runtime: https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/operations/dynamic_configuration. The xDS protocol documentation covers REST/gRPC delivery, versions, nonces, ACK/NACK behavior, and sequencing: https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol.',
+        'A service mesh exists because modern services cannot bake every traffic rule into application code. A checkout service may call inventory, payments, fraud, recommendations, and shipping. Each of those calls needs timeouts, retries, load balancing, mTLS, telemetry, and sometimes canary routing. Those rules change more often than the application binary should change. If every team implements them differently, the platform gets a pile of client libraries with inconsistent behavior.',
+        'Envoy gives the platform a programmable data plane. Each application sends traffic through a local proxy or gateway. The proxy handles the repeated network work, while a control plane computes desired configuration and sends it to proxies. xDS is the family of APIs that carries this configuration: listeners, routes, clusters, endpoints, and secrets. The point is not only central control. The point is central control without putting that control service on the hot path of every request.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting wrong answer',
       paragraphs: [
-        'A control plane watches service discovery, policy, certificates, deployment state, and operator intent. It converts that state into xDS resources. Listener Discovery Service says what sockets and filter chains exist. Route Discovery Service maps requests to clusters. Cluster Discovery Service defines upstream pools and policies. Endpoint Discovery Service lists concrete backends. Secret Discovery Service can deliver certificates and keys.',
-        'Envoy keeps the request path local. A request hits a listener, flows through filters, matches a route, selects a cluster, picks an endpoint, and forwards. The control plane is not on every request. That separation is the entire point: dynamic policy with local data-plane speed.',
+        'The first naive design is a smart central router. Every request asks a control service where to go, what policy to apply, and whether the caller is allowed. This feels simple because one system owns the truth. It fails because the control service becomes a latency dependency and an availability dependency for every call. If the control plane slows down, the whole mesh slows down. If it is unreachable, services that already had enough local information can stop serving anyway.',
+        'The second naive design is a pile of static proxy files. A deployment system writes a new YAML file beside each proxy, then restarts or reloads it. This removes the central hot-path dependency, but it makes rollout correctness hard. Routes can reference clusters that have not arrived yet. Endpoints can disappear before old connections drain. Certificates can rotate out of order. A global file edit can also create a large blast radius because every proxy may accept the same bad configuration at the same time.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The hard part is consistency. If a route points to a cluster before the cluster exists, traffic can fail. If endpoints are removed before old routes drain, in-flight requests can reset. Envoy documentation notes ordering constraints such as CDS before EDS, LDS after corresponding CDS/EDS, and RDS after related resources when pushing updates: https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol. Aggregated Discovery Service can help sequence related resources through one stream.',
-        'A mesh also centralizes blast radius. A bad route, retry policy, or circuit breaker setting can affect many services quickly. Production control planes need validation, staged rollout, config dumps, ownership, and telemetry.',
+        'Envoy splits the problem into two planes. The data plane must be fast, local, and able to keep serving with the last accepted configuration. The control plane can be slower and smarter because it computes desired state, validates it, and streams updates. xDS is the contract between the two. It decomposes proxy state into resource types so that the system can reason about dependencies instead of shipping one undifferentiated blob.',
+        'LDS defines listeners: what ports exist and what filter chains run. RDS defines route configuration: how requests map to clusters. CDS defines clusters: named upstream pools and policies. EDS defines endpoints: concrete healthy backends inside those clusters. SDS can deliver secrets such as certificates and keys. A route should not point at a cluster that the proxy has not accepted. A cluster should not receive traffic before it has usable endpoints. This dependency ordering is the main systems lesson.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the system works',
       paragraphs: [
-        'Suppose checkout traffic currently routes to cluster checkout-v1. A new checkout-v2 deployment is ready for a 1 percent canary. The control plane first publishes CDS for checkout-v2, then EDS with healthy endpoints. Only after Envoy has the upstream does the control plane publish an RDS change that sends 1 percent of matching traffic to checkout-v2. Telemetry watches error rate, p99 latency, retries, and circuit-breaker overflow. If the canary is healthy, the route percentage increases. If not, RDS returns traffic to v1 without redeploying application code.',
-        'That scenario connects Load Balancer, Circuit Breakers, Distributed Tracing, Feature Flag Control Plane, and OpenTelemetry Collector. The mesh is the shared traffic-control layer, but observability tells operators whether a control-plane decision worked.',
+        'A control plane usually watches service discovery, deployment state, policy objects, certificate state, and rollout intent. From those inputs it builds a versioned snapshot of resources for each Envoy. Envoy keeps a management stream open and requests resources by type. The control plane responds with resources and version information. Envoy either ACKs a valid update or NACKs an invalid update with an error. This ACK and NACK loop matters because desired state is not enough. Operators need to know what the proxy actually accepted.',
+        'On the request path, Envoy does not call the control plane. It accepts a connection through a listener, runs filters, matches a route, selects a cluster, applies load-balancing policy, chooses an endpoint, forwards the request, and emits telemetry. Retries, timeouts, circuit breakers, outlier detection, request IDs, spans, access logs, and metrics all happen inside the proxy from loaded configuration. The control plane changes the rules; the proxy applies the rules locally.',
+        'Aggregated Discovery Service is useful because it lets several resource types share one stream. That does not erase dependency rules, but it makes ordering and observation easier. A safe rollout can publish a new cluster, warm endpoints, move a small percentage of route traffic, watch telemetry, increase traffic, and clean up the old cluster after in-flight work drains.',
+        'Many production meshes also scope configuration by proxy identity. A gateway, a frontend sidecar, and a batch-worker sidecar should not all receive the same listeners and routes. The control plane filters resources by node metadata, workload labels, namespace, locality, and policy ownership. This reduces memory use and blast radius, and it makes accidental cross-tenant routing easier to detect.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A service mesh does not remove distributed-system failure. It moves much of the traffic policy into a shared proxy layer. That can be powerful or dangerous. Retries can amplify overload. Timeouts can be inconsistent. A control-plane outage should not stop existing data-plane traffic, but it may block safe updates. The actual loaded Envoy config can differ from desired state, so config dump and ACK/NACK visibility are operational requirements.',
+        'The first view proves that service-mesh configuration is a graph, not a flat file. Listeners depend on routes, routes depend on clusters, clusters depend on endpoints, and secrets can sit under the transport layer. The important question is not simply whether the final desired graph is correct. The important question is whether every intermediate graph accepted by Envoy is safe to serve.',
+        'The second view proves why the data plane must stay local. Once Envoy has valid resources, request handling is a sequence of local lookups and policy decisions. This is why a mesh can change traffic policy quickly without making a control-plane RPC for each request. It is also why loaded-config inspection, config dumps, and telemetry are operational necessities. They show the difference between what the platform wanted and what the proxy is actually doing.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Official sources: Envoy dynamic configuration at https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/operations/dynamic_configuration, xDS protocol at https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol, xDS API overview at https://www.envoyproxy.io/docs/envoy/latest/configuration/overview/xds_api, and Envoy examples at https://www.envoyproxy.io/docs/envoy/latest/configuration/overview/examples. Study Load Balancer, Circuit Breakers & Deadlines, Distributed Tracing, OpenTelemetry Collector Case Study, Feature Flag Control Plane, and Kubernetes Reconciliation Case Study next.',
+        'The benefit is uniform traffic control. A platform team can apply mTLS, retries, timeouts, load balancing, tracing, rate limits, and canaries across languages. The cost is a new distributed system beside the old one. Proxies consume CPU and memory. Sidecars add hops and connection management. Control planes must scale fanout to many proxies and many resource versions. Operators now debug both the application and the mesh.',
+        'There is also policy risk. Retries can amplify overload if timeout budgets are wrong. Circuit breakers can reject healthy traffic if thresholds are copied without understanding the service. Outlier detection can eject too many hosts during a partial incident. A mesh moves behavior out of application code, but the behavior still has to be designed. A bad global policy can fail faster than a bad local library because it can reach every workload through the control plane.',
+        'The strongest mesh teams treat configuration like code. They run static validation, simulate dependency graphs, stage rollouts by cell or region, and keep emergency rollback paths simple. They also set ownership boundaries so that a service team can own its routes and timeouts while a platform team owns base mTLS, telemetry, and global safety limits.',
+      ],
+    },
+    {
+      heading: 'Real uses and failure modes',
+      paragraphs: [
+        'The common case is a canary. The control plane creates resources for checkout-v2, proves that endpoints exist, then moves one percent of traffic by changing routes. Metrics watch error rate, p99 latency, retry volume, saturation, and breaker overflow. Rollback is another route update. The application binary does not need to change. The same pattern supports regional failover, certificate rotation, gateway policy, multi-tenant routing, and gradual migration from one upstream service to another.',
+        'The hard failures are usually control-plane correctness, not proxy forwarding. A route can be valid YAML and still unsafe because it points to an unwarmed cluster. A stale endpoint set can send traffic to dead hosts. A certificate push can break mTLS if trust roots and leaf certificates rotate in the wrong order. A proxy can keep serving old config after NACKing a new update, which is safer than accepting bad config but confusing if dashboards only show desired state. Mesh debugging must compare desired config, accepted config, and observed traffic.',
+        'Capacity planning is part of the same story. Endpoint churn, autoscaling, and locality failover can create frequent EDS updates. A healthy control plane must batch, debounce, shard, and back pressure those updates so that the cure for traffic change does not become another source of instability.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Envoy dynamic configuration, the xDS protocol, ADS ordering, and Envoy config dumps in the official Envoy documentation. Then connect this topic to Load Balancer, Circuit Breakers and Deadlines, Distributed Tracing, OpenTelemetry Collector Case Study, Feature Flag Control Plane, and Kubernetes Reconciliation Case Study. The shared theme is control-plane design: compute desired state centrally, apply it locally, and measure whether the applied state is safe.',
       ],
     },
   ],

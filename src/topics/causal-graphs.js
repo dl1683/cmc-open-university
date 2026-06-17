@@ -193,9 +193,15 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
         `A causal graph is a diagram with nodes (variables) and directed arrows (causation). An arrow from A to B means A causally influences B — not just correlation, but one causes the other in the world. The kidney-stone example shown live here uses a simple graph: severity → treatment and severity → outcome, a fork that explains why A beats B in both subgroups yet loses overall. Causal graphs are the grammar of causation; they let you name what you are asking ("What is the effect of treatment?") and what assumptions you need to answer it ("What are all the ways treatment and outcome could correlate without treatment causing the difference?").`,
+      ],
+    },
+    {
+      heading: `How the visual model teaches it`,
+      paragraphs: [
+        `Treat each table or graph as a question about paths. In the kidney-stone table, subgroup rates are honest but the aggregate mixes different severities, so the visual contradiction is a warning that the wrong population was compared. In the DAG view, forks, chains, and colliders tell you whether conditioning blocks a false path, blocks a real path, or opens a path that was closed. The invariant is path control: estimate the treatment effect by closing backdoor paths while leaving the causal treatment-to-outcome path open. The naive baseline is adjusting for every correlated variable; the collider panel shows why that can manufacture bias.`,
       ],
     },
     {
@@ -204,6 +210,20 @@ export const article = {
         `The kidney-stone study (Charig, 1986) is real: 263 of treatment A's 350 patients had large stones, versus only 80 of B's 350. Doctors triaged severe cases to A, so A faced a harder caseload. A wins small stones 93% vs 87%, wins large stones 73% vs 69% — every stratum favors A. Yet the totals flip: A succeeds 78% of the time, B 83%. This is Simpson's paradox: truth in every part, reversal in the whole. The culprit is severity (large stones heal worse under EITHER treatment). It flows from treatment decision (doctors chose A for hard cases) and from outcome (hard cases fail more often). Severity is a fork — a common cause — and forks create spurious correlation.`,
         `The fix is a weighted average that asks: "What would each treatment's success rate be if it faced the population's true case mix — 51% small, 49% large?" Take each treatment's per-stratum rates (honest, never aggregated) and weight by overall prevalence, not by the tilted mix each treatment received. Adjusted: A 83%, B 78% — A wins, agreeing with both subgroups. This is backdoor adjustment, the same machinery that propensity weighting in "Doubly Robust Estimation" uses to repair observational data.`,
         `The second view shows the three-junction grammar: chain (smoking → tar → cancer; real effect travels the mediator), fork (ice cream ← summer → drowning; spurious, common cause), collider (talent → fame ← looks; independent until you select on the effect). Each reacts oppositely to conditioning. Chain and fork: open until you condition; collider: closed until you condition. Condition on a fork and you block the fake correlation (adjustment fixes it). Condition on a collider and you CREATE correlation where none existed — the casting-door experiment demonstrates: talent and looks are independent by construction (20×20 grid, correlation 0), but admit anyone with talent + looks ≥ 19 and the selected population shows r = −0.50 (handsome people needed less talent). Selection bias is not noise — it is structure with a sign.`,
+      ],
+    },
+    {
+      heading: `The obvious approach and the wall`,
+      paragraphs: [
+        `The obvious approach is to compare group averages, add every available control variable, and trust the regression output. That can work when the controls are true confounders and the sample was not selected through a collider.`,
+        `The wall is that adjustment is not generic cleanup. Conditioning on a confounder can remove bias; conditioning on a mediator can erase part of the effect; conditioning on a collider can create a relationship that did not exist. The same statistical table can come from different causal stories, so the graph has to come before the estimate.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `Causal analysis is path management. A treatment effect is identified by closing non-causal backdoor paths while leaving the causal path from treatment to outcome open. The arrows decide which variables close paths and which variables open them.`,
+        `That is why Simpson's paradox is not a paradox in the graph. The aggregate comparison follows an open backdoor through severity. Stratifying on severity closes that path and compares treatments on a fair case mix. The collider example shows the opposite: selecting on fame opens a path between talent and looks that was closed in the full population.`,
       ],
     },
     {
@@ -216,6 +236,13 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Causal graphs are the standard language in epidemiology, program evaluation, and econometrics. A researcher studying smoking and lung cancer draws: smoking → lung tissue damage → cancer, but also unknown confounder Z → smoking and Z → cancer (people with lung disease are more likely to smoke and more likely to die). Blocking the back door from the confounder and opening the front door through damage-to-cancer requires the graph; no amount of data alone specifies which variables to adjust for. In machine-learning fairness, causal graphs prevent discrimination: if decision ← sensitive-attribute ← common cause, adjusting for sensitive-attribute OPENS a bias path (conditioning on a collider); the graph tells you to adjust for the common cause instead. "A/B Testing & p-values" is the gold standard because randomization severs every incoming arrow to treatment, including unknown confounders — a coin flip has no causes. When randomization is impossible (historical data, ethical constraints, decisions already made), causal graphs let you state assumptions and apply adjustment, lifting observational studies from guesswork to structured inference.`,
+      ],
+    },
+    {
+      heading: `Operational questions`,
+      paragraphs: [
+        `Before estimating, ask four questions plainly. What is the treatment? What is the outcome? Which variables caused treatment assignment before treatment happened? Which variables are downstream of treatment or part of sample selection? Those answers determine the adjustment set more than the statistical software does.`,
+        `After estimating, keep the assumptions visible. Report the graph, the variables adjusted for, the variables intentionally not adjusted for, overlap diagnostics, and the sensitivity of the result to plausible missing confounders. A causal estimate without its graph is missing the contract that makes it interpretable.`,
       ],
     },
     {

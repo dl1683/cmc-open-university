@@ -218,44 +218,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A 2D range tree is an exact data structure for orthogonal range searching: queries whose boundaries are axis-aligned rectangles. It stores points in a balanced x-ordered tree. Each node also stores an associated structure over the y-coordinates of points in that node subtree.',
-        'This topic connects Binary Search Tree, k-d Tree, R-Tree Spatial Index, Priority Search Tree Range Reporting, Fractional Cascading, Merge-Sort Tree Range Counting, and 2D Fenwick Tree & Coordinate Compression. The important distinction is output: a range tree can report the actual points in a rectangle, not only count or aggregate them.',
+        `A 2D range tree exists for exact orthogonal range reporting: given a set of points, return every point inside an axis-aligned query rectangle. This is the clean computational-geometry version of viewport queries, static map layers, database point indexes, and offline spatial analytics.`,
+        `The important distinction is that the structure reports points, not just counts them. A 2D Fenwick tree can maintain rectangle sums. A range tree can list B, C, and D inside the rectangle, which is a different promise and a different cost model.`,
+        `The topic matters because many indexing problems are not nearest-neighbor problems. A user may ask for every store in this bounding box, every alert in a time-value window, or every point feature in the current map tile. Missing a point is a correctness bug, and reporting extra points shifts work to a later filter.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive Baseline and Wall',
       paragraphs: [
-        'The x-tree search finds where the lower and upper x bounds diverge. Along the two search paths, some side subtrees lie completely inside the x-range. Those subtrees are canonical pieces of the query. Instead of scanning all their points, the query searches each associated y-structure for the requested y interval.',
-        'Without extra acceleration, a 2D range tree answers reporting queries in O(log^2 n + k), where k is the number of points reported. The first logarithm finds canonical x subtrees; the second comes from y searches inside associated structures.',
+        `The baseline is to scan every point and test x1 <= x <= x2 and y1 <= y <= y2. That is simple and optimal when there are only a few points or only one query, but it costs O(n) per query even if the rectangle contains one point.`,
+        `A single sorted array or balanced tree on x narrows the x interval, but it still may leave many candidates whose y values must be checked one by one. The wall is needing both dimensions at once with predictable output-sensitive reporting time.`,
+        `Sorting independently by x and y is not enough either. The intersection of an x-sorted slice and a y-sorted slice can be expensive to compute unless the index stores structure that connects the two orders. A range tree pays extra space so that an x-range can immediately expose y-sorted catalogs for the same points.`,
       ],
     },
     {
-      heading: 'Fractional cascading',
+      heading: 'Core Insight and Invariant',
       paragraphs: [
-        'Fractional Cascading improves the repeated y searches. The lower and upper y bounds are the same across all associated y-lists, so bridge pointers can carry the search positions from one catalog to the next. With the classic static structure, query time improves to O(log n + k) while keeping O(n log n) space.',
-        'The same idea explains why Merge-Sort Tree Range Counting and range trees belong together. Both decompose one dimension into canonical nodes and then search sorted catalogs for a second condition.',
+        `Layer the dimensions. The outer balanced tree is ordered by x. Every node also stores an associated y-sorted catalog for all points in that node's subtree. A query decomposes the x interval into O(log n) canonical subtrees, then searches the y-catalogs attached to those subtrees.`,
+        `The invariant is that the canonical x-subtrees are disjoint and exactly cover the queried x-range. Since each associated y-structure contains exactly the points from its x-subtree, filtering those catalogs by y reports exactly the rectangle contents.`,
+        `This is a decomposition trick, not a geometric guessing trick. Once a subtree is wholly inside the x interval, the query no longer needs to reason about individual x coordinates in that subtree. It switches dimensions and uses y order to remove the remaining nonmatches.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Animation Meaning',
       paragraphs: [
-        'Consider a static layer of map labels represented as points. A viewport request asks which labels fall inside x1..x2 and y1..y2. A k-d Tree can prune spatial regions but has weaker worst-case reporting bounds. An R-Tree Spatial Index handles rectangles and real geometry well, but query quality depends on bounding-box overlap. A 2D range tree gives a crisp exact structure for point reporting.',
-        'For high-update map data, this may be the wrong engineering choice because associated structures are expensive to update. For mostly static point catalogs, batched rebuilds or immutable snapshots make the range tree much more attractive.',
+        `In the 2D reporting view, the root is the split node where the lower and upper x searches diverge. The left and right search paths identify side subtrees that are fully inside the x-range. The y-list node is the second dimension: once a subtree is canonical, the query should stop walking x and use sorted y order.`,
+        `In the fractional cascading view, the repeated Y1, Y2, and Y3 catalogs are the cost source. The same y lower and upper bounds are being searched in many related lists. Bridge ranks let one binary search feed the rest, which is why the animation routes through the bridges node before reporting points.`,
+        `The highlighted points are not the whole algorithm. They are the output after two filters: first the exact x cover, then the y slice inside each covered subtree. That order explains why range trees have more space overhead than a single search tree.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'A range tree is not the same as a 2D Fenwick Tree & Coordinate Compression. The Fenwick structure is excellent for rectangle sums or counts with point updates, but it does not naturally list the actual points in the rectangle. A range tree is also not a general polygon index; it is designed around orthogonal boxes.',
-        'The other trap is ignoring space. Every point appears in associated structures along a root-to-leaf path, so the classic 2D range tree uses O(n log n) memory. That is often fine for static computational-geometry problems and less fine for large mutable systems.',
+        `Build a balanced binary search tree over x-coordinates. At each node, store all points in that subtree in a secondary structure ordered by y. In the static textbook version, this secondary structure can be an array plus binary searches for the y lower and upper bounds.`,
+        `To query [x1, x2] by [y1, y2], find the split node in the x-tree. Walk toward x1 on the left side; whenever the search goes left, the right sibling subtree is fully inside the x-range and becomes canonical. Walk toward x2 on the right side symmetrically. Search each canonical subtree's y-list and emit the slice whose y values are in range.`,
+        `Duplicates need a deterministic tie rule. A point can be ordered by (x, y, id) in the outer tree and by (y, x, id) in associated catalogs. The id prevents equal coordinates from collapsing into one entry when the task is reporting, not set membership.`,
+        `The associated structure can store point ids rather than full point records. That keeps catalogs compact and lets the caller fetch payloads from a separate array or table after the geometric query has found the ids.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Correctness',
       paragraphs: [
-        'Sources: MIT 6.851 orthogonal range searching notes at https://courses.csail.mit.edu/6.851/spring10/scribe/lec03.pdf, DTU range reporting notes at https://www2.compute.dtu.dk/courses/02282/2016/rangereporting/rangereporting1x1.pdf, and computational geometry range tree lecture notes at https://ima.udg.edu/~sellares/ComGeo/RangeTrees4Ms.pdf. Study k-d Tree, R-Tree Spatial Index, Priority Search Tree Range Reporting, Fractional Cascading, Merge-Sort Tree Range Counting, and 2D Fenwick Tree & Coordinate Compression next.',
+        `The x decomposition is correct because a balanced search path partitions the interval into canonical subtrees: no chosen subtree contains an x value outside the query, and every point whose x lies inside the query appears in exactly one chosen subtree.`,
+        `The y step is correct because the associated structure for a canonical subtree contains all and only points from that subtree. Binary searching for y1 and y2 finds exactly the y-range slice. Taking the union of all slices reports each rectangle point once and excludes points outside either coordinate bound.`,
+      ],
+    },
+    {
+      heading: 'Cost and Tradeoffs',
+      paragraphs: [
+        `A plain static 2D range tree uses O(n log n) space because each point is stored in the associated y-structures along one root-to-leaf path. Build time is usually O(n log n). Reporting queries cost O(log^2 n + k), where k is the number of reported points.`,
+        `Fractional cascading reduces the repeated y-search cost. Because the same y bounds are searched across related catalogs, bridge pointers carry rank positions from one catalog to the next. The classic result is O(log n + k) query time with O(n log n) space, at the price of more complicated catalogs and static-friendly construction.`,
+        `The +k term cannot be removed for reporting because the algorithm must actually output k points. A query rectangle covering the whole dataset costs at least O(n) no matter how good the index is. The index improves the search overhead before output, not the cost of writing the answers.`,
+        `Cache behavior can be mixed. Binary searches over many catalogs may jump through memory, while reporting slices can be sequential inside each y-list. A production implementation often cares about compact arrays, id compression, and batching payload fetches after the geometric stage.`,
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        `Use coordinate compression when points come from large numeric domains but only relative order matters. The range tree needs comparisons and catalog ranks; it does not need raw longitude, timestamp, or score values in every internal record.`,
+        `Separate static and dynamic requirements early. If updates are rare, rebuilding a static range tree snapshot can be simpler and faster than maintaining fully dynamic associated catalogs. If updates are frequent, a different structure may be easier to keep correct.`,
+        `Test with adversarial rectangles: empty ranges, single-point ranges, full-domain ranges, duplicate coordinates, boundary-inclusive points, and rectangles whose x cover contains many points but whose y filter returns almost none. Those cases expose off-by-one errors in catalog slicing.`,
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        `For the animation's points A=(1,4), B=(3,7), C=(6,3), and D=(9,6), query x[2,8] and y[3,7]. The x-tree split is around x=5. The canonical x pieces cover points with x values from 2 through 8, so B and C are candidates while A is too far left and D is too far right.`,
+        `Inside those canonical pieces, the associated y-lists filter by y[3,7]. B has y=7 and C has y=3, so both are reported. If a canonical subtree also contained a point with y=9, it would stay inside the x cover but be excluded by the y-list slice.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `Range trees win when the data is mostly static, the query rectangles are axis-aligned, and exact reporting bounds matter. Static map-label layers, offline analytics, computational geometry exercises, spatial joins over point data, and immutable search snapshots are natural fits.`,
+        `They also make several neighboring structures easier to understand. A merge-sort tree is the one-dimensional array analogue with sorted catalogs. Fractional cascading explains how to avoid repeated searches across catalogs. A priority search tree handles a different three-sided range-reporting shape.`,
+        `They are especially helpful when worst-case guarantees matter more than heuristic pruning. R-trees can be excellent for real geometry workloads, but their overlap and packing quality affect query cost. A range tree gives the clean static guarantee for axis-aligned point reporting.`,
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        `A range tree is not a general spatial index. It does not handle arbitrary polygons, nearest-neighbor search, broad-phase collision detection, or rectangle objects as naturally as R-trees, BVHs, spatial hashes, or k-d trees.`,
+        `The classic structure is also awkward for heavy updates. Insertions and deletions touch associated structures on a search path, and keeping all those y-catalogs balanced or rebuilt can dominate the problem. For mutable aggregate queries, a 2D Fenwick tree or segment tree variant may be a better engineering fit.`,
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
+      paragraphs: [
+        `Sources: MIT 6.851 orthogonal range searching notes at https://courses.csail.mit.edu/6.851/spring10/scribe/lec03.pdf, DTU range reporting notes at https://www2.compute.dtu.dk/courses/02282/2016/rangereporting/rangereporting1x1.pdf, and computational geometry range tree lecture notes at https://ima.udg.edu/~sellares/ComGeo/RangeTrees4Ms.pdf.`,
+        `Study Binary Search Tree first for the outer tree, then k-d Tree and R-Tree Spatial Index for alternative spatial search philosophies, Priority Search Tree Range Reporting for another orthogonal structure, Fractional Cascading for catalog links, Merge-Sort Tree Range Counting for the array analogue, and 2D Fenwick Tree & Coordinate Compression for mutable aggregate queries.`,
       ],
     },
   ],

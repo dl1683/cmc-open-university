@@ -95,43 +95,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `What K-Means Is`,
       paragraphs: [
-        `K-means is an unsupervised clustering algorithm: choose k centers, assign each point to its nearest center, then move each center to the mean of its assigned points. Repeat until the assignments stop changing or the objective barely improves. The objective is within-cluster sum of squared distances, so the algorithm favors compact, round-ish clusters in Euclidean space.`,
-        `It is simple enough to teach in one animation and useful enough to appear inside production systems. Lloyd described the core algorithm at Bell Labs in 1957; MacQueen named k-means in 1967; Arthur and Vassilvitskii introduced k-means++ seeding in 2007 to reduce bad starts. The learner supplies k. The data supplies the geometry.`,
+        `K-means is an unsupervised clustering algorithm for grouping vectors into k clusters. Unsupervised means the algorithm is not given labels such as "customer type A" or "defective machine." It receives points in a feature space and tries to summarize them with k centroids. Each point belongs to the cluster represented by its nearest centroid. Each centroid is the mean of the points assigned to it. The loop repeats until assignments stop changing or improvement becomes negligible.`,
+        `The objective is within-cluster sum of squared distances. In plain terms, k-means wants each point to be close to the center of its assigned cluster. That objective makes the algorithm simple, fast, and easy to inspect. It also defines the shape of the answer. K-means prefers compact, roughly spherical clusters under Euclidean distance. It always returns exactly k clusters, even when the data has no real cluster structure or when the true groups are not round.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Obvious Approach And The Wall`,
       paragraphs: [
-        `Start with k initial centroids, either random points or k-means++ seeds that spread centers apart probabilistically. Assignment step: compute each point's distance to every centroid and attach it to the nearest one. Update step: replace each centroid with the coordinate-wise mean of its assigned points. These two steps monotonically decrease or preserve the objective, so the loop converges to a local optimum.`,
-        `The result is a Voronoi partition: every point belongs to the region of its nearest centroid. This is not Gradient Descent in the usual differentiable-parameter sense, but it has the same alternating-optimization flavor: hold assignments fixed and optimize centers, then hold centers fixed and optimize assignments. Multiple random restarts are standard because initialization can change the final clusters.`,
+        `The obvious approach to clustering is to look at a scatter plot and draw boundaries by hand. That breaks immediately when the data has many dimensions, many points, or no visual display that preserves the important distances. Another obvious approach is to compare every point with every other point and build clusters from pairwise similarity. That can work, but it becomes expensive and may produce structures that are hard to summarize.`,
+        `K-means attacks a narrower problem. Instead of storing all pairwise relationships, it represents each cluster by one centroid. That gives a compact summary: k vectors instead of n points. The wall is that this summary is only appropriate when the mean is a meaningful representative and distance to the mean is a meaningful notion of membership. If the data lives in strange geometry, contains long curved groups, has categorical features, or uses incompatible feature scales, the compact summary can be misleading.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The Core Insight`,
       paragraphs: [
-        `One iteration costs O(n * k * d): n points, k centroids, d dimensions. Recomputing means is O(n * d), usually smaller than distance scoring. If the algorithm runs I iterations, practical cost is O(I * n * k * d). Do not promise O(n k d log n); iteration count is data-dependent, and worst cases can be much worse. In practice, 10 to 100 iterations is common, while mini-batch variants process small random batches for web-scale data. Memory is O(n) for assignments plus O(k * d) for centroids.`,
+        `The core insight is alternating minimization. If the centroids are fixed, the best assignment for each point is obvious: choose the nearest centroid. If the assignments are fixed, the best centroid for each cluster is also obvious: take the coordinate-wise mean of the assigned points. Neither step solves the whole problem globally, but each step improves or preserves the objective while holding the other part fixed.`,
+        `This is why k-means feels mechanical. Assignment creates a Voronoi partition of space: every region belongs to the closest centroid. Recenter moves the centroid to the average of its region's points. The new centroids change the nearest-centroid boundaries, so some points may switch clusters. The loop stops at a fixed point where assignments and centroids agree. That fixed point is usually a local optimum, not a guarantee of the best possible clustering.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Mechanism And Data Structures`,
       paragraphs: [
-        `K-means is used for customer segmentation, color quantization, document clustering, anomaly screens, and vector-index construction. Image compression is the clean demo: cluster RGB pixels into k colors and replace each pixel by its centroid. In retrieval, IVF indexes in FAISS use coarse clustering to route queries to a few partitions before exact or approximate search. RAG Pipeline systems may use clustering to summarize, shard, or inspect large corpora before relying on HNSW (Vector Search at Scale) for fast nearest-neighbor lookup.`,
-        `It also appears as a preprocessing or diagnostic tool. Embeddings & Similarity gives the vectors; PCA: Principal Component Analysis or SVD & Low-Rank Approximation can reduce dimension before clustering; t-SNE & UMAP: Seeing Embeddings can visualize whether the clusters look meaningful.`,
+        `A typical implementation stores the dataset as an n by d matrix: n points, d numeric features. It stores centroids as a k by d matrix. It stores an assignment array of length n, where assignment i is the centroid id currently owning point i. Many implementations also keep a distance buffer or compute distances on the fly. The essential distance calculation is squared Euclidean distance, which avoids a square root because ordering by squared distance is the same as ordering by distance.`,
+        `Initialization matters. Randomly chosen centroids can start too close together, leaving one natural group split and another ignored. K-means++ improves the starting point by choosing the first centroid randomly and then choosing later centroids with probability weighted by squared distance from the nearest existing centroid. The goal is not perfection. It is to spread initial centers so the alternating loop is less likely to get trapped in a poor local optimum. Production runs often use several initializations and keep the result with the lowest objective.`,
+        `One iteration costs O(n * k * d) for distance scoring plus O(n * d) to accumulate new means. If the algorithm takes I iterations, practical cost is O(I * n * k * d). Memory is O(n) for assignments and O(k * d) for centroids, plus the dataset. Mini-batch k-means reduces cost by updating centroids from small random batches, trading some precision for scale. For very large vector collections, approximate nearest-centroid search and distributed aggregation may be used.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Why It Works`,
       paragraphs: [
-        `The algorithm always returns k clusters even if the data has no real clusters. Choosing k from an elbow plot is a heuristic, not proof. It also assumes Euclidean distance, similar feature scales, and roughly spherical clusters. Long skinny groups, nested groups, unequal-density groups, and categorical features can all produce misleading partitions. Standardize features before clustering, and validate clusters against a downstream task or domain question.`,
-        `High-dimensional distance is another trap. In sparse text or embedding spaces, many distances become similar. Better embeddings help, but they do not remove the need for evaluation. Matrix Completion & Recommenders shows a related lesson: latent factors are useful only when the geometry matches the problem structure.`,
+        `K-means works well when the mean is a good summary and clusters are separated by Euclidean distance. The mean is the point that minimizes squared distance to members of a cluster, so the recentering step is exactly right for the objective. The nearest-centroid assignment step is also exactly right for the objective when centroids are fixed. Each half-step is simple because the other half is temporarily treated as known.`,
+        `The algorithm also works because it compresses a large dataset into a small set of prototypes. Those prototypes can be inspected, stored, compared, and used for routing. If a centroid summarizes a group of similar customers, colors, documents, images, or embedding vectors, the cluster becomes a useful unit of analysis. The danger is that usefulness comes from the match between geometry and domain meaning, not from the algorithm itself.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Evaluation And Operational Signals`,
       paragraphs: [
-        `Read Embeddings & Similarity for vector geometry, PCA: Principal Component Analysis and SVD & Low-Rank Approximation for dimensionality reduction, and HNSW (Vector Search at Scale) for graph-based nearest-neighbor search. RAG Pipeline shows where clustering and ANN indexes appear in AI products, while t-SNE & UMAP: Seeing Embeddings shows how clustering results can be inspected without pretending a 2D plot is ground truth.`,
+        `The basic training signal is inertia, the within-cluster sum of squared distances. It should decrease with each iteration. If it increases, there is an implementation bug. Lower inertia is not automatically better across different k values because adding more clusters almost always lowers distance. Elbow plots look for a point where extra clusters give diminishing returns, but the elbow is a heuristic, not evidence that the chosen k is true.`,
+        `Other signals include silhouette score, cluster size distribution, stability across random seeds, stability across data samples, centroid interpretability, and downstream usefulness. In a customer segmentation task, the question is not only whether clusters are compact. It is whether segments support decisions such as messaging, risk review, product design, or support routing. In vector search, the signal may be recall and latency after routing through centroids. In image compression, the signal may be visual quality for a fixed palette size. Always connect cluster quality to the job the clusters are supposed to do.`,
+      ],
+    },
+    {
+      heading: `Where It Is Useful`,
+      paragraphs: [
+        `K-means is useful for customer segmentation, color quantization, document exploration, image compression, anomaly screening, feature construction, and coarse routing in vector search. The color-quantization example is especially clear: treat each pixel as a point in RGB space, cluster pixels into k centroids, and replace each pixel by the nearest centroid color. The image now uses only k colors while preserving much of the original structure.`,
+        `In retrieval systems, k-means appears in inverted-file vector indexes. A query is compared with coarse centroids, routed to the nearest partitions, and then compared with vectors inside those partitions. This reduces search cost at the price of possible recall loss. In data analysis, k-means can provide a first pass over embeddings before a human inspects representative items from each cluster. It is often a starting point, not the final explanation.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `K-means fails when the assumptions behind its objective are false. It struggles with long curved clusters, rings, nested groups, unequal densities, heavy outliers, and clusters of very different sizes. It is sensitive to feature scaling because Euclidean distance treats a one-unit change in each feature as comparable. A feature measured in dollars can dominate a feature measured in percentages unless data is standardized or transformed. It also does not handle categorical variables directly without a representation that makes distance meaningful.`,
+        `High-dimensional spaces create another problem. Distances can become less informative as dimensions grow, especially with sparse text features or noisy embeddings. Dimensionality reduction may help, but it can also distort structure. K-means can also create false confidence because it always returns labels. A dataset with no natural clusters still gets k colored groups. The right response is to compare against baselines, inspect stability, test downstream value, and be willing to conclude that clustering is not supported.`,
+      ],
+    },
+    {
+      heading: `What To Study Next`,
+      paragraphs: [
+        `Study Euclidean distance, cosine similarity, normalization, and embeddings before trusting cluster geometry. Study PCA and SVD for dimensionality reduction, then t-SNE and UMAP for visualization with the warning that two-dimensional plots are not ground truth. Study Gaussian mixture models for soft probabilistic clusters, DBSCAN and HDBSCAN for density-based clusters, and hierarchical clustering for multiscale structure. For production retrieval, study HNSW and inverted-file indexes to see how clustering becomes a routing data structure rather than only an analysis tool.`,
       ],
     },
   ],

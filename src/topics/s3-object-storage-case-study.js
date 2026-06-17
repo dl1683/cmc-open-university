@@ -209,44 +209,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Amazon S3 is an object storage service. It stores objects in buckets and addresses each object with a key. An object has bytes plus metadata, and applications use service APIs such as PUT, GET, HEAD, DELETE, and LIST.',
-        'Object storage is a foundational system design primitive. Data lakes, backup systems, static sites, ML training corpora, event archives, log exports, and table formats such as Iceberg and Delta frequently use S3 as the durable byte layer.',
-        'The key difference from a filesystem is that prefixes are part of object key names, not actual directories. Tools may show them as folders, but design decisions should treat keys as strings in a service namespace.',
+        `A local filesystem is built around directories, files, permissions, seeks, renames, and updates through an operating-system interface. That model is powerful on one machine or one mounted volume, but it is not the simplest abstraction for storing enormous amounts of durable data across a service boundary. Backups, logs, images, video, warehouse exports, training corpora, lakehouse tables, and static assets mostly need a different promise: put this blob under a name, keep it durably, let many clients fetch it, and let policy manage it over time.`,
+        `Amazon S3 is the canonical object-storage example. It stores objects in buckets. Each object is addressed by a key, has bytes and metadata, and is accessed through APIs such as PUT, GET, HEAD, DELETE, and LIST. The application does not ask for disk blocks or inode numbers. It asks the service for object names and object bytes. That shift is why S3 became a foundation for data lakes, backup systems, ML datasets, static sites, event archives, media pipelines, and table formats such as Iceberg and Delta.`,
+        `The key mental move is to stop treating S3 as a remote POSIX filesystem. Tools may display prefixes as folders, but a prefix is part of a key string. Renaming a "directory" shaped prefix usually means copying and deleting many objects. Appending to a file is not the natural operation. Atomic multi-file transactions are not built into the object API. S3 gives you durable named objects; higher-level systems build filesystem-like, database-like, and table-like behavior above that layer.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive filesystem model and its wall',
       paragraphs: [
-        'A client writes an object to a bucket under a key. S3 stores the object and metadata, exposes strong read-after-write consistency, and lets clients list objects by prefix. Performance is achieved through parallel requests and scalable service-side partitioning.',
-        'Lifecycle rules, versioning, storage classes, object tags, replication, and access policies define operational behavior around the object. Higher-level systems add their own metadata and transaction protocols on top of S3 objects.',
+        `A common early mistake is to design S3 keys as if they were ordinary mutable files in directories. The application writes ` + "`/customers/42/profile.json`" + `, later renames a whole directory, appends small records to one daily log object, and expects cheap directory metadata operations. That design collides with the object model. A key is one object name inside a bucket; the slashes are naming convention. LIST by prefix is a service operation, not a directory inode scan. Rewriting or moving object-shaped data is usually a new PUT, copy, delete, or multipart workflow.`,
+        `The second mistake is to put database responsibilities into object storage without a protocol. A table may consist of thousands of Parquet files plus metadata. If a job writes the data files and crashes before publishing the new snapshot pointer, readers need to know which files are committed and which are orphaned. Strong consistency for object operations helps, but it does not by itself define a table transaction. Iceberg, Delta, Hudi, catalogs, manifests, and commit protocols exist because object storage needs a metadata layer above it for table correctness.`,
+        `The third mistake is ignoring request economics. Millions of tiny objects are often awkward even if each object is durable. They increase request count, listing work, metadata overhead, and downstream scheduler overhead. One enormous object can be awkward too if consumers need only small ranges or if upload failure restarts too much work. Good object-storage design chooses object sizes, prefixes, partitioning, manifests, and lifecycle rules deliberately.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core data model',
       paragraphs: [
-        'S3 is highly durable and scalable, but request patterns, object size distribution, prefix layout, lifecycle policy, and listing behavior still matter. Millions of tiny objects can be expensive to list and process. Huge objects may require ranged reads and S3 Multipart Upload Manifest-style state so one failed transfer part does not restart the whole upload.',
-        'Strong object consistency does not turn object storage into a database. Multi-object transactions, secondary indexes, row-level updates, and query planning live in systems above S3, such as table formats, catalogs, and query engines.',
+        `The top-level namespace is the bucket. Buckets carry ownership, access policy, region, lifecycle configuration, replication configuration, encryption defaults, logging, and other operational settings. Inside a bucket, the key is the object's name. The key may contain slash characters, date partitions, tenant IDs, table paths, or content hashes, but S3 treats it as an object key, not as a chain of directory objects in the POSIX sense.`,
+        `The object is the unit of storage. It has bytes, system metadata, optional user metadata, tags, storage class, integrity checks, and possibly a version ID if versioning is enabled. Applications can read the whole object or request byte ranges. Large writes can use multipart upload so parts are transferred independently and later completed into one object. Lifecycle policies can transition objects to other storage classes or expire them based on age, prefixes, tags, and other conditions.`,
+        `Consistency is part of the data model because clients build protocols on top of what reads and lists can see. AWS documents strong read-after-write consistency for S3 object PUT and DELETE behavior and strong consistency for relevant read operations such as GET, HEAD, and LIST in the current model. That removed many old client-side workarounds, but it did not remove the need for application-level commit protocols when one logical change spans many objects.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism in the visualizer',
       paragraphs: [
-        'S3 is used for data lakes, warehouse external stages, backups, media storage, logs, ML datasets, website assets, table storage, disaster recovery, and cross-service interchange.',
-        'A complete case study is a lakehouse table. Jobs upload Parquet files to partitioned prefixes. A table format commits metadata pointing at those files. Query engines list and read objects in parallel, while lifecycle rules transition old partitions to colder storage.',
+        `The object-namespace view shows the basic request path. A client sends PUT, GET, HEAD, DELETE, or LIST against a bucket and key or prefix. The bucket defines the namespace and policy. The key identifies one object. Service-side metadata lets S3 resolve the object and expose consistent reads after successful writes. The client does not know which storage nodes hold the bytes, how redundancy is implemented, or how metadata partitions are managed internally.`,
+        `The prefix node is not a directory node; it is a design lever. Prefixes organize names for humans, lifecycle rules, access patterns, and parallel work. AWS performance guidance describes high request rates per partitioned prefix and encourages parallelization for higher throughput. That does not mean the application should randomly scatter names with no semantic structure. A good prefix layout balances query pruning, lifecycle management, tenant isolation, and request parallelism.`,
+        `The lakehouse view separates byte storage from table truth. S3 stores raw events, Parquet data files, metadata files, manifests, and old snapshots as objects. The table format defines which files belong to the current table version, which schema applies, which deletes are active, and how readers discover a consistent snapshot. Query engines then issue many parallel GET or ranged GET requests against the object layer.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why the design works',
       paragraphs: [
-        'S3 prefixes are not folders with POSIX rename semantics. Renaming a directory-shaped prefix means copying and deleting many objects. Also, object consistency does not remove the need for idempotent writes, manifest commits, versioning, or cleanup of orphan files.',
+        `Object storage works because it avoids pretending that distributed durable storage is a local disk. The service interface is coarse-grained. Objects are named blobs. Metadata operations are explicit. Reads and writes cross a network boundary. That allows the storage service to scale capacity, durability, and request handling behind a relatively small API surface. Applications that can work with immutable or replace-by-new objects get a durable substrate without managing volumes, filesystems, or storage servers.`,
+        `It also works because many higher-level systems are naturally append-and-publish. A logging pipeline writes new objects for each time partition. A backup system writes snapshots. A data lake writes new Parquet files and publishes metadata. A static site deploy writes content-addressed assets and updates references. A model-training pipeline stores datasets as sharded files. These systems rarely need byte-level overwrites in place; they need durable objects, listings, range reads, and policy.`,
+        `The separation of concerns is the source of both power and confusion. S3 stores bytes and object metadata. Parquet stores columns and row groups. Iceberg or Delta stores table snapshots and commit metadata. A catalog stores table names and locations. A query engine plans and parallelizes reads. When those layers are respected, object storage is simple and scalable. When they are collapsed, applications reinvent weak databases on top of blobs.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Tradeoffs and failure modes',
       paragraphs: [
-        'Primary sources: S3 strong consistency at https://aws.amazon.com/s3/consistency/, S3 user guide overview at https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html, performance guidance at https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html, and prefixes at https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html. Study S3 Multipart Upload Manifest, Reed-Solomon Erasure Coding, Ceph Erasure-Coded Pools, Parquet Columnar Format Case Study, Apache Iceberg Table Format Case Study, Delta Lake Case Study, Ceph CRUSH Placement Case Study, and Transactional Outbox next.',
+        `The first tradeoff is mutability. Object storage is strongest when objects are written, read many times, and eventually replaced or expired. Workloads that need frequent small in-place updates, row-level transactions, low-latency random writes, directory renames, or file locking should use a database, block store, filesystem, or table layer built for that behavior. S3 can be part of those systems, but it is not the whole abstraction.`,
+        `The second tradeoff is listing and cardinality. A prefix with huge numbers of objects may be expensive for humans and slow for jobs that repeatedly enumerate it. A table with too many small files can spend more time planning, listing, and opening objects than scanning useful data. Compaction, manifests, partition pruning, and sensible object sizes are not optional housekeeping; they are the difference between a healthy lake and a pile of expensive fragments.`,
+        `The third tradeoff is commit semantics. A pipeline that writes ten thousand objects and then updates one manifest needs idempotent retries and cleanup. If the job crashes after writing data files but before committing metadata, those files may be durable but not logically part of the table. Versioning can help recovery. Checksums can help integrity. Lifecycle rules can help remove abandoned objects. None of those replace a clear commit protocol.`,
+        `Security and governance are also central. Buckets need carefully scoped policies, encryption choices, public-access controls, logging, retention, and deletion rules. Object storage is often the long-term landing zone for sensitive data. A bad prefix convention can leak tenant structure; a bad policy can expose a bucket; a bad lifecycle rule can delete evidence too early or keep regulated data too long.`,
+      ],
+    },
+    {
+      heading: 'Concrete lakehouse example',
+      paragraphs: [
+        `Consider an orders table in a lakehouse. An ingest job writes raw event objects under ` + "`raw/orders/yyyy/mm/dd/`" + `. A transformation job writes Parquet files under ` + "`tables/orders/data/`" + `, using object sizes large enough for efficient scans. The table format writes metadata files and manifests that describe the snapshot. Only after the metadata commit succeeds do readers treat the new Parquet files as part of the table.`,
+        `A query engine does not scan the whole bucket. It asks the catalog for the current table metadata, reads manifests, prunes partitions and files, and then issues parallel ranged GET requests for the needed Parquet row groups. Old data files may remain because a previous snapshot still references them. Later, retention and compaction jobs remove unreferenced files or transition old partitions to cheaper storage. S3 is the durable byte layer; the table format is the correctness layer; the engine is the execution layer.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Amazon S3 user guide overview at https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html, S3 consistency details at https://aws.amazon.com/s3/consistency/, performance guidance at https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance.html, performance design patterns at https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance-design-patterns.html, and prefix documentation at https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-prefixes.html. Check current AWS docs before relying on specific request-rate guidance or feature behavior.`,
+        `Next, study S3 Multipart Upload Manifest for large-object write state, Reed-Solomon Erasure Coding and Ceph Erasure-Coded Pools for durability mechanisms, Ceph CRUSH Placement for placement thinking, Parquet Columnar Format for analytic object contents, Delta Lake and Apache Iceberg style table metadata for multi-object transactions, Content-Addressed Merkle DAG Object Store for immutable naming, and Transactional Outbox for publishing durable state changes without losing track of what has been committed.`,
       ],
     },
   ],

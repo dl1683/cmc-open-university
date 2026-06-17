@@ -214,42 +214,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why approximate quantiles exist',
       paragraphs: [
-        'KLL is a compact randomized quantile sketch. It keeps small buffers at increasing weights, compacts full buffers by keeping half the sorted values, and promotes those survivors to higher levels. The result is a mergeable summary of a stream distribution.',
-        'This page belongs beside Greenwald-Khanna Quantile Summary, t-digest Quantile Sketch, DDSketch Relative-Error Quantiles, Reservoir Sampling, and HyperLogLog. It is another example of a bounded-memory streaming structure whose local summaries can become global summaries.',
+        "A quantile asks for the value at a rank: the median is rank 0.50, p90 is rank 0.90, and p99 is rank 0.99. Exact quantiles are easy after the data is sorted, but streams, telemetry systems, and distributed databases often see too many values to keep.",
+        "KLL is for the common case where a small rank error is acceptable. The sketch keeps a weighted summary of the stream and returns a value whose rank is close to the requested rank with high probability.",
+        "This matters because quantiles are usually operational numbers. A latency p99 can drive an alert, a billing p95 can set a contract, and a storage p50 can guide capacity planning. Systems need answers that are cheap enough to compute continuously and honest enough about the error they carry.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The exact baseline',
       paragraphs: [
-        'Level 0 receives raw stream items with weight 1. When a level fills, it sorts that buffer, chooses odd or even positions at random, discards the other half, and promotes the survivors to the next level with doubled weight. Higher levels compact less frequent but heavier items.',
-        'A quantile query sorts the retained weighted items and walks cumulative weight until it reaches the requested rank. Merging sketches concatenates levels from multiple sketches and recompacts levels that overflow.',
+        "The exact baseline stores every value, sorts the full collection, and reads the item at rank floor(q * n). For a one-million-item stream, p90 is the 900,000th item in sorted order. This is simple, exact, and hard to beat when the data fits in memory.",
+        "A streaming exact version can keep a balanced tree with counts, or store all values and sort later. Both preserve the full order information. Both make memory grow with the number of observations.",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The exact wall',
       paragraphs: [
-        'KLL achieves strong space efficiency for rank-error quantile approximation. The randomness is part of the contract: it prevents consistent bias from always keeping the same side during compaction. Lower rank error means larger buffers and more retained items.',
-        'The guarantee is rank error, not direct value error. For smooth distributions this is often good enough. For highly skewed latency distributions, a small rank error may still produce a large value error, which is where DDSketch or tail-specialized sketches enter.',
+        "The wall is not comparison cost. The wall is memory and movement. A fleet that records billions of latencies per hour cannot ship raw samples to one place and sort them for every dashboard query.",
+        "Simple bounded-memory substitutes do not solve the same problem. A reservoir sample keeps raw examples, but its tails can be noisy. A fixed sorted buffer must choose what to evict, and deterministic eviction can bias ranks in one direction.",
+        "Distributed systems add a second wall: mergeability. If each host computes a local summary, the coordinator should be able to combine summaries without seeing raw values. A quantile sketch that cannot merge cleanly is much less useful for telemetry, SQL engines, and stream processors.",
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core insight',
       paragraphs: [
-        'A stream processor tracks approximate p50, p90, and p99 request sizes by endpoint. Each worker updates a KLL sketch for its partition. Every minute, coordinators merge sketches into endpoint-level and fleet-level summaries. Dashboards can query quantiles without shipping all events or retaining raw samples forever.',
+        "KLL keeps compactors at increasing weights. Level 0 items have weight 1. After compaction, survivors move to the next level with weight 2, then 4, then 8, and so on.",
+        "The invariant is weighted rank preservation. A retained item at level j represents 2^j original stream items. Compaction may add rank error, but it must not create a one-sided drift that always pushes ranks up or down.",
+        "The insight is that the sketch can throw away values if it preserves enough rank information. KLL does not promise to keep representative raw samples. It keeps a compressed, weighted view of the order distribution.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'KLL is not a reservoir sample. Retained values have weights and compaction history. It is also not automatically the best latency-alert sketch; rank-error and value-error guarantees answer different operational questions. Finally, merge settings must be compatible across shards if the rollup is meant to preserve the guarantee.',
+        "New values enter level 0. When a level gets too full, KLL sorts that level, randomly chooses odd or even positions, drops the other positions, and promotes the kept half to the next level with doubled weight.",
+        "A query gathers all retained items from all levels, sorts them by value, and walks cumulative weight until it reaches the requested rank. Merging sketches concatenates matching levels from each shard and recompacts any level that exceeds its size budget.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: Karnin, Lang, and Liberty, Optimal Quantile Approximation in Streams, at https://arxiv.org/abs/1603.05346, and Apache DataSketches KLL documentation at https://datasketches.apache.org/docs/KLL/KLLSketch.html. Study Greenwald-Khanna Quantile Summary for the deterministic predecessor, DDSketch Relative-Error Quantiles for production relative-error percentiles, and t-digest Quantile Sketch for tail-weighted centroids.',
+        "Each compaction replaces adjacent sorted pairs with one representative. If the sketch always kept the lower item, ranks would drift low. If it always kept the upper item, ranks would drift high. KLL chooses the parity randomly, so each pair contributes zero expected rank bias.",
+        "Errors from many compactions still accumulate, so the level capacities matter. KLL chooses a compaction schedule that keeps enough items at each weight to bound total rank error with high probability while using much less space than deterministic summaries at similar accuracy.",
+        "The guarantee is about rank, not about distance on the value axis. If the sorted distribution has a cliff, two neighboring ranks can have very different values. That is not a KLL bug; it is the meaning of the contract.",
+      ],
+    },
+    {
+      heading: 'Cost, memory, and merge behavior',
+      paragraphs: [
+        "Update cost is usually small because most inserts only append to level 0. The expensive step is compaction, which sorts an overflowing buffer and promotes half of it. That cost is amortized across many updates.",
+        "Memory is controlled by the configured accuracy, not by the stream length. Lower rank error needs larger buffers and more retained weighted items. Merge cost is proportional to the retained items plus any recompaction triggered by the merged levels.",
+        "Queries usually sort or merge the retained weighted items, then walk cumulative weight. Some implementations maintain enough order to make repeated queries cheaper. The engineering question is whether the sketch is write-heavy, query-heavy, or merge-heavy.",
+      ],
+    },
+    {
+      heading: 'Production use',
+      paragraphs: [
+        "KLL fits systems that need compact, mergeable rank-error quantiles: approximate SQL percentile functions, stream processors, metrics rollups, and per-partition summaries in distributed storage engines.",
+        "The merge path is the main production advantage. Each machine can summarize local traffic, a coordinator can merge summaries by time window or region, and the raw event stream does not have to cross the network.",
+        "A common telemetry design keeps one KLL sketch per service, route, status class, and time bucket. Rollup jobs merge sketches into larger windows. Dashboards query p50, p90, and p99 from the merged sketch while preserving an explicit approximation contract.",
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        "KLL gives a rank-error guarantee, not a value-error guarantee. On a distribution with a sharp cliff, two values with nearby ranks can be far apart in milliseconds, dollars, or bytes.",
+        "It is randomized, so it is not the right sketch when an audit requires a deterministic certificate. It also is not a reservoir sample. The retained values carry weights and compaction history; treating them as ordinary samples gives misleading downstream statistics.",
+        "Bad merges are another failure mode. Mixing sketches with incompatible parameters, different value transforms, or inconsistent filtering rules produces a number that looks official but no longer has the intended meaning. The sketch metadata is part of the data.",
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        "Choose the error contract before choosing the sketch. If the product says p99 latency should be within one percent in milliseconds, DDSketch may fit better. If the product says the returned value should have rank close to the requested rank, KLL is a strong default.",
+        "Store sketch metadata with the payload: algorithm version, configured accuracy, value units, filters, time window, and merge lineage. Test against exact quantiles on sampled windows, but report rank error in the same language the sketch actually guarantees.",
+      ],
+    },
+    {
+      heading: 'Animation notes',
+      paragraphs: [
+        "The compaction view shows the whole algorithm in miniature. Level 0 fills, the buffer is sorted, one parity of adjacent items survives, and those survivors move up with doubled weight. Higher levels represent more original stream items per retained value.",
+        "The merge-rollup view shows why KLL is useful in distributed systems. Hosts do not send raw values. They send compact level summaries. The coordinator concatenates compatible levels, recompacts overflow, and answers quantile queries from the weighted retained items.",
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        "Suppose three hosts record 6,000,000 request latencies and the dashboard asks for p90. The exact answer would sort all 6,000,000 values and return the value at rank 5,400,000.",
+        "With a KLL sketch configured for about 1% rank error, the returned p90 should have a true rank near that target, roughly within 60,000 ranks with high probability. If the answer is 180 ms, the promise is about where 180 ms sits in the sorted stream, not that the exact p90 value is within 1% of 180 ms.",
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        "Study Greenwald-Khanna Quantile Summary to see the deterministic rank-error baseline. Study DDSketch Relative-Error Quantiles when the user-facing contract is value error rather than rank error. Study t-digest when the design goal is extra tail resolution for p95 and p99 dashboards.",
+        "Primary sources: Karnin, Lang, and Liberty, Optimal Quantile Approximation in Streams, and the Apache DataSketches KLL documentation.",
       ],
     },
   ],

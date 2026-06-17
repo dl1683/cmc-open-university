@@ -91,43 +91,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why dropout exists`,
       paragraphs: [
-        `Dropout is regularization by sabotage. During training, it randomly sets a fraction of activations to zero, forcing the network to make a good prediction even when some internal features disappear. Srivastava, Hinton, Krizhevsky, Sutskever, and Salakhutdinov formalized it in the 2014 JMLR paper "Dropout"; AlexNet had already used 50% dropout in its fully connected layers to fight ImageNet overfitting.`,
-        `The intuition is ensemble learning with shared weights. A layer with n units has many possible sub-networks depending on which units survive. Each minibatch trains one sampled sub-network, but all sub-networks reuse the same parameters. At test time, dropout is disabled and the full model approximates an average over those thinned networks, a neural cousin of Random Forest variance reduction.`,
+        `Dropout exists because a large neural network can fit the training set for the wrong reason. A hidden unit can learn a feature that works only because another hidden unit always cleans up its mistakes. A downstream layer can depend on a brittle combination of units instead of learning a signal that survives small changes in the input, the batch, or the initialization. The training loss may fall, but the representation has become a private agreement among neurons rather than a reusable model of the task.`,
+        `That failure is called co-adaptation. It is not just a vague synonym for overfitting. It is a mechanism: units become useful only in the presence of specific other units. If those companions are absent, noisy, or shifted at test time, the feature stops working. Dropout attacks that mechanism directly. It makes presence unreliable during training, so each unit and each path through the network has to carry useful information without assuming that every neighbor will be available.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The obvious approach and the wall`,
       paragraphs: [
-        `Most frameworks use inverted dropout. If the drop probability is p, each activation survives with probability 1 - p. Surviving activations are divided by 1 - p during training, so their expected scale matches inference. With p = 0.5, survivors are doubled. With p = 0.1, survivors are multiplied by 1.11. Backpropagation follows the same mask: a dropped unit contributes zero activation and receives zero gradient for that batch.`,
-        `Dropout is usually applied after dense layers, attention or feed-forward projections, and sometimes embeddings. It is not normally applied to normalization statistics or arbitrary input pixels unless the task explicitly benefits from feature masking. In transformers, common rates are 0.0 to 0.1 for large pretraining and 0.1 to 0.3 for smaller fine-tuning runs, because huge datasets already act as a regularizer.`,
+        `The obvious first response to overfitting is to shrink the model, add L2 weight decay, collect more data, or stop training earlier. Those are valid tools. A smaller model has less capacity, L2 discourages large weights, more data exposes more variation, and early stopping prevents late-stage memorization. The wall is that none of those directly says, "this internal feature must be useful even when its usual partner is gone." They control capacity from the outside.`,
+        `A fully connected layer with every unit active on every batch can still build a fragile committee. Weight decay may keep the numbers small while the dependency remains. Early stopping may stop before the worst memorization phase but still preserve a representation with hidden dependencies. Dropout adds a different pressure: it corrupts the computation graph during training. The network does not merely pay a penalty for complexity; it must solve the task through many partial versions of itself.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core insight`,
       paragraphs: [
-        `The direct compute cost is tiny: sample a binary mask and multiply activations elementwise. The indirect cost is noisier optimization. Training may need more steps because the Neural Network Forward Pass changes stochastically from batch to batch. Memory overhead is one mask per dropped tensor during training, often stored compactly. Inference cost is zero when implemented correctly: dropout is off, and the model runs as an ordinary dense network.`,
+        `The core move is simple: during training, multiply an activation tensor by a random binary mask. A kept unit passes through. A dropped unit becomes zero. The mask changes from batch to batch, so each update trains a different thinned subnetwork. All of those subnetworks share the same parameters, so learning in one sampled path affects many future paths.`,
+        `At inference, the mask is removed. The full network runs. With inverted dropout, the training-time survivors are scaled by 1/(1 - p), where p is the drop probability, so the expected activation size during training matches the activation size at inference. That scaling is the small accounting detail that makes the train/test contract clean. Training sees noisy partial networks. Inference sees one dense network whose activations already have the right expected scale.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Mechanism and state`,
       paragraphs: [
-        `Dropout remains standard in small and medium neural systems: medical classifiers with limited labels, recommender models with sparse user histories, tabular neural nets, and fine-tuned language models where the downstream dataset is much smaller than the base pretraining corpus. It also supports uncertainty estimates. Gal and Ghahramani's 2016 MC-dropout view runs dropout at inference multiple times and treats prediction variance as approximate Bayesian uncertainty, which connects directly to Uncertainty: Teaching Models to Say "I Don't Know".`,
-        `Large foundation-model pretraining often uses less dropout than older CNNs because data scale, weight decay, augmentation, and model architecture already provide regularization. That does not make dropout obsolete; it makes it a context-dependent tool rather than a default knob.`,
+        `The data structure is ordinary tensor state plus a mask. For a vector layer, the mask has one bit or one small value per activation. For a batch, frameworks usually create a mask with the same broadcast shape as the activation tensor. The forward pass computes masked_activation = activation * mask * scale. The backward pass uses the same mask, so a dropped activation sends no gradient through that branch for that batch.`,
+        `That same-mask rule matters. If a unit was silent in the forward pass, its downstream effect was zero. Backpropagation must not pretend it contributed to the loss. The mask is therefore part of the temporary training state, like an activation saved for backward. Implementations also need a train/eval mode flag. In training mode, masks are sampled. In evaluation mode, dropout is disabled. Forgetting that switch is one of the easiest ways to ship a randomly degraded model.`,
+        `Dropout is usually placed after dense layers, feed-forward projections, attention projections, embeddings, or other high-capacity transformations. It is not a universal operation to sprinkle anywhere. Applying it to normalization statistics, recurrent state, or structured signals without thinking can change the semantics of the model. Variants such as spatial dropout, attention dropout, and drop path exist because different tensors have different dependency structures.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Why it works`,
       paragraphs: [
-        `The classic bug is forgetting evaluation mode. In PyTorch, model.eval() disables dropout; missing that call makes predictions random and depresses accuracy. Another mistake is setting p = 0.5 everywhere. That was useful for AlexNet's dense layers, not a universal law. Attention blocks, convolutional layers, and small datasets need separate validation.`,
-        `Dropout also does not replace Regularization: L1 & L2, data augmentation, or Early Stopping & Patience. It reduces co-adaptation, but it cannot fix leakage, mislabeled data, or a model too small for the problem. Too much dropout causes underfitting: both training and validation loss stay high because the network is repeatedly denied the capacity it needs.`,
+        `Dropout works because it makes unreliable dependencies expensive. A downstream unit cannot safely encode "if neuron 7 says this, trust neuron 4 to finish the job" when neuron 7 may be zero on the next batch. The useful features are the ones that remain useful across many sampled masks. Training therefore favors redundancy, distributed representations, and features that carry their own evidence.`,
+        `The ensemble interpretation is also useful. A network with n dropout-controlled units represents many possible subnetworks. Training samples a tiny fraction of them, but parameter sharing lets each update benefit related subnetworks. Inference with the full network is not the exact arithmetic average of every subnetwork, but it behaves like a cheap approximation to averaging many noisy predictors. That is the same variance-reduction instinct behind ensembles, packed into one set of weights.`,
+      ],
+    },
+    {
+      heading: `Cost and behavior`,
+      paragraphs: [
+        `The direct cost is small. Sampling a mask and multiplying activations are linear in the number of affected activations. Memory overhead is the mask needed for backward, often stored compactly or regenerated with recorded random state. Inference cost should be zero because dropout is off. If inference is slower or random because of dropout, the deployment path is wrong.`,
+        `The indirect cost is optimization noise. Every batch sees a damaged network, so the training loss can be noisier and convergence can require more updates. Too little dropout may do nothing. Too much dropout removes so much capacity that the model underfits: training loss stays high along with validation loss. The right rate is empirical. Older fully connected nets often used p around 0.5. Many modern transformer fine-tunes use smaller rates, and very large pretraining runs may use little or none because data scale, weight decay, augmentation, and architecture already regularize the model.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Dropout is useful when the model has more representational capacity than the data can safely supervise. Small and medium image classifiers, tabular neural networks, recommender systems with sparse histories, medical models with limited labels, and fine-tuned language models can all benefit. In those settings, the model can easily build private shortcuts. Randomly removing activations makes those shortcuts less dependable.`,
+        `Dropout also gives a practical uncertainty trick. MC dropout keeps dropout active at inference, runs the same input multiple times, and treats variation across predictions as a rough uncertainty signal. That is not a substitute for a full uncertainty model, but it is useful when the question is whether the model is stable under its own sampled internal noise.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `Dropout is the wrong tool when the problem is not co-adaptation or overfitting. It cannot fix data leakage, label errors, a broken train/test split, a model too small for the task, or a loss function misaligned with the real objective. It also should not be used as a ritual default. A convolutional feature map, an attention matrix, a residual branch, and a token embedding do not all respond to independent elementwise masking in the same way.`,
+        `The operational failure is evaluation-mode drift. In PyTorch, model.eval() disables dropout. In Keras and other frameworks, the training flag controls the same distinction. If the flag is wrong, predictions become random, validation metrics become noisy, and exported models may not match offline evaluation. Another common mistake is comparing models while one has dropout active and the other does not. That measures a configuration bug, not regularization.`,
+      ],
+    },
+    {
+      heading: `Evaluation signals`,
+      paragraphs: [
+        `Use the training and validation curves together. Helpful dropout often raises training loss slightly while lowering validation loss or narrowing the train-validation gap. Underfitting dropout raises both. Useless dropout changes neither. The best signal is not whether dropout feels theoretically appropriate; it is whether held-out performance improves under the same data split, optimizer budget, and tuning discipline.`,
+        `Also watch calibration, stability, and reproducibility. Heavy dropout can make optimization sensitive to random seeds. If MC dropout is used for uncertainty, score the uncertainty itself: do high-variance predictions correlate with errors, ambiguous inputs, or out-of-distribution examples? If not, the sampled variance is just noise wearing an uncertainty label.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Neural Network Forward Pass and Backpropagation to see exactly where masks act. Random Forest gives the ensemble analogy; Regularization: L1 & L2 gives the penalty-based alternative. Vanishing & Exploding Gradients explains why masking interacts with depth, and Learning-Rate Schedules & Warmup shows how noisy training is stabilized in practice.`,
+        `Study Neural Network Forward Pass and Backpropagation to see where the mask sits in the computation graph. Study Regularization: L1 & L2 and Early Stopping & Patience to compare external capacity controls with dropout's internal corruption. Random Forest gives the ensemble analogy. Learning-Rate Schedules & Warmup explains how noisy training is stabilized. Uncertainty Quantification and Conformal Prediction show stricter ways to turn model doubt into decisions.`,
       ],
     },
   ],

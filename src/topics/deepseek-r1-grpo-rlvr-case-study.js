@@ -228,44 +228,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'DeepSeek-R1 is a reasoning-model case study about post-training, not only about model architecture. DeepSeek-V3 supplies the efficient base architecture: a Mixture-of-Experts model with Multi-Head Latent Attention. R1 then asks a different question: how do you train a model to spend more computation on math, code, and STEM reasoning when many answers can be checked automatically?',
-        'The core idea is reinforcement learning with verifiable rewards, often shortened to RLVR. Instead of paying humans to label every reasoning trajectory, the system samples candidate answers for tasks where a rule, unit test, exact answer, or benchmark checker can score correctness. DeepSeek-R1-Zero showed that large-scale RL from the base model could produce reflection and verification behaviors, while DeepSeek-R1 added cold-start data and a multi-stage pipeline to make the behavior more readable and broadly useful: https://arxiv.org/abs/2501.12948.',
+        `DeepSeek-R1 is useful as a case study because it separates two questions that are often blurred together. DeepSeek-V3 is the base-model and architecture layer, with Mixture-of-Experts routing and Multi-Head Latent Attention. R1 is the post-training layer. It asks how a model can learn to spend more computation on reasoning when many tasks have answers that can be checked automatically.`,
+        `The pressure comes from the cost of human demonstrations. Supervised fine-tuning can teach a model to imitate polished chains of thought, but high-quality reasoning traces are expensive, biased toward the annotator's style, and hard to scale across math, code, and STEM tasks. Reinforcement learning with verifiable rewards, or RLVR, tries to move the expensive part from "write the whole solution" to "check whether the result satisfies an objective rule." The DeepSeek-R1 paper argues that large-scale RL can incentivize self-verification, reflection, and strategy changes on verifiable tasks: https://arxiv.org/abs/2501.12948.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach and the wall',
       paragraphs: [
-        'The training loop uses Group Relative Policy Optimization, or GRPO. For each prompt, the old policy samples a group of completions. Each completion receives rewards, such as answer correctness and sometimes readability or language-consistency rewards. The update compares each sample against the group average instead of learning a separate critic or value model. DeepSeekMath introduced GRPO as a PPO variant that reduces the memory and compute burden of training an additional value function: https://arxiv.org/abs/2402.03300.',
-        'DeepSeek-R1 has several stages. R1-Zero applies RL directly to DeepSeek-V3-Base. R1 adds thousands of cold-start long-chain-of-thought examples, performs reasoning-oriented RL, uses rejection sampling to keep correct and readable trajectories, mixes in broader supervised data, and then runs another RL stage for general scenarios. The project also distilled reasoning behavior into smaller Qwen and Llama based dense models, which is why this topic links to Knowledge Distillation: https://github.com/deepseek-ai/DeepSeek-R1.',
+        `The straightforward path is to collect excellent human solutions and fine-tune on them. That works when the target behavior is mostly style, instruction following, or domain format. It also gives readable outputs from the beginning. The problem is that imitation does not force the model to discover new search behavior. It can learn the surface shape of a solution without learning when to backtrack, verify, or try a different strategy.`,
+        `The next straightforward path is standard PPO-style RLHF. PPO can optimize a reward, but for large language models it often carries an additional value model or critic, plus memory-heavy rollouts and careful KL control. DeepSeekMath introduced Group Relative Policy Optimization as a PPO variant that compares samples within a group and reduces the need for a separate value function: https://arxiv.org/abs/2402.03300. R1 applies that style of group-relative RL to reasoning domains where answers can be scored by rules, tests, or benchmark checkers.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'RLVR is powerful because the reward can be cheap and objective, but that strength has a boundary. It works best when the task has a clear verifier: math answer checks, code tests, contest problems, structured STEM tasks, or other properties that can be scored without a subjective judge. For open-ended writing, legal analysis, medical advice, or product support, the reward usually becomes a rubric judge, a process reward model, or human preference data again.',
-        'The system also shifts cost into sampling and serving. A reasoning model may generate long traces, sample many candidates during training, and spend many more tokens at inference. That means architecture topics like DeepSeek Multi-Head Latent Attention, Mixture of Experts, KV Cache, Transformer Inference Roofline, and LLM Inference Cost Stack matter. The post-training method and the serving data structures are part of one system.',
+        `The core insight is that a group of completions for the same prompt contains its own local baseline. If one answer is correct and readable while other sampled answers fail the checker, the update can increase the probability of the better trajectory relative to its siblings. The model does not need a human to rank every pair or write the ideal solution. It needs a reward signal strong enough to say which sampled behaviors worked.`,
+        `This changes the role of data. In ordinary supervised training, the dataset is the behavior to imitate. In RLVR, the prompt distribution plus verifier define an environment. The model explores by sampling, receives reward from the checker, and updates toward trajectories that solved the task. The verifier boundary is the whole trick and the whole danger. The method is strongest when correctness is mechanically checkable and weakest when the reward only measures a proxy for the real goal.`,
       ],
     },
     {
-      heading: 'Case-study connections',
+      heading: 'How the pipeline works',
       paragraphs: [
-        'This topic links Process Reward Models & Verifier Search to RLHF & Preference Optimization. GRPO is a policy-gradient method, but the reward source is usually more objective than human preference comparison. It also links to LLM Evaluation Harnesses because R1-style claims only mean anything when the benchmark protocol, sampling policy, pass@1 calculation, holdouts, and contamination controls are clear.',
-        'DeepSeek-V3 matters because R1 inherits the base model. The V3 technical report describes a 671B-total-parameter MoE model with 37B activated parameters per token, plus MLA for efficient inference: https://arxiv.org/abs/2412.19437. That is the base capability and efficiency layer. R1 is the post-training layer. Distilled R1 models are the deployment layer for users who want some reasoning behavior without serving the full teacher.',
+        `The R1 family has two teaching branches. DeepSeek-R1-Zero starts from the base model and applies RL directly, without a supervised fine-tuning stage first. The public repository describes emergent self-verification and reflection, but also endless repetition, poor readability, and language mixing: https://github.com/deepseek-ai/DeepSeek-R1. That branch proves that reward alone can discover some reasoning behavior, but it also proves that reward alone does not guarantee product-quality traces.`,
+        `DeepSeek-R1 adds a more engineered pipeline. It uses cold-start data to seed readable long reasoning, runs reasoning-oriented RL, uses rejection sampling to keep better trajectories, mixes in broader supervised data, and applies another RL stage for more general scenarios. The repository summarizes this as two RL stages and two SFT stages. The final family also includes distilled dense students based on Qwen and Llama, so the large trained reasoner becomes a teacher for cheaper deployments.`,
+        `GRPO is the update loop inside the RL stages. For each prompt, the current policy samples a group of completions. Rewards score answer correctness and sometimes formatting or language consistency. The group mean and variance become the local baseline. A completion above the group baseline receives positive advantage; one below receives negative advantage. A KL term keeps the policy near a reference model so reward optimization does not destroy language quality or chase a brittle exploit.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Do not read R1 as proof that "RL creates general reasoning" in all domains. It shows that RL with strong, cheap verifiers can incentivize useful reasoning behaviors on checkable tasks. The system can still overfit benchmarks, exploit reward quirks, produce long but unnecessary traces, or learn behavior that looks reflective because the reward process favors that style.',
-        'A second misconception is that open weights equal full reproducibility. The paper, repository, and weights are valuable, but exact training data, filtering decisions, infrastructure details, and evaluation choices still matter. A serious reproduction needs provenance checks, sealed evals, latency accounting, safety slices, and comparisons against simpler baselines such as rejection sampling, self-consistency, and distillation-only training.',
+        `The training-pipeline view shows that R1 is not one magic update. The V3 base supplies capability and efficient inference machinery. R1-Zero tests pure RL. R1 adds cold-start traces, RLVR, rejection sampling, supervised mixing, a final RL pass, and distillation. The graph teaches where each signal enters and what failure it addresses: base pretraining supplies language and knowledge, verifiable reward supplies task pressure, cold-start data supplies readable format, and distillation supplies deployable students.`,
+        `The GRPO view shows why the algorithm is group-relative. A prompt fans out to several answers. Rule and style rewards flow into group statistics. Advantage is computed relative to sibling completions, then restrained by a KL anchor before the policy update. The visual is not claiming that all rewards are reliable. It is making the dependency explicit: if the verifier scores the wrong property, GRPO will optimize the wrong property efficiently.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: DeepSeek-R1 at https://arxiv.org/abs/2501.12948 and https://github.com/deepseek-ai/DeepSeek-R1, DeepSeekMath and GRPO at https://arxiv.org/abs/2402.03300, and DeepSeek-V3 at https://arxiv.org/abs/2412.19437. Study DeepSeek Multi-Head Latent Attention, Mixture of Experts, Process Reward Models & Verifier Search, RLHF & Preference Optimization, Policy Gradients, RL Experiment Reproducibility Ledger, Knowledge Distillation, LLM Evaluation Harnesses: Golden Sets and Judges, Benchmark Variance & Model Selection, and LLM Inference Cost Stack next.',
+        `The method works when reward correlates with the behavior you actually want. In math, code, and many STEM benchmarks, a final answer, unit test, or structured checker can reject many wrong solutions without a human preference model. If repeated sampling produces a mix of successes and failures, group-relative advantage gives the optimizer a usable direction: increase the trajectories that pass the verifier and reduce nearby alternatives that fail.`,
+        `The KL anchor matters for correctness in a broader systems sense. A pure reward maximizer can move into unreadable text, reward-format hacks, or degenerate repetition if those patterns exploit the scorer. KL control and cold-start data preserve the base model's language prior while RL pushes on task success. The pipeline is therefore not "RL instead of data." It is a staged contract between pretrained capability, curated seed behavior, automatic checking, filtering, and final alignment pressure.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `RLVR shifts cost away from dense human demonstrations and toward sampling, verification, and infrastructure. Training needs many completions per prompt, reward computation, rollout storage, filtering, and careful monitoring. A cheap verifier is not free when it is run across enormous sample volumes. The memory benefit of GRPO over critic-based PPO helps, but the system is still a large-scale RL pipeline.`,
+        `Serving cost can rise too. Reasoning models often produce longer outputs. If the product uses self-consistency, verifier reranking, or tool checks at inference time, one user request can become many model calls. That connects R1 directly to KV cache, continuous batching, PagedAttention, prefill/decode scheduling, transformer roofline analysis, and cost-stack accounting. Post-training can create a model users want, but serving data structures decide whether it can be delivered at acceptable latency and price.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `R1-style RLVR fits tasks with reliable checkers and enough diversity in sampled attempts: olympiad-style math, code competitions, theorem-like STEM questions, symbolic manipulation, structured data tasks, and tool-verified agent subtasks. It also fits teacher-student pipelines. A costly teacher can sample long reasoning traces, and smaller students can learn from filtered outputs when direct RL on the small model is weaker.`,
+        `It is also a strong curriculum case study because it ties together many topics. GRPO is a policy-gradient method. RLVR is a reward-design choice. Rejection sampling is data filtering. Distillation is deployment compression. Evaluation harnesses decide whether the claimed gains are real. Architecture and serving topics decide whether long reasoning is affordable.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Do not read R1 as proof that reinforcement learning creates general reasoning in every domain. It shows that RL with strong verifiers can incentivize useful behaviors on checkable tasks. Open-ended writing, legal judgment, medical advice, product support, and policy work rarely have a simple correctness oracle. Those domains fall back to rubric judges, process reward models, human preference data, or task-specific audits.`,
+        `The method can also overfit benchmarks, learn reward quirks, generate long traces that waste tokens, or imitate reflective language because the reward pipeline favors that style. Open weights and a paper are not full reproducibility. Exact data provenance, filtering rules, prompt distributions, infrastructure details, benchmark contamination controls, pass-at-k calculation, and safety slices still matter. A serious audit compares RLVR against simpler baselines such as rejection sampling alone, self-consistency, supervised cold-start tuning, and distillation-only training.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources are DeepSeek-R1 at https://arxiv.org/abs/2501.12948 and https://github.com/deepseek-ai/DeepSeek-R1, DeepSeekMath and GRPO at https://arxiv.org/abs/2402.03300, and DeepSeek-V3 at https://arxiv.org/abs/2412.19437. Study policy gradients, PPO, RLHF and preference optimization, process reward models, verifier search, knowledge distillation, benchmark variance, evaluation harnesses, RL experiment reproducibility ledgers, Mixture of Experts, Multi-Head Latent Attention, KV cache, transformer inference rooflines, and LLM inference cost stacks next.`,
       ],
     },
   ],

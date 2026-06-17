@@ -229,44 +229,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Filtered vector search combines semantic nearest-neighbor search with hard metadata predicates. A query might need the nearest contract clause only within tenant A, visible to user U, in English, created after 2024, not tombstoned, and tagged as a motion. The vector distance is soft ranking; the filter is correctness.',
-        'The data-structure problem is that approximate nearest-neighbor graphs are built for geometry, while filters are sets. If the system searches the global vector graph and filters only the first few results afterward, recall can collapse. If it ignores filters, it can leak data. A practical design brings compressed bitsets, metadata indexes, ANN traversal, and reranking into the same retrieval plan.',
+        'Vector search rarely means search the whole corpus. A user asks for the closest passage inside one tenant, one legal matter, one permission boundary, one language, one document type, one date range, or one product catalog slice. The vector distance is a ranking signal. The filter is often a correctness rule. If a RAG system retrieves a semantically perfect document from the wrong tenant, the result is not a better answer. It is a data leak.',
+        'Filtered vector search exists because semantic indexes and database predicates solve different parts of the problem. Approximate nearest-neighbor indexes organize points by geometry. Metadata filters organize ids by set membership. A production query needs both: find near vectors, but only among documents the user is allowed to see and the task actually wants. The design problem is to combine those structures without destroying recall, latency, or security.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'A metadata filter is compiled into an allowed-id set. For simple fields this can be a posting list or Roaring bitmap. The engine intersects tenant, ACL, type, freshness, language, and deletion bitmaps to create a candidate set. During ANN traversal, vector candidates are tested against that set before entering the result heap. The search may continue past the usual stopping point until enough allowed candidates are found.',
-        'Filter-aware systems go further. Filtered-DiskANN-style approaches build graphs that account for labels and use search procedures that respect filters natively. Other systems use adaptive beam widths, exact fallback for tiny candidate sets, partitioned indexes for common tenants, or hybrid retrieval that fuses BM25, vector, and metadata constraints.',
+        'The tempting design is post-filtering. Ask the ANN index for the global top-k nearest vectors, then discard results that do not match tenant, ACL, date, type, or deletion filters. It is simple, it is easy to add after an existing vector search endpoint, and it works when the allowed documents are common near the query. Many prototypes start here because it separates the vector engine from the metadata database.',
+        'The wall is selectivity. If the nearest allowed document is rank 80 globally and the system only fetches 10 global candidates, post-filtering can return nothing even though good allowed matches exist. Increasing global k helps until it becomes slow or still misses rare filters. Worse, if access control is applied after retrieval but before prompt construction by loosely connected code, a bug can expose disallowed text. Filtering after a tiny top-k is a recall bug; filtering after an unsafe boundary is a security bug.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Post-filtering is cheap but can be wrong. Pre-filtering is safe but can starve the graph if the allowed set is tiny or fragmented. Native filtered ANN can improve recall and latency for repeated labels, but it adds index-build complexity, update complexity, and memory overhead. The right design depends on filter selectivity, label distribution, update rate, and whether filters are security-critical.',
-        'Compressed bitsets make the metadata side practical. A Roaring bitmap can represent millions of allowed ids compactly and intersect filters quickly. But the vector side still needs careful stopping rules; returning five allowed neighbors after visiting only five global neighbors is not enough.',
+        'The core insight is to turn metadata predicates into an allowed-id set and make ANN search aware of that set. Tenant A AND visible_to_user AND doc_type:contract AND not_tombstoned can become a compressed bitmap, posting list, or other set representation. The vector engine then treats membership in that set as a gate: an id outside the set may not be returned, no matter how close it is in embedding space.',
+        'That gate is not enough by itself. Approximate search uses routing structure, such as an HNSW graph or DiskANN-style graph, to reach promising neighborhoods without scanning every vector. Strict filters can leave the allowed nodes sparse or disconnected in that routing structure. A good filtered system must decide whether disallowed nodes can be used for navigation, how long to keep exploring, when to widen the beam, and when to abandon ANN for exact search over the allowed set.',
       ],
     },
     {
-      heading: 'Complete case study: matter-scoped legal RAG',
+      heading: 'How It Works',
       paragraphs: [
-        'A legal RAG assistant searches a firm-wide corpus. The best semantic match to a user question belongs to a different matter and is sealed. A naive vector search retrieves it at rank 1 and drops it after top-k filtering, leaving a weak answer. A worse system accidentally includes it in the prompt. Both designs fail.',
-        'A filtered design first intersects matter id, user ACL, document type, date, and tombstone bitmaps. ANN traversal then searches with membership checks and continues until it has enough allowed candidates for a cross-encoder reranker. The final prompt receives only matter-scoped, visible documents, and the evaluator can report recall under the same filters the product enforces.',
+        'The metadata side starts with set algebra. Each indexed predicate maps to a set of document ids. Tenant, ACL, freshness, language, document type, deletion status, and legal hold can each produce a bitmap. The query planner intersects those sets to produce a candidate mask. Roaring bitmaps are common for this role because they compress long id ranges and still support fast AND operations.',
+        'The vector side searches by distance. During graph traversal, the engine visits candidate vector ids. The bitset gate decides which visited ids may enter the result heap. Some systems still allow disallowed nodes to act as routing bridges because blocking them completely can strand the search far from the allowed neighborhood. The invariant is simple: a disallowed node may help navigation, but it cannot be an answer.',
+        'After the ANN stage, an exact distance pass or reranker should run only on allowed candidates. In RAG, that may feed a cross-encoder, a citation span selector, or a context packer. The final prompt should never be the first place where access control is enforced. The retrieval trace should record the filters, candidate count, visited count, allowed count, fallback choice, and final ids so recall and security can be audited under the same constraints the product used.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the Visual Proves',
       paragraphs: [
-        'The biggest trap is treating filters as cosmetic UI facets. Tenant, ACL, legal hold, deletion, and freshness filters are part of the security and correctness model. Another trap is measuring unfiltered ANN recall on a benchmark and assuming filtered product recall will match. Filter selectivity changes the search problem.',
-        'Do not assume one index layout handles every predicate. Common coarse filters may deserve partitions. Rare filters may need bitset-gated search or exact fallback. Range filters may need segment trees, sorted indexes, or specialized ANN research. Filtered vector search is where database indexing and vector indexing stop being separate subjects.',
+        'The first visual contrasts post-filtering with filter-aware search. The post-filter table shows close global neighbors being dropped because they belong to the wrong tenant. The result looks thin because the ANN engine never searched deeply enough inside the allowed set. The point is not that post-filtering is always invalid; it is that its recall depends on allowed items appearing early in the global ranking.',
+        'The bitset visual shows the safer contract. Metadata filters become set intersections before scoring. ANN traversal then probes vectors while checking membership at the gate. The visual also shows why selectivity is the hard case. A large allowed bitset is easy to search through. A tiny, scattered allowed bitset can make the graph do a lot of work before it finds enough legal answers.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
       paragraphs: [
-        'Primary sources: Filtered-DiskANN at https://dl.acm.org/doi/10.1145/3543507.3583552 and https://harsha-simhadri.org/pubs/Filtered-DiskANN23.pdf, HNSW at https://arxiv.org/abs/1603.09320, DiskANN at https://papers.nips.cc/paper/9527-rand-nsg-fast-accurate-billion-point-nearest-neighbor-search-on-a-single-node, and Roaring bitmaps at https://arxiv.org/abs/1603.06549. Study Roaring Bitmaps, HNSW Search, DiskANN SSD Vector Search, Database Indexing, Zanzibar Authorization, RAG Pipeline, Multi-Index RAG, ANN Recall-Latency Pareto Ledger, and Citation Span Index next.',
+        'The correctness argument has two parts. First, the set intersection is exact for the metadata predicates it represents. If a document id is absent from tenant A, ACL ok, or not_tombstoned, it cannot appear in the final allowed set. Second, the answer heap only admits ids that pass that set test. That gives a hard guarantee about filter compliance even when vector ranking is approximate.',
+        'Approximate recall is separate. The ANN search may still miss the nearest allowed vector if it stops too early or if the routing graph is poor under the filter. This is why filtered search has to measure filtered recall, not only unfiltered recall. A system can be correct about permissions and still weak at retrieval quality. The engineering target is both: no disallowed returns, and enough search effort to find high-quality allowed neighbors.',
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        'Post-filtering has low implementation cost and poor worst-case behavior under selective filters. Bitset-gated ANN adds memory for metadata indexes and adds membership checks during search, but it avoids wasting the final top-k on disallowed documents. Native filtered ANN designs, such as label-aware graph construction, can improve filtered recall for common labels, but they make builds, updates, and memory accounting harder.',
+        'When the allowed set is tiny, exact search over the bitset may beat graph traversal. When the allowed set is huge, the filter may be almost free. The expensive middle is fragmented selectivity: enough allowed documents to matter, but scattered across the graph so the search needs a wider beam or more visits. Range filters add another cost because date or price predicates may need sorted indexes, segment trees, partitions, or precomputed buckets before they become a useful bitmap.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Filtered vector search wins in multi-tenant search, enterprise RAG, legal discovery, support knowledge bases, product catalogs, recommendation systems, and personal document assistants. The shared pattern is soft semantic matching inside a hard slice of the corpus. A legal assistant should search one matter and one privilege boundary. A shopping query should search items that are in stock, shippable to the user, and in the requested category. A support bot should not retrieve internal notes for a customer-facing answer.',
+        'It also helps evaluation. A benchmark that only reports unfiltered ANN recall can hide the failure users feel. The product query is filtered, so the metric should be filtered recall at k, latency under the actual predicate distribution, and leak rate under adversarial permissions. The retrieval system should be tested with common filters, rare filters, and filters that make the answer set empty.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'The technique fails when metadata is stale or inconsistent with the documents. A perfect bitset gate cannot save a system where ACL updates lag behind indexing, tombstoned ids remain searchable, or duplicated documents carry different permissions. It also fails when the filter is applied differently in retrieval, reranking, context packing, and citation display. Access control has to be one contract, not a series of best-effort checks.',
+        'It can also be the wrong tool for queries where the filter is more selective and more meaningful than the vector distance. If the allowed set has 20 documents, exact scoring may be simpler and more reliable. If the query is a structured database question, a normal index may answer it better than embeddings. Filtered vector search is strongest when semantic similarity matters after the hard slice has already been defined.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary sources: Filtered-DiskANN at https://dl.acm.org/doi/10.1145/3543507.3583552 and https://harsha-simhadri.org/pubs/Filtered-DiskANN23.pdf, HNSW at https://arxiv.org/abs/1603.09320, DiskANN at https://papers.nips.cc/paper/9527-rand-nsg-fast-accurate-billion-point-nearest-neighbor-search-on-a-single-node, and Roaring bitmaps at https://arxiv.org/abs/1603.06549.',
+        'Study Roaring Bitmaps for compressed set algebra, HNSW Search for graph-based ANN, DiskANN SSD Vector Search for large-vector storage, Database Indexing for predicate planning, Zanzibar Authorization for relationship-based access control, RAG Pipeline for retrieval-to-generation flow, Multi-Index RAG for fused retrievers, ANN Recall-Latency Pareto Ledger for measurement, and Citation Span Index for carrying retrieval evidence into the answer.',
       ],
     },
   ],

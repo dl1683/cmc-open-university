@@ -256,10 +256,32 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
         'A backtracking regex engine matches by making a choice, pushing alternative choices onto a stack, and retrying those alternatives if the current path fails. That execution model is convenient and expressive, but ambiguous nested repetitions can create an enormous retry tree.',
         'ReDoS, or regular expression denial of service, happens when an attacker supplies a pattern, input, or both that make the engine spend excessive CPU exploring doomed alternatives. The classic teaching pattern is ^(a+)+$ against a long run of a characters followed by a non-matching suffix such as !.',
+        'This matters because regexes often sit on request paths: validators, routers, log parsers, WAF rules, syntax highlighters, import filters, and search boxes. A tiny pattern can become an unbounded CPU program if the engine explores too many alternatives.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious way to implement rich regex features is depth-first search over alternatives: try one parse path, and if it fails, back up to the last saved choice. That maps naturally to a stack and supports convenient features in many engines.',
+        'The wall appears when the pattern has many equivalent ways to consume the same prefix and the failure appears at the end. The engine is not learning that all those paths share the same doomed suffix; it retries the suffix after each different partition.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Backtracking treats ambiguity as deferred work. When a token can be matched in more than one way, the engine takes one path and stores the rest. That is fine when failure happens early or choices are few. It becomes dangerous when a long prefix has many equivalent partitions and the decisive failure comes at the end.',
+        'The algorithmic issue is not "regex is slow." It is that a choice stack can represent an exponential search tree. Linear engines avoid that tree by carrying a set of active automaton states and de-duplicating equivalent paths at each input position.',
+      ],
+    },
+    {
+      heading: 'Animation notes',
+      paragraphs: [
+        'In the choice-stack view, the stack node is the real algorithm. Greedy matching records places where the engine could give characters back. When the final ! fails against $, the engine pops a saved choice and tries another partition of the same a characters.',
+        'In the linear-engines view, compare the retry tree with an active-state frontier. Thompson-style matching keeps equivalent alternatives together instead of replaying the same failed suffix for each partition. That is why engine choice is part of the security story, not an implementation detail.',
       ],
     },
     {
@@ -267,6 +289,13 @@ export const article = {
       paragraphs: [
         'For ^(a+)+$, the inner a+ can consume many a characters, and the outer + can repeat the group in many partitions. A greedy engine first consumes as much as it can. When $ sees ! and fails, the engine pops a saved choice, gives back some a characters, and tries another partition. The suffix still fails, so the engine keeps retrying.',
         'The problem is not that the language is impossible to recognize efficiently. Thompson NFA simulation and DFA-style engines can represent all active alternatives together. The problem is the one-path-at-a-time choice stack combined with ambiguous repeated structure.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Backtracking is correct because it eventually explores the alternatives allowed by the pattern and reports success if any path matches. It is dangerous because correctness does not imply a useful time bound. The same exhaustive search that finds one valid parse can also spend huge time proving there is no parse.',
+        'Linear engines work by merging equivalent states. After each input character, they keep a set of possible automaton positions. If two parse histories lead to the same state at the same input position, the engine does not need to remember both histories separately.',
       ],
     },
     {
@@ -281,6 +310,42 @@ export const article = {
       paragraphs: [
         'Backtracking engines can be fast on common cases because they try likely alternatives first and stop after the first success. Their worst case, however, can be exponential for patterns with many equivalent interpretations of the same prefix and a late failure.',
         'Thompson-style engines have steadier bounds because each input position carries a de-duplicated active-state set. RE2 explicitly prioritizes safety, guarantees asymptotically linear running time in the input length, and refuses constructs such as backreferences and look-around that require backtracking-style machinery.',
+        'Timeouts are a mitigation, not a proof. A timeout can protect the process, but it still turns a crafted input into a resource-consuming failure. The stronger fix is to remove ambiguity or use an engine with a linear-time contract where pattern features permit it.',
+      ],
+    },
+    {
+      heading: 'Where it wins / Where it fails',
+      paragraphs: [
+        'Backtracking wins when the pattern uses features outside regular languages, when inputs are controlled, and when first-success behavior is valuable. Many application regex engines choose this tradeoff because it is expressive and familiar.',
+        'It fails at service boundaries with user-controlled input, user-controlled patterns, nested ambiguous repetition, or no timeout. For those paths, prefer a linear-time engine, pattern linting, input caps, and resource budgets.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Classify every regex by trust boundary. Internal one-off scripts can tolerate richer engines. Public request validation, user-search filters, and security middleware should prefer linear engines or strict linting.',
+        'Look for nested quantifiers, overlapping alternatives, optional tokens inside repetitions, and late anchors after ambiguous prefixes. Rewrite by factoring common prefixes, removing redundant grouping, anchoring intentionally, or using a parser when the language has nested structure.',
+      ],
+    },
+    {
+      heading: 'Operational response',
+      paragraphs: [
+        'Treat regexes on hot paths as code that needs review. Track slow-match metrics, cap input size, expose timeouts where the engine supports them, and include malicious near-miss strings in regression tests. A pattern that is safe on valid inputs can still fail badly on invalid inputs.',
+        'When user-supplied patterns are allowed, isolate them. Use a linear engine if possible, restrict features, run matches with resource budgets, and avoid sharing the same worker pool that handles critical traffic. User patterns are executable matching programs, not harmless strings.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'Switching engines can change semantics. Backreferences, look-around, capture behavior, Unicode classes, and leftmost-longest rules may differ. A safe migration needs tests for intended matches and intended rejections, not only performance checks.',
+        'Rewriting patterns can also overmatch or undermatch. ReDoS repair should preserve the language being matched or intentionally narrow it. When the language is complex, a parser or hand-written state machine is often safer than an increasingly clever regex.',
+      ],
+    },
+    {
+      heading: 'Case study',
+      paragraphs: [
+        'A signup API validates display names with a pattern that accidentally nests a repeated group. Normal names pass instantly. An attacker sends a long string that nearly matches and fails only at the final character. Every request consumes CPU while the engine explores partitions, so a small traffic burst becomes an outage.',
+        'The fix is layered: replace the pattern with an unambiguous one, cap input length, add a regression test with the hostile suffix, and run the validator under a linear engine if feature requirements allow it. The important lesson is that the bad input was invalid; invalid input is exactly where validators must remain cheap.',
       ],
     },
     {

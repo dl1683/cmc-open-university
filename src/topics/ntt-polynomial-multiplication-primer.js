@@ -210,11 +210,101 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: ['A number theoretic transform is an FFT-shaped transform over a finite modular ring. It turns polynomial convolution into coordinate-wise multiplication using roots of unity modulo q.', 'In post-quantum lattice schemes, polynomial multiplication is a hot path. The NTT is the data-structure and algorithmic layout that makes those products practical.'] },
-    { heading: 'How it works', paragraphs: ['The transform repeatedly applies butterfly operations. Each butterfly combines two coefficients with a twiddle factor and modular reductions. The schedule can be represented as stages, spans, twiddle indexes, and array positions.', 'After two polynomials are transformed, multiplication is coordinate-wise. The inverse transform returns the product to coefficient form under the scheme-specific ring relation.'] },
-    { heading: 'Cost and complexity', paragraphs: ['Schoolbook multiplication is quadratic in degree. Transform-based multiplication is roughly n log n plus modular arithmetic overhead. Constant factors, memory layout, reduction strategy, and side-channel discipline decide real speed.'] },
-    { heading: 'Complete case study', paragraphs: ['A Kyber-like implementation stores 256 coefficients modulo q, runs an in-place transform using a fixed zeta table, multiplies transformed coordinates, and runs the inverse transform. The audit ledger records q, root table version, reduction bounds, coefficient layout, and constant-time review.', 'A bug in bit-reversal order or twiddle indexing can produce outputs that look random but fail interoperability. A branch or table lookup keyed by secret data can turn a correct algorithm into a leaking implementation.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not treat NTT as ordinary floating FFT. There are no rounding errors, but every operation is modular and parameter-specific. Do not copy a transform schedule between schemes without checking modulus, root order, ring polynomial, and coefficient ordering.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: FIPS 203 ML-KEM at https://csrc.nist.gov/pubs/fips/203/final and the CRYSTALS-Kyber specification at https://pq-crystals.org/kyber/data/kyber-specification-round3-20210804.pdf. Study Binary Exponentiation, Convolution, ML-KEM Kyber Module-Lattice KEM Case Study, and ML-DSA Dilithium Rejection Sampling Case Study next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        `Modern lattice cryptography does a large amount of polynomial arithmetic. ML-KEM, the NIST-standardized key-encapsulation mechanism derived from CRYSTALS-Kyber, works with vectors of polynomials over a modular ring. Signing schemes in the same family also spend much of their time moving between compact byte strings, coefficient arrays, and modular polynomial products.`,
+        `A polynomial product is a convolution. Each output coefficient receives contributions from many pairs of input coefficients. If the implementation multiplies every pair directly, the work grows quadratically. That is easy to understand but expensive when the protocol repeats the operation many times with fixed-size polynomials.`,
+        `The number theoretic transform, or NTT, exists to make those products fast without leaving exact modular arithmetic. It is the FFT idea rebuilt over a finite modular ring. Instead of using floating-point complex roots and then worrying about rounding, it uses roots of unity modulo a carefully chosen integer q.`,
+      ],
+    },
+    {
+      heading: 'Why schoolbook multiplication is not enough',
+      paragraphs: [
+        `The schoolbook method is the first correct baseline. To multiply a(x) and b(x), multiply every coefficient a[i] by every coefficient b[j], add the product into position i + j, reduce coefficients modulo q, and apply the ring rule that wraps high-degree terms back into the allowed degree range.`,
+        `That direct method is valuable for reference code and tiny sizes because it has few moving parts. It also makes the ring relation visible. In a negacyclic ring such as Z_q[X] / (X^n + 1), a term X^n becomes -1, so high-degree terms wrap around with a sign change. In another ring, the wrap rule may differ.`,
+        `The problem is throughput. Schoolbook multiplication is O(n^2). At n = 256, one product is still manageable, but real protocols do not do one product in isolation. They multiply many polynomials, perform reductions after intermediate arithmetic, and must do so inside tight latency, bandwidth, and side-channel constraints. The NTT changes the repeated hot path from pairwise coefficient mixing into transform, coordinate-wise multiply, and inverse transform.`,
+      ],
+    },
+    {
+      heading: 'Why a normal FFT is the wrong tool',
+      paragraphs: [
+        `A floating-point FFT solves a related mathematical problem, but it is not the right primitive for cryptographic polynomial multiplication. Cryptographic implementations need exact agreement across platforms and compilers. A rounding difference is not just a small numerical error; it can break decapsulation, signatures, test vectors, and interoperability.`,
+        `The algebra also has to match the scheme. The modulus q, transform length, root order, ring polynomial, coefficient ordering, normalization factor, and reduction bounds are part of the algorithm. A root table copied from a different transform length or a different modulus can produce deterministic nonsense. Fast wrong arithmetic is still wrong.`,
+        `Security adds a second constraint. The implementation must avoid leaking secret-dependent information through branches, memory access, timing, or error behavior. A transform pipeline that is mathematically correct but data-dependent can still be unacceptable in a key exchange or signature implementation.`,
+      ],
+    },
+    {
+      heading: 'The core mechanism',
+      paragraphs: [
+        `Multiplication is hard in coefficient form because every output position mixes many input pairs. It is easy in evaluation form because if C(x) = A(x)B(x), then C(r) = A(r)B(r) at each point r. The transform moves a polynomial from coefficients to evaluations at powers of a modular root of unity.`,
+        `After both inputs are transformed, the middle step is simple: multiply matching coordinates modulo q. Then the inverse transform returns to coefficient representation. The NTT is useful because the forward and inverse transforms can be computed in O(n log n) time by reusing a butterfly schedule instead of evaluating the polynomial from scratch at every point.`,
+        `A butterfly takes two values, combines them with a twiddle factor, and writes two new values. Across stages, the span doubles and different twiddle factors are used. This is the same dataflow shape as the FFT, but every add, subtract, multiply, and reduction happens modulo q.`,
+      ],
+    },
+    {
+      heading: 'Roots, rings, and exactness',
+      paragraphs: [
+        `A root of unity is a value omega such that omega^n = 1 modulo q. For a length-n transform, the useful root must have the right order: its smaller powers should not collapse too early. Otherwise the transform points are not distinct enough to recover the original coefficients.`,
+        `The inverse transform depends on the inverse powers of the root and the modular inverse of n. That last detail is easy to miss. If the inverse transform forgets to multiply by n^{-1} modulo q, it returns a scaled result rather than the original coefficient vector.`,
+        `In production schemes, the ring relation may require a specialized transform rather than the simplest cyclic example. ML-KEM uses q = 3329 and degree-256 polynomials in a ring with X^256 + 1. The standard describes an NTT representation because working in that representation makes multiplication significantly faster, but the representation is scheme-specific. Do not treat an educational NTT table as a portable Kyber table.`,
+      ],
+    },
+    {
+      heading: 'Worked toy example',
+      paragraphs: [
+        `Use a small cyclic example only to see the mechanics. Let q = 17, n = 4, and omega = 4. Since 4^2 = 16 = -1 mod 17 and 4^4 = 1 mod 17, omega has order 4. Take a = [1, 2, 3, 0] and b = [3, 1, 2, 0], representing coefficients modulo X^4 - 1 for this toy example.`,
+        `Evaluate a at 1, 4, 16, and 13 to get A = [6, 6, 2, 7]. Evaluate b at the same points to get B = [6, 5, 4, 14]. Multiply coordinate-wise modulo 17: C = [2, 13, 8, 13]. The inverse transform uses inverse powers of omega and n^{-1} = 13 modulo 17.`,
+        `The inverse returns [9, 7, 13, 7]. Direct cyclic convolution gives the same result: coefficient 0 is 1*3 + 2*0 + 3*2 + 0*1 = 9, coefficient 1 is 1*1 + 2*3 = 7, coefficient 2 is 1*2 + 2*1 + 3*3 = 13, and coefficient 3 is 2*2 + 3*1 = 7. The toy example is not ML-KEM, but it shows why transform, pointwise multiply, inverse transform is exact.`,
+      ],
+    },
+    {
+      heading: 'Why the butterfly schedule works',
+      paragraphs: [
+        `A direct evaluation at n points would still be expensive. The butterfly schedule saves work by using symmetry among powers of the root. Even and odd positions can be combined, then subproblems can be combined again at larger spans. Each stage touches all n coefficients once, and there are log n stages for power-of-two sizes.`,
+        `The schedule is also an implementation data structure. It fixes stage order, span, twiddle index, memory layout, and reduction points. Forward and inverse schedules may use different twiddle order and normalization. Some implementations store coefficients in bit-reversed order; others arrange tables so the loop order produces the expected final layout.`,
+        `Correctness depends on matching all of those choices. The mathematical transform can be written cleanly on paper, but the code is a ledger of conventions. If one side of a protocol uses a different coefficient order or inverse scaling, the byte strings will not interoperate even though both sides appear to be doing an NTT.`,
+      ],
+    },
+    {
+      heading: 'Cost and implementation behavior',
+      paragraphs: [
+        `The headline improvement is O(n log n) rather than O(n^2), but real performance is decided by constants. Modular multiplication, reduction strategy, table locality, cache behavior, register pressure, vectorization, and in-place writes determine whether the transform is actually fast on a target platform.`,
+        `Reduction is a major design choice. Implementations may use Montgomery reduction, Barrett reduction, or scheme-specific bounds that postpone full reduction while keeping values safe from overflow. These choices must be proved against the maximum intermediate values, not just tested on random inputs.`,
+        `Constant-time discipline is part of the algorithm in cryptographic settings. The transform loops should not branch on secret coefficients. Table access patterns should be public and fixed by the schedule. Error handling should not reveal secret-dependent paths. A fast transform that leaks through timing can weaken the system it was meant to accelerate.`,
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        `The NTT matters most when the same parameter set is used repeatedly. Lattice KEMs and signatures have fixed dimensions, fixed moduli, fixed compression rules, and many polynomial products. That is exactly the environment where precomputed root tables and tuned butterfly loops pay off.`,
+        `It also matters for hardware and embedded implementations. A microcontroller implementation has different bottlenecks from a server implementation: code size, stack use, RAM, multiplication latency, and side-channel leakage may dominate. The algorithmic idea is shared, but the best schedule and reduction strategy may differ.`,
+        `For learners, NTT is the bridge between abstract polynomial rings and real post-quantum performance. Once the transform is understood, the speed of ML-KEM-style schemes is less mysterious: the hot path is a disciplined exact transform pipeline, not magical high-degree algebra performed directly every time.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first failure mode is parameter mismatch. Wrong modulus, wrong root, wrong transform length, wrong inverse scaling, or wrong ring relation all break correctness. These bugs can pass superficial tests if the test only checks shape, timing, or a few random cases without known vectors.`,
+        `The second failure mode is overflow before reduction. Modular arithmetic does not mean intermediate machine integers are safe. A C implementation that multiplies or adds in the wrong type can overflow before the modular reduction runs, especially when ported across platforms.`,
+        `The third failure mode is data-dependent behavior. Secret-dependent branches, secret-dependent memory access, early exits, and variable-time arithmetic can become side channels. This is why cryptographic NTT code is reviewed differently from ordinary numerical code.`,
+        `The fourth failure mode is using the wrong algorithm for the size. For very small polynomials, schoolbook or Karatsuba can be faster and simpler. Many high-quality implementations use hybrids because asymptotic complexity is not the whole performance story.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Keep a transform ledger for any serious implementation. Record q, n, ring polynomial, primitive root or root table source, stage order, bit-reversal convention, forward normalization, inverse normalization, reduction method, coefficient bounds, test-vector source, and constant-time review status.`,
+        `Build tests in layers. First test modular arithmetic helpers. Then test forward followed by inverse on many inputs. Then test NTT multiplication against a simple schoolbook reference for the exact same ring. Finally test against published scheme vectors. Random tests are useful, but published vectors catch convention mismatches that random shape tests can miss.`,
+        `Treat optimization as a proof obligation. If a change delays reduction, fuses stages, vectorizes butterflies, or rewrites memory layout, update the bound argument and test vectors. The optimized loop is not merely a faster version of the reference loop; it is a new implementation of the same algebraic contract.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: NIST FIPS 203 ML-KEM at https://csrc.nist.gov/pubs/fips/203/final and the CRYSTALS-Kyber specification at https://pq-crystals.org/kyber/data/kyber-specification-round3-20210804.pdf. For the base algorithmic ladder, study Modular Arithmetic, Binary Exponentiation, Roots of Unity, Fast Fourier Transform, and Convolution.`,
+        `Then connect the transform to systems that use it. Study ML-KEM for key establishment, ML-DSA for signatures, Constant-Time Programming for side-channel discipline, Montgomery Reduction and Barrett Reduction for modular arithmetic, Cache Locality for schedule layout, and Karatsuba Multiplication for the small-size alternative that still appears in hybrid implementations.`,
+      ],
+    },
   ],
 };

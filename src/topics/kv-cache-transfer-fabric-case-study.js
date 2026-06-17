@@ -376,45 +376,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'A KV cache transfer fabric is the data-movement layer underneath prefill/decode disaggregation. Prefill computes prompt KV state. Decode cannot generate correctly until that state is available locally, remotely readable, or streamable under a clear policy. The fabric is the set of block maps, connectors, queues, buffers, network paths, and cleanup acknowledgements that make that handoff safe.',
-        'The existing Prefill/Decode Disaggregation Case Study explains why the phases are split. This page zooms into the handoff. In a real server, the request carries more than text: it carries remote engine identity, block IDs, layer readiness, transfer direction, local block allocation, and a cleanup contract.',
+        'Prefill/decode disaggregation separates two phases that want different hardware behavior. Prefill reads a long prompt and builds key/value state for every transformer layer. Decode then generates one token at a time and repeatedly reads that state. Splitting the phases can protect inter-token latency because decode workers are no longer interrupted by heavy prompt work, but it creates a new systems problem: the state made by prefill must arrive at decode before decode can produce a correct first token.',
+        'A KV cache transfer fabric is the layer that makes that handoff explicit. It names the prompt state, records who owns it, moves the bytes, parks decode requests until the required blocks are ready, and releases temporary memory after the request is done or aborted. The fabric is not a faster memcpy. It is an ownership protocol for large tensors under latency pressure.',
+        'The constraint is severe because KV state is both large and live. A long prompt can produce gigabytes of layer-by-layer cache. The decode side cannot approximate or skip those blocks without changing the model computation. If the handoff is late, time-to-first-token rises. If it is wrong, decode attends to the wrong prompt state. If cleanup is missing, GPU memory leaks into later requests.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious split',
       paragraphs: [
-        'A proxy or router sends prompt work to a prefill instance and sends metadata to a decode instance. In read mode, prefill publishes remote block IDs and decode pulls the KV cache. In write mode, prefill can push layer-by-layer KV blocks into decode-owned memory while prefill is still running. Either way, the decode scheduler must park the request until the required KV blocks are ready.',
-        'vLLM documents disaggregated prefilling as two vLLM instances connected by KV-transfer connectors, with abstractions such as Connector, LookupBuffer, and Pipe under vllm/distributed/kv_transfer: https://docs.vllm.ai/en/latest/features/disagg_prefill/. Ray Serve exposes the same pattern for deployments and lists NIXLConnector and LMCacheConnectorV1 as KV-transfer backends for separated prefill and decode: https://docs.ray.io/en/latest/serve/llm/user-guides/prefill-decode.html.',
+        'The obvious design is to run prefill on one pool, run decode on another pool, and let the decode worker fetch tensors when it needs them. That design is attractive because it keeps the scheduling story simple: route the prompt, produce the cache, copy it, then decode.',
+        'That approach is not foolish. It is exactly the first shape many systems reach for, and read-mode connectors still follow this broad pattern. The decode worker waits for metadata from prefill, receives remote engine identity and block identifiers, pulls the blocks, injects them into local KV memory, and then starts the decode step.',
+        'The problem is that the simple story hides every correctness edge. Decode needs to know whether each layer is complete, whether the block ids belong to the current request epoch, whether the destination allocation still exists, and whether the user cancelled while the transfer was in flight. A transfer fabric exists because those questions have to be answered in data structures, not in comments.',
       ],
     },
     {
-      heading: 'Complete case study: long-context chat',
+      heading: 'The wall',
       paragraphs: [
-        'A long-chat request with a 64k-token prompt may produce several gigabytes of KV state. If the router sends prefill to one rack and decode to a far or congested node, the first token can wait on transfer rather than compute. A better control plane routes by prefix-cache locality, rack locality, transfer backlog, decode capacity, and SLO risk together. SLO-Aware LLM Request Router is the replica-selection layer that turns those signals into a scored route rather than a blind load-balancer pick.',
-        'Mooncake frames this as a KVCache-centric architecture: separate prefill and decode clusters, then use CPU, DRAM, SSD, and NIC resources to form a disaggregated KV-cache pool for long-context serving: https://kvcache-ai.github.io/Mooncake/. The USENIX FAST page describes Mooncake as the Kimi serving platform and highlights the same KVCache-centric design: https://www.usenix.org/conference/fast25/presentation/qin.',
+        'The wall is tail latency plus state identity. Average bandwidth can look fine while a few large prompts fill the NIC queue and stall first-token delivery. A routing policy that chooses the nearest open decode slot can still be bad if the KV path to that slot crosses a busy link or loses prefix-cache locality.',
+        'The second wall is ownership. KV blocks outlive the function call that created them. They pass through scheduler queues, connector buffers, CPU staging memory, network streams, GPU staging buffers, decode-side block tables, and cleanup paths. A boolean such as "kv_ready" cannot safely represent that lifecycle.',
+        'The fabric therefore has to model a request as a state machine. New, filling, sending, receiving, injecting, ready, streaming, completed, and aborted are different states with different allowed transitions. Treating them as incidental statuses makes p99 debugging hard and makes memory leaks likely.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'The performance ledger has at least four clocks: prefill time, transfer time, injection time, and decode time. A system that reports only aggregate tokens per second can miss the real problem. KV-transfer bytes, NIC queue depth, flow count, prefix-cache hit rate, staging-buffer occupancy, parked-request count, and cleanup lag should be visible in traces.',
-        'PyTorch and vLLM describe production P/D serving components such as a service proxy, Python KV connector, C++ prefill/decode connectors, temporary CPU or GPU buffers, separate CUDA streams, multiple transfer channels, sticky routing, and garbage collection for aborted requests: https://pytorch.org/blog/disaggregated-inference-at-scale-with-pytorch-vllm/. vLLM also shows RDMA read and write modes in a MoRI-IO connector flow, including remote block IDs, waiting states, layer-by-layer writes, and cleanup notifications: https://vllm.ai/blog/2026-04-07-moriio-kv-connector.',
+        'The core insight is to make KV movement a versioned ledger. The ledger binds request id, producer engine, token range, layer range, physical or remote block id, transfer mode, readiness mask, epoch, destination allocation, and cleanup acknowledgement. Decode may use a block only when that row proves the block is complete for the right computation and still belongs to a live request.',
+        'This changes the problem from "copy a tensor" to "preserve an invariant across distributed workers." The invariant is ownership plus readiness: every KV block has one current producer or storage owner, a known consumer policy, a version that rejects stale metadata, and a cleanup path that eventually frees the memory.',
+        'Once the handoff is a ledger, the router can reason about more than capacity. It can route the request, the KV state, and the service-level objective together. The best route is not just an open decode slot; it is an open decode slot whose transfer path, cache locality, HBM headroom, and p99 risk all make the first token feasible.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism',
       paragraphs: [
-        'Do not treat KV transfer as a memcpy footnote. It is a distributed-systems boundary with ownership, ordering, backpressure, cancellation, and tail-latency failure modes. Small block sizes can create too many kernel launches or messages. Giant payloads can delay readiness. Remote block IDs can go stale. Decode-side injection can OOM if aborted requests are not cleaned.',
-        'Do not assume disaggregation always raises throughput. Some documentation explicitly warns that disaggregated prefill is mainly for separately tuning first-token and inter-token latency or controlling tail latency. If prompts are short, traffic is small, or network bandwidth is weak, colocated serving plus Chunked Prefill Token Budget Scheduler can be the better engineering choice. If the problem is reuse across turns rather than phase handoff, KV Cache Tiered Offload Store is the better next layer.',
+        'A proxy or scheduler first assigns the request to prefill and decode roles. The prefill worker runs prompt attention and emits KV blocks, often layer by layer. A producer connector saves those blocks into transfer-accessible memory, records the block metadata, and places transfer operations onto a queue. A consumer connector receives or pulls blocks, stages them if necessary, injects them into decode-owned KV memory, and marks the request ready.',
+        'Read mode and write mode place the synchronization point in different places. In read mode, prefill publishes remote block ids and decode pulls the blocks after it knows what to fetch. This is easier to audit because decode controls the read, but it serializes more of the prefill-to-decode path. In write mode, prefill pushes layer-by-layer blocks into decode-side addresses while prefill is still running. That overlaps transfer with compute, but it requires stronger address exchange, completion tracking, and cleanup discipline.',
+        'The connector design separates the model loop from heavy IO. Scheduler connectors plan work. Worker connectors save and load blocks. Pipes or transfer channels move payloads. Lookup buffers and staging areas decouple completion from immediate scheduling. Garbage collection clears idle or aborted buffers. The model loop should not block on a synchronous network copy for every layer if the serving system is trying to protect tail latency.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is plain: decode is allowed to sample only after all required prompt KV blocks for its policy are present in the local decode layout or are streamable with a safe wait rule. The block map proves identity, readiness, and version. The scheduler state prevents a request from being selected while it is still waiting for remote KV.',
+        'The cleanup side is part of the same argument. A request that finishes, cancels, or gets preempted must release producer-side blocks, transfer buffers, and decode-side staging memory. Otherwise the fabric may remain correct for the current request while poisoning the next one through leaked HBM or stale block ids.',
+        'The latency argument is also structural. Disaggregation can make inter-token latency steadier because decode batches do not share the worker with prefill jobs. It often adds first-token overhead because KV state must cross a boundary. Write mode, locality-aware routing, split transfer streams, and prefix-cache sticky routing are attempts to reduce that boundary cost without giving up decode isolation.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The main cost is bytes moved. KV size grows with layers, heads, head dimension, precision, and prompt length. Doubling prompt length roughly doubles the KV payload for the handoff. Longer context therefore turns the network and injection path into a first-token component, not just a background detail.',
+        'The second cost is metadata and scheduling complexity. The system needs block maps, request states, readiness masks, transfer queues, connector buffers, and metrics that separate prefill time, transfer time, injection time, parked-wait time, decode time, and cleanup lag. Aggregate tokens per second is not enough to debug this layer.',
+        'Granularity is a real tradeoff. Tiny blocks and too many channels create overhead, lock contention, and message pressure. Giant blocks delay readiness and reduce overlap. Good fabrics choose transfer units that are large enough to use bandwidth efficiently and small enough to pipeline with layer completion.',
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        'Consider a long-chat request with a 64k-token context and a stable system prompt. The router sees two possible decode workers. One is open but in another rack. The other is slightly busier but near the prefill worker and likely to reuse prefix state. A capacity-only router may choose the open worker and create a multi-gigabyte cross-rack transfer. A fabric-aware router may keep the request near the cached prefix and avoid a p99 spike.',
+        'The transfer record for that request should show the prompt byte estimate, chosen prefill and decode engines, block ids, layer readiness, transfer mode, channel count, waiting duration, injection duration, first-token time, and cleanup acknowledgement. If the user cancels after prefill but before decode readiness, the same record should drive garbage collection rather than leaving staging buffers behind.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Build the fabric like a control plane. Use explicit request states. Version block metadata. Make stale ids fail closed. Track producer and consumer ownership separately. Record why a request is parked. Put cleanup on the normal path and the abort path. Keep transfer metrics separate from model metrics so a slow first token is not misattributed to sampling.',
+        'Route with topology and locality. Prefer decode targets that can receive the KV payload within the first-token budget, not merely targets with open batch slots. Include NIC queueing, rack locality, prefix-cache hit probability, HBM headroom, and outstanding transfer bytes in the admission decision. When a request cannot meet its SLO, reject or defer it before spending expensive prefill compute.',
+        'Treat read and write modes as engineering choices, not as universal winners. Read mode is easier to reason about and can be safer for early systems. Write mode can overlap more work, but it moves risk into address exchange, readiness tracking, and completion handling. The right answer depends on hardware, connector maturity, prompt length distribution, and the cost of first-token latency.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Small blocks can create too many operations. Large blocks can delay readiness. Remote block ids can go stale. Decode injection can run out of memory when aborted requests are not cleaned. Prefix-cache locality can be lost by a router that sees only decode capacity. A fabric can also look healthy on average while a few long prompts dominate p99.',
+        'Do not assume disaggregation raises throughput. vLLM documentation explicitly frames disaggregated prefilling as a way to tune time-to-first-token and inter-token latency separately and warns that it does not automatically improve throughput. If prompts are short, traffic is light, or network bandwidth is weak, colocated serving plus chunked prefill may be simpler and faster.',
+        'The technique is also the wrong layer for some problems. If the goal is reuse across turns or across requests, a KV cache storage or prefix-caching layer matters more. If the problem is memory pressure inside one worker, paged attention, quantized KV, eviction policy, or tiered offload may be the better first study.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary and official sources: DistServe at https://arxiv.org/abs/2401.09670, vLLM disaggregated prefilling docs at https://docs.vllm.ai/en/latest/features/disagg_prefill/, Ray Serve P/D disaggregation docs at https://docs.ray.io/en/latest/serve/llm/user-guides/prefill-decode.html, PyTorch/vLLM disaggregated inference at https://pytorch.org/blog/disaggregated-inference-at-scale-with-pytorch-vllm/, Mooncake docs at https://kvcache-ai.github.io/Mooncake/, Mooncake FAST page at https://www.usenix.org/conference/fast25/presentation/qin, llm-d networking notes at https://llm-d.ai/blog/llm-d-v0.5-sustaining-performance-at-scale, vLLM MoRI-IO connector blog at https://vllm.ai/blog/2026-04-07-moriio-kv-connector, and NVIDIA Kubernetes disaggregated inference notes at https://developer.nvidia.com/blog/deploying-disaggregated-llm-inference-workloads-on-kubernetes/.',
-        'Study Prefill/Decode Disaggregation Case Study first, then Chunked Prefill Token Budget Scheduler, KV Cache Tiered Offload Store, SLO-Aware LLM Request Router, LLM Serving: PagedAttention, KV Cache Concurrency Capacity Model, Prefix Caching & RadixAttention, GPU Memory Pool Fragmentation Ledger, LLM Inference Cost Stack Case Study, Distributed Tracing, Backpressure, Load Balancer, Tail Latency & p99 Thinking, and LLM Unit Economics Ledger Case Study next.',
+        'Current system references for this topic are vLLM disaggregated prefilling docs at https://docs.vllm.ai/en/latest/features/disagg_prefill/, Ray Serve prefill/decode disaggregation docs at https://docs.ray.io/en/latest/serve/llm/user-guides/prefill-decode.html, the PyTorch and vLLM disaggregated inference writeup at https://pytorch.org/blog/disaggregated-inference-at-scale-with-pytorch-vllm/, the vLLM MoRI-IO connector writeup at https://vllm.ai/blog/2026-04-07-moriio-kv-connector, DistServe at https://arxiv.org/abs/2401.09670, and Mooncake at https://kvcache-ai.github.io/Mooncake/.',
+        'Study Prefill/Decode Disaggregation Case Study first, because this fabric exists to connect separated prefill and decode workers. Then study Chunked Prefill Token Budget Scheduler, KV Cache Tiered Offload Store, SLO-Aware LLM Request Router, PagedAttention, KV Cache Concurrency Capacity Model, Prefix Caching and RadixAttention, GPU Memory Pool Fragmentation Ledger, Distributed Tracing, Backpressure, Load Balancing, and Tail Latency.',
       ],
     },
   ],

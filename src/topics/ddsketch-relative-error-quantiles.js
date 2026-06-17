@@ -212,41 +212,120 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why approximate quantiles exist',
       paragraphs: [
-        'DDSketch is a mergeable quantile sketch with relative-error guarantees on returned values. It is designed for long-tailed distributions such as latency, where a small rank error can correspond to a large value error.',
-        'The structure stores counts in logarithmically spaced buckets. Values are mapped to representatives whose relative distance from the true value is bounded by a configured accuracy parameter. Merging sketches means adding counts for matching buckets.',
+        "Percentiles turn a distribution into operational numbers: p50 for the common case, p95 for bad-but-common cases, and p99 for the slow tail. Exact percentiles require enough order information to find the value at a requested rank.",
+        "DDSketch exists because many production metrics are positive and long-tailed. For latency, a rank-near answer can still be far away in milliseconds. DDSketch changes the contract from rank error to relative error in the returned value.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The exact baseline',
       paragraphs: [
-        'Choose a relative accuracy target. Build a logarithmic mapping from positive values to bucket indices so every value in a bucket is close to the bucket representative by that relative factor. On update, increment one bucket count. To query a quantile, walk cumulative counts until the requested rank is reached and return that bucket representative.',
-        'Because every sketch uses the same bucket mapping, distributed merge is straightforward: add counts bucket by bucket. Dense implementations are fast when the bucket range is compact; sparse or collapsing variants control memory when the value range is wide.',
+        "The exact baseline stores every observation, sorts the observations, and returns the item at rank floor(q * n). A monitoring backend can do this for a small batch of samples. It cannot do it cheaply for high-cardinality metrics across hosts, routes, versions, and time windows.",
+        "A fixed histogram is the usual compromise. It stores bucket counts instead of raw values. Equal-width buckets are a poor fit for latency because the difference between 1 ms and 2 ms matters differently from the difference between 1001 ms and 1002 ms.",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The exact wall',
       paragraphs: [
-        'DDSketch spends memory on buckets covering the value range it sees. The number of buckets grows with the logarithm of the ratio between maximum and minimum tracked values, not linearly with the number of samples. The contract is value-relative error, which differs from GK, KLL, and many rank-error sketches.',
+        "The wall is scale. A useful latency sketch needs narrow buckets near small values and wider buckets near large values, while keeping the same relative precision. It also needs to merge cleanly because production percentiles are rolled up across agents, tags, and retention windows.",
+        "Rank-error sketches such as GK and KLL answer a different question. They can tell you that a value is near the requested rank. DDSketch is built for the case where the dashboard promise is closer to: the reported value is within a configured percentage of the true quantile value.",
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core sketch invariant',
       paragraphs: [
-        'An APM system tracks endpoint latency across thousands of services. Each agent emits DDSketch distributions tagged by service, resource, status, and version. The backend merges distributions by tag and time window, then computes p50, p95, p99, and histograms without retaining every span latency. This avoids averaging percentiles and keeps p99 rollups meaningful.',
+        "DDSketch maps positive values into logarithmically spaced buckets. Bucket width grows with the value, so a bucket near 10 ms is narrow in milliseconds and a bucket near 1 second is wider in milliseconds.",
+        "The invariant is relative value containment. Every positive value assigned to a bucket is close to that bucket's representative by the configured relative accuracy. Counts can move through the system because the bucket index, not the raw sample, carries the accuracy contract.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'DDSketch is not an exact histogram. Bucket mapping and collapsing policy matter. If values include zeros or negatives, the implementation needs explicit handling for a zero bucket and negative stores. Also remember that relative value error is not the same as statistical confidence; low traffic windows can still make p99 noisy.',
+        "Choose a relative accuracy alpha. The implementation derives a logarithmic base from alpha, maps each incoming positive value to an integer bucket index, and increments that bucket's count.",
+        "A quantile query walks bucket counts in value order until the cumulative count reaches the requested rank. The sketch returns the representative value for that bucket. Merging two compatible sketches adds counts for equal bucket indices.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Accuracy argument',
       paragraphs: [
-        'Primary sources: DDSketch PVLDB paper at https://www.vldb.org/pvldb/vol12/p2195-masson.pdf, Datadog engineering write-up at https://www.datadoghq.com/blog/engineering/computing-accurate-percentiles-with-ddsketch/, and DataDog sketches-go repository at https://github.com/DataDog/sketches-go. Study Tail Latency & p99 Thinking, t-digest Quantile Sketch, KLL Quantile Sketch, Greenwald-Khanna Quantile Summary, and Distributed Tracing next.',
+        "The logarithmic mapping makes multiplicative error stable across the value range. If two values land in the same bucket, replacing either one with the bucket representative changes the value by at most the configured relative factor.",
+        "Merge works because counts are additive. If one agent saw 20 values in bucket 81 and another saw 7 values in bucket 81, the merged sketch saw 27 values in that same approximate value range. The combined cumulative count gives the same quantile query you would get from one sketch over the union, subject to the same bucket approximation.",
+      ],
+    },
+    {
+      heading: 'Cost, memory, and merge behavior',
+      paragraphs: [
+        "Update cost is constant after the mapping calculation: compute the bucket index and increment a count. Query cost depends on how many occupied buckets must be scanned to reach the requested rank.",
+        "Memory grows with the number of occupied bucket indices, roughly with the logarithmic span between the smallest and largest positive values. Dense stores are fast when the index range is tight. Sparse stores save memory when buckets are far apart. Collapsing stores cap memory by sacrificing accuracy in a chosen region.",
+      ],
+    },
+    {
+      heading: 'Production use',
+      paragraphs: [
+        "DDSketch fits APM and metrics systems that ship distributions from many agents. Agents can emit sketches by service, endpoint, status code, customer tier, and release. The backend merges compatible sketches by adding counts.",
+        "This avoids a common percentile error: averaging per-host p99 values. The fleet p99 must be computed from the merged distribution, not from the mean of local percentiles.",
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        "DDSketch assumes a value mapping. Zeros, negatives, NaN values, and infinities need explicit handling outside the positive logarithmic map. Different mappings or accuracy settings cannot be merged as if they were the same sketch.",
+        "The value-error guarantee does not fix low sample counts. A p99 over 80 requests is intrinsically unstable. Collapsing policies can also weaken the guarantee for the region they collapse, so memory caps are part of the data-structure contract.",
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        "Suppose an API service records latencies from 1 ms to 2,000 ms and uses DDSketch with 2% relative accuracy. A 10 ms observation lands in a narrow bucket whose representative is close to 10 ms. A 1,000 ms observation lands in a much wider bucket, but the bucket is still close in percentage terms.",
+        "If the merged fleet sketch reports p99 as 500 ms, the intended promise is value-relative: the true p99 is near 500 ms within the configured percentage, assuming the sketch did not collapse that region and the window has enough traffic to make p99 meaningful.",
+      ],
+    },
+    {
+      heading: 'Why relative error matters',
+      paragraphs: [
+        "Latency is usually judged on a ratio scale. A 5 ms miss around a 10 ms endpoint is a serious error; a 5 ms miss around a 2 second endpoint is noise. Equal-width buckets spend the same resolution everywhere, even though operators do not read all regions of the distribution the same way.",
+        "DDSketch puts the precision budget where it matches that ratio view. Buckets are tight near zero and widen as values grow. The dashboard can then make a statement such as p99 is within 2% of the true p99 value, rather than only saying the answer came from a nearby rank.",
+        "This is especially useful for long-tailed systems. One sketch can represent fast cache hits, ordinary database calls, slow retries, and rare timeouts without choosing a single millisecond bucket width that is wrong for most of the range.",
+      ],
+    },
+    {
+      heading: 'Zero and negative values',
+      paragraphs: [
+        "The logarithmic map is naturally for positive values. Real metrics pipelines still see zeros, negative values, NaN, and infinity. A production implementation must define that boundary before merge and query semantics are trusted.",
+        "Common designs keep a separate zero count, use a mirrored mapping for negative values when the metric can be negative, and reject or count invalid floating-point values outside the quantile sketch. Latency usually should be nonnegative, so a negative latency observation is often a data-quality bug rather than a sketch input.",
+        "This edge handling is not cosmetic. If one agent drops zeros and another stores them in a special bucket, merged percentiles are no longer describing the same distribution. Sketch compatibility includes value-domain policy, not only alpha.",
+      ],
+    },
+    {
+      heading: 'Store choices',
+      paragraphs: [
+        "The mapping turns values into integer bucket indexes. The store decides how those index-to-count pairs are kept. A dense array is fast when occupied bucket indexes are near each other. A sparse map saves memory when the range is wide and most buckets are empty.",
+        "Some systems use collapsing stores to enforce a maximum number of buckets. Collapsing is an explicit accuracy trade. If the store collapses high buckets, tail accuracy changes. If it collapses low buckets, small-value accuracy changes. The memory cap becomes part of the observable sketch contract.",
+        "For a hot metrics agent, the store is often the performance bottleneck rather than the mathematical idea. Updates should avoid allocation where possible, merges should be linear in occupied buckets, and serialization should preserve the bucket indexes exactly.",
+      ],
+    },
+    {
+      heading: 'Merge and versioning rules',
+      paragraphs: [
+        "A merge is valid only when the sketches share the same mapping and compatible policies. The relative accuracy, index calculation, zero handling, negative handling, collapsing policy, and serialization version all affect whether bucket counts mean the same thing.",
+        "When those policies match, merge is just addition of counts by bucket index. That is why DDSketch is attractive for agents, collectors, and rollup jobs. A local process can summarize millions of samples, send a compact sketch, and the backend can still compute a percentile over the union.",
+        "When those policies do not match, forcing a merge creates a false distribution. A careful system should reject the merge, convert through a documented path with known accuracy loss, or keep the sketches separate.",
+      ],
+    },
+    {
+      heading: 'Choosing alpha',
+      paragraphs: [
+        "A smaller alpha gives tighter value accuracy and more buckets across the same value range. A larger alpha gives a smaller sketch and coarser answers. There is no universal best setting because the right trade depends on alert thresholds, traffic volume, retention, and cardinality.",
+        "For SLO dashboards, choose alpha by asking what answer would change an operator decision. If a 200 ms p99 alert threshold is meaningful, a reported value that can drift by 10% may be too coarse. For broad capacity dashboards, a coarser value may be acceptable.",
+        "Also remember that sketch error is not the only uncertainty. A p99 over a tiny window can jump because there are too few samples. DDSketch preserves a distribution compactly; it does not make sparse data statistically stable.",
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        "Study Greenwald-Khanna and KLL to see rank-error quantile sketches. Study t-digest for a tail-weighted centroid design used in latency dashboards. Study Tail Latency and p99 Thinking before using any sketch for alerts, because the aggregation plan can be wrong even when the sketch is implemented correctly.",
+        "Primary sources: the DDSketch PVLDB paper, Datadog's engineering write-up on accurate percentiles, and the Datadog sketches implementations.",
       ],
     },
   ],

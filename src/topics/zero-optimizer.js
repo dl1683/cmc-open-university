@@ -78,7 +78,7 @@ function* stageLadder() {
       ],
     ),
     highlight: { active: ['params:rank0', 'params:rank1', 'params:rank2', 'optim:rank0', 'optim:rank1', 'optim:rank2'] },
-    explanation: 'Classic data parallelism replicates the model and optimizer state on every rank. That is simple, but Adam-style optimizer states can be several times larger than the model weights.',
+    explanation: 'Read each column as one data-parallel rank. The repeated "full copy" cells are the redundancy ZeRO removes; Adam-style optimizer states can be several times larger than the visible model weights.',
   };
 
   yield {
@@ -144,7 +144,7 @@ function* stepChoreography() {
   yield {
     state: shardGraph('Forward gathers parameter shards just in time'),
     highlight: { active: ['params', 'collective', 'e-params-collective'], found: ['r0', 'r1', 'r2'] },
-    explanation: 'In ZeRO stage 3, parameters are partitioned when idle. Before a layer runs, ranks all-gather the shards needed for that layer, compute, then release full copies as soon as possible.',
+    explanation: 'Read the parameter node as sharded at rest, not permanently replicated. In ZeRO stage 3, ranks all-gather shards just before a layer runs, compute, then release full copies as soon as possible.',
   };
 
   yield {
@@ -194,43 +194,71 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'ZeRO means Zero Redundancy Optimizer. It is a distributed training strategy that removes duplicated training state across data-parallel GPUs. Ordinary data parallelism replicates parameters, gradients, and optimizer states on every rank. ZeRO keeps the logical behavior of data parallel training, but partitions the expensive state so each rank owns only a shard.',
-        'DeepSpeed documents the stage ladder directly: stage 1 partitions optimizer state, stage 2 partitions optimizer plus gradient state, and stage 3 partitions optimizer, gradient, and parameter state: https://deepspeed.readthedocs.io/en/latest/zero3.html. The ZeRO paper frames the same idea as eliminating memory redundancies while retaining low communication volume and high computational granularity: https://arxiv.org/abs/1910.02054.',
+        `ZeRO exists because ordinary data parallel training wastes memory in the exact place large models run out first. In classic data parallelism, every GPU rank stores a full copy of parameters, gradients, and optimizer state. The ranks cooperate to train one logical model, but physically they all carry the same expensive state. Adding more data-parallel GPUs improves sample throughput, yet each GPU still needs enough memory for the full model state.`,
+        `For Adam-style training, the visible model weights are only part of the bill. A system may store bf16 or fp16 parameters for forward and backward, fp32 master parameters for stable updates, first-moment estimates, second-moment estimates, gradients, communication buckets, temporary buffers, and activations. Optimizer state alone can be several times the parameter size. ZeRO, the Zero Redundancy Optimizer, keeps the data-parallel programming model while partitioning redundant state across ranks so each GPU owns only a shard at rest.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The reasonable first attempt',
       paragraphs: [
-        'Stage 1 attacks optimizer memory. Adam keeps first moments, second moments, and often fp32 master weights. Those states can dwarf the visible fp16 model weights. Instead of storing full Adam state on every GPU, ZeRO partitions it across data-parallel ranks. Stage 2 adds gradient partitioning, often using reduce-scatter so each rank receives the reduced gradient shard it owns. Stage 3 partitions parameters too, all-gathering layer parameters just in time for computation and releasing them afterward.',
-        'This is why ZeRO depends on collectives. GPU All-Reduce teaches the simplest collective contract, but ZeRO frequently wants reduce-scatter and all-gather. Reduce-scatter combines gradient contributions and leaves each rank with one reduced shard. All-gather reconstructs needed parameter shards temporarily. The optimizer update then happens locally on the shard owner.',
+        `The first attempt is to add more GPUs with ordinary data parallelism. Each rank processes a different micro-batch, gradients are all-reduced, and every rank applies the same optimizer update. This is simple, robust, and mathematically close to single-replica training with a larger batch. Its wall is per-rank memory. If one GPU cannot hold the full parameters, gradients, optimizer states, activations, and temporary buffers, adding more identical replicas does not fix the local out-of-memory failure.`,
+        `The second attempt is to reduce batch size, use lower precision, or checkpoint activations. These are valid tools, but they attack different rows of the memory ledger. Smaller micro-batches reduce activation memory and may hurt throughput or optimization behavior. Mixed precision reduces some tensor sizes but often keeps fp32 master weights and optimizer moments. Activation checkpointing trades memory for recompute. If optimizer state is the dominant row, those tools may still leave every rank carrying duplicated Adam moments. ZeRO targets that redundancy directly.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'ZeRO saves memory by increasing communication and scheduling complexity. Stage 1 has the smallest communication change and can deliver large wins for Adam-heavy models. Stage 2 reduces gradient memory but requires careful gradient bucketing. Stage 3 gives the largest memory savings, but parameter all-gathers now sit on the critical path unless overlapped well. Offload can move state to CPU or NVMe, but that turns device memory pressure into transfer latency pressure.',
-        'The memory budget must include parameters, gradients, optimizer states, activations, temporary buffers, and communication buckets. Activation Checkpointing reduces activation memory, while ZeRO reduces replicated training state. They are complementary. A model that still does not fit after ZeRO may need Tensor Parallelism, Pipeline Parallelism, smaller sequence length, smaller batch size, or lower precision.',
+        `The core insight is that data-parallel ranks need the same logical training result, not the same physical ownership of every tensor at all times. Optimizer states can be partitioned because each parameter shard has a clear owner for its update. Gradients can be reduced into shards instead of replicated everywhere. Parameters can be gathered just in time for computation and released afterward. The model behaves like data parallel training, but its resting state is sharded.`,
+        `DeepSpeed describes the ladder in three stages. Stage 1 partitions optimizer state. Stage 2 partitions optimizer state and gradients. Stage 3 partitions optimizer state, gradients, and parameters. The memory savings increase as more categories stop being replicated, but communication and scheduling complexity also increase. ZeRO is therefore not one magic flag. It is a staged memory system with collectives arranged around the forward pass, backward pass, and optimizer step.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism',
       paragraphs: [
-        'ZeRO is common in large language model training, fine-tuning, reinforcement learning from human feedback, and any workload where optimizer state prevents scaling. It is especially attractive when teams want to preserve the programming model of data parallelism instead of manually splitting every transformer layer. It also appears in related forms such as Fully Sharded Data Parallel, which similarly shards parameters, gradients, and optimizer states across workers.',
+        `Stage 1 leaves parameters and gradients replicated but shards the optimizer states. With Adam, each rank owns only a slice of the first moments, second moments, and master weights. After gradients are synchronized, the owner updates its shard. This removes a large memory row with relatively limited disruption. Stage 2 also shards gradients. Instead of all-reduce leaving every rank with a full gradient copy, reduce-scatter combines contributions and leaves each rank with the reduced shard it owns.`,
+        `Stage 3 shards parameters as well. During forward and backward, a layer's parameters are all-gathered when needed so computation can proceed. After use, full parameters can be released and returned to sharded storage. Gradients flow back to owners, and optimizer updates happen on shards. Bucket sizes, prefetch timing, overlap with compute, communication topology, and offload policy decide whether the extra collectives are hidden or exposed as step-time stalls. Fully Sharded Data Parallel follows a closely related sharded-state pattern in PyTorch.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual proves',
       paragraphs: [
-        'ZeRO does not make communication disappear. It often replaces one simple all-reduce with a more nuanced choreography of reduce-scatter, all-gather, bucket scheduling, and overlap. A bad configuration can fit a larger model but train it slowly. Another misconception is that ZeRO solves activation memory. It does not; activations are created by the local forward pass and are handled by activation checkpointing, sequence parallelism, or architectural changes.',
-        'The other trap is treating stage 3 as automatically best. Stage 3 saves the most memory, but if the model already fits, the added gathers may be unnecessary. The right stage is the one that fits the model while preserving enough throughput to make training economically sane.',
+        `The stage ladder proves that the stages are not arbitrary names. Each step removes one more replicated category from the per-rank memory bill. Baseline data parallelism stores full parameters, full gradients, and full optimizer state everywhere. Stage 1 removes optimizer-state replication. Stage 2 removes gradient replication. Stage 3 removes parameter replication at rest. The visual makes the memory accounting explicit instead of treating "distributed training" as one undifferentiated technique.`,
+        `The choreography view proves the deeper invariant: full tensors exist only when computation requires them. Parameters are gathered just before use, gradients are reduced into owner shards, and optimizer updates occur where the relevant state lives. That timing is the difference between saving memory and breaking training. If a layer needs full weights for a matrix multiply, they must be present. If an optimizer updates only a shard, it must have the matching gradient shard and optimizer state. ZeRO works by making those temporary materializations precise.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: DeepSpeed ZeRO docs at https://deepspeed.readthedocs.io/en/latest/zero3.html, DeepSpeed ZeRO tutorial at https://www.deepspeed.ai/tutorials/zero/, and the ZeRO paper at https://arxiv.org/abs/1910.02054. Study GPU All-Reduce, Activation Checkpointing, Batch Size Scaling, Tensor Parallelism, Pipeline Parallelism, and Parameter Server Case Study next.',
+        `ZeRO works because it preserves the algebra of data parallelism while changing storage layout. In ordinary data parallelism, every rank computes gradients for its micro-batch and the system combines them into the same global gradient. ZeRO still combines gradient contributions for each parameter; it simply leaves the combined result on the rank that owns that parameter shard. The optimizer update for that shard uses the same formula it would have used on a full replica, just applied to the owned slice.`,
+        `For parameter sharding, correctness depends on just-in-time reconstruction. A layer's computation sees the parameter values it would have seen in the unsharded model. After computation, the full copy is no longer needed everywhere, so it can be discarded. Across all shards, the logical model remains complete. The sharding is a physical placement strategy, not a change to the objective function. That is why ZeRO can fit larger models without asking the user to manually rewrite every layer as a tensor-parallel program.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `The trade is memory for communication, scheduling complexity, and sometimes recompute or transfer latency. Stage 1 usually gives a large optimizer-state memory win with the smallest communication change. Stage 2 adds gradient sharding and makes bucket sizing and reduce-scatter behavior important. Stage 3 saves the most memory but puts parameter all-gathers and prefetch timing on the critical path unless overlap is effective. Offload can move optimizer state, parameters, or both to CPU or NVMe, but then PCIe, CPU memory bandwidth, or storage latency becomes part of the training step.`,
+        `The practical rule is to choose the lowest stage that fits while preserving throughput. A configuration that merely avoids OOM is not automatically the best training plan. Measure peak memory, step time, communication time, exposed stalls, GPU utilization, checkpoint cost, and recovery behavior. Keep the memory ledger explicit: low-precision weights, master weights, Adam moments, gradients, activations, temporary buffers, communication buckets, fragmentation, and framework overhead. ZeRO solves only the rows it shards.`,
+      ],
+    },
+    {
+      heading: 'Uses and failure modes',
+      paragraphs: [
+        `ZeRO is common in large language model pretraining, fine-tuning, reinforcement learning from feedback, multimodal model training, and any workload where optimizer state blocks scale. It is attractive when teams want the ergonomics of data parallelism while training a model too large for fully replicated state. It also provides a mental bridge to Fully Sharded Data Parallel: both rely on sharded resting state plus carefully timed collectives.`,
+        `It fails when the next bottleneck is somewhere else. ZeRO does not automatically reduce activation memory; activation checkpointing, sequence parallelism, shorter contexts, smaller micro-batches, or architecture changes may still be needed. It does not eliminate the need for tensor or pipeline parallelism when a single layer is too large or too slow. Poor bucket sizes can increase memory spikes or communication stalls. Slow interconnect can erase the benefit of stage 3. Offload can turn a GPU OOM into an intolerably slow job. Debugging also gets harder because full state may be transient, sharded, or off-device.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources are the ZeRO paper at https://arxiv.org/abs/1910.02054, DeepSpeed ZeRO documentation at https://deepspeed.readthedocs.io/en/latest/zero3.html, and the DeepSpeed ZeRO tutorial at https://www.deepspeed.ai/tutorials/zero/. Study GPU All-Reduce first so all-reduce, reduce-scatter, and all-gather are concrete. Then read Activation Checkpointing for the activation-memory row, Batch Size Scaling for optimization effects, Tensor Parallelism and Pipeline Parallelism for splitting computation, Fully Sharded Data Parallel for a closely related implementation style, and Parameter Server Case Study for an older contrast in distributed optimizer-state ownership.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Start with a memory breakdown before selecting a stage. If Adam states dominate, stage 1 may be enough. If gradients dominate peak memory after backward, stage 2 may be the right fit. If parameters themselves block the job, stage 3 becomes necessary. Then tune bucket sizes and overlap under the actual model, sequence length, micro-batch, interconnect, and checkpoint plan. The best ZeRO configuration is a measured balance between fitting the model and keeping the training step productive.`,
       ],
     },
   ],

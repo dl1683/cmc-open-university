@@ -186,40 +186,60 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why clock sync exists',
       paragraphs: [
-        `NTP (Network Time Protocol) and PTP (Precision Time Protocol) measure a computer's clock offset — how far ahead or behind it runs — through an unknown network delay. NTP exchanges four timestamps (client sends t1, server echoes t2 and t3, client receives t4) to solve for both offset and delay simultaneously: offset = ((t2 − t1) + (t3 − t4)) / 2. On a symmetric path, the delay cancels exactly. PTP pushes accuracy from NTP's millisecond floor to nanoseconds by stamping packets in hardware (the NIC's physical layer) instead of software, eliminating scheduler and driver jitter.`,
+        'Distributed systems need clocks even though clocks are unreliable. Logs need timestamps. TLS certificates expire. Databases enforce leases. Schedulers fire timers. Tracing systems merge events from many machines. Humans want one timeline, but each computer has a quartz oscillator that drifts, a kernel that may pause work, and a network path with variable delay. The hard problem is not merely asking a trusted server for the time. The hard problem is learning how far your local clock is from that server while the message itself spent an unknown amount of time in flight.',
+        'NTP, the Network Time Protocol, is the classic answer for internet and LAN synchronization. PTP, the Precision Time Protocol, is the answer when microseconds or nanoseconds matter enough to buy hardware support. Both protocols should be understood as measurement systems under uncertainty. They estimate offset, bound error, reject bad samples, and discipline the local clock gradually. They do not create perfect simultaneity. They provide an operationally useful approximation whose failure modes have to be included in the design of the distributed system above them.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The naive solution fails',
       paragraphs: [
-        `The visualization shows the four-timestamp algebra in action: with a 120ms true offset and symmetric 80ms round trip (40ms each way), it recovers exactly 120ms. Switch to asymmetric 70ms out / 10ms back, and the estimate reads 150ms — off by 30ms, exactly half the asymmetry. No timestamp protocol can detect this error: a slow clock with a fast return path looks identical to a fast clock with a slow return path. The round-trip delay is observable; its split is invisible. Sync error ≤ delay/2 is the bedrock limit.`,
-        `NTP defends through HIERARCHY (stratum 0 atomic clocks fan out to stratum 1–2 intermediate servers to stratum 3–4 clients, keeping paths short), FILTERING (trust only minimum-delay samples, which suffered less queueing and thus less asymmetry), and VOTING (multiple servers with outlier rejection). Result: milliseconds on a LAN, tens on the internet. PTP adds hardware timestamps on the NIC (deleting software jitter) and transparent clocks in switches (which measure and subtract their own queueing delay from each packet). Sub-microsecond accuracy follows; tens of nanoseconds with good hardware.`,
+        'The naive solution is to send a request to a time server and set the local clock to the time in the response. That is wrong because the response was delayed. If the packet took 40 ms to return, the server time is already old by the time the client sees it. A slightly less naive solution is to measure round-trip time and divide by two. That works only if the outbound and return delays are equal. Real networks violate that assumption through congestion, routing asymmetry, interrupt delays, switch queues, Wi-Fi contention, and virtualization noise.',
+        'The other naive mistake is to jump the clock whenever an offset is found. Backward jumps can reorder logs, make build systems believe outputs predate inputs, break timeout calculations, and confuse lease protocols. Clock synchronization has two jobs: estimating offset and applying correction without destroying local monotonic order. Mature clients usually slew the clock, meaning they run it slightly faster or slower until the error drains away. Large errors may be stepped at controlled moments, but arbitrary rewinds are treated as dangerous.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core insight',
       paragraphs: [
-        `NTP's algorithm is cheap — four timestamps, one division — but the system cost is high: multiple servers, constant daemons, and careful clock slewing (speeding/slowing at ≤500 ppm to never jump backward, which breaks logs and schedulers). For leap seconds, Google and AWS smear the extra second across 24 hours so midnight never repeats. PTP's cost is hardware: NIC and switch infrastructure. Once in place, accuracy improves by orders of magnitude because software timestamps are limited by scheduler noise (microseconds to milliseconds), while hardware stamps live at the wire itself.`,
+        'Clock synchronization is not a request for truth; it is an error-bounded measurement. The protocol can observe local send time, remote receive time, remote send time, local receive time, and round-trip delay. It cannot directly observe how much of that delay happened in each direction.',
+        'That is why every serious clock design carries an uncertainty story. NTP filters for low-delay samples because low delay leaves less room for hidden asymmetry. PTP moves timestamps into hardware because poor timestamp placement adds noise before the algebra even starts. TrueTime-style systems expose a bound because correctness can wait out a known bound but cannot wait out a hopeful point estimate.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'The four-timestamp mechanism',
       paragraphs: [
-        `Logs and "Distributed Tracing" use NTP — milliseconds of skew blur waterfall charts but don't break the system. Financial exchanges require 100-microsecond UTC precision by law (MiFID II), spurring PTP hardware everywhere. Google's Spanner (via "Clocks & Ordering: Lamport to TrueTime") proved the mature insight: don't chase accuracy; provide a GUARANTEED BOUND. TrueTime's "±4ms, certainly" lets code commit-wait safely. Power grids and 5G need ~1-microsecond alignment; GPU clusters use PTP to find synchronous-step stragglers.`,
+        'NTP uses four timestamps. The client records t1 when it sends a request. The server records t2 when it receives that request and t3 when it sends the reply. The client records t4 when the reply arrives. Timestamps t1 and t4 are on the client clock; t2 and t3 are on the server clock. From those four numbers, NTP estimates offset as ((t2 - t1) + (t3 - t4)) / 2. It estimates delay as (t4 - t1) - (t3 - t2), which is the round trip minus the time the server held the packet.',
+        'The algebra is elegant because, with symmetric one-way delays, the unknown delay cancels out. The outbound leg sees delay plus offset. The return leg sees delay minus offset. Averaging those two expressions isolates offset. The protocol also subtracts server processing time because the server supplies both receive and transmit timestamps. That is the reason four timestamps are enough: the client can separate network flight time, server hold time, and relative clock position under the symmetric-path assumption.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the visual proves',
       paragraphs: [
-        `First trap: NTP measures relative accuracy (you and the server stay synchronized) not absolute correctness (deviation from UTC truth). Second: asymmetry is invisible. If outbound traffic routes via satellite (500ms) and returns via fiber (10ms), NTP reports an offset error of exactly (500 − 10) / 2 = 245 seconds — and no protocol change can fix it. You measure round-trip delay; you cannot measure its split. Third misconception: more samples approach truth. NTP's filter selects minimum-delay exchanges because they're least asymmetric — it's not statistics, it's trusting the quietest path.`,
+        'The symmetric-path table proves the happy case. With a true offset of 120 ms and equal 40 ms legs, the computed offset is exactly 120 ms. The total network delay can be large and still cancel if the split is equal. This is why NTP can work surprisingly well with a simple exchange. It is not guessing the one-way delay. It is exploiting a symmetry assumption that removes the need to know it.',
+        'The asymmetric-path table proves the fundamental wall. Keep the same 80 ms round trip, but make the outbound leg 70 ms and the return leg 10 ms. The estimator reports an offset 30 ms too high, exactly half the asymmetry. The timestamps cannot reveal the split. A fast client clock plus one path split can produce the same observations as a slower client clock plus another split. The round trip is observable; its division into one-way delays is not. NTP can bound and filter this error, but it cannot make asymmetry disappear by algebra alone.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'NTP defenses',
       paragraphs: [
-        `"Clocks & Ordering: Lamport to TrueTime" explains why clock sync matters and how TrueTime bounds the error. "Distributed Tracing" shows system design that tolerates NTP's limits. "How DNS Works" reveals the stratum delegation pattern both use. "TCP: Handshake & Congestion Control" explains why asymmetric delays exist and how queues and retransmission cause timing scatter.`,
+        'Because NTP cannot directly observe asymmetry, it uses hierarchy, filtering, and voting. Stratum 0 devices are reference clocks such as GPS receivers or atomic clocks. Stratum 1 servers are attached to those references. Lower strata synchronize through the hierarchy, keeping most clients close to a stable source rather than sending every laptop to one global clock. Multiple servers give the client a way to reject falsetickers and prefer sources that agree.',
+        'The clock filter is especially important. Among recent exchanges, the lowest-delay samples are usually trusted more because they had less room for queueing and asymmetry. This is not naive averaging. A packet that round-tripped in 8 ms is not automatically correct, but it is less exposed to variable congestion than a packet that took 80 ms. Poll intervals also adapt as the local oscillator proves stable or unstable. The result is often millisecond-level accuracy on a LAN and worse but still useful accuracy over the open internet.',
+      ],
+    },
+    {
+      heading: 'PTP and hardware time',
+      paragraphs: [
+        'PTP attacks a different part of the error budget: timestamp quality. Ordinary software timestamps can be late by scheduler delay, driver queues, interrupt coalescing, virtualization pauses, and NIC buffering. The timestamp may record when a process ran, not when bits crossed the wire. Precision Time Protocol moves the stopwatch into hardware. A PTP-capable NIC can timestamp packets at or near the physical layer, removing much of the software stack from the measurement.',
+        'PTP-aware switches can also participate. Transparent clocks measure how long a packet spent inside the switch and add that residence time to a correction field. Boundary clocks synchronize themselves and re-originate timing on each port. These mechanisms do not repeal the laws of asymmetry, but on a managed LAN with known paths they reduce variable queueing and measurement jitter enough to reach sub-microsecond accuracy, and sometimes tens of nanoseconds. The cost is real infrastructure: compatible NICs, switches, profiles, configuration, and monitoring.',
+      ],
+    },
+    {
+      heading: 'Where it helps and where it fails',
+      paragraphs: [
+        'NTP is enough for many systems. Log merging, monitoring, cache expiry, ordinary distributed tracing, and user-facing timestamps can tolerate milliseconds of skew. These systems should still design for uncertainty: traces should use causal context, leases should include margins, and metrics should not pretend that clocks are perfect. Google Spanner illustrates the deeper principle through TrueTime: correctness needs a bound on uncertainty, not just a hopeful point estimate. If the bound is known, software can wait it out.',
+        'PTP is useful where timing is part of the product or the regulation. Financial markets may require traceable sub-millisecond or microsecond timestamps. Power grids, industrial control, telecom, audio/video production, and 5G can require phase alignment. GPU clusters can use better sync to correlate step traces and diagnose stragglers. The limits remain: asymmetric paths, bad reference clocks, leap-second policy disagreements, virtualized timestamp noise, and misconfigured hardware can all create false confidence. Clock sync is an engineered measurement chain, not a magic time oracle.',
+        'Study Lamport clocks, vector clocks, Hybrid Logical Clocks, Distributed Tracing, Spanner TrueTime, TCP congestion control, quorum leases, and lease-based leader election next. The habit to build is simple: whenever a system uses time, ask whether it needs rough ordering, regulatory traceability, monotonic local behavior, or a proven uncertainty bound. Those are different requirements, and NTP, PTP, and TrueTime-style systems serve different parts of that design space.',
       ],
     },
   ],

@@ -167,38 +167,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'PostgreSQL must prevent transaction ID wraparound. It does that by freezing old tuple transaction IDs and advancing per-table horizons such as relfrozenxid. Autovacuum handles routine cleanup and forced anti-wraparound work when tables age too far.',
-        'PostgreSQL Routine Vacuuming documents preventing transaction ID wraparound failures: https://www.postgresql.org/docs/current/routine-vacuuming.html. Vacuum configuration documents freeze ages, autovacuum_freeze_max_age, vacuum_failsafe_age, and related settings: https://www.postgresql.org/docs/current/runtime-config-vacuum.html.',
+        `PostgreSQL uses multi-version concurrency control, so a row version is not simply current or deleted. It carries transaction identity, and readers decide whether that version is visible by comparing their snapshot against the transaction IDs stored on the tuple. That gives PostgreSQL excellent concurrency because readers and writers can avoid blocking each other in many ordinary cases. It also creates a clock that never stops. The transaction ID counter advances as the database processes work, and old tuple IDs continue to age even when the rows themselves are no longer changing.`,
+        `Autovacuum freeze exists because that counter is finite. If transaction IDs are allowed to wrap while old tuple IDs remain meaningful, comparison by age can become unsafe. PostgreSQL therefore has to turn sufficiently old transaction IDs into a permanent visibility fact: this tuple is frozen and can be treated as visible to all future transactions. The feature is not cosmetic cleanup. It is a correctness mechanism that prevents a running database from losing the ability to order old and new versions.`,
+        `The operational problem is that the most dangerous table is not always the busiest table. A quiet archive, old tenant partition, or append-only audit table can contain transaction IDs from far in the past. Its pages may look stable and harmless, but its table-level frozen horizon keeps falling behind the global counter. Anti-wraparound autovacuum is the background system that notices that age, schedules the right work, freezes old tuple IDs, and advances the table horizon before the database reaches emergency territory.`,
       ],
     },
     {
-      heading: 'Core mental model',
+      heading: 'Why ordinary cleanup is not enough',
       paragraphs: [
-        'The data structure is an age-prioritized table queue plus a page-level skip index. relfrozenxid tracks each table horizon. Autovacuum chooses old tables. The visibility map tells vacuum which pages are all-visible or all-frozen.',
-        'The all-frozen bit matters because it turns future anti-wraparound work from a blind full scan into a targeted scan of pages that might still contain unfrozen transaction IDs.',
+        `The obvious approach is to treat vacuum as a space-reclamation service. When updates and deletes leave dead tuples behind, vacuum removes them, updates statistics, and lets the storage engine reuse space. Under that mental model, a table that no one updates does not need urgent maintenance. There are no new dead tuples, the index is not obviously bloated, and the application is not complaining.`,
+        `That approach fails because wraparound risk is independent of visible bloat. Old row versions can be perfectly valid, frequently read, and still carry transaction IDs that must eventually be frozen. A table can be dangerous precisely because it is quiet: no writer comes along to change the pages, but the global transaction ID counter keeps moving. If autovacuum only chased dead-tuple cleanup, it would ignore the tables whose XID horizons most need to advance.`,
+        `Manual scheduling has the same weakness at production scale. A human can run VACUUM on the biggest tables, but the real risk is age relative to the transaction counter, not table size alone. PostgreSQL needs an automatic age-aware queue that can override ordinary cost preferences when correctness is at stake. This is why anti-wraparound vacuum can happen even on tables that do not look dirty from a bloat-only point of view.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core model',
       paragraphs: [
-        'A SaaS product stores append-mostly audit events. Old partitions do not change after a retention window. Vacuum freezes old tuple XIDs and marks pages all-frozen. The table horizon advances, and future anti-wraparound vacuums skip most old pages.',
-        'A neglected tenant table, by contrast, keeps an old relfrozenxid. When age crosses the threshold, autovacuum launches even if normal autovacuum is disabled, and failsafe behavior can remove delays to avoid wraparound failure.',
+        `The system is easiest to understand as two coordinated indexes over age. At the table level, PostgreSQL records a frozen horizon such as relfrozenxid. That horizon summarizes how far back the table may still contain unfrozen transaction IDs. The age of that horizon is compared with freeze thresholds, so autovacuum can prioritize tables that are drifting toward wraparound risk.`,
+        `At the page level, PostgreSQL uses the visibility map. Each heap page can carry compact facts such as all-visible and all-frozen. All-visible says every tuple on the page is visible to all current and future transactions, which can also help index-only scans. All-frozen is stronger for this topic: it says the tuples on that page no longer require future freezing until a later page change invalidates the fact.`,
+        `Those two levels serve different purposes. The table horizon tells PostgreSQL which relation is becoming old. The visibility map tells a vacuum worker where expensive heap inspection may be avoidable. Without the table horizon, the database would not know which tables are urgent. Without the page-level skip facts, every urgent table would tend toward full heap scans even when most pages were already permanently safe.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Core mechanism',
       paragraphs: [
-        'Do not treat autovacuum as merely bloat cleanup. Anti-wraparound vacuum is correctness work. PostgreSQL will force it because transaction ID ordering must remain meaningful.',
-        'Do not assume all-visible and all-frozen are the same. All-visible helps index-only scans and cleanup. All-frozen means future freezing is unnecessary until the page changes.',
+        `A vacuum worker scans heap pages, identifies old transaction IDs that are safe to replace with frozen markers, and writes the page metadata needed to remember the result. A frozen tuple no longer depends on comparing its original old XID against future snapshots. That removes it from the wraparound danger set. Once all relevant old tuple IDs in a relation are frozen past a safe boundary, PostgreSQL can advance the relation horizon.`,
+        `The scheduling side uses multiple thresholds rather than a single panic button. Ordinary autovacuum can clean dead tuples and freeze opportunistically. As table age rises, autovacuum becomes more aggressive about anti-wraparound work. At high risk, PostgreSQL can force anti-wraparound vacuum and reduce normal throttling because a database that cannot safely compare transaction IDs is worse than a database that briefly spends too much I/O on maintenance.`,
+        `The visibility map is what keeps this from being ruinously repetitive. If an old append-only page has already been proven all-frozen, a later aggressive vacuum can skip it. If a page is updated, deleted from, locked in a way that changes tuple state, or otherwise dirtied, the conservative fact can be cleared. Vacuum must later re-check the page before trusting it again. The invariant is simple: skip facts may be lost too often, but they must not remain set after they become false.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: PostgreSQL Routine Vacuuming at https://www.postgresql.org/docs/current/routine-vacuuming.html, PostgreSQL Vacuuming settings at https://www.postgresql.org/docs/current/runtime-config-vacuum.html, PostgreSQL Visibility Map at https://www.postgresql.org/docs/current/storage-vm.html, and pg_visibility documentation at https://www.postgresql.org/docs/current/pgvisibility.html.',
-        'Study MVCC Internals & VACUUM, PostgreSQL HOT Update Heap-Only Tuple, PostgreSQL WAL Checkpoint & Recovery, PostgreSQL Buffer Pool Clock Sweep, PostgreSQL Lock Manager & Deadlock Detector, and Database Indexing next.',
+        `Freezing works because old visibility decisions eventually become stable. Once every transaction that could have seen a tuple as invisible is gone, and the tuple is known to be visible to all future transactions, PostgreSQL no longer needs the original transaction ID for future visibility comparisons. Replacing that old ID with a frozen marker preserves the useful semantic fact while removing the wraparound hazard.`,
+        `The horizon works because it summarizes the oldest remaining risk. A table does not need to remember every historical transaction ID in its scheduling metadata. It needs a conservative lower bound: there may be unfrozen tuple IDs this old in the table. Advancing that bound after vacuum work gives the autovacuum launcher a compact way to compare tables, choose work, and detect urgency.`,
+        `The visibility map works because it converts repeated proof into a reusable certificate. Anti-wraparound safety requires certainty, so a page can only be skipped when PostgreSQL has a conservative all-frozen fact for it. The moment later activity makes the fact uncertain, the bit can be cleared. This design favors extra work over unsound skipping, which is the right bias for a correctness feature.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Imagine a SaaS product with a large events table partitioned by month. The current month is hot: inserts arrive constantly, some rows are corrected, and ordinary vacuum has dead tuples to clean. Three-year-old partitions are different. They are read for audits but no longer receive writes. Those old partitions contain very old XIDs, so their relfrozenxid values fall behind as the rest of the system continues processing transactions.`,
+        `During routine maintenance, vacuum reaches an old partition and freezes every tuple that can now be treated as permanently visible. Pages that contain only frozen tuples are marked all-frozen in the visibility map. The partition horizon advances because PostgreSQL can prove that no remaining tuple in that relation requires the old horizon. Future anti-wraparound passes see the partition age, inspect the visibility map, and skip most old pages because the all-frozen facts are still valid.`,
+        `Now compare a neglected tenant table that is rarely touched but was never frozen enough. It has little bloat, so a space-only maintenance view would ignore it. Its age crosses the freeze threshold anyway. Autovacuum schedules anti-wraparound work, scans pages that do not have valid all-frozen facts, freezes old tuple IDs, and advances the horizon. If the table keeps being blocked by long transactions or lock conflicts, the database moves closer to failsafe behavior because the risk is not performance degradation; the risk is transaction ID wraparound.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first failure mode is starvation. Autovacuum workers are finite, and they can be delayed by high write volume, poor cost settings, long-running transactions, lock conflicts, or a workload that creates dead tuples faster than workers can process them. Anti-wraparound tasks can force their way forward, but reaching that stage means ordinary maintenance capacity was already insufficient.`,
+        `The second failure mode is a frozen horizon that cannot advance. Vacuum may scan a table but still be unable to move the relation horizon as far as expected because some pages remain unfrozen, a long transaction holds back what can be considered safe, or visibility map facts keep being cleared by updates. Operators sometimes see vacuum activity and assume safety; the important check is whether the relevant horizons are actually advancing.`,
+        `The third failure mode is misunderstanding the page bits. All-visible is not the same as all-frozen. An all-visible page can help reads because every tuple is visible, but it may still contain transaction IDs that must eventually be frozen. An all-frozen page carries the stronger anti-wraparound skip fact. Treating those two facts as interchangeable leads to bad expectations about why an aggressive vacuum still scans a relation.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Monitor age, not just bloat. The operational questions are: which databases and tables have old frozen horizons, which ones are approaching configured freeze ages, whether autovacuum workers are keeping up, and whether long transactions are holding back cleanup. A dashboard that only shows dead tuples will miss the wraparound story. A dashboard that shows table age, vacuum progress, worker saturation, and oldest active transactions gives a much better picture.`,
+        `Partitioning can make freeze work easier when old partitions become stable. An append-mostly audit log, event stream, or ledger table often has a natural time boundary. Once old partitions stop changing, vacuum can freeze them, set all-frozen bits, and make future maintenance cheap. A constantly updated table behaves differently because updates clear page facts and force repeated inspection.`,
+        `Do not disable autovacuum as a routine performance fix. If a table has special needs, tune it deliberately: scale worker capacity, adjust thresholds, schedule manual VACUUM FREEZE where appropriate, investigate blockers, and fix transactions that stay open too long. The maintenance system is part of correctness, not an optional background convenience. PostgreSQL Routine Vacuuming documents wraparound prevention at https://www.postgresql.org/docs/current/routine-vacuuming.html, and vacuum configuration settings such as autovacuum_freeze_max_age and vacuum_failsafe_age are documented at https://www.postgresql.org/docs/current/runtime-config-vacuum.html.`,
+      ],
+    },
+    {
+      heading: 'Implementation notes',
+      paragraphs: [
+        `The implementation pattern is a conservative summary plus a conservative skip index. The relation horizon is allowed to be older than the true oldest unfrozen tuple because that causes extra work, not incorrect skipping. The visibility map is allowed to lose bits and force rechecks. What it must not do is claim that a page is all-frozen when it is not. This asymmetric error budget is common in storage systems: false negatives cost I/O, while false positives can break correctness.`,
+        `The worker must also coordinate with normal MVCC rules. Freezing is only valid when tuple visibility has become permanent relative to future snapshots. Vacuum therefore interacts with transaction horizons, page state, indexes, and write-ahead logging. It is not merely rewriting labels in place; it is making durable storage changes that future recovery and future readers must interpret consistently.`,
+        `For application engineers, the lesson is to design data lifecycles that help the maintenance algorithm. Avoid accidental forever-open transactions. Keep old partitions stable when possible. Use retention and partition detach/drop workflows deliberately. For database operators, the lesson is to treat anti-wraparound warnings as correctness alarms. Once the system escalates to failsafe behavior, the database is already spending performance budget to buy safety.`,
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        `This mechanism matters anywhere PostgreSQL stores long-lived data under sustained transaction volume: SaaS audit trails, billing ledgers, event streams, queues, analytics staging tables, regulatory archives, and multi-tenant systems with uneven tenant activity. The larger and older the database, the more dangerous it is to think of vacuum only as cleanup.`,
+        `It also matters for incident response. A production system approaching wraparound risk can suddenly run aggressive vacuums, consume I/O, ignore some normal throttles, or block unsafe operations. Those symptoms are easy to misread as a spontaneous performance bug. The root cause is often historical maintenance debt: old horizons, blocked vacuums, underprovisioned workers, or old transactions that prevented freezing from keeping pace.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: PostgreSQL Routine Vacuuming at https://www.postgresql.org/docs/current/routine-vacuuming.html, PostgreSQL Vacuuming settings at https://www.postgresql.org/docs/current/runtime-config-vacuum.html, PostgreSQL Visibility Map at https://www.postgresql.org/docs/current/storage-vm.html, and pg_visibility at https://www.postgresql.org/docs/current/pgvisibility.html. Read those with the article model in mind: table horizons identify age risk, the visibility map stores conservative page facts, and autovacuum turns both into scheduled maintenance work.`,
+        `Study MVCC Internals & VACUUM next if you want the tuple-visibility rules behind freezing. Study PostgreSQL HOT Update Heap-Only Tuple to see how updates shape heap page churn. Study PostgreSQL WAL Checkpoint & Recovery to understand why freezing changes must be durable. Study PostgreSQL Buffer Pool Clock Sweep for the memory side of large scans. Study PostgreSQL Lock Manager & Deadlock Detector for blockers that can interfere with maintenance. Study Database Indexing to separate visibility-map benefits for index-only scans from all-frozen benefits for anti-wraparound vacuum.`,
       ],
     },
   ],

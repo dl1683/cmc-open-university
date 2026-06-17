@@ -141,7 +141,7 @@ function* namespaceLedger() {
       ],
     ),
     highlight: { active: ['teamA:pods', 'batch:cpu'], compare: ['sys:cpu'] },
-    explanation: 'A multi-tenant cluster needs quota ledgers by namespace. The ledger shows current usage against hard limits for compute, memory, object counts, storage, or custom resources.',
+    explanation: 'The invariant is local accounting: each namespace spends against its own hard limits, so one tenant cannot silently consume another tenant admission budget.',
   };
 
   yield {
@@ -209,30 +209,107 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'ResourceQuota and LimitRange are Kubernetes namespace policy data structures. LimitRange applies default values and per-object limits. ResourceQuota limits aggregate namespace consumption, including compute, memory, storage, object counts, and sometimes scoped resources.',
-        'The ResourceQuota documentation describes namespace constraints for aggregate resource consumption and object counts: https://kubernetes.io/docs/concepts/policy/resource-quotas/. The LimitRange documentation describes defaulting and enforcing minimum, maximum, and ratio constraints for objects in a namespace: https://kubernetes.io/docs/concepts/policy/limit-range/.',
+        'A shared Kubernetes cluster needs a budget before the object is stored. If the API server accepts every Pod, Service, ConfigMap, or PersistentVolumeClaim, one namespace can consume control-plane objects, requested CPU, memory, storage, or scarce extended resources before other teams notice.',
+        'The scheduler cannot be the first policy boundary. Scheduling answers "can this Pod fit on some node?" Namespace policy answers "is this team allowed to create this object at this cost?" That second question must be answered on the write path, before etcd records the object as desired state.',
+        'ResourceQuota sets hard namespace limits for aggregate resource use and object counts. LimitRange sets per-object defaults and min/max rules. Together they turn a vague create request into an accountable object and then decide whether the namespace can afford it.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach and its wall',
       paragraphs: [
-        'LimitRange is a rule table: resource type, default request, default limit, minimum, maximum, and max limit-to-request ratio. ResourceQuota is a namespace ledger: hard limits, current used values, scopes, object selectors, and the incoming object cost computed during admission.',
-        'Admission ordering matters. LimitRange may mutate a Pod by adding default requests and limits. ResourceQuota then validates the final object against namespace hard limits. Kubernetes admission controllers intercept API-server requests before persistence and after authentication and authorization: https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/.',
+        'The first approach is to let teams create objects freely and rely on the scheduler, kubelet limits, and human cleanup. That feels reasonable in a small cluster because the failure is visible: Pods go Pending, workloads get throttled, and a person can delete the mistake.',
+        'That breaks in a multi-tenant cluster. A Pod with no request has no clear admission cost. A namespace can create thousands of small API objects even when CPU is fine. A Deployment can ask for more Pods than the team should own. The API object already exists by the time the scheduler says it cannot place the Pod.',
+        'Late failure also makes accounting bad. Owners see desired objects that never run, platform teams see noisy pending queues, and cost reports cannot distinguish "allowed but waiting for capacity" from "should never have been accepted."',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'A team namespace has a hard quota of 10 requested CPU cores, 16 GiB requested memory, and 40 Pods. A developer creates a Pod with no CPU request. LimitRange defaults cpu request to 500m and cpu limit to 1 core. ResourceQuota computes used plus incoming. If CPU and memory fit but Pod count would become 41, the API server rejects the Pod with a quota error before it reaches the scheduler.',
+        'Kubernetes splits the decision into object shape and namespace budget. LimitRange looks at one object and asks whether its requests, limits, and ratios are acceptable. It can also fill in missing requests or limits so later components do not have to guess.',
+        'ResourceQuota looks at the namespace ledger. For each constrained resource, it compares current usage plus the incoming object against the hard limit. One failed comparison vetoes the write.',
+        'The order matters. Defaulting must happen before quota math, because quota needs final request values. After admission, the scheduler should see a Pod that already has an accountable shape and already fits the namespace policy.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'How it works',
       paragraphs: [
-        'Quota is not node capacity. A namespace can be under quota and still have Pods pending because no node fits. A namespace can also be over object-count quota even when CPU is available. Defaults must be chosen carefully because they affect scheduling, quota usage, and cost attribution.',
-        'Study next: Kubernetes Admission Policy Gate for the broader request path, Kubernetes Scheduler Priority Queue & Preemption for node placement, Borg Cluster Scheduler for quota as cluster policy, and GPU Cloud Capacity Reservation Orderbook for capacity ledgers outside Kubernetes.',
+        'A create or update request reaches the API server after authentication and authorization. Mutating admission can add defaults. Validating admission can reject the request. LimitRange participates in this admission phase for namespaced objects.',
+        'For a Pod, LimitRange can default missing CPU or memory requests and limits, then check minimums, maximums, and limit-to-request ratios. The result is not just a nicer manifest. It is the cost basis ResourceQuota will charge to the namespace.',
+        'ResourceQuota then evaluates all relevant hard limits. CPU requests, memory requests, object counts, storage requests, and other scoped resources are checked as used plus incoming. If every constrained value stays within hard, the object can be persisted and the quota ledger can reflect the new usage. If any value crosses hard, the API server rejects the write.',
+        'Quota is local to the namespace. Team A spending 39 of 40 Pods does not consume Team B budget. That local accounting is the point: it lets a platform share one control plane without letting one tenant silently spend another tenant admission budget.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the admission-math view, follow the request from client to API server, then watch the branch to LimitRange and ResourceQuota. The important state change is not the arrow movement. It is the moment the Pod changes from "missing request" to "500m CPU request and 1 core limit." Once that value exists, quota can charge it.',
+        'The ResourceQuota table should be read as a set of veto checks. CPU, memory, and Pod count may all pass, but the Service count row fails because used plus incoming exceeds hard. Admission is all-or-nothing: one over-budget resource rejects the object before etcd sees it.',
+        'In the namespace-ledger view, compare namespace rows instead of global cluster capacity. The ledger is deliberately scoped. It shows why object-count quotas protect the API server, why ResourceQuota is different from scheduling, and why a namespace can pass quota yet still have a Pending Pod later.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The invariant is simple: every accepted namespaced object has passed per-object shape rules, and every accepted namespace ledger update stays within hard quota. The API server does not need to predict future scheduling. It only needs to reject writes that would violate the namespace contract now.',
+        'Defaulting before quota preserves that invariant. Without defaults, an omitted request could be treated as free by quota and expensive by the scheduler. With defaults, admission, scheduling, and reporting use the same resource request.',
+        'The quota comparison is monotonic for the write being admitted. If current used plus incoming exceeds hard for any constrained resource, adding the object cannot make the namespace more compliant. Rejecting that write is safe even if other resources still have room.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A team namespace has hard limits of 10 requested CPU cores, 16 GiB requested memory, 40 Pods, and 10 Services. Current usage is 8 CPU, 12 GiB, 39 Pods, and 10 Services.',
+        'A developer creates a Pod without a CPU request. LimitRange defaults the request to 500m and the limit to 1 core, keeps the memory request at 256 MiB, and checks that the limit-to-request ratio is allowed. ResourceQuota then computes 8.5 CPU, about 12.25 GiB memory, and 40 Pods. Those rows still fit, so the Pod can be admitted.',
+        'If the same request also creates a new Service, the Service count becomes 11 of 10. That one row rejects the write even though CPU, memory, and Pod count are fine. The error should name the quota, the resource, current usage, hard limit, and requested addition so the tenant can fix the right constraint.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost sits on the API write path. Admission must inspect the object, apply defaults, validate shape, read or update quota usage, and compare every constrained resource. More namespaces mostly means more ledgers. More constrained resource types means more comparisons per write.',
+        'High churn can make quota bookkeeping visible as latency or conflicts. Object-count quotas are cheap to understand but can surprise users because a ConfigMap, Service, or PVC may be blocked while compute quota is still available.',
+        'Quota is not a reservation system. A namespace can be under quota and still fail to schedule because no node has the right free capacity, affinity, taints, topology, storage, or device resources. It can also be over-promised at the cluster level if administrators set namespace quotas whose sum exceeds real capacity.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins in shared clusters: internal platforms, student clusters, CI clusters, ML platforms, and any environment where teams need self-service without unlimited spend.',
+        'LimitRange is useful when teams omit requests or set extreme limits. It gives the platform a default shape and keeps one object from being far outside the namespace policy.',
+        'ResourceQuota is useful when the scarce thing is aggregate budget: requested CPU, requested memory, storage, Pods, Services, PVCs, ConfigMaps, Secrets, or extended resources such as GPUs. It also protects the control plane from object floods, not just worker nodes from compute exhaustion.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'Do not use quota as a substitute for scheduling, autoscaling, priority, preemption, runtime limits, or node isolation. It controls what a namespace may ask for, not where a Pod will run or how it behaves after it starts.',
+        'Do not use one namespace quota to express organization-wide fairness across many namespaces. That needs a higher-level platform policy, custom admission, chargeback, or scheduler integration.',
+        'Do not rely on LimitRange defaults as a performance model. Defaults are policy guesses. Real workloads still need measured requests and limits.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Bad defaults become hidden tax. If default CPU is too high, small Pods waste quota and fragment the namespace budget. If defaults are too low, workloads may schedule with misleading requests and later suffer throttling or eviction pressure.',
+        'Existing objects are not repaired just because a new policy appears. Admission policy affects future writes. A cluster can contain old objects that do not match the policy shape unless they are updated or recreated.',
+        'Multiple policies can make ownership unclear. If teams do not know whether a rejection came from LimitRange shape, ResourceQuota aggregate budget, or the scheduler, they will change the wrong thing. Good error messages and documentation are part of the system.',
+      ],
+    },
+    {
+      heading: 'Primary references',
+      paragraphs: [
+        'Kubernetes ResourceQuota documentation: https://kubernetes.io/docs/concepts/policy/resource-quotas/.',
+        'Kubernetes LimitRange documentation: https://kubernetes.io/docs/concepts/policy/limit-range/.',
+        'Kubernetes admission controller documentation: https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Kubernetes Admission Policy Gate next if you want the broader write-path model. Study Kubernetes Scheduler Priority Queue and Preemption next if you want the placement side that quota deliberately does not solve.',
+        'Study Borg Cluster Scheduler for a production history of quota and priority as cluster policy. Study GPU Cloud Capacity Reservation Orderbook for a contrasting capacity ledger outside Kubernetes.',
       ],
     },
   ],

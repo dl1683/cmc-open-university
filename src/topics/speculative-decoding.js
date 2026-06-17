@@ -102,43 +102,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why decoding is slow`,
       paragraphs: [
-        `Speculative decoding is a parallelization trick that lets a big language model generate text as much as 3–5 times faster while producing absolutely identical output. The idea is elegantly simple: instead of the big model generating one token, waiting, then generating the next, a tiny draft model (often a smaller sibling or distilled version) guesses several tokens ahead in one cheap forward pass. The big model then verifies all those guesses at once in a single parallel pass — the same computational shape as processing a long input prompt (prefill). If the draft model's guesses match what the big model would have generated anyway, they are accepted wholesale. If there is a mismatch, the drafts from that point onward are discarded, and the big model supplies its own token instead.`,
-        `The output is provably identical to what the big model would produce alone — no approximation, no regrets. This is not a heuristic or a degradation; it is mathematically sound. The acceptance rule (rejection sampling) preserves even sampling distributions exactly, so the statistical properties of the generation are unchanged. OpenAI, Google, and other major LLM providers run this in production because it is one of the simplest wins in inference speed.`,
+        `Autoregressive language models generate one token at a time. After the prompt is processed, the model predicts the next token, appends that token to the context, predicts the next one, and repeats. The prompt-processing phase, often called prefill, can use parallelism across many input positions. The decode phase is harder: token t+1 depends on token t, so the system cannot simply compute the whole answer in one independent batch.`,
+        `That sequential dependency makes decoding a latency bottleneck. Each target-model step must read model weights and attention state, update the KV cache, sample or choose one token, and return to the loop. For large models, the decode step is often memory-bandwidth limited rather than pure arithmetic limited. The machine spends a lot of time moving weights and cached keys and values. Speculative decoding exists because the expensive target model is slow at producing one token, but it can verify several proposed positions in parallel.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The obvious approach`,
       paragraphs: [
-        `The draft model and the big model run in a tight loop. First, the draft model generates k tokens cheaply (often at 1/5th to 1/20th of the big model's latency, depending on size). These k tokens are treated as hypotheses — not the final answer. Then the big model processes all k proposed tokens plus the context in one forward pass. During this pass, the big model computes the probability distribution over the next token at every position, just as it normally would. This batch processing is the magic: computing k positions in parallel costs nearly the same as computing one, because the computation is memory-bound, not arithmetic-bound. The reading of weights and KV cache (see KV Cache topic) dominates, not the math.`,
-        `At each position, the big model checks whether its most-likely token matches the draft's proposal. If position 1 matches and position 2 matches, but position 3 disagrees, the first two tokens are accepted, and the big model's choice at position 3 is taken instead. No tokens are wasted: even the tokens the draft got wrong cost nothing extra because they were verified in a single pass. If the draft model proposes tokens and all of them match, the big model gets one extra "free" token out of the same verification pass — a bonus token that costs nothing, since the computation was happening anyway.`,
+        `The obvious speed trick is to use a smaller model instead of the large one. That is cheaper, but it changes the output distribution and usually changes quality. Another obvious trick is batching many users together. That improves throughput, but it does not remove the per-user dependency chain: each sequence still advances token by token. You can also quantize, prune, cache, or use better kernels, but those are optimization layers around the same sequential decode loop.`,
+        `Speculative decoding takes a different route. It asks whether a cheap model can guess several future tokens, then lets the expensive model check those guesses in one target-model pass. If the guesses are good, one target pass advances the output by multiple tokens. If the guesses are bad, the target pass still supplies the next correct token, so correctness is preserved. The method changes the schedule of computation, not the model whose distribution defines the answer.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core insight and mechanism`,
       paragraphs: [
-        `The speedup depends almost entirely on the draft model's agreement rate with the big model. A well-trained draft model (like a 7B distilled version of a 70B base) can achieve 60–70% agreement on each token, giving a 3–4× speedup with minimal overhead. A weak draft, with only 30–40% agreement, manages only 1.2–1.5× speedup — barely worth the complexity. The real cost is GPU memory: you must load both models simultaneously, and memory is the bottleneck in production inference. For a billion-parameter big model and a 100M–500M draft model, that is a substantial additional footprint. Latency overhead is negligible: the draft model's passes are so fast that even failed speculations cost almost nothing. The winning condition is simple: the draft must be cheap enough and accurate enough that the speedup outweighs the memory burden.`,
+        `There are two models in the basic version: a draft model q and a target model p. The draft model is smaller, cheaper, or otherwise faster. Starting from the current context, q proposes k tokens ahead. The serving system then asks p to score the current context plus those k proposed tokens in a single parallel verification pass. That pass computes the target distribution at each proposed position, the same kind of computation p would have performed one step at a time.`,
+        `For greedy decoding, the simplified idea is easy: accept the longest prefix of draft tokens that matches what the target model would have chosen, then let the target model supply the first token where the draft disagrees. If all k draft tokens match, the verification pass also gives a bonus next token from the target. The animation uses that deterministic prefix-matching story because it makes the mechanics visible.`,
+        `For sampling, the acceptance rule is more subtle. The draft proposes a sampled token x from q. The target distribution p checks whether x can be accepted with probability min(1, p(x) / q(x)). If the token is rejected, the replacement token is sampled from the positive residual distribution that remains after accounting for the draft. This rejection-sampling rule preserves the target distribution exactly. A correct implementation does not make the output "approximately target-like"; it samples from the same distribution the target model would have used without speculation.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Why it works`,
       paragraphs: [
-        `Every major LLM provider uses speculative decoding in production. Claude at Anthropic, GPT-4 at OpenAI, Gemini at Google, and Llama deployments at Meta all rely on this for streaming speed. When you chat with an LLM and words stream in rapidly, speculative decoding is a major reason why latency feels acceptable. The draft model is usually created through Knowledge Distillation — training a small student model to mimic a large teacher — or by pruning a larger model. In some setups, the draft model is an older, smaller checkpoint of the same training run. The technique is so effective and so simple that it has become standard practice. You see it mentioned in technical discussions of inference optimization whenever people talk about why generation is faster than you would expect from just scaling up hardware.`,
+        `Speculation works when the draft model agrees with the target model often enough. Language is locally predictable: after "the cat sat on the," many models assign high probability to similar next tokens. A smaller model trained on the same data, distilled from the target, or sharing early layers with it may be good enough to propose a useful prefix. The target model then verifies the prefix in a shape closer to prefill, where multiple positions can be scored together.`,
+        `The speedup lever is accepted tokens per target pass. If the draft proposes four tokens and the target accepts three plus emits one bonus token, the request gained four output tokens from one target pass. If the first draft token is rejected, the request still gained only one token from that target pass. The draft work was cheap, but the schedule did not improve much. That is why acceptance length matters more than the raw number of draft tokens proposed.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Worked example`,
       paragraphs: [
-        `A common misconception is that speculative decoding is an approximation or a degradation. It is not: the output distribution is identical by design, and the acceptance rule preserves sampling. Another pitfall is assuming it works equally well for all applications. It works best for text generation with high beam agreement, and poorly for highly creative or highly constrained generation (low temperature, many rejections). Practitioners sometimes underestimate the GPU memory overhead: a draft model that is 1/10th the size still demands 1/10th more memory on the device, which can be the difference between a model fitting in VRAM and not. Finally, there is a temptation to use a draft model so weak that it gets rejected constantly, turning speculative decoding into busy work. The speedup depends on agreement, not on speculation count. A smaller draft model trained well beats a larger draft model trained poorly.`,
+        `Suppose the target model would greedily produce "the cat sat on the mat." The draft model proposes "the cat sat." The target verifies those positions in one pass and agrees, so all three are accepted. The same pass gives the next target token, "on." One expensive pass advanced the output by four tokens.`,
+        `On the next round the draft proposes "the mat quickly." The target agrees with "the" and "mat" but not "quickly." The system keeps the accepted prefix and discards the suffix from the first disagreement onward. The target's own token at the disagreement position becomes the output. Nothing about the final greedy sequence changes. The only question is how many target-model passes were saved along the way.`,
+      ],
+    },
+    {
+      heading: `Implementation shapes`,
+      paragraphs: [
+        `The simplest implementation loads a separate assistant model next to the target. The assistant may be a distilled sibling, a smaller checkpoint, or a model trained specifically to match the target's next-token distribution. That design is easy to reason about, but it costs memory and scheduling complexity because two models must be served together.`,
+        `Other designs reduce the separate-model cost. Multi-token prediction heads let one model propose several future tokens. Early-exit methods let shallow layers draft and deeper layers verify. Prompt-lookup or n-gram speculation guesses tokens from repeated text in the prompt, which can work well for code, logs, and copied passages. Medusa-style heads and related approaches attach draft heads to the target model. The common control structure remains draft, verify, accept a prefix, then continue.`,
+      ],
+    },
+    {
+      heading: `Operational guidance`,
+      paragraphs: [
+        `Measure acceptance length, target passes per generated token, draft latency, verifier latency, memory footprint, and p50 and p99 end-to-end latency. A technique that improves average latency but worsens tail latency may be a poor serving trade. Also measure by traffic class. Code completion, repeated boilerplate, and low-temperature assistant responses may speculate well. High-temperature creative writing, tool-call-heavy turns, or outputs with strict logit processors may accept shorter prefixes.`,
+        `Keep the target and draft tokenization and logit transformations aligned. If the target applies temperature, top-p, repetition penalties, bad-word filters, JSON constraints, or tool-call masks, the speculative path must preserve the same distribution after those processors. Otherwise the implementation can silently change model behavior. The acceptance ledger should record draft tokens, target probabilities, accepted prefix length, rejection point, and fallback token so regressions can be debugged.`,
+      ],
+    },
+    {
+      heading: `Cost model`,
+      paragraphs: [
+        `The rough trade is simple. Let k be the number of draft tokens proposed, a be the expected number accepted before rejection, and b be the possible bonus token from the verifier. The system wants many output tokens per target pass, while keeping draft cost and memory low. If a is high, speculation turns one target pass into several output tokens. If a is near zero, the target still does almost the same work as ordinary decoding and the draft path adds overhead.`,
+        `Memory can dominate the decision. Loading a second model may reduce latency but lower batch size or increase GPU pressure. Draft KV cache also consumes memory. Some systems place the draft on a different device, but then inter-device transfer and synchronization become part of the critical path. The best design depends on the serving stack, model size, traffic mix, and whether throughput or first-token and inter-token latency is the main product constraint.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `A weak draft is the obvious failure. It proposes many tokens, but the target rejects early, so each target pass advances only one token. A too-strong draft can also be wasteful if it consumes too much memory or latency. A mismatched draft may work on general chat but fail on code, math, multilingual text, tool schemas, or a new model checkpoint. Speculation should be versioned and evaluated whenever the target model, tokenizer, or decoding policy changes.`,
+        `There are also correctness hazards. An implementation that accepts tokens without the right probabilistic correction changes the sampling distribution. An implementation that forgets a logit processor can emit tokens ordinary decoding would have masked. A serving system that does not roll back rejected draft KV state cleanly can corrupt later positions. These bugs are subtle because the output may look fluent. Treat speculative decoding as a control-plane feature with invariants, not as a harmless latency flag.`,
+      ],
+    },
+    {
+      heading: `Where it matters`,
+      paragraphs: [
+        `Speculative decoding matters in user-facing LLM products because inter-token latency shapes the feel of streaming. It also matters in batch inference because target passes are expensive and memory bandwidth is scarce. Any workload that produces long continuations can benefit if the draft path is cheap and aligned: chat, summarization, code completion, document generation, and structured extraction.`,
+        `It matters less when generation is short, when retrieval or tools dominate latency, when the serving stack is already throughput-bound by batching, or when memory pressure prevents a second model from fitting efficiently. The practical question is not whether speculation is clever. The question is whether accepted tokens per target pass improves the service-level objective enough to justify the memory and operational complexity.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Speculative Decoding Acceptance Ledger turns this primer into a production case study: draft probabilities, target probabilities, acceptance length, KV handoff, p99 gates, and rollback conditions.`,
-        `Early-Exit Transformer Layer Skipping shows the LayerSkip variant of this idea: the same model drafts from early layers, then deeper layers verify or repair the draft without loading a separate assistant model.`,
-        `To understand why speculative decoding is possible, read KV Cache — it explains why generation is memory-bound and why batching many positions together is cheap. Knowledge Distillation covers how to train a draft model that is both small and accurate. Softmax & Temperature explores how sampling distributions work and why rejection sampling preserves them. Beam Search vs Greedy and Attention Mechanism provide context on how big models generate text one token at a time in the first place.`,
+        `Primary sources to start with are Fast Inference from Transformers via Speculative Decoding at https://arxiv.org/abs/2211.17192 and Accelerating Large Language Model Decoding with Speculative Sampling at https://arxiv.org/abs/2302.01318. For implementation variants, study Medusa at https://arxiv.org/abs/2401.10774 and LayerSkip at https://arxiv.org/abs/2404.16710.`,
+        `Within this curriculum, study KV Cache first because it explains why decoding is memory-bound and why verifying several positions can be cheap. Then study Speculative Decoding Acceptance Ledger, Early-Exit Transformer Layer Skipping, Knowledge Distillation, Softmax & Temperature, Beam Search vs Greedy, Constrained Decoding, Transformer Inference Roofline, LLM Inference Cost Stack, and Verifier-Guided Inference Control Plane Case Study.`,
       ],
     },
   ],

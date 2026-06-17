@@ -188,9 +188,22 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
         `Doubly robust estimation answers a hard question: can you evaluate a new policy on logged data when the logs came from a different policy? Two classical tools exist — the direct method (fit a reward model, use it to predict) and importance sampling (reweight the logged data). Both fail cleanly: the model is biased when wrong, and importance weights explode when coverage is poor. Doubly robust estimation refuses to choose. It runs both tools at once, arranged so that the estimate is correct if EITHER ingredient is right. Two flawed tools, one honest answer.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `Read the formula as a model answer plus a weighted error audit. The direct-method term predicts what the new policy would get. The residual term asks where the model was wrong on logged samples, then reweights those errors into the new policy's action mix. In the stress tests, the model can be wrong or the weights can be noisy, but DR survives if one side is right enough. The naive baselines are direct method alone and IPS alone. The invariant is the double-safety condition: correct model makes residuals average to zero; correct propensities make the residual audit unbiased for the model's bias. If both model and support fail in the same region, the table's last row is the warning.`,
+      ],
+    },
+    {
+      heading: `The obvious approach and its wall`,
+      paragraphs: [
+        `The direct method is appealing because it is low variance: fit a reward model, predict rewards for the new policy, and average. Its wall is model bias. If the reward model is wrong where the new policy acts, the estimate can be confidently wrong.`,
+        `Inverse propensity scoring is appealing because it can be unbiased with correct propensities and support. Its wall is variance. If the new policy chooses actions that the logger rarely chose, weights become large and a few logged events can dominate the estimate.`,
       ],
     },
     {
@@ -208,6 +221,13 @@ export const article = {
       ],
     },
     {
+      heading: `Implementation checklist`,
+      paragraphs: [
+        `Log propensities at decision time. Reconstructing them later is often impossible and usually dangerous. Check overlap before trusting the estimate: if the target policy often chooses actions that the logging policy almost never took, no estimator has enough evidence.`,
+        `Use cross-fitting for the reward model and report effective sample size, weight tails, confidence intervals, and slice-level diagnostics. A single DR number without support diagnostics is not an evaluation gate; it is a guess with a sophisticated formula.`,
+      ],
+    },
+    {
       heading: `Real-world uses`,
       paragraphs: [
         `Doubly robust estimation has two famous lives. In statistics, it arrived as AIPW (augmented inverse propensity weighting) in Robins et al. (1994), the standard tool for causal inference from observational data — "would the patient recover under the other treatment?" — where the logger is nature and experiments are infeasible. In machine learning and industry, it reappeared for off-policy evaluation: ads and recommender teams use DR variants (the SNIPS/DR family) to score candidate rankers on logged clicks before any live test. Reinforcement learning uses DR and sequential extensions as default baselines in off-policy evaluation benchmarks. When the choice matters — evaluating an expensive ranker against logs without running a live A/A test — DR is the workhorse. When you CAN randomize, run the experiment instead: A/B Testing & p-values stays the gold standard.`,
@@ -217,6 +237,14 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `The most common misunderstanding: "doubly robust means infinitely robust." It does not. The bias is the PRODUCT of model error and weight error; if both are substantially wrong AND correlated (e.g., the model is wrong in regions the logger never explores), DR fails. Robustness is doubled, not infinite — two independent chances to be correct, not a guarantee. Another trap: confusing the audit term with IPS. The audit computes IPS on RESIDUALS (r − m), not on rewards r; this is essential for variance control. A third pitfall: fitting the model on the same logged data you evaluate on. If the model overfits, its residuals become prediction noise on held-out data, and the audit loses its corrective power — always use cross-fitting or separate data.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `DR fails when model error and weighting error line up in the same unsupported region. If the logger rarely explored an action and the reward model is also wrong there, the residual audit has no reliable evidence to repair the direct estimate.`,
+        `It also cannot fix delayed, censored, or biased rewards by itself. Missing clicks, late conversions, position bias, and selective logging have to be handled in the logging and reward pipeline before the estimator can be trusted.`,
+        `The operational warning is support first, estimator second. If the target policy is mostly outside the logged policy's exploration, the honest answer is that the offline data cannot evaluate it. At that point the next step is a safer online experiment, not a more elaborate formula or leaderboard claim at all.`,
       ],
     },
     {

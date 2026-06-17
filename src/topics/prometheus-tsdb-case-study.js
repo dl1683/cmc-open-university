@@ -194,44 +194,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Prometheus TSDB is a local time-series database optimized for metrics scraped from targets. It stores samples in a mutable head block, protects recent data with a write-ahead log, writes immutable time blocks, indexes labels, and compacts older blocks.',
-        'This case study belongs beside Write-Ahead Log, Kafka Log Case Study, LSM Tree, and Monarch Time-Series Case Study. It shows a different storage shape: append-heavy numeric samples keyed by metric labels and time.',
-        'The key abstraction is not a row; it is a series. A metric name plus an exact label set identifies one stream of timestamped values. Once that mental model is clear, the major engineering concerns follow naturally: append throughput, chunk compression, label indexing, retention, and cardinality control.',
+        'Prometheus is built for operational metrics: counters, gauges, histograms, and summaries scraped repeatedly from running services. The database has to ingest many small timestamped samples, answer recent range queries quickly, and recover after crashes without turning monitoring into a large distributed database project.',
+        'The Prometheus TSDB is deliberately local. It stores recent samples in a mutable head block, protects that state with a write-ahead log, writes immutable time blocks, indexes labels, and compacts older blocks. That local shape is why Prometheus is easy to run, and also why global long-term metrics systems usually add remote write and separate storage layers.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The naive storage design is one row per sample in a general database: metric name, labels, timestamp, and value. That is easy to understand, but it wastes the fact that samples arrive in ordered streams and that queries usually ask for time ranges over many points in the same series.',
+        'Another tempting design is an event log. Append every scrape result and replay it when needed. That preserves history, but metrics queries need fast label selection and range scans, not just replay. Alerting rules also need repeated queries over recent windows, so the storage layout must make common PromQL patterns cheap.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is cardinality. A metric name plus an exact label set identifies one series. `http_requests_total{method="GET",status="200"}` and the same metric with a different route or instance are different series. Add a user id, request id, raw URL, or pod UID label, and the number of active series can explode.',
+        'The second wall is mutable recent data. Prometheus has to accept new samples into memory quickly while still surviving a crash. Fully rewriting on every scrape would be too slow, but keeping only memory would lose the most recent metrics exactly when operators need them after an incident.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Make the series the primary storage object. Once labels identify a series, samples append in timestamp order into compressed chunks. The label index finds series; the chunks provide the numeric values over time. This separation is why Prometheus can handle operational queries without acting like a row store.',
+        'Use two storage modes: a mutable head for recent data and immutable blocks for older data. The write-ahead log protects the head. Periodic block creation and compaction turn recent mutable state into durable time ranges that are easier to query, retain, and delete.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The ingest-path view should be read as labels becoming a series identity, then samples appending to that series. The point is not just that Prometheus stores numbers. It stores streams of numbers keyed by label sets, and every new label combination creates another stream with memory and index cost.',
+        'The compaction-retention view shows time moving from hot mutable state to immutable blocks and eventually deletion. The WAL is for crash recovery of the head, not a permanent history layer. Blocks are the long-lived query unit, and retention policy decides when old blocks disappear.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Prometheus scrapes targets at intervals. Each sample belongs to a series identified by metric name and labels. Recent samples are appended to the head block and WAL. Periodically, the head is cut into immutable blocks that contain chunks, an index, and metadata. Queries use label matchers to find series and then scan chunks over time.',
-        'Compaction merges smaller blocks into larger ones and retention deletes old data. The WAL exists because the head block is mutable and not fully persisted. After a crash, Prometheus replays the WAL to rebuild recent state.',
-        'A query therefore has two phases. First, the label index narrows the set of matching series. Then the engine reads the relevant chunks across the requested time range and applies PromQL functions or aggregations. Bad labels hurt twice: they create more series and they make selectors scan more postings lists.',
+        'Prometheus scrapes targets at intervals. Each sample belongs to a series identified by metric name and labels. Recent samples append to the head block and to the WAL. The head keeps active series, in-memory chunks, and recent index state. The WAL lets Prometheus rebuild recent state after a crash.',
+        'Periodically, the head is cut into immutable blocks. A block contains chunks, an index, tombstones, and metadata for a time range. Compaction merges smaller blocks into larger ones to reduce query overhead and improve storage layout. Retention deletes blocks that fall outside the configured time or size budget.',
+        'A query has two broad phases. First, the label index narrows the candidate series using matchers. Then the engine reads relevant chunks over the requested time range and applies PromQL functions or aggregations. Bad labels hurt twice: they create more series and they make selectors scan more postings lists.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Worked example',
       paragraphs: [
-        'The core cost is series cardinality. Every unique label set is a separate series with memory, index, chunk, and query overhead. Labels such as user_id, request_id, or raw URL can explode the database. Compaction and WAL replay also create disk and startup-time costs.',
+        'A service exports `http_request_duration_seconds_bucket{method="GET",route="/checkout",le="0.5"}`. Prometheus scrapes it every fifteen seconds. The metric name and labels identify one counter series for one histogram bucket. Each scrape appends another timestamped value to that series.',
+        'An alert asks whether checkout latency is burning the SLO budget. The query first finds the matching bucket series by label matchers, reads recent chunks, calculates rates, combines buckets into a histogram quantile or burn-rate expression, and compares the result to a threshold. The TSDB has to make that repeated range query cheap enough to run every evaluation interval.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'Prometheus powers service metrics, Kubernetes monitoring, alerting, SLO dashboards, infrastructure visibility, and incident response. It is strong for local scraping and recent operational queries. Long-term and global use cases often add remote write systems such as Cortex, Thanos, Mimir, or vendor backends.',
-        'A complete operational case study is an API latency SLO. The service exports histogram bucket counters. Prometheus scrapes them, stores the counter series, evaluates recording rules, and alerts when the rolling error budget burn rate is too high. The TSDB has to keep recent data cheap enough for repeated alert queries.',
+        'The design works because metrics are append-heavy and time-ordered. Once a series is identified, new samples usually arrive near the end. Chunk compression can exploit timestamp and value patterns. Immutable blocks make older data stable, cacheable, and easier to compact or delete.',
+        'The local-first model also works operationally. A single Prometheus server can scrape local targets and evaluate alerts with few moving parts. Remote write, federation, Thanos, Cortex, Mimir, or vendor systems can extend the model later, but the core TSDB remains understandable as a local engine.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Prometheus is not a general event log and not a high-cardinality analytics warehouse. It is a metrics TSDB. If you treat labels like arbitrary dimensions, cardinality will dominate cost. If you treat WAL as permanent storage, retention and compaction behavior will surprise you.',
+        'The dominant cost is active series cardinality. Each active series needs memory for labels, postings, chunks, and bookkeeping. Samples per second matter, but a small stream for a million series can be worse than a high-rate stream for a disciplined label set.',
+        'WAL replay creates startup cost after restarts. Compaction creates disk and CPU work. Queries that match too many series can load many chunks and stress memory. Retention saves disk by deleting old blocks, but it also defines how far back local incident analysis can go.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Prometheus wins for service metrics, Kubernetes monitoring, alerting, SLO dashboards, infrastructure visibility, and incident response. It is strong when teams can instrument metrics intentionally and keep label cardinality under control.',
+        'It also wins as a teaching system because its boundaries are clear. It is not trying to be a universal analytics warehouse. It is optimized for recent operational metrics, label selection, range queries, local alerting, and simple failure recovery.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Prometheus is not a general event log, tracing backend, or high-cardinality analytics warehouse. If labels contain user ids, request ids, raw URLs, session ids, or arbitrary payload fields, cardinality will dominate memory, index size, query cost, and operational pain.',
+        'It also fails when operators assume the WAL is durable long-term storage. The WAL protects the mutable head; blocks and retention define the durable query history. Long-term global storage needs remote write and a backend designed for multi-tenant scale, compaction, downsampling, and object storage.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Common failures are cardinality explosions, expensive regex matchers, unbounded label values, slow WAL replay after a crash, compaction backlogs, disk exhaustion, and alert rules that repeatedly query too much data. Good monitoring of Prometheus includes active series, samples appended, WAL fsync behavior, compaction duration, query latency, and rule evaluation duration.',
+        'A subtler failure is bad instrumentation design. A metric that answers no operational question still costs storage and query work. A label that helps one debugging session may damage every scrape afterward. The TSDB rewards teams that treat metrics as a schema, not as free-form logging.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Prometheus storage documentation at https://prometheus.io/docs/prometheus/latest/storage/ and Cortex blocks storage documentation at https://cortexmetrics.io/docs/blocks-storage/. Study Metric Label Cardinality Control, SLO Error Budget Burn Rate Alert, Write-Ahead Log, Kafka Log Case Study, LSM Tree, t-digest, and Monarch Time-Series Case Study next.',
+        'Primary sources: Prometheus storage documentation at https://prometheus.io/docs/prometheus/latest/storage/, Prometheus querying basics at https://prometheus.io/docs/prometheus/latest/querying/basics/, and Cortex blocks storage documentation at https://cortexmetrics.io/docs/blocks-storage/ for a related remote block-storage architecture.',
+        'Study Metric Label Cardinality Control, SLO Error Budget Burn Rate Alert, Write-Ahead Log, Kafka Log Case Study, LSM Tree, t-digest, Mimir Distributor Ingester Hash Ring, Prometheus Remote Write WAL Shards, and Monarch Time-Series Case Study next.',
       ],
     },
   ],

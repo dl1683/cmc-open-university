@@ -225,38 +225,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'V8 array elements kinds are runtime layout tags for JavaScript arrays and integer-indexed properties. JavaScript exposes one Array abstraction, but the engine sees very different optimization cases: packed small integers, packed doubles, packed object values, holey variants, and sparse dictionary-style storage.',
-        'This topic continues V8 Hidden Classes & Inline Caches. Hidden classes describe named properties. Elements kinds describe indexed elements. Together they explain why JavaScript objects can behave like flexible dictionaries while hot paths can still get specialized layouts.',
+        'JavaScript arrays have one surface API, but real arrays behave very differently. A dense list of small integers, a numeric vector with doubles, a mixed object array, and a sparse array with holes need different machine representations.',
+        'V8 array elements kinds exist so the engine can specialize indexed access when the data is predictable, while still preserving JavaScript semantics when arrays become sparse, mixed, or holey.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The simple implementation is to store every array element as a general JavaScript value in a dictionary-like structure. That handles every case: holes, inherited properties, objects, strings, numbers, and far-apart indexes.',
+        'That representation wastes information for common hot paths. If an array is packed and numeric, the engine can scan it much more cheaply than a general dictionary of arbitrary values.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is semantic flexibility. A missing index is not always the same as a stored undefined value, because lookup may involve the prototype chain. A sparse index can make dense storage wasteful. A mixed value can invalidate a numeric fast path.',
+        'Elements kinds let V8 keep a specialized path only while its assumptions are true. Writes that violate the assumptions move the array to a more general kind.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Classify indexed storage by two questions: what kind of values are stored, and are the indexes packed or holey? Small integers, doubles, and general objects each get different representations; packed and holey versions carry different lookup obligations.',
+        'The lattice mostly moves from specific to general. A packed small-integer array can become a double array after a floating-point write, then an object array after an arbitrary value. Creating holes moves from packed to holey.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the kind-lattice view, read each transition as the engine losing an assumption. A packed small-integer array gives V8 the strongest promise. Writing a double, writing an object, or creating a hole moves the array toward a more general representation.",
+        "In the holey-pitfalls view, distinguish a stored value from a missing own property. `undefined` can be an element. A hole means the element is absent, so lookup may have to consider the prototype chain and cannot use the same tight path as a packed array.",
+        "The animation is not trying to teach a trick for memorizing every V8 internal name. It is teaching the shape of the optimization contract: predictable dense data keeps specialized indexed access alive; mixed or sparse behavior forces safer, slower paths.",
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'V8 distinguishes Smi, double, and object elements, and each common kind has packed and holey variants. Packed means indexes are present contiguously. Holey means some indexes are missing. V8 can transition from more specific kinds to more general kinds as values are written.',
-        'The V8 elements-kinds article describes this as a lattice. A packed Smi array can transition to packed double after a floating-point value appears, then to packed object after an object appears. A packed kind can transition to its holey version after a hole appears. More general kinds reduce the optimizer assumptions available to fast array operations.',
+        'V8 distinguishes Smi, double, and object elements, with packed and holey variants for common cases. Smi means small integer. Double arrays can store numbers in a specialized numeric backing store. Object arrays handle arbitrary JavaScript values.',
+        'A hole is a missing own element. Holes can come from new Array(n), skipped indexes, delete a[i], or elision literals such as [1,,3]. Holey reads need extra checks because a missing own element may fall through to inherited behavior.',
+        'Very sparse arrays can move toward dictionary-style indexed storage. That saves space for far-apart indexes but gives up dense-vector speed.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Worked example',
       paragraphs: [
-        'The cost of specificity is bookkeeping. Arrays carry metadata about element layout and backing stores. Optimized code can use that metadata to run tight loops, but writes that violate assumptions may force transitions or deoptimization.',
-        'Holey arrays are the classic footgun. A hole is not an explicit undefined. It is a missing own element, so reads need extra checks and may consult the prototype chain. Sparse indexes can push storage away from dense vector-like layout toward dictionary-like storage.',
+        'Start with `const xs = [1, 2, 3]`. This is the easy case: dense indexes, small integers, and no missing elements. A loop that sums `xs[i]` can be compiled around a compact representation and simple checks.',
+        'Now assign `xs[1] = 2.5`. The array still has dense indexes, but the value class changed from small integers to doubles. The engine can still use a numeric representation, but it has lost the Smi-specific assumption. Then assign `xs[2] = { value: 3 }`. The array now needs a general element representation because not every value is a number.',
+        'Finally run `delete xs[0]` or create `const ys = [1,,3]`. The array is no longer packed. The missing slot is not the same as a stored undefined. A read from that index must respect JavaScript property lookup semantics, which is why holey arrays are a different category.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Consider a charting library that repeatedly scans a million y-values. If the library builds the data as [1, 2, 3] and pushes numbers consistently, the engine can keep a specialized dense numeric path. If it creates new Array(n), leaves gaps, deletes entries, then mixes strings and objects into the same array, the scan path becomes more general and harder to optimize.',
-        'The product-level rule is not to micro-optimize every array. It is to separate data roles. Dense numeric vectors should stay dense and numeric. Sparse lookup tables should be Map or object structures. Row objects should be constructed consistently so hidden classes and array elements both remain predictable.',
+        'The optimized path is safe because it is guarded by the elements kind. If the array is still packed numeric data, the engine can use the numeric path. If a write changes the representation, the kind changes and old assumptions must be rechecked or abandoned.',
+        'Holey behavior is correct because the engine does not pretend a missing element is always an ordinary stored value. It preserves JavaScript lookup semantics even when that means extra checks.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Do not rely on old exact transition details as permanent API. V8 changes, and the 2025 update to Array.prototype.fill behavior in the V8 article is a reminder that implementation details evolve. The durable lesson is the layout lattice: predictable dense data is easier to optimize than mixed sparse data.',
-        'Do not confuse a hole with undefined. [undefined] has an element. [,] has a missing element. Some JavaScript methods treat these cases differently, and engines do too.',
+        'The cost is metadata and transitions. Arrays carry kind information and backing stores. Optimized code can run tight loops when the kind is specific, but writes that violate assumptions can force transitions or deoptimization.',
+        'When input size doubles, the asymptotic scan is still linear, but the constant factor can change sharply. Dense numeric arrays let each iteration do less work. Holey, mixed, or sparse arrays add checks, general value handling, or dictionary lookup.',
+      ],
+    },
+    {
+      heading: 'Developer guidance',
+      paragraphs: [
+        'For normal application code, the advice is simple: build arrays with `push`, keep hot arrays dense, avoid `delete` on array indexes, avoid far-apart numeric indexes, and do not mix record objects with numeric vectors in the same hot array. These habits also make code easier to read, so they are not engine-specific micro-optimizations masquerading as style.',
+        'For performance-sensitive libraries, measure with the target engine and workload. V8 can change details over time, and modern optimizing compilers are complicated. The stable idea is that layout predictability gives the engine room to specialize. The unstable part is exactly which transition costs matter in a specific release.',
+        'A practical profiling boundary helps. Do not redesign ordinary arrays because you once read about elements kinds. Start caring when a loop is high in a profile, when array construction happens at scale, or when tracing shows deoptimization near indexed access. At that point, simplify the data shape first: dense construction, consistent value type, no holes, and a separate structure for sparse keys.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Elements kinds matter in hot scans over dense data: chart points, numeric vectors, parsed columns, game state arrays, and repeated loops over record lists.',
+        'A charting library is the clean example. If it builds y-values by pushing numbers into a dense array, V8 can keep a specialized path. If it creates holes, deletes entries, and mixes objects into the same array, the scan becomes more general.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Do not use arrays as sparse dictionaries and expect vector-like speed. Use Map or ordinary objects for keyed sparse data. Do not confuse [undefined] with [,]; the first stores a value, the second leaves a hole.',
+        'Exact V8 transition details are not a JavaScript API. The durable lesson is the layout lattice: predictable dense data is easier to optimize than mixed sparse data.',
+      ],
+    },
+    {
+      heading: 'What not to overlearn',
+      paragraphs: [
+        'Elements kinds are not a reason to write strange JavaScript. A readable data model usually matters more than a guessed internal representation. Reach for this knowledge when a hot loop is actually hot, when a library processes large arrays repeatedly, or when profiling shows array access and deoptimization in the path.',
+        'The concept also generalizes beyond V8. Databases, vector engines, GPU kernels, and columnar file formats all benefit when values have predictable types and dense layout. V8 elements kinds are one browser-engine version of a broader systems lesson: generic semantics are flexible, but specialization needs stable evidence.',
+        'The final lesson is humility about abstraction layers. JavaScript promises array semantics, not a particular storage layout. V8 uses elements kinds to make common cases fast while preserving those semantics. Good code gives the engine clear evidence; it does not depend on undocumented internals as if they were part of the language.',
       ],
     },
     {

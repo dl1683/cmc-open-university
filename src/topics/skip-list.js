@@ -122,19 +122,44 @@ export const article = {
       paragraphs: [
         `A skip list is a Linked List with probabilistic express lanes. Every value appears on the bottom level in sorted order. Then coin flips promote some values to higher levels: with probability 1/2 a node appears one level up, with probability 1/4 two levels up, and so on. The top is sparse, the bottom is complete. The demo shows exactly that shape with eight values, a -infinity sentinel at each level, and promoted nodes such as 7, 19, and 42 acting as shortcuts.`,
         `William Pugh introduced skip lists in 1990 as a simpler alternative to balanced trees. The structure chases the same goal as Binary Search and Binary Search Tree lookup: discard large parts of the search space quickly. The difference is maintenance. AVL Tree Rotations enforce balance by pointer surgery; a skip list gets expected balance from random promotion. No rotations, no color rules, just forward pointers and levels.`,
+        `The obvious starting point is a sorted linked list. It keeps insertion local, but search still walks one pointer at a time because a node knows only its next neighbor. The wall is missing reach: sorted order is present, yet the structure has no way to jump over a block of impossible values. Skip lists add just enough extra reach to make ordered pointer search behave like range halving.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
         `Search starts at the highest lane. If the next value is less than or equal to the target, move right. If the next value would overshoot, drop down one level at the same position. You never move left. In the visualization, searching for 31 rides across coarse lanes, drops when a lane would overshoot, and finally lands on the bottom level only when the range is narrow. Searching for absent 30 proves absence when the bottom-level next value has passed the target.`,
+        `The correctness argument is the same at every level. When the next node is still at or below the target, moving right cannot skip the answer because all earlier nodes are smaller. When the next node overshoots, every later node on that lane overshoots too, so the only possible place left is below the current position. The invariant is: if the key exists, it is never to the left of the current tower.`,
         `Insertion first finds the predecessor path, inserts the node on level 0, flips coins for its height, and splices it into each promoted lane. Deletion uses the same predecessor path and removes the node from every level. The expected number of forward pointers per item is constant: with promotion probability p = 1/2, the expected tower height is 1/(1-p) = 2 levels. That is why total space is expected O(n), not O(n log n).`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `Follow the search as a repeated decision: move right while the next express-lane value is still safe, then drop when the next value would overshoot. The animation is not magic randomness; it is ordered search with a sparse set of shortcut pointers.`,
+        `The important invariant is that the target, if it exists, is never to the left of the current tower. Each right move proves everything skipped is too small. Each drop keeps the same lower bound and switches to a denser lane. That is why a linked structure can imitate binary-search-style narrowing without array indexing.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
         `Search, insert, and delete are expected O(log n). The absolute worst case is O(n), because random choices could leave too few useful express lanes or create awkward towers. That possibility is usually acceptable because the probability falls exponentially with height. Space is expected O(n). Big-O Growth Rates helps explain the bargain: a logarithmic search path with constant expected pointer overhead is close to a balanced tree's performance, but the code is often shorter and friendlier to concurrent updates.`,
+        `When n doubles, the expected height grows by about one level, so searches add only a small number of pointer hops. The hidden tax is pointer chasing: each hop may touch a separately allocated node. A sorted array wins on cache locality and exact random access; a skip list wins when ordered updates and range scans must stay simple.`,
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        `Keep a predecessor array during search. Insertion and deletion need the last node before the target at every level, not just the bottom-level predecessor. That array is the local proof that every level can be spliced without searching again.`,
+        `Choose promotion probability and maximum level deliberately. Probability 1/2 is easy and common, but other choices trade pointer count against search height. The maximum level should be high enough for expected data size and fixed enough that sentinels and arrays stay simple.`,
+        `Use a clear ordering rule for duplicate scores or equal keys. Redis sorted sets order by score and member, not score alone, because range queries and rank queries need a total order. A skip list without a total order becomes ambiguous at exactly the point users ask for pagination or deletion.`,
+      ],
+    },
+    {
+      heading: 'Testing it',
+      paragraphs: [
+        `Compare every operation against a sorted array or balanced-tree reference. After random inserts and deletes, search, lower_bound, range iteration, and rank should match the reference exactly. Then repeat with deterministic promotion heights so failures are reproducible.`,
+        `Test the boundary cases: empty list, one element, deleting the tallest tower, deleting the first and last values, duplicate ordering, absent searches, and promotion to the maximum level. Pointer structures often fail at the edges, not in the happy middle of the list.`,
       ],
     },
     {

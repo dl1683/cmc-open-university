@@ -60,13 +60,13 @@ function* asyncDataflow() {
   yield {
     state: dataflowGraph('Pathways represents ML work as asynchronous dataflow'),
     highlight: { active: ['client', 'controller', 'e-client-controller'], compare: ['opA', 'opB', 'join'] },
-    explanation: 'Pathways is an orchestration layer for large accelerator programs. The client submits a computation graph. The controller schedules asynchronous operators whose outputs are futures, so the control plane can keep planning while data-plane work runs.',
+    explanation: 'Read the controller as the logical owner of the program, not the place where accelerator compute happens. Operators produce futures, so the control plane can keep scheduling while data-plane work runs on accelerator islands.',
   };
 
   yield {
     state: dataflowGraph('Independent operators can run on different islands'),
     highlight: { active: ['opA', 'opB', 'island1', 'island2', 'e-opa-island1', 'e-opb-island2'], found: ['join'] },
-    explanation: 'The key move is to let independent pieces of a model program occupy different accelerator islands. The join waits on futures rather than forcing every participant through one rigid global step.',
+    explanation: 'The key move is to let independent pieces of a model program occupy different accelerator islands. The join waits on futures, so unrelated work does not have to march through one rigid lockstep step.',
     invariant: 'Dependencies constrain dataflow edges, not every line of host control.',
   };
 
@@ -141,7 +141,7 @@ function* acceleratorOrchestration() {
       ],
     ),
     highlight: { active: ['model:placement', 'pipeline:placement', 'sparse:placement'], compare: ['data:hard part'] },
-    explanation: 'Large ML jobs are placement problems. The runtime must decide where computation and tensors live, then coordinate communication over accelerator interconnects.',
+    explanation: 'Large ML jobs are placement problems disguised as model code. The runtime must decide where computation and tensors live, then coordinate communication over accelerator interconnects.',
   };
 
   yield {
@@ -209,42 +209,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Pathways is a Google ML systems case study about orchestrating large accelerator computations. The paper describes an asynchronous distributed dataflow runtime designed for programs that span many accelerator islands, including TPU pods. The key abstraction is not a new neural layer. It is a control plane that can express more flexible model-parallel, pipeline-parallel, and heterogeneous computations while still driving hardware efficiently.',
-        'The case study belongs next to TensorFlow Dataflow Case Study, Ray Distributed Execution Case Study, Borg Cluster Scheduler Case Study, and Mixture of Experts (MoE). Those topics each expose part of the problem: dataflow graphs, futures, cluster resources, and conditional computation. Pathways combines those pressures in the setting of modern ML workloads.',
+        'Pathways exists because large ML programs stopped looking like one uniform operation repeated across identical devices. Data parallel training still matters, but modern systems also need tensor parallelism, pipeline stages, sparse experts, multimodal branches, preprocessing, retrieval, serving-time routing, and work that changes shape by input. A rigid runtime can make these programs run, but it often forces researchers to rewrite the model around the limitations of the execution system.',
+        'The Pathways paper is best treated as a control-plane case study. It asks how one logical runtime can express a distributed ML program, place pieces of that program on accelerator islands, track asynchronous dependencies, and keep expensive hardware busy. The topic connects TensorFlow Dataflow Case Study, Ray Distributed Execution Case Study, Borg Cluster Scheduler Case Study, Parameter Server Case Study, Pipeline Parallelism, Tensor Parallelism, and Mixture of Experts. Each of those topics covers one pressure; Pathways puts the pressures into one serving and training runtime.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is SPMD: single program, multiple data. Give every accelerator the same program shape, split the data or tensors, synchronize at collective boundaries, and repeat. This is a strong baseline. It is simple to reason about, maps well to many dense training jobs, and keeps the programming model close to ordinary array code.',
+        'The wall appears when the model is not naturally one repeated step. A sparse expert layer routes different tokens to different experts. A multimodal model may run a vision tower only for image inputs. A pipeline may keep one island busy with early layers while another runs later layers. A serving graph may mix prompt processing, decode, tool calls, and state reuse. Lockstep execution either wastes devices on inactive work or pushes the complexity into hand-built distributed code.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that dependencies should constrain the dataflow graph, not every line of host control. If operation B only needs the output of operation A, then B must wait for A. But unrelated operations should not wait merely because the host program was written as a sequence. Futures are the handle that makes this explicit: an operation can return a value that will exist later, and dependent operations can wait on that value while independent work proceeds.',
+        'This changes the invariant. The runtime does not promise that all devices are at the same program counter. It promises that every operation observes its declared inputs after their producers complete, and that placement, transfer, and execution are coordinated by a single logical program view. That invariant is broad enough for heterogeneous model code but still precise enough for scheduling and debugging.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A client program submits a graph of asynchronous operators. Operators consume and produce futures, so the control plane can continue scheduling around unresolved data dependencies. The runtime places work onto accelerator islands and coordinates transfers over their interconnects. The paper argues for a single-controller model because complex parallelism patterns are easier to express when one logical controller owns the global program view.',
-        'This is different from a rigid SPMD job where every device executes the same program step in lockstep. Pathways aims to support non-SPMD computations, pipeline stages, model shards across islands, and heterogeneous parts of a larger ML program. It still needs high accelerator utilization, so the abstraction has to be flexible without becoming slow.',
+        'A client submits an ML program to a controller. The controller represents the program as asynchronous dataflow: operators consume inputs, produce futures, and may run on different accelerator islands. The data plane does the tensor compute on TPUs or GPUs. The control plane owns graph structure, dependency tracking, placement, and coordination. The controller is logical authority, not the place where matrix multiplication happens.',
+        'Placement is the hard middle layer. The runtime must decide where parameters, activations, operators, and futures live. It must know which accelerator islands are available, which communication links are expensive, which operations can overlap, and which join waits on the critical path. For dense data parallelism, placement may be straightforward. For model shards, pipeline stages, and sparse experts, placement becomes a first-order part of the program.',
+        'The visualization separates those concerns. The client and controller show expression of the program. The independent operators show asynchronous scheduling. The accelerator islands show where compute happens. The join node shows that futures, not global clock ticks, define when downstream work can continue.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'The cost is control-plane sophistication. The runtime must place operations, manage futures, coordinate data movement, gang-schedule accelerator work, and expose enough observability for engineers to debug stalls. Communication can dominate if model shards are placed poorly. A single logical controller simplifies expression but must be engineered so it does not become the bottleneck.',
-        'The system also changes how failures are diagnosed. In ordinary training, a slow step may be blamed on a device or collective. In an asynchronous dataflow program, the stall can come from a future dependency, a transfer, a placement decision, a hot expert, or resource contention between clients. Distributed tracing discipline becomes part of ML infrastructure.',
+        'The idea works when the control plane and data plane are separated cleanly. The controller can keep a global dependency view, but it should not move every byte or execute every tensor kernel itself. Accelerators do the heavy compute. Interconnects move tensor data. The controller schedules, observes, and reacts. This is the same broad pattern as Borg, Kubernetes, Ray, and many database systems: centralize enough control to make good decisions, distribute enough execution to use the hardware.',
+        'It also works because futures expose hidden parallelism. A sequential host loop may imply that one operator finishes before another starts. A dataflow graph can show that the two operators are independent and can run on separate islands. The runtime can overlap prefill-like work with decode-like work, branch-specific work with shared work, and transfer with compute when dependencies allow it.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Worked example',
       paragraphs: [
-        'The Pathways paper is directly relevant to large model training, multimodal models, sparse activation, large inference graphs, and research systems that need to try new parallelism patterns quickly. It also explains why ML frameworks increasingly look like distributed operating systems. They schedule accelerators, virtualize resources, coordinate memory movement, and provide a programming model for scientists who should not hand-code every device transfer.',
+        'Consider a multimodal assistant with a vision encoder, a text encoder, a sparse expert block, and a shared decoder. Some requests include images. Others are text-only. Some tokens route to one expert group, while others route to another. A strict SPMD program can make every device execute the same large shape, but it wastes work on paths that are inactive for a given request.',
+        'A Pathways-style runtime can express the useful shape directly. The image path produces a future only when image input exists. The text path runs independently. Expert routing sends token groups to different accelerator islands. The shared decoder joins the futures it needs. The mechanism is not magic; it is dependency-aware placement and scheduling. The payoff is that the model architecture does not have to pretend to be uniform.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'An implementation needs a graph representation, a future API, a placement planner, a scheduler, a transfer manager, and an observability model. The graph representation should make dependencies explicit. The future API should distinguish value readiness from host blocking. The placement planner should reason about accelerator memory, interconnect cost, operator shape, and data locality. The scheduler should keep independent work moving without starving long critical paths.',
+        'The control plane also needs backpressure and admission control. A flexible graph can create too many outstanding futures, too many transfers, or too much live activation state. Without limits, the runtime can keep the program logically correct while making the machine thrash. Practical systems need quotas, priority, cancellation, retry rules, and clear ownership of resource budgets.',
+        'Observability should be part of the design, not an afterthought. Track future wait time, controller queue depth, accelerator utilization, operator runtime, transfer volume, cross-island bandwidth, placement decisions, cache or state residency, retries, and straggler islands. A distributed ML runtime without traces is a system where the most expensive bugs look like idle hardware.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The cost is control-plane complexity. The runtime must place operations, manage futures, coordinate data movement, gang-schedule accelerator work, and diagnose distributed stalls. Communication can dominate if model shards are placed poorly. The single logical controller must avoid becoming a bottleneck as the number of operators, devices, and clients grows.',
+        'Evaluation should include more than peak FLOPs. Measure scheduling overhead, transfer overhead, critical-path latency, accelerator utilization by island, future wait time, failure recovery, priority fairness, multi-tenant interference, and trace quality. A runtime that can express a beautiful graph but leaves hardware idle has failed the systems test.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Pathways-like ideas win when the program has real heterogeneity. Multimodal models, sparse activation, model-parallel training, pipeline-parallel execution, multi-task training, large inference graphs, and research systems that try new parallelism patterns all benefit from a runtime that can express more than one rigid step shape.',
+        'The approach also wins when developer time is the scarce resource. If every new model architecture requires a custom distributed runtime, system work becomes the gate on research. A shared control plane lets researchers express branches, joins, futures, and placement constraints at a higher level while the runtime handles the common distributed machinery.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The wrong tool is a flexible dataflow runtime for a uniform dense job that already runs well as SPMD. If the model has one simple repeated shape, the extra controller machinery may add scheduling overhead, debugging surface, and operational risk without much benefit. Simpler execution can be easier to optimize and easier to trust.',
+        'The approach also fails when placement and observability are weak. A future-based program can stall because one transfer is on the critical path, one expert is hot, one island is fragmented, or one controller queue is overloaded. If the system cannot explain those stalls, flexibility turns into opacity. The runtime must make distributed state inspectable enough for ordinary ML engineers to fix production problems.',
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        'Pathways should not be reduced to a branding phrase about one model doing every task. The durable technical lesson is the orchestration layer: asynchronous dataflow over accelerator islands with a control plane that can express flexible parallel programs. Another misconception is that a single-controller design means centralized computation. The compute is distributed; the controller is the logical authority that coordinates it.',
+        'Do not reduce Pathways to a slogan about one model doing every task. The durable technical lesson is the orchestration layer: asynchronous dataflow over accelerator islands with futures as dependency handles. The question is how a runtime expresses and schedules flexible ML programs without wasting accelerator hardware.',
+        'Do not confuse a single logical controller with centralized compute. Compute remains distributed. The controller is the authority that coordinates graph execution. Also do not assume that futures remove synchronization costs. Futures make dependencies explicit; they do not make data movement free. The hard failures are familiar systems failures: bad placement, hot routes, transfer bottlenecks, weak admission control, and insufficient traces.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Pathways: Asynchronous Distributed Dataflow for ML at https://arxiv.org/abs/2203.12533 and the MLSys PDF at https://proceedings.mlsys.org/paper_files/paper/2022/file/37385144cac01dff38247ab11c119e3c-Paper.pdf. Study TensorFlow Dataflow Case Study, Ray Distributed Execution Case Study, Borg Cluster Scheduler Case Study, Parameter Server Case Study, Transformer Block, and Mixture of Experts (MoE) next.',
+        'Primary sources: Pathways: Asynchronous Distributed Dataflow for ML at https://arxiv.org/abs/2203.12533 and the MLSys paper PDF at https://proceedings.mlsys.org/paper_files/paper/2022/file/37385144cac01dff38247ab11c119e3c-Paper.pdf. Study TensorFlow Dataflow Case Study for graph execution, Ray Distributed Execution Case Study for futures, Borg Cluster Scheduler Case Study for resource control, Pipeline Parallelism and Tensor Parallelism for accelerator layouts, Mixture of Experts for sparse routing, and LLM Inference Cost Stack Case Study for the serving-side economics of placement and state.',
       ],
     },
   ],

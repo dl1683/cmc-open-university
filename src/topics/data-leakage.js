@@ -151,40 +151,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `Data Leakage & Contamination is the bug where information that should be unavailable at prediction time sneaks into training or evaluation. It is dangerous because it improves the dashboard. The demo's pneumonia model reaches 0.99 AUC because one feature, took_antibiotics, carries 96% importance, but that value exists after diagnosis. The model did not learn pneumonia; it learned that doctors prescribe antibiotics to people already diagnosed. Leakage is an answer key stapled to the exam.`,
+        `Data leakage is the evaluation bug that rewards you for being wrong. Information that will not be available at prediction time sneaks into training, validation, or test data. The model scores beautifully because the answer key is already present in the exam. Then the same model fails in production, where the answer key is gone.`,
+        `This page exists because leakage is easy to miss and hard to forgive. Nothing crashes. Cross-validation runs. Metrics improve. Model selection chooses the cheater because it looks best. A team can ship a model with high offline scores and only discover the truth when real users, real patients, real trades, or real customers produce the first honest evaluation.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The obvious approach`,
       paragraphs: [
-        `The visualization shows four leak types. Target leakage is a feature caused by the label, like antibiotics after diagnosis. Split contamination happens when near-duplicates straddle train and test: an original photo in training and its mirrored version in test. Time travel happens when random time-series splits let Friday train a model graded on Tuesday, or when a rolling average was computed over the whole future. Benchmark contamination is the LLM-era version: public benchmark questions and answer discussions appear in pretraining crawls, so evaluation becomes memorization.`,
-        `Detection starts with suspicion. A hard problem producing 0.99 ROC Curves & AUC on the first attempt deserves an audit. A single feature dominating importance deserves a timestamp check. A model that reports 94% offline and 76% in production likely measured a contaminated process. Influence: Which Training Data Did This? can surface duplicated or unusually influential training examples. Saliency Maps & Feature Attribution can remove a suspect feature and show whether the score collapses back to reality.`,
+        `The naive approach is to gather all rows, compute all useful features, augment the data, scale everything, split randomly, and train. That pipeline feels clean because every step is common. It is also the pipeline that leaks. A scaler fitted before the split saw validation rows. Augmentation before the split can put near-copies on both sides. A feature computed from the whole table can smuggle future or label information into every fold.`,
+        `Another naive approach is to trust the metric because the code is deterministic. Leakage is not usually a nondeterministic bug. It is a chain-of-custody bug. The question is not whether the training loop ran correctly; it is whether each value was legally knowable at the moment the prediction would have been made.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core insight`,
       paragraphs: [
-        `Leak prevention is mostly ordering, not heavy computation. Deduplicate and group by entity before splitting. Split before augmentation. Fit scalers, imputers, feature selectors, target encoders, and oversamplers only inside each training fold. Audit every feature with one question: would this exact value exist at the moment of prediction? The computational costs are small compared with a failed deployment. The organizational cost is discipline in code review, dataset versioning, and experiment logs. A written data contract is often more valuable than another model checkpoint, because it fixes what information the model is allowed to know.`,
+        `The core insight is that every prediction has a knowledge boundary. At prediction time, some facts are allowed and some are not. A lab result returned tomorrow is not allowed for a prediction made today. A treatment chosen after diagnosis is not allowed as a feature for diagnosis. A duplicate of the test image is not allowed in training. A benchmark answer copied into pretraining is not allowed to count as reasoning skill.`,
+        `Leakage prevention is mostly ordering. Deduplicate before splitting. Group by entity before splitting. Split time-series data by time. Fit preprocessing only inside the training side of each fold. Generate augmentations only from training examples. Seal the test set. Audit every feature with the same sentence: would this exact value exist, unchanged, at the moment the model must predict?`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Target leakage`,
       paragraphs: [
-        `Medical models, fraud systems, stock predictors, content moderation, Kaggle competitions, and LLM benchmarks have all been burned by leakage. Cross-Validation & Honest Evaluation can only protect you if contamination has not already happened before the split. Early Stopping & Patience also relies on a sealed validation set; peeking and retuning repeatedly wears it out. Imbalanced Data: When 99% Is One Class adds another trap: oversampling before splitting can copy rare positives into both train and validation. The same pattern appears in text when paraphrases or duplicated web pages cross the split boundary.`,
+        `Target leakage happens when a feature is caused by, computed from, or recorded after the label. The pneumonia example is simple: took_antibiotics predicts pneumonia because antibiotics were prescribed after diagnosis. The model learns treatment policy, not disease. The same pattern appears in fraud labels, churn interventions, collections actions, and hospital outcomes.`,
+        `The fix is a timestamp audit. Every feature needs a time of availability, not just a value. If the feature is updated after the target event, it is illegal for that prediction. If the feature is a summary that includes post-outcome data, it must be recomputed with a point-in-time join. Strong feature importance is not proof of leakage, but strong feature importance plus suspicious timing is an incident.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Split contamination`,
       paragraphs: [
-        `Correlation is not proof of leakage. A feature can be genuinely predictive without cheating, so audit timing and construction rather than deleting every strong signal. Conversely, a clean codebase is not proof of a clean dataset. Leakage often lives upstream: joins, augmentation, snapshots, deduplication, or benchmark collection. Do not trust a test set after repeated peeks; that is just slower training. Do not assume A/B Testing & p-values will rescue a contaminated offline model, because the online experiment may be the first honest evaluation users ever see.`,
+        `Split contamination happens when the same item, near-duplicate, or related entity appears on both sides of the train-test wall. An original image in training and a mirrored crop in test is not an honest test. Neither is the same patient in both sets, the same user session split across folds, duplicated web pages across train and validation, or paraphrases of the same question on both sides.`,
+        `The fix is to define the entity before splitting. For medical data, group by patient. For recommendation data, group by user or session when the task requires it. For images, deduplicate and group original assets before augmentation. For text, run near-duplicate detection before folds are assigned. Split first, augment inside the training side only.`,
+      ],
+    },
+    {
+      heading: `Time travel`,
+      paragraphs: [
+        `Temporal leakage happens when the model trains on the future or when features are computed using future values. A random split over time-series rows can train on Friday and test on Tuesday. A rolling average computed over the full series can leak tomorrow into yesterday. A customer lifetime spend feature can include purchases made after the prediction date.`,
+        `The fix is to respect the arrow of time. Training data must precede validation data for forecasting and production-like prediction. Feature computation must use only data available before the prediction timestamp. Cross-validation for temporal tasks should use forward-chaining or blocked folds, not a random shuffle that treats time as decoration.`,
+      ],
+    },
+    {
+      heading: `Benchmark contamination`,
+      paragraphs: [
+        `Benchmark contamination is the large-model version of the same bug. Public benchmark questions, answers, solution repositories, forum explanations, and blog walkthroughs can enter pretraining corpora. A model may score well because it has memorized the test item or a close variant. The exam was in the textbook.`,
+        `The defense is imperfect but necessary: deduplicate against known benchmark text, hold out private test sets, rotate fresh evaluations, report decontamination methods, and test on task-specific private data. A famous public benchmark score is useful evidence only when it is paired with contamination analysis and behavior on examples the model could not have memorized.`,
+      ],
+    },
+    {
+      heading: `What the visual proves`,
+      paragraphs: [
+        `The four leak matrices prove that contamination crosses boundaries. In target leakage, the label crosses into a feature. In split contamination, the same example crosses the train-test wall. In time travel, future information crosses into the past. In benchmark contamination, the test crosses into the training crawl. Each case has a different surface, but the same shape: information appears where it should be impossible.`,
+        `The defense visual proves that the order of operations is a correctness property. Deduplicate and group first. Split second. Fit preprocessing inside the training data only. Audit timestamps before trusting features. Seal the test set. If those steps happen out of order, a model can pass every unit test while the experiment itself is invalid.`,
+      ],
+    },
+    {
+      heading: `Detection`,
+      paragraphs: [
+        `Leakage often announces itself as performance you did not earn. A hard medical prediction producing 0.99 AUC on the first attempt should trigger an audit. One feature explaining nearly all importance should trigger a timestamp check. A huge offline-production gap should trigger a split and feature lineage review. A language model continuing a benchmark item verbatim should trigger a contamination investigation.`,
+        `Simple ablations help. Remove the suspect feature and retrain. If performance collapses to a more believable level, inspect how that feature was created. Search for duplicates across splits. Recompute preprocessing inside folds. Run a point-in-time feature build. Use influence or nearest-neighbor tools to find training examples that look too much like test examples.`,
+      ],
+    },
+    {
+      heading: `Costs and tradeoffs`,
+      paragraphs: [
+        `Leak prevention costs engineering discipline more than raw compute. You need dataset versioning, feature definitions with availability times, split manifests, entity ids, reproducible preprocessing pipelines, and review habits that ask data questions before model questions. That work feels slow until it prevents a false launch decision.`,
+        `There are tradeoffs. Grouped splits can reduce the amount of training data. Time-based splits can make validation harder because the future distribution may drift. Private test sets are harder to share and compare. Strict decontamination can remove useful public examples. These costs are real, but they are smaller than optimizing against an invalid exam.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `Do not delete every strong feature just because it is strong. Some signals are genuinely predictive. The audit question is whether the value is legally available, not whether it is useful. Also do not trust a clean training script if the upstream data snapshot was contaminated. Leakage often lives in joins, labels, ETL timing, augmentation, deduplication, or benchmark collection.`,
+        `A sealed validation set can also wear out. If the team repeatedly peeks, retunes, and chooses models based on the same holdout, that holdout becomes part of the training process. Use nested validation, fresh holdouts, or final test sets with limited access. The longer a benchmark is public, the more suspicious its score should become without contamination controls.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Cross-Validation & Honest Evaluation for split discipline, Leakage-Safe Target Encoding Case Study for high-cardinality categorical leakage, Point-in-Time Feature Join Index for temporal feature joins, Feature Store for training-serving consistency, Early Stopping & Patience for validation-set hygiene, Influence: Which Training Data Did This? for forensic examples, Saliency Maps & Feature Attribution for suspect-feature audits, Membership Inference Shadow Model Case Study for train-set participation leakage, LLM Training Data Extraction for memorized text, and PII Redaction Token Span Pipeline for removing sensitive fields before they become training data. Then revisit ROC Curves & AUC with a healthier instinct: too-good-to-be-true performance is a bug report until proven otherwise.`,
+        `Study Cross-Validation and Honest Evaluation for split discipline, Leakage-Safe Target Encoding Case Study for high-cardinality categorical features, Point-in-Time Feature Join Index for temporal joins, Feature Store for training-serving consistency, Early Stopping and Patience for validation hygiene, Imbalanced Data: When 99% Is One Class for oversampling hazards, and ROC Curves and AUC for interpreting suspiciously strong scores.`,
+        `Then study Influence: Which Training Data Did This? for forensic example tracing, Saliency Maps and Feature Attribution for suspect-feature ablations, Membership Inference Shadow Model Case Study for train-set participation leakage, LLM Training Data Extraction for memorized text, PII Redaction Token Span Pipeline for sensitive-field removal, and A/B Testing and p-values for the online experiment that may become the first honest test.`,
       ],
     },
   ],

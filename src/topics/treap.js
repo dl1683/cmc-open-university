@@ -211,44 +211,85 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'A treap is a binary search tree by key and a heap by random priority. The name combines tree and heap. Keys determine search order; priorities determine shape. If priorities are independent random values, the expected height is logarithmic.',
-        'Treaps sit beside Binary Search Tree, AVL Tree, Red-Black Tree, Binary Heap, and Skip List. They are simpler than many deterministic balanced trees and make split and merge unusually natural.',
-        'The priority is not a runtime scheduling priority. It is a persistent random rank attached to the key, often generated once at insertion time. Thinking of the priorities as a random permutation helps: the highest-priority key becomes root, then the same rule recursively shapes the left and right key ranges.',
+        'A plain binary search tree gives ordered search with very little code, but its height is controlled by insertion order. Insert sorted keys and the tree degenerates into a linked list. Balanced trees fix that, but AVL and Red-Black trees pay with deterministic repair cases and extra metadata.',
+        'A treap exists as the small randomized alternative. It keeps the binary-search-tree order by key and uses a random priority to choose the shape. The result is a search tree whose expected height is logarithmic while still being simple enough to express with rotations, split, and merge.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'Insert starts like BST insertion by key, then rotates the new node upward while its priority beats its parent. Delete can rotate a node down or merge its children. The heap invariant gives randomized balance without storing explicit heights or colors.',
-        'Split partitions by key into two treaps. Merge combines two treaps when every key in the left treap is smaller than every key in the right treap. These two primitives can express insertion, deletion, range cuts, order statistics, and implicit sequence operations.',
-        'That split/merge view is often cleaner than the rotation view. Insert can be written as split around the key, then merge(left, newNode), then merge(result, right). Delete can split out the key interval and discard it. The algorithm becomes pointer algebra over ordered sets.',
+        'The naive baseline is an unbalanced BST: compare by key, go left or right, and insert at a leaf. Search, insert, and delete are O(height). That is O(log n) only when the shape happens to be balanced.',
+        'The wall is that real key order is not trustworthy. Timestamps, ids, sorted imports, and clustered workloads can all create long paths. A deterministic balanced tree solves the wall by measuring height or color. A treap solves it by assigning each key a persistent random rank that input order does not control.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core invariant',
       paragraphs: [
-        'Search, insert, delete, split, and merge are O(log n) expected time with O(n) space. The guarantee is probabilistic, so worst-case shape is possible but unlikely with good priorities. Production code must use stable random priorities, avoid collisions, and test rotations carefully.',
+        'Every treap node has two fields that matter: key and priority. By key, the tree is a BST: all keys in the left subtree are smaller and all keys in the right subtree are larger. By priority, the tree is a heap: a parent priority beats each child priority.',
+        'The priority is not a scheduling priority. It is a stable random rank, usually generated once when the key is inserted. If priorities are unique, the treap shape is exactly the Cartesian tree formed by sorted keys and heap priorities. Equivalently, it is the same shape as inserting keys in descending priority order.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Treaps are useful for ordered maps, interval sets, randomized balanced dictionaries, editor-like sequence structures, and algorithms that repeatedly split and rejoin ordered collections. Their conceptual value is high: one structure exposes BST ordering, heap priority, randomization, rotations, and persistence-friendly path changes.',
-        'A complete case-study pattern is the implicit treap used as a text buffer or sequence container. Keys are not stored explicitly; subtree sizes define positions. Splitting at position i cuts the document, merging glues it back together, and lazy tags can reverse or annotate ranges without rebuilding the sequence.',
+        'In the bst plus heap view, read each node label as key|priority. Search decisions use only the key part. Balance decisions use only the priority part. That split is the whole point of the structure.',
+        'When key 6 appears with priority 95, it rotates above key 5 because its priority is higher. The rotation is safe because it preserves the in-order sequence of keys. The only thing it changes is which node is parent, so heap order can be restored locally.',
+        'In the split and merge view, treat the root priority as the tie-breaker that decides which subtree root survives. Split partitions by key. Merge assumes all left keys are smaller than all right keys, then lets the higher-priority root own the combined tree.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism',
       paragraphs: [
-        'A treap is not a heap over keys. It is a heap over priorities and a search tree over keys. Another trap is thinking random priorities mean random answers. The set semantics are deterministic; only the balancing shape is randomized.',
+        'Rotation-based insert starts like BST insertion. Put the new key at the leaf position dictated by key comparisons, then rotate it upward while its priority beats its parent. Each rotation keeps the keys in sorted order but fixes one heap violation.',
+        'Deletion can rotate the target node downward until it becomes a leaf, or it can replace the node by merging its left and right subtrees. Both views are the same idea: preserve sorted key order while letting priorities decide roots.',
+        'The split/merge formulation is often the cleanest. split(root, x) returns two treaps: keys <= x and keys > x. merge(left, right) requires max(left) < min(right), then picks the higher-priority root and recurses into one child. Insert becomes split, merge with the new node, then merge the rest. Range deletion becomes split around the interval and discard the middle.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Correctness',
       paragraphs: [
-        'Primary source: Randomized Search Trees by Aragon and Seidel at https://faculty.washington.edu/aragon/pubs/rst89.pdf. Study Implicit Treap Sequence Editor, Binary Search Tree, AVL Tree, Red-Black Tree, Binary Heap, Skip List, and Persistent Segment Tree next.',
+        'BST correctness comes from rotations and recursion preserving the in-order key sequence. A rotation does not move a key across a smaller or larger key; it only changes a local parent-child relationship. Split and merge preserve the same order by their preconditions: split partitions around x, and merge only combines non-overlapping key ranges.',
+        'Heap correctness comes from always promoting the higher-priority root. During insert, rotations move the new node up until its parent has higher priority. During merge, the higher-priority root stays root and only one child is rebuilt recursively.',
+        'The expected-height argument comes from random priorities. In any key interval, the highest-priority key is equally likely to be any key in that interval, so it behaves like a random pivot. The expected recursion depth is therefore logarithmic, like randomized quicksort or a randomly built BST.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Start with root 5|90, left child 2|70, and right child 8|65. By key, 2 is left of 5 and 8 is right of 5. By priority, 90 beats 70 and 65, so the heap invariant holds.',
+        'Insert key 6 with priority 95. Search by key puts 6 between 5 and 8: it goes right from 5, then left from 8. But priority 95 beats 8 and 5, so rotations move 6 upward. After rotation, 6 becomes root, 5 remains its left side, and 8 remains its right side. The sorted order 1, 2, 4, 5, 6, 7, 8, 9 is unchanged.',
+        'For split at key 5, every key <= 5 must land in the left output and every key > 5 in the right output. The recursion follows the root key comparison and reuses whole subtrees whenever their key range is already on the correct side. No array copy is needed; the operation rewires O(height) pointers.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Search, insert, delete, split, and merge are O(log n) expected time and O(n) space. The operations are small and pointer-local, which makes treaps attractive in contest code, persistent data structures, and custom ordered-set operations.',
+        'The tradeoff is probabilistic balance. A bad random generator, priority collisions, or adversarially chosen priorities can produce poor height. Production code should use stable priorities with enough bits, define tie-breaking, and test rotations or split/merge code against sorted-order checks.',
+        'Treaps also have ordinary pointer-tree costs: allocation overhead, cache misses, and no built-in range locality like a B-tree. They are elegant, but they are not automatically faster than a tuned ordered-map library.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Treaps win when the program needs ordered-set operations plus structural surgery. Splitting a set, deleting a key range, joining two ordered sets, maintaining order statistics, or building an editable sequence are natural operations instead of awkward extensions.',
+        'An implicit treap is the classic example. It does not store explicit keys; subtree sizes define positions. split at position i cuts a sequence, merge glues sequences back together, and lazy tags can reverse or annotate ranges without rebuilding the whole array.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'For an ordinary dictionary, the standard library map or set is usually the better production answer because it is heavily tested and has well-understood worst-case behavior. If deterministic height bounds are required, AVL, Red-Black, B-tree, or another deterministic structure may be a better fit.',
+        'A treap also fails as an explanation if the two invariants get blurred. It is not a heap over keys, and randomized priorities do not make membership answers random. The set semantics are deterministic; only the balancing shape is randomized.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary source: Randomized Search Trees by Aragon and Seidel at https://faculty.washington.edu/aragon/pubs/rst89.pdf. Study Binary Search Tree, AVL Tree, Red-Black Tree, Binary Heap, Skip List, Persistent Segment Tree, Rope, and Implicit Treap Sequence Editor next.',
+        'A good next exercise is to implement both APIs: rotation-based insert/delete and split/merge-based insert/delete. Then add subtree sizes and verify that rank, select, split-by-position, and merge still preserve the BST and heap invariants.',
       ],
     },
   ],

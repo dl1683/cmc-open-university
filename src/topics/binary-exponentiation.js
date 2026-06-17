@@ -81,41 +81,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        `Binary Exponentiation computes a^n quickly by reading n in binary. Instead of multiplying by a exactly n times, it repeatedly squares and sometimes multiplies by the base. The visualization computes 7^45 mod 100 or 3^10 mod 50. For 45, the bits are 101101, so only a handful of square-and-multiply steps are needed. Taking the modulus after every operation keeps values small enough to display.`,
-        `The idea is divide-and-conquer for powers. If you know a^k, then squaring gives a^(2k). If the next exponent bit is 1, multiply once more by a. This is the same broad family of thinking as Binary Search: represent the problem in bits, then discard linear repetition. Big-O Growth Rates turns that intuition into the formal drop from O(n) multiplications to O(log n).`,
+        `Binary exponentiation exists because repeated multiplication is the wrong unit of work for large powers. Computing a^10 by multiplying by a ten times is harmless. Computing a^n that way when n has hundreds or thousands of bits is impossible. The exponent may describe an astronomically large count, but the exponent itself has only O(log n) bits.`,
+        `The algorithm uses those bits directly. Squaring doubles an exponent. Multiplying by the base adds one. Those two moves are enough to spell any exponent in binary, so the power can be built in a number of steps proportional to the number of bits rather than the numeric value of the exponent.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        `In the left-to-right version shown here, start with result = 1. For each exponent bit, square result. If the bit is 1, multiply by the base. Reduce modulo m after each square and multiply. The invariant is precise: after processing the first k bits, result equals base raised to the integer represented by those k bits, modulo m. The demo prints the exponent-so-far after every bit so the invariant is visible rather than abstract.`,
-        `There is also a right-to-left version that keeps a moving power of the base and consumes low bits first. Both rely on associativity, so the method works beyond ordinary numbers: matrices, permutations, polynomials, and group elements can all be exponentiated this way if multiplication is associative.`,
+        `The obvious approach keeps a running product and multiplies by the base n times. That is easy to write and easy to trust for tiny n. It also matches the definition of exponentiation, so it is often the first implementation students produce.`,
+        `It fails in two ways. The loop is linear in n, so a 600-digit exponent would require more multiplications than any computer can finish. The intermediate value also explodes in size. If a modulus is involved, waiting until the end to reduce is unsafe in fixed-width arithmetic and wasteful even with big integers.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        `If n has b bits, binary exponentiation performs b squarings and at most b extra multiplications. That is O(log n) arithmetic operations. For a 2048-bit private exponent in RSA-style modular arithmetic, the worst-case loop is about 4096 modular multiplications, not 2^2048. Space is O(1) if bits are streamed, or O(log n) if the bit string is stored. Real cryptographic libraries also account for big-integer multiplication cost, but the exponent loop is still logarithmic.`,
+        `The core insight is that exponentiation by squaring turns multiplication count into bit count. If you know a^k, then squaring gives a^(2k). If the next binary digit says the exponent should be odd, multiply once by a to get a^(2k + 1).`,
+        `In the left-to-right version shown here, start with result = 1. For each exponent bit, square result. If the bit is 1, multiply by the base. When working modulo m, reduce after every square and multiply. The final residue is unchanged because modular reduction respects multiplication.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'The invariant',
       paragraphs: [
-        `Modular exponentiation powers RSA decryption and signatures, classic Diffie-Hellman key exchange, and many number-theory protocols. Elliptic-curve systems use the related double-and-add pattern for scalar multiplication. Matrix powers appear in Markov Chains & Steady States, PageRank, and fast Fibonacci computation. With the standard 2 by 2 Fibonacci matrix, exponentiation gives Fibonacci(n) in O(log n) matrix multiplies, while Memoization (Dynamic Programming) gives O(n) and naive Recursion is exponential.`,
+        `The invariant is the reason the short loop is trustworthy. After processing the first k bits of the exponent, result equals base raised to the number represented by those k bits, modulo m if a modulus is being used. The algorithm is not guessing; it is maintaining this statement one bit at a time.`,
+        `When the next bit arrives, squaring changes a^x into a^(2x), which is exactly what appending a binary digit does to the number represented so far. If the appended bit is 1, multiplying by the base changes a^(2x) into a^(2x + 1). If the bit is 0, the square alone is enough.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual proves',
       paragraphs: [
-        `The speedup does not come from the modulus; it comes from reading the exponent in binary. The modulus prevents overflow and keeps arithmetic bounded. Another mistake is postponing modulo until the end, which creates enormous intermediate numbers and breaks fixed-width languages. For security code, timing matters too: branching on secret exponent bits can leak information, so production libraries use constant-time variants. Hash Table is related only in the broad sense that both use modular arithmetic; hashing is not exponentiation.`,
+        `The bit array is the exponent written in the form the algorithm actually uses. Each highlighted bit corresponds to one square. A highlighted 1-bit also corresponds to one multiply by the base. The displayed "exponent so far" value is the invariant becoming visible after each step.`,
+        `The modulus in the visual is not decoration. It proves that huge powers can be computed with small stored numbers. After each square and multiply, only the residue modulo m is kept. The true power may be enormous, but the algorithm only needs the residue class that determines the final answer.`,
+      ],
+    },
+    {
+      heading: 'Right-to-left form',
+      paragraphs: [
+        `There is another common version that consumes exponent bits from right to left. It keeps two variables: result and power. If the current low bit is 1, multiply result by power. Then square power and shift the exponent right by one bit. This version is often convenient when the exponent is already an integer.`,
+        `The two versions have the same mathematical foundation. The left-to-right form builds the exponent prefix. The right-to-left form decomposes n as a sum of powers of two. Both work because multiplication is associative, and both reduce the number of multiplications from linear in n to logarithmic in n.`,
+      ],
+    },
+    {
+      heading: 'Worked shape',
+      paragraphs: [
+        `Take 45 as the exponent. In binary, 45 is 101101. The left-to-right algorithm starts at 0 as the exponent represented so far. Reading 1 makes it 1. Reading 0 makes it 2. Reading 1 makes it 5. Reading 1 makes it 11. Reading 0 makes it 22. Reading 1 makes it 45.`,
+        `The running result follows the same exponent values without ever performing forty-five plain multiplications. Each new bit doubles the exponent already represented, and each 1-bit adds one more base factor. In a modular computation, the displayed value may look unrelated to the true power, but the invariant says it is the correct residue for that exponent prefix.`,
+        `This is the same mental model as parsing a binary number. Appending a bit to x gives 2x or 2x + 1. Binary exponentiation applies that parser to exponents and keeps the matching power updated at the same time.`,
+        `Once that connection is clear, the algorithm feels less like a trick and more like ordinary binary notation turned into code.`,
+      ],
+    },
+    {
+      heading: 'Why it works generally',
+      paragraphs: [
+        `Binary exponentiation is not limited to ordinary integers. It works anywhere there is an associative operation with an identity element. That includes modular multiplication, matrices under multiplication, permutations under composition, function composition in some settings, and monoids in algebraic programming.`,
+        `This is why the same idea reappears under different names. Matrix exponentiation computes Fibonacci numbers and Markov transitions quickly. Permutation powers answer repeated shuffling questions. Elliptic-curve scalar multiplication uses the related double-and-add pattern, where doubling a point plays the role of squaring a power.`,
+      ],
+    },
+    {
+      heading: 'Costs and complexity',
+      paragraphs: [
+        `If n has b bits, the left-to-right method performs b squarings and at most b extra multiplications. That is O(log n) arithmetic operations. Space is O(1) if the exponent bits are streamed, or O(log n) if the bit string is materialized as an array.`,
+        `The arithmetic operation itself may be expensive. Big integers, modular reduction, and matrix multiplication all have their own costs. Binary exponentiation does not make multiplication free; it reduces how many times multiplication is called. That distinction matters when comparing plain number powers, modular powers, and matrix powers.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Modular exponentiation powers RSA decryption and signatures, classic Diffie-Hellman key exchange, primality testing routines, and many number-theory protocols. The whole point is that exponents can be very large while the loop stays tied to their bit length.`,
+        `Outside cryptography, it is a standard tool for fast recurrence computation, graph walk counts through adjacency-matrix powers, Markov Chains & Steady States, PageRank-style transition powers, and repeated transformation composition. The same pattern also teaches why binary representation is an algorithmic tool, not just a storage format.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The speedup does not come from the modulus. It comes from reading the exponent in binary. The modulus keeps values bounded and prevents overflow, but a non-modular power can still use exponentiation by squaring. Mixing those ideas up leads to poor explanations and sometimes poor implementations.`,
+        `Security code has an extra failure mode: secret exponent bits must not control observable timing, memory access, or branching. A straightforward square-if-bit-then-multiply loop is educational, not automatically safe for private keys. Production libraries use constant-time methods, blinding, windowing, Montgomery arithmetic, and careful side-channel review.`,
+        `There is also an algebraic requirement. The repeated operation must be associative, and the algorithm needs a correct identity value for exponent zero. If either assumption is false or badly encoded, the code may be fast while computing the wrong object.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Study Recursion for the divide-and-conquer form, then Big-O Growth Rates for the logarithmic payoff. Memoization (Dynamic Programming) is the next comparison point for Fibonacci. Binary Search builds the same "use bits to skip work" instinct. For matrix-heavy applications, read Markov Chains & Steady States, PageRank, Eigenvalues & Eigenvectors, and SVD & Low-Rank Approximation.`,
+        `Study Recursion for the divide-and-conquer shape, Big-O Growth Rates for the logarithmic payoff, and Modular Arithmetic for the residue rule that keeps intermediate values small. Binary Search builds the same habit of spending one bit of information to remove a large amount of work.`,
+        `Then compare Fibonacci methods: naive Recursion is exponential, Memoization (Dynamic Programming) is linear, and matrix exponentiation is logarithmic. For matrix-heavy applications, continue to Markov Chains & Steady States, PageRank, Eigenvalues & Eigenvectors, and SVD & Low-Rank Approximation.`,
       ],
     },
   ],

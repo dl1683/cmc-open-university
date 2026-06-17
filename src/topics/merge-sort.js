@@ -97,43 +97,99 @@ function* merge(values, lo, mid, hi) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this algorithm exists`,
       paragraphs: [
-        `Merge sort is the classic divide-and-conquer sort: split the array in half, sort each half, then merge the two sorted halves into one sorted result. The split phase keeps cutting until each piece has one item, because a one-item array is already sorted. The merge phase does the real work by repeatedly taking the smaller front item from two already-sorted runs.`,
-        `Its two headline traits are predictability and stability. Predictability means O(n log n) time even on hostile input; there is no reverse-sorted disaster case. Stability means equal keys keep their original relative order. That matters when sorting records: if you sort employees by hire date, then stably sort by department, employees inside each department remain ordered by hire date.`,
+        `Merge sort exists because local repair is a poor way to move information across a long array. Bubble Sort and Insertion Sort fix nearby inversions. That is simple and often useful for tiny or nearly sorted ranges, but it can take quadratic time when many values must travel far from their starting positions.`,
+        `Merge sort takes a different view: make sorted runs first, then combine runs. Splitting an array in half is cheap. A one-item array is already sorted. Merging two sorted arrays is linear because the next output item must be at the front of one of the two inputs. Put those facts together and you get a predictable O(n log n) sorting algorithm.`,
+        `Its two most important traits are worst-case predictability and stability. Predictability means the running time stays O(n log n) even when the input is reverse sorted, already sorted, or deliberately hostile. Stability means equal keys keep their original relative order, which matters when sorting records through multiple passes.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `Why the obvious approach fails`,
       paragraphs: [
-        `The recursive version mirrors Recursion exactly. sort(array) splits into left and right, calls sort(left), calls sort(right), then merges. Merging keeps two pointers, one into each sorted half. Compare the two front values, copy the smaller one to the output, and advance that pointer. When one half runs out, copy the remainder of the other half. Because each merge touches every item in its range once, each level of the recursion tree costs O(n).`,
-        `The stability rule is simple: when the two front values compare equal, take the item from the left half first. If you take from the right on ties, the output can still be sorted, but equal items may flip relative order. That is a correctness bug for stable sorting, not automatically an infinite loop. Infinite loops come from forgetting to advance a pointer after copying an item.`,
+        `A natural first sorting strategy is "scan for things out of order and swap them." That is the spirit of Bubble Sort. A better local strategy is "insert the next item into the sorted prefix." That is Insertion Sort. Both strategies can be excellent teaching tools, and insertion sort is still used inside real hybrid sorts for small ranges.`,
+        `The problem is that local movement can be expensive. Moving a value from the end of an array to the front through adjacent swaps takes many operations. Doing that for many values gives O(n^2) behavior. The algorithm spends its time repeatedly moving across the same ground.`,
+        `Merge sort avoids that by postponing movement until there is structure. It first creates sorted runs, then performs large, orderly transfers from input runs to output. It may copy more memory than an in-place quicksort, but the copies are sequential, predictable, and bounded by the recursion tree.`,
+      ],
+    },
+    {
+      heading: `The core mechanism`,
+      paragraphs: [
+        `The recursive version is short because it mirrors the idea directly. To sort positions lo through hi, compute the midpoint, sort the left half, sort the right half, and merge the two sorted halves. The base case is a range of length zero or one, which is already sorted.`,
+        `The merge step keeps two cursors: one at the front of the left sorted run and one at the front of the right sorted run. Compare the two front values. Copy the smaller one to the next output position and advance that cursor. If one run is exhausted, copy the rest of the other run.`,
+        `The important invariant is that everything already written during the current merge is in sorted order and will not need to move again within that run. Each write position becomes final for the run because no hidden value behind a front cursor can be smaller than that cursor's current value.`,
+      ],
+    },
+    {
+      heading: `Why the merge is correct`,
+      paragraphs: [
+        `Assume the left and right runs are already sorted. The next output item must be either the left front or the right front. It cannot be a later item in the left run because later left items are at least as large as the left front. It cannot be a later item in the right run for the same reason.`,
+        `Therefore the smaller of the two front values is safe to write next. After writing it, advancing that run's cursor preserves the same argument for the next position. This local argument repeats until one run is empty, and then the remaining run can be copied because it is already sorted.`,
+        `The recursive proof is built from this merge proof. Single-item ranges are sorted. If the recursive calls return sorted left and right halves, the merge returns one sorted range. By induction, the full array is sorted.`,
+      ],
+    },
+    {
+      heading: `Stability and equal keys`,
+      paragraphs: [
+        `A sorting algorithm is stable when equal keys keep their original relative order. Merge sort can be stable with one simple rule: when the left front and right front compare equal, take the left item first. The left run contains items that appeared earlier in the original array than equal items in the right run at that merge level.`,
+        `Stability is not a cosmetic property. Suppose records have department and hire date. If you first sort by hire date and then stably sort by department, records inside each department remain ordered by hire date. Without stability, the second sort may scramble the earlier ordering.`,
+        `Taking from the right side on ties can still produce a numerically sorted array, but it breaks stable sorting. Forgetting to advance a cursor after writing an equal item is a different bug; that can cause an infinite loop or repeated output. Correct stable merge code both chooses the left item on ties and advances exactly one cursor per write.`,
+      ],
+    },
+    {
+      heading: `Worked example`,
+      paragraphs: [
+        `Take the input [8a, 3, 8b, 1, 9, 2, 5], where 8a and 8b have the same key but 8a appears earlier. The split phase divides the array until the leaves are single items: [8a], [3], [8b], [1], [9], [2], [5]. Each leaf is already sorted.`,
+        `Now the merge phase builds sorted runs. [8a] and [3] merge into [3, 8a]. [8b] and [1] merge into [1, 8b]. Those two runs merge into [1, 3, 8a, 8b]. Notice the tie rule: when 8a and 8b become front values, the left 8a is written first, so stability is preserved.`,
+        `On the right side, [9] and [2] merge into [2, 9], then [2, 9] merges with [5] into [2, 5, 9]. The final merge combines [1, 3, 8a, 8b] and [2, 5, 9] into [1, 2, 3, 5, 8a, 8b, 9]. Every merge touches each item in its two runs once.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `Time is O(n log n) in best, average, and worst cases. The array splits for about log2(n) levels, and each level merges all n items. Space is usually O(n) for the temporary output arrays, plus O(log n) call-stack space in the recursive version. There are in-place merge algorithms, but they are complex and often slower in practice. Big-O Growth Rates explains the trade: this sort spends extra memory to escape the O(n^2) behavior of Bubble Sort and other quadratic methods.`,
+        `The time cost is O(n log n) in best, average, and worst cases. The recursion tree has about log2(n) levels because each split halves the range. At each level, the merge work across all ranges touches n items total. Multiplying n work per level by log n levels gives O(n log n).`,
+        `The usual array implementation uses O(n) auxiliary storage for merging, plus O(log n) call-stack space in the recursive version. Many production implementations allocate one auxiliary buffer and reuse it rather than allocating fresh left and right arrays at every recursive call.`,
+        `There are in-place merge algorithms, but they are more complex and can be slower in practice because they trade simple sequential copying for intricate rotations or block movement. Merge sort is often chosen when predictable time and stable output matter more than O(1) extra space.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Implementation patterns`,
       paragraphs: [
-        `Stable library sorts borrow heavily from this idea. Python's Timsort detects already-sorted runs, uses Insertion Sort on small ranges, then merges runs stably. Java uses TimSort for object arrays and a dual-pivot Quick Sort for primitive arrays. Since ES2019, JavaScript Array.prototype.sort is required to be stable, and major engines use stable hybrid strategies rather than the textbook algorithm alone.`,
-        `External sorting is where merging shines. If a 500 GB log file does not fit in RAM, a system sorts chunks on disk, then repeatedly merges sorted runs with sequential reads and writes. LSM Trees (How Cassandra Writes) use the same sorted-run intuition: writes create sorted files, and compaction later merges them. Binary Search benefits afterward because sorted runs can be searched efficiently.`,
+        `Top-down recursive merge sort is the clearest teaching version. It splits first, then merges while the call stack unwinds. Bottom-up merge sort removes recursion: start with runs of length 1, merge adjacent runs into length 2, then length 4, then length 8, until the whole array is one run.`,
+        `Bottom-up merging is useful when you want predictable iteration and less call-stack overhead. It also maps well to external sorting, where runs live on disk rather than in memory. The same idea scales from small arrays to files that are too large to load at once.`,
+        `Comparator handling matters. The merge step should use the same comparator everywhere, should treat equality consistently, and should not assume numeric subtraction is safe for every key type. For objects, store or compare keys carefully so stability remains meaningful.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it matters`,
       paragraphs: [
-        `The first misconception is that O(n log n) always wins at tiny sizes. For 16 or 32 items, Insertion Sort can be faster because it has low overhead and excellent cache locality. That is why real libraries use hybrids. The second pitfall is ignoring memory. O(n) extra space is often fine on a laptop and painful in embedded systems or memory-heavy services.`,
-        `Another common bug is allocating new arrays at every recursive call without noticing the garbage created. Many implementations reuse one auxiliary buffer. Also remember that divide-and-conquer does not mean automatically in place: Quick Sort partitions in place on average, while this algorithm usually copies.`,
+        `Stable library sorts borrow from merge sort's central idea even when they are not textbook merge sort. Python's Timsort detects naturally occurring sorted runs, uses insertion sort on small ranges, and merges runs stably. Java uses TimSort for object arrays. JavaScript Array.prototype.sort is specified as stable in modern ECMAScript, and engines use practical stable strategies rather than the plain teaching algorithm alone.`,
+        `External sorting is the classic systems use. If a log file is hundreds of gigabytes and memory is limited, the system sorts chunks that fit in RAM, writes sorted runs to disk, and then performs multiway merges. Sequential reads and writes are much friendlier to disks and object stores than random swapping across the entire file.`,
+        `Storage engines use the same run-merging idea. LSM trees accept writes into memory, flush sorted runs to disk, and later compact runs by merging them. That is merge sort thinking applied to databases: create sorted runs cheaply, then merge them in the background.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `The first practical failure is allocation churn. A naive implementation that slices arrays at every recursive call can allocate many temporary arrays and pressure the garbage collector. Reusing a single auxiliary buffer is usually better for serious code.`,
+        `The second failure is losing stability. If equal keys take from the right run first, records with equal keys can flip. The output is sorted by key but not stable. That bug is hard to see with plain numbers and easier to catch with tagged duplicates such as 8a and 8b.`,
+        `The third failure is off-by-one range logic. Merge sort has many boundary variables: lo, mid, hi, left length, right length, and write position. A wrong inclusive or exclusive bound can drop an item, duplicate an item, or recurse forever on a range that does not shrink.`,
+        `The fourth failure is choosing merge sort when memory is the binding constraint. On very memory-constrained systems, Heap Sort or an in-place Quick Sort variant may be preferable. On tiny arrays, insertion sort can win because its overhead is lower and its cache locality is excellent.`,
+      ],
+    },
+    {
+      heading: `Operational guidance`,
+      paragraphs: [
+        `Use merge sort when you need a stable sort with predictable worst-case time, especially for records rather than primitive numbers. It is a strong default for linked lists because merging linked runs can be done by rewiring pointers without large contiguous auxiliary arrays.`,
+        `Use a hybrid strategy for production arrays. Switch to insertion sort for small ranges, reuse an auxiliary buffer, and consider detecting existing sorted runs. That is the path from textbook merge sort toward Timsort-style engineering.`,
+        `Test with adversarial and semantic cases: empty arrays, one item, already sorted input, reverse sorted input, duplicates, tagged equal keys for stability, odd lengths, powers of two, and comparator ties. The algorithm's proof is simple, but most bugs live in boundaries and equality handling.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Recursion to understand the call tree, then Big-O Growth Rates for the n log n curve. Compare with Quick Sort for in-place average-case speed and Heap Sort for O(1) extra space. Insertion Sort explains why hybrids switch strategies on small ranges, and LSM Trees (How Cassandra Writes) shows merging as a storage-system idea, not just a sorting trick.`,
+        `Study Recursion to understand the call tree, Big-O Growth Rates for the n log n curve, and Insertion Sort for the small-range base case used by hybrids. Compare with Quick Sort for in-place average-case speed and Heap Sort for O(1) extra space.`,
+        `Then follow the merge idea into systems topics. Study External Sorting for disk-sized data, LSM Trees (How Cassandra Writes) for sorted-run compaction, Binary Search for what sorted output enables, Stable Sorting for multi-key record ordering, and K-Way Merge for the generalization used when many sorted runs must be combined.`,
       ],
     },
   ],

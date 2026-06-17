@@ -212,6 +212,27 @@ export const article = {
       ],
     },
     {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious serving approach is to keep the exact KV cache produced by ordinary multi-head attention and optimize around it. Paged KV memory, quantized cache storage, continuous batching, and better kernels can all help without changing the model architecture.',
+        'That approach eventually hits a memory wall. Long contexts and large batches make cache bandwidth and capacity dominate decode economics. Every generated token has to read attention state for prior tokens, so the cache becomes a first-class serving object rather than incidental model scratch space.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that full per-head KV state grows with layers, heads, head dimension, sequence length, batch size, and precision. Even when parameters fit, the live cache can limit how many requests fit on an accelerator and how long their contexts can be.',
+        'A second wall is quality. You cannot simply throw away head-specific key and value information and expect attention to work. Any compression scheme has to preserve enough information for routing, retrieval, position handling, and head diversity.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'MLA treats cached attention state as a learned compressed representation. Store a compact latent vector per token, then reconstruct the key and value information needed by attention heads through learned projections at decode time.',
+        'That changes the serving tradeoff. The model pays extra projection work and architectural complexity so the memory object carried across the whole context is smaller. The payoff appears when decode is memory-bound and a smaller cache enables larger batches, longer contexts, or lower cost per token.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'A hidden state is compressed through a down-projection into a latent KV vector. That latent vector is cached. At decode time, up-projections turn it into the key and value information needed by attention heads. The query path must also preserve position information, often with careful treatment of RoPE-related dimensions, because long-context attention cannot lose track of order.',
@@ -219,21 +240,60 @@ export const article = {
       ],
     },
     {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'Read multi-head latent attention as compressing key/value state through a latent bottleneck. The attention computation still needs useful context, but serving benefits when cached state is smaller.',
+        'The animation should make the serving tradeoff visible. Latent compression saves KV-cache memory and bandwidth, but model quality depends on whether the compressed representation preserves the information attention needs.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine a long-context agent request with a 100,000-token prompt. Ordinary attention stores key and value vectors for each token at each layer. If many requests run together, accelerator memory becomes the batching limit before raw compute does.',
+        'With MLA, the cache entry for each token is smaller. The serving system may fit more concurrent requests or keep longer contexts resident. The model still has to reconstruct usable keys and values, so the win is not free; it depends on kernels, memory layout, and whether quality holds on long-context tasks.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'MLA works when the learned latent space preserves the attention information that would otherwise be stored redundantly across heads. The projections learn how to recover head-specific key and value views from a shared compact state.',
+        'The design is plausible because serving does not need the cache to be human-readable or exact in the ordinary MHA format. It needs the cache to support the next-token computation well. If the learned representation supports that computation with fewer bytes, the architecture has changed the system bottleneck.',
+      ],
+    },
+    {
       heading: 'Cost and complexity',
       paragraphs: [
         'MLA reduces KV-cache memory pressure, which can improve long-context serving and continuous batching. It also adds architectural decisions and kernel work. If serving code still treats the cache like ordinary per-head KV tensors, much of the benefit is lost. The full engineering problem includes memory layout, attention kernels, batching policy, precision, and quality evaluation.',
+        'The cost moves into model design, projection compute, implementation maturity, and benchmark risk. A cache format that looks elegant in a paper can underperform if kernels are slow, if layout wastes bandwidth, or if the serving scheduler cannot exploit the freed memory.',
       ],
     },
     {
       heading: 'Real-world case study',
       paragraphs: [
         'DeepSeek-V2 reports a 236B-parameter Mixture-of-Experts model with 21B activated parameters per token and 128K context. The paper attributes efficient inference partly to MLA, reporting a 93.3 percent KV-cache reduction and up to 5.76 times maximum generation throughput compared with DeepSeek 67B. Those numbers should be read as a system-level case study, not as a universal MLA constant.',
+        'For students, the case is valuable because it links architecture to serving economics. MoE changes activated parameters, MLA changes cache shape, and long context changes memory pressure. The reported throughput is the result of those pieces working together.',
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
         'MLA is not simply "smaller cache equals same model." The model must learn to use the latent representation without losing head diversity, positional information, or quality. It is also not a replacement for all serving optimization. Paged KV memory, quantization, batching, speculative decoding, and kernel selection still matter.',
+        'It is also not a universal reason to prefer one model. The reported cache and throughput gains come from a specific architecture and serving stack. A deployment still has to measure quality, latency, memory, throughput, and cost on its own workload.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'MLA wins when decode is memory-bound, contexts are long, and serving throughput is limited by cache size or bandwidth. It is especially relevant to agentic workloads, retrieval-heavy prompts, and continuous batching systems where cache pressure sets the economic ceiling.',
+        'It fails when the bottleneck is elsewhere, when exact attention behavior matters more than cache size, or when kernels and schedulers cannot use the compressed state efficiently. The right question is not whether MLA is clever; it is whether it moves the limiting resource in the deployed system.',
+      ],
+    },
+    {
+      heading: 'Evaluation review',
+      paragraphs: [
+        'Evaluate MLA on two axes at the same time: quality and serving economics. Quality tests should include long-context retrieval, code references, multi-hop questions, and tasks where losing a rare token matters. Serving tests should include prefill, decode, memory residency, continuous batching, and cost per generated token.',
+        'The comparison should be against strong alternatives, not a weak baseline. Paged KV cache, KV quantization, grouped-query attention, speculative decoding, and batching improvements may solve part of the same problem. MLA earns its place only when it improves the end-to-end system under those competing optimizations.',
+        'A useful report separates cache bytes per token, active batch size, tokens per second, time to first token, quality deltas, and kernel maturity. Without that separation, a team can celebrate a smaller cache while missing a quality regression or an implementation bottleneck.',
       ],
     },
     {

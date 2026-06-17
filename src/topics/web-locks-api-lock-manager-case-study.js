@@ -214,36 +214,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Web Locks API is an origin-scoped coordination primitive for scripts running in tabs and workers. A script requests a named lock, runs work while the lock is held, and releases it automatically when the callback finishes.',
-        'The data structure is a lock manager with per-resource request queues. Requests have names, modes, callbacks, and optional abort signals.',
+        'A web app can run in several same-origin tabs, windows, iframes, and workers at once. Each context may try to sync the same document, compact the same IndexedDB store, refresh the same cache, or elect itself as the background worker.',
+        'Without coordination, one browser origin becomes a small distributed system. Duplicate jobs waste battery and network. Concurrent migrations corrupt local state. The Web Locks API gives same-origin scripts a browser-managed queue for named resources.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first attempt is a flag. Put `syncing = true` in memory, localStorage, IndexedDB, or BroadcastChannel state, and ask every tab to check it before starting work. That feels natural because the contention is inside one browser profile.',
+        'The wall is ownership. Tabs crash, reload, sleep, navigate away, and race between read and write. A stale flag can block work forever. Two tabs can read "not running" before either writes "running." Cleanup becomes another failure-prone protocol.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Move ownership into the user agent. A lock request declares a resource name, a mode, a callback, and optional queue behavior. The browser lock manager decides when the callback may run and releases the lock when the callback settles.',
+        'The resource name is just an application-chosen string, such as `doc:42:sync` or `idb:migration:v3`. Exclusive mode means one holder for that name. Shared mode means multiple compatible readers can run while an exclusive writer waits.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the request-queue view, watch the manager node. The tabs do not coordinate by trusting each other; they submit requests to one origin-scoped arbiter. The move from queue to held is the safety decision: the callback is allowed to touch the named resource.',
+        'In the reader-writer view, the compatibility table is the invariant. Shared plus shared can be granted together. Any exclusive request for the same name must be alone. The state change that matters is not visual motion; it is whether the next request is compatible with current holders.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Exclusive locks allow one holder for a name. Shared locks allow multiple compatible readers but block exclusive writers. Requests that cannot be granted wait in a queue until compatible locks are released.',
-        'The request method returns a promise that resolves or rejects with the callback result after release. An AbortSignal can drop a pending request before it is granted.',
+        '`navigator.locks.request(name, options, callback)` asks for a lock. If the request is compatible with current holders, the callback receives a Lock object and runs. If not, the request waits. The returned promise resolves or rejects with the callback result after release.',
+        'The useful options change queue behavior. `mode` is `exclusive` by default or `shared` for reader-style access. `ifAvailable` invokes the callback with `null` instead of waiting when the lock cannot be granted. `signal` drops a pending request if the AbortSignal fires. `steal` preempts existing holders and should be reserved for recovery from broken state.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Consider a local-first app open in three tabs. All tabs can read IndexedDB, but only one tab should compact the sync log or refresh a cache entry. Each tab calls navigator.locks.request("doc:42:sync", { signal }, async () => runSync()). The first tab runs the job. The others wait or abort when the user navigates away. The server does not see three duplicate sync jobs.',
+        'The safety invariant is grant compatibility. For one origin and one resource name, the manager does not grant incompatible locks at the same time. Exclusive holders exclude every other holder for that name. Shared holders exclude exclusive holders but can coexist with other shared holders.',
+        'Automatic release prevents the common manual-unlock leak. The critical section is the callback lifetime. When the callback returns, throws, or its promise settles, the lock is released and the queue can be processed again.',
+        'That callback boundary is the main reason the API is easier to use than a homemade flag. The browser owns the queue and the release point, so a thrown exception or rejected promise does not leave a stale "I am syncing" marker behind. The application still owns what the critical section does.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Web Locks are cooperative, same-origin coordination. They are not security locks, database locks, or cross-device locks. Do not use steal casually; preempted code keeps running and can conflict with the new holder. Avoid multi-lock deadlocks with clear naming and acquisition order.',
+        'A local-first editor is open in three tabs on document 42. All tabs can read IndexedDB, but only one tab should push pending changes and compact the sync log. Each tab requests `doc:42:sync` in exclusive mode before running the sync job.',
+        'One tab receives the lock and runs. The other tabs wait, use `ifAvailable` to skip duplicate work, or attach an AbortSignal so navigation cancels a stale request. The server avoids three duplicate sync jobs, and the local database avoids concurrent maintenance on the same document.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'For the database-backed cousin, study PostgreSQL Advisory Lock Keyspace. For real database wait queues and deadlock cycle detection, study PostgreSQL Lock Manager & Deadlock Detector.',
-        'Primary sources: MDN Web Locks API at https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API, MDN LockManager.request at https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request, and W3C Web Locks Working Draft at https://www.w3.org/TR/web-locks/. Study AbortController Cancellation Graph, IndexedDB Object Store Case Study, Local-First Sync Engine Case Study, Browser Message Channels & Broadcast Coordination, Web Streams Backpressure Queues, Reader-Writer Lock patterns via Sequence Locks, and Backpressure & Flow Control next.',
+        'The cost is waiting. A long callback blocks incompatible work behind it, so the callback should contain the critical section, not unrelated network waits or UI work. The queue also needs cancellation because a tab may navigate away before the request still matters.',
+        'Multiple lock names introduce deadlock risk. If one code path takes A then B while another takes B then A, both can wait forever. Use one lock per resource when possible, or enforce a global acquisition order and time out pending requests.',
+      ],
+    },
+    {
+      heading: 'Design checklist',
+      paragraphs: [
+        'Name resources by the thing that actually conflicts. `doc:42:sync` is better than `sync` if different documents can sync independently. `idb:migration:v3` is better than `database` if normal reads do not conflict with one specific migration. Lock names are part of the data model; vague names create unnecessary waiting, and inconsistent names create unsafe overlap.',
+        'Keep the callback narrow. Do the guarded read-modify-write or local maintenance while holding the lock, then release it before unrelated UI work, analytics calls, or long server waits. If queued work may become irrelevant, attach an AbortSignal so route changes and tab shutdowns can drop the pending request.',
+      ],
+    },
+    {
+      heading: 'Observability and tests',
+      paragraphs: [
+        'For important paths, log the lock name, mode, wait time, hold time, abort reason, and whether the callback completed or failed. Those fields turn a slow sync job into a queueing question instead of a vague browser problem.',
+        'Test with two real browser contexts. One tab should hold the lock while another waits, aborts, or uses `ifAvailable`. Shared-reader tests should prove that compatible readers run together and an exclusive writer waits. This is concurrency code, so examples with one tab are not enough.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Web Locks fit local-first sync, cache-fill deduplication, IndexedDB migrations, same-origin leader election, and background jobs where duplicate local work is wasteful. The common shape is one named resource and several contexts that agree to coordinate.',
+        'Shared mode fits read-heavy tasks where many readers are safe but a writer must be alone. Exclusive mode fits migrations, compaction, uploads, and read-modify-write sequences.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Web Locks do not coordinate different origins, browsers, user profiles, devices, users, service backends, or code that ignores the API. They are not database locks and not authorization. Server-side uniqueness still needs server-side coordination.',
+        'They also do not make a bad critical section safe. If code holds a lock while awaiting unrelated slow work, it creates head-of-line blocking. If two teams choose different names for the same resource, the manager cannot infer that those requests conflict.',
+        'They can also hide product decisions if used too broadly. A global same-origin lock may stop corruption, but it can make every tab wait behind unrelated work. Good lock design protects the resource that needs protection and leaves independent work independent.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        '`steal` is the sharpest option. It releases held locks from the manager\'s point of view, but previously running code may continue without the guarantee that it is alone. Using `steal` as normal scheduling can create exactly the overlap the lock was meant to prevent.',
+        '`query()` is diagnostic, not a scheduler. It returns a snapshot of held and pending locks, which can help logging and debugging, but the state may change immediately after the snapshot. Do not build correctness on polling snapshots.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Current sources: W3C Web Locks Working Draft at https://www.w3.org/TR/web-locks/ and MDN LockManager.request at https://developer.mozilla.org/en-US/docs/Web/API/LockManager/request. Use those for exact option rules, secure-context notes, worker availability, and browser compatibility.',
+        'Study AbortController Cancellation Graph for abortable waiting, IndexedDB Object Store Case Study for local storage constraints, Browser Message Channels & Broadcast Coordination for loose same-origin communication, PostgreSQL Lock Manager & Deadlock Detector for heavier lock scheduling, and Sequence Locks for a contrasting reader-writer design.',
       ],
     },
   ],

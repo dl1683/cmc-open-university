@@ -178,45 +178,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Sparse format selection chooses a physical representation for sparse tensors and matrices based on operation, sparsity pattern, access direction, hardware, and kernel availability.',
-        'Compiler lowering turns that representation into buffers and loops: positions, coordinates, values, merge logic, vectorization, and kernel dispatch.',
+        'Sparse format selection exists because "sparse" is not one layout. COO, CSR, CSC, BSR, ELL, structured sparsity, and compiler-specific tensor encodings all represent the same broad idea: store only useful entries and enough metadata to find them. They do not support the same operations equally well.',
+        'The obvious approach is to choose one familiar sparse format and use it everywhere. That works for small examples. It breaks in real systems because construction, row-wise compute, column-wise compute, block kernels, GPU kernels, and compiler loop generation all want different physical shapes.',
+        'Compiler lowering is the next step. Once a layout is chosen, the compiler has to turn a mathematical sparse operation into buffers, loops, merges, bounds checks, and kernel calls. The layout is part of the program, not just a container around the program.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'What the diagram emphasizes',
       paragraphs: [
-        'At the high level, a program sees a sparse tensor operation such as SpMV, SpMM, or element-wise add. The compiler or runtime chooses a storage encoding such as COO, CSR, CSC, BSR, or a specialized tensor encoding.',
-        'The encoding defines storage levels and buffers. Lowering emits loop nests that walk those buffers, merge coordinate streams, skip absent entries, and call dense inner kernels where possible.',
+        'In the format-decision view, read the graph from workload to layout. The operation, sparsity pattern, access direction, and hardware constraints feed the format choice. The format then determines buffers, loops, and dispatchable kernels.',
+        'In the lowering-pipeline view, watch the abstraction get dismantled. A high-level sparse tensor becomes storage levels, position buffers, coordinate buffers, value buffers, merge loops, and finally generated code. The important question is always the same: which information must be stored so the loop can skip absent values without losing correctness?',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core decision',
       paragraphs: [
-        'Sparse lowering has more moving parts than dense lowering. Correctness depends on sortedness, duplicate semantics, explicit zeros, index bit widths, shape metadata, and buffer ownership.',
-        'Performance depends on density, locality, conversion cost, branch behavior, vectorization, and hardware kernels. The compiler can pick a clever format and still lose if the measured workload differs.',
+        'A sparse compiler starts with three facts: what operation is being computed, what the sparsity pattern looks like, and what the target machine can run well. SpMV, SpMM, sampled dense-dense multiplication, element-wise add, and sparse convolution have different needs.',
+        'COO is good for assembly because it appends coordinate tuples. CSR is good for row scans. CSC is good for column scans and transpose-style access. BSR is good when nonzeros come in dense blocks that can feed vector or matrix kernels. Dense can be better when the matrix is not sparse enough to justify metadata and irregular memory access.',
+        `The compiler's job is not to worship a format. It is to preserve the mathematical operation while choosing a layout whose physical access pattern fits the workload.`,
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'How lowering works',
       paragraphs: [
-        'MLIR SparseTensor dialect docs describe sparse tensor types as first-class citizens and a bridge between high-level operations and lower-level storage schemes consisting of positions, coordinates, and values: https://mlir.llvm.org/docs/Dialects/SparseTensorOps/.',
-        'The Google MLIR sparsifier guide explains sparse tensor encodings, level expressions, coordinate storage, position storage, bit widths, and examples such as CSR, BSR, COO, Nvidia 2:4 structured sparsity, and ELL: https://developers.google.com/mlir-sparsifier/guides/encode.',
+        'Lowering turns tensor dimensions into storage levels. A dense level stores every coordinate in that dimension. A compressed level stores positions and coordinates for only present entries. A singleton level stores one coordinate per parent. More specialized encodings can model blocks, slices, or structured sparsity.',
+        `The lowered program walks position buffers to find ranges, coordinate buffers to know which logical indices are present, and value buffers to read payloads. Operations that combine sparse tensors become merge problems over coordinate streams. When coordinates match, the loop combines values. When a coordinate is absent on one side, the loop either skips it or applies the operation's identity rule.`,
+        'This is where correctness details become concrete. Sorted coordinates make merge loops simple. Duplicate coordinates need a defined combine rule. Explicit zeros may or may not behave like absent entries. Index bit width affects memory traffic and overflow. Shape metadata guards bounds.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'Graph analytics, recommender systems, scientific simulations, sparse ML features, pruned neural networks, and retrieval indexes all need format selection. The same logical sparse tensor can be terrible or excellent depending on its physical layout.',
-        'This is why libraries expose multiple sparse formats and why compilers increasingly model sparse layout instead of treating it as an opaque container.',
+        'The correctness argument is a representation argument. The sparse encoding must contain exactly the information needed to reconstruct the logical tensor entries that matter to the operation. If the encoding maps each stored value to the correct logical coordinate and the generated loops visit the required coordinate combinations once, the lowered code computes the same result as the high-level operation.',
+        'The performance argument is different. Sparse lowering wins when skipping absent entries saves more work than the metadata and irregular access cost. That depends on density, distribution, hardware, vectorization, cache behavior, and whether conversion happens on the hot path.',
+        'This split matters. A sparse kernel can be correct and slow. A fast kernel can be wrong if it assumes sorted unique coordinates and receives uncoalesced COO. Production systems need both semantic validation and performance audits.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Do not benchmark only the kernel and ignore conversion. Do not assume a format name implies sortedness, duplicate handling, or explicit-zero behavior. Do not use 64-bit indices everywhere if 32-bit is enough and memory bandwidth dominates.',
-        'Do not force sparse lowering when density is high. Dense kernels can win because they avoid metadata, branches, and irregular memory access.',
+        'The cost ledger has more than Big-O. Track `nnz`, density, duplicate rate, explicit zero count, index width, conversion time, format, kernel, memory traffic, branch behavior, and output validation. Sparse bugs often hide because the shape looks small while metadata traffic dominates.',
+        'Conversion cost is a first-class cost. If every request builds COO, sorts it, coalesces it, converts to CSR, and then runs one small kernel, the conversion may dominate latency. If the converted format is reused for thousands of operations, the conversion may be cheap.',
+        'Hardware fit matters too. A CPU may tolerate irregular branches better than a GPU warp. A BSR layout may unlock dense tile kernels if the sparsity pattern has blocks. If the pattern is ragged, BSR may waste memory by storing mostly empty blocks.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Sparse lowering wins in graph analytics, recommender systems, scientific simulation, retrieval indexes, sparse ML features, pruned neural networks, and compilers that need to generate kernels for many sparse layouts. These systems cannot afford to treat layout as an afterthought.',
+        'It is also valuable as documentation. A compiler IR that names sparse levels, coordinates, positions, and value buffers makes format assumptions explicit. That is easier to audit than handwritten kernels with implicit rules scattered across loops.',
+        'The best case is a stable pattern with repeated compute. Analyze once, choose or compile the right layout, and reuse the result. The worst case is one-off sparse work where conversion and metadata erase the win.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Sparse lowering fails when density is high, when the access pattern is unpredictable, when conversion happens too often, or when the chosen layout does not match the kernel. Dense kernels often win because they use simple loops, contiguous memory, and vector units without metadata overhead.',
+        'It also fails when semantic contracts are missing. A format name does not guarantee sorted coordinates, unique coordinates, no explicit zeros, a particular duplicate rule, or safe index width. The generated code must either require those properties or repair them before execution.',
+        'Do not benchmark only the kernel. Include layout conversion, sorting, coalescing, memory allocation, host-device transfer, and validation. Otherwise the dashboard will praise the fast part and hide the slow part.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Start with a format contract before generating loops. Record rank, shape, level type, coordinate ordering, duplicate policy, explicit-zero policy, index bit width, and ownership of buffers. A compiler pass that assumes sorted unique coordinates should reject or canonicalize inputs that do not provide them.',
+        'Keep conversion outside the hottest path when possible. If a workload repeatedly multiplies by the same sparse tensor, pay the conversion cost once and cache the chosen layout. If the tensor is one-shot, prefer a format that is cheap to assemble even if the steady-state kernel is not the fastest. Sparse performance is usually a lifecycle question, not a single kernel question.',
+        'Build small golden tests from dense reference results. Include empty rows, empty columns, duplicate coordinates, explicit zeros, unsorted COO, narrow index overflow cases, and shapes whose block tails do not fit evenly. These cases catch the bugs that dense happy-path tests miss.',
       ],
     },
     {

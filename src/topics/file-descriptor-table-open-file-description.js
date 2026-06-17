@@ -200,41 +200,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A file descriptor is a small integer in a process descriptor table. It points to an open file description, the kernel object that stores file offset, file status flags, and a reference to the underlying file, socket, pipe, or device.',
-        'This split is why fd numbers are local to a process but open file descriptions can be shared by dup, fork, and descriptor passing. It is also why the same integer API can handle regular files, pipes, sockets, eventfds, and epoll instances.',
+        `A file descriptor is a small nonnegative integer that a process passes to system calls such as read, write, close, poll, dup, and epoll_ctl. The integer is not the file. It is an index into a per-process file-descriptor table. The table entry points to a kernel object called an open file description, which then points to the underlying file, socket, pipe, device, or other object.`,
+        `This split is the important idea. User space needs compact handles that are cheap to copy and easy to pass through APIs. The kernel needs richer state: the current file offset, file status flags, access mode, reference counts, and links into the virtual filesystem or socket layer. The descriptor table is the handle table that connects those two worlds.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'open(path) first resolves the pathname through the VFS, then creates a new open file description and installs a descriptor table entry pointing at it. read and write operate through the descriptor, but offset and status flags belong to the open file description.',
-        'dup creates a new descriptor entry pointing at the same open file description. fork copies descriptor entries into the child, again sharing the same open file descriptions. close removes one descriptor reference; the open file description disappears only after the last reference is gone.',
+        `The obvious mental model says fd 3 means a pathname, or maybe a file. That model breaks immediately. The same integer in two different processes can refer to different objects. A pathname can be renamed or unlinked after open while the descriptor still works. Two different descriptor numbers in one process can share a single file offset if one was made with dup.`,
+        `The wall appears in real bugs. A program redirects standard output, forks a child, seeks through a duplicated descriptor, or forgets close-on-exec, and suddenly writes go to the wrong place or files stay open longer than expected. The integer alone cannot explain the behavior. You have to know which table entry points to which open file description and which open file descriptions are shared.`,
       ],
     },
     {
-      heading: 'Case study: shared offset bug',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'Suppose fd3 and fd4 come from dup. If one part of a program calls lseek(fd4, 0), a later read(fd3) uses the reset offset because both descriptors share the same open file description. Opening the path twice instead creates two open file descriptions with independent offsets.',
+        `A descriptor number is a per-process table slot. An open file description is the shared kernel object behind one or more slots. open(path) creates a new open file description and returns a descriptor slot that refers to it. dup creates another descriptor slot referring to the same open file description. fork copies descriptor slots into the child, so parent and child usually share the same open file descriptions after the fork.`,
+        `Because the file offset and file status flags live in the open file description, shared descriptors can affect each other. If fd 3 and fd 4 were created by dup, a read through fd 3 advances the offset seen by fd 4. An lseek through fd 4 changes what fd 3 reads next. Opening the same pathname a second time creates a separate open file description with a separate offset.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Mechanism: the layers',
       paragraphs: [
-        'Descriptor lookup is intentionally cheap: index into a per-process table, check permissions and flags, and follow the file object. The complexity is lifetime. Descriptor numbers can be reused after close, open files can outlive pathnames after unlink, forked children can inherit descriptors accidentally, and nonblocking flags can affect all descriptors sharing the same open file description.',
+        `There are several layers that are easy to collapse. The descriptor table is per process. A descriptor entry contains a pointer to an open file description and descriptor-level flags such as close-on-exec. The open file description contains the current offset and file status flags such as nonblocking or append behavior. Below that are type-specific operations and objects: an inode and page cache for a regular file, socket queues for a socket, a pipe buffer for a pipe, or an epoll interest set for an epoll file descriptor.`,
+        `For regular files, path lookup produces dentries and inodes before or during open. After open succeeds, later reads do not re-walk the pathname. They follow the object references already held by the open file description. This is why a program can open a file, another process can rename or unlink the directory entry, and the original descriptor can still read the old object until the last reference is closed.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What operations do',
       paragraphs: [
-        'An fd is not a pathname and not necessarily a unique file. It is a process-local handle. An open file can survive rename or unlink, and two descriptor numbers may share offset. epoll Interest & Ready Lists also works with descriptors, but its readiness semantics are separate from the fd-table lifetime rules.',
+        `open creates a new open file description. dup, dup2, and dup3 create a new descriptor entry that refers to an existing open file description. fork copies the descriptor table entries into the child, again referring to the same open file descriptions. close removes one descriptor entry. The open file description and underlying object are destroyed only when the last reference is gone and no in-flight kernel operation still needs them.`,
+        `exec is different. By default, descriptors survive across exec, so the new program image inherits them. Descriptor entries marked close-on-exec are closed during exec. This flag is descriptor-level state, not open-file-description state. That distinction matters for servers and tools that spawn children; accidentally inherited descriptors can keep sockets, pipes, or files alive and can leak authority into a program that should not have it.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Primary sources: open(2) at https://man7.org/linux/man-pages/man2/open.2.html, dup(2) at https://man7.org/linux/man-pages/man2/dup.2.html, close(2) at https://man7.org/linux/man-pages/man2/close.2.html, and Linux VFS overview at https://docs.kernel.org/filesystems/vfs.html. Study VFS Dentry & Inode Cache, Linux Page Cache XArray, epoll Interest & Ready Lists, Ring Buffer, and Message Queues next.',
+        `The first visual separates the process, descriptor table, descriptor slots, open file description, dentry, inode, and page cache. That separation is the lesson. The fd number is only a table slot. The open file description is the shared record that owns offset and status flags. The inode and lower object hold the real file or device state. Once those nodes are separate, rename, unlink, dup, fork, and close behavior stops looking special.`,
+        `The dup and fork case study shows sharing by drawing two descriptor slots into one open file description. That is why an lseek through fd 4 can change what fd 3 reads next. The close step removes one descriptor edge while the open file description and inode remain alive through another edge. The model is not narrating a syscall trace; it is teaching the reference graph that explains the trace.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The design works because it separates naming, sharing, and lifetime. Descriptor numbers are cheap process-local names. Open file descriptions are shared kernel records for an open instance. The underlying object has its own lifetime and representation. This lets the kernel support uniform APIs while still allowing regular files, sockets, pipes, eventfds, terminals, and epoll instances to behave differently underneath.`,
+        `It also makes common shell and process patterns possible. Standard input, output, and error are just descriptors 0, 1, and 2 by convention. A shell can open a file, duplicate its descriptor onto fd 1, close the extra descriptor, and exec a program whose ordinary writes now go to the file. A pipeline works because children inherit selected pipe descriptors and close the ends they do not need.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `The cost of the abstraction is hidden sharing. Shared offsets are useful for shells, pipes, and inherited streams, but they surprise programs that expected descriptor numbers to be independent. If a process duplicates a descriptor and alternates reads through both numbers, the reads advance one shared offset. If the process needs independent offsets, it must open the file again or use positioned I/O where appropriate.`,
+        `Descriptor reuse is another cost. After close, the same integer may be returned by a later open. A stale fd value in user space can accidentally target a completely different object. Flag scope adds one more tradeoff: file status flags associated with the open file description can affect every descriptor that shares it, while descriptor flags such as close-on-exec belong to the table entry. Mixing those scopes causes bugs in nonblocking I/O, subprocess launch code, and library code that changes flags without restoring them.`,
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        `Useful signals include open descriptor count, growth rate, per-process limits, EMFILE and ENFILE errors, leaked descriptors across exec, unexpected shared offsets, descriptors stuck in CLOSE_WAIT or similar socket states, and paths shown as deleted while still held open. On Linux, /proc/<pid>/fd and /proc/<pid>/fdinfo expose much of the practical state: target objects, positions, flags, and descriptor identities.`,
+        `A good diagnostic starts by asking four questions. Which process owns the descriptor number? Which open file description does the descriptor reference? Is that open file description shared by another descriptor or process? What underlying object sits behind it? Tools such as lsof, strace, procfs, and targeted logging help answer those questions, but the mental model must come first.`,
+      ],
+    },
+    {
+      heading: 'Production uses',
+      paragraphs: [
+        `This model explains regular file I/O, shell redirection, inherited standard streams, pipes, socket servers, epoll loops, descriptor passing over Unix-domain sockets, temporary files unlinked after open, log rotation behavior, and many resource leaks. It is also essential for understanding why readiness APIs operate on descriptors while the readiness state may be tied to a deeper object.`,
+        `It is useful as a curriculum topic because it is a concrete handle table with shared references and lifetimes. The same pattern appears in process tables, object-capability systems, database connection pools, GPU handles, window-system resources, and runtime object registries. Small integers are easy to pass, but the system correctness lives in the table and the object graph behind them.`,
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        `The model fails when you treat the descriptor integer as a durable identity. It is process-local and reusable. It fails when you treat a descriptor as a pathname. The path may no longer name the same object, and the descriptor may refer to something that never had a pathname, such as a socket or eventfd. It fails when you assume two descriptors for the same file have independent offsets without checking how they were created.`,
+        `It also fails if you ignore platform details. POSIX terminology, Linux implementation objects, BSD behavior, and Windows handle semantics are related but not identical. Even within Linux, regular files, sockets, pipes, eventfds, signalfds, inotify descriptors, and epoll descriptors have different lower-level structures. The descriptor table gives a uniform handle, not uniform behavior.`,
+      ],
+    },
+    {
+      heading: 'Evaluation cases',
+      paragraphs: [
+        `A small test suite can make the semantics concrete. Open a file once, duplicate the descriptor, read through one number, and verify that the other sees the advanced offset. Open the same path twice and verify that the offsets are independent. Fork after opening and check that parent and child share the offset unless the program deliberately avoids it. Mark one descriptor close-on-exec and verify that only the intended descriptors survive into the child program.`,
+        `Also test close and reuse. Close a descriptor, open another object, and observe that the integer may be reused. Unlink an open temporary file and verify that I/O still works through the descriptor while directory lookup no longer finds it. These cases prevent the common beginner model from surviving contact with real process behavior.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study VFS Dentry & Inode Cache for pathname lookup, Linux Page Cache XArray for regular-file data, Ring Buffer for pipes and byte queues, epoll Interest & Ready Lists for readiness over descriptors, Socket Accept Queue for network endpoints, and Process Table for another example of small identifiers pointing into kernel-managed objects. Then read about close-on-exec, descriptor passing, and positioned I/O to see where the basic model becomes production engineering.`,
       ],
     },
   ],

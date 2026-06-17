@@ -223,45 +223,108 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'dbt turns SQL model files into a directed acyclic graph of transformations. source and ref calls declare dependencies, tests express contracts, documentation describes nodes, and generated artifacts such as manifest.json make the graph available to tools.',
-        'This topic links Topological Sort, OpenLineage Metadata Lineage Graph Case Study, Feature Store, Delta Lake Case Study, Apache Hudi Timeline Filegroups Case Study, and database indexing. dbt is a graph and incremental-update lesson wrapped in analytics engineering workflows.',
+        'Analytics SQL starts as a few useful queries and then becomes a dependency problem. A revenue mart depends on cleaned orders, cleaned orders depend on raw source tables, tests depend on the mart shape, and dashboards depend on the final relation. If those relationships live only in filenames and team memory, every change becomes a small migration risk.',
+        'dbt exists to make those relationships explicit. A model is not just a SQL file; it is a node in a build graph. Calls to source and ref declare edges, tests attach contracts, docs attach meaning, and manifest.json turns the project into data that other tools can inspect.',
+        'The incremental side solves a different but related problem. Once a fact table has years of history, rebuilding all rows for every daily update wastes warehouse time. Incremental materialization asks for a narrower contract: can this model update only the changed slice while still matching the result of a full rebuild?',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'When dbt parses a project, it resolves sources, refs, models, tests, exposures, docs, macros, and metadata into a manifest. parent_map and child_map encode first-order graph relationships. dbt can then build models in topological order and select subgraphs for targeted runs.',
-        'An incremental model is a materialization that transforms only new or changed rows after the first build. The model usually includes an is_incremental block, a timestamp or partition filter, and often a unique_key so new rows update existing target rows instead of duplicating them.',
+        'The first reasonable approach is a folder of SQL scripts run in a fixed order. This is not foolish. For a small project, a runbook or scheduler can say: load staging, then dimensions, then marts, then dashboard extracts.',
+        'The same simple approach often appears for updates: run every script from scratch. Full rebuilds are easy to reason about because they avoid stored state. If the SQL is correct and the source data is available, the table should be correct after the run.',
+        'Both approaches work longer than people expect. The failure comes when the project has many owners, many downstream consumers, and tables large enough that all-history recomputation becomes too expensive for normal development and daily production runs.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The Wall',
       paragraphs: [
-        'The main data structures are DAG nodes, dependency edges, selectors, manifests, parent maps, child maps, compiled SQL, relation names, test nodes, source freshness results, and target tables. Incremental materialization adds a target table, staged new rows, merge keys, partitions, and schema-change policy.',
-        'The graph view and the table-update view reinforce each other. The DAG tells dbt what order to run and what downstream models are affected. The incremental strategy tells one model how much data to process once it is selected.',
+        'The graph wall is hidden dependency. A model may depend on a source through a macro, a comment, a copied table name, or a downstream dashboard nobody remembered. Without a machine-readable edge, the build system cannot order work, select impacted nodes, or explain lineage with confidence.',
+        'The cost wall is stored history. A daily active users table might need only the last few days on most runs, but a late event from yesterday can still change yesterday. If the incremental filter only processes rows with today as the date, the model will be fast and wrong.',
+        'The deeper wall is that graph correctness and incremental correctness are separate. The DAG can select the right model and still produce bad data if the merge key is not unique. The incremental filter can be correct and still miss downstream rebuilds if the graph hides an edge.',
       ],
     },
     {
-      heading: 'Why it matters',
+      heading: 'The Core Insight',
       paragraphs: [
-        'dbt makes analytics code more like a build system. The important abstraction is not a SQL file; it is a node with parents, children, contracts, documentation, materialization, and a compiled relation in the warehouse.',
-        'Incremental models matter because warehouse costs scale with scanned and transformed data. A correct incremental filter can turn an all-history rebuild into a small daily update, but only if late data, unique keys, and logic changes are handled honestly.',
+        'The core insight is to split the system into two contracts. The DAG contract says which resources depend on which other resources. The incremental contract says how one resource updates its own stored table without recomputing all history.',
+        'For the DAG, explicit edges allow topological order. If mart_revenue depends on int_orders and dim_customers, those parents must exist before the mart is built. If dim_customers changes, downstream selection can find the marts and tests that should run.',
+        'For incremental models, the target table is part of the algorithm. The model has a current stored result, a candidate set of new or changed rows, a grain or unique key, and a strategy for insert, merge, delete plus insert, or partition replacement. Correctness means the stored result after the incremental run matches the intended full-refresh result for the data window being maintained.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Animation Walkthrough',
       paragraphs: [
-        'DAG failures include hidden dependencies, circular references, stale manifests, overly broad selectors, and tests that do not guard the actual business contract. Incremental failures include missed late-arriving rows, non-unique keys, null keys, schema drift, logic changes applied only to new rows, and full-refresh blast radius.',
-        'The right debugging questions are graph-shaped and state-shaped: which upstream nodes changed, which downstream nodes are selected, what does the manifest say, which rows enter the incremental filter, and what target rows will be updated or inserted?',
+        'The model-DAG view shows source, staging, intermediate, dimension, mart, tests, docs, and consumers as one lineage graph. The edges are not decoration. A ref edge is a build-order promise and an impact-analysis path.',
+        'The graph-artifact frame shows why manifest.json matters. The manifest stores nodes, sources, tests, docs, parent maps, and child maps. That turns the project from a pile of SQL text into an inspectable dependency graph.',
+        'The incremental-run view changes the question from order to state. The source contains candidate changes, the target already contains older results, a temporary relation stages the new slice, and the merge step decides whether each row should insert, update, or leave existing state alone.',
       ],
     },
     {
-      heading: 'Sources and links',
+      heading: 'How It Works',
+      paragraphs: [
+        'During parsing, dbt resolves project resources into a manifest. The ref function returns a database relation and creates a dependency edge to the referenced model, seed, or snapshot. The source function does the same for declared source tables. The manifest records first-order parents and children so selection and documentation can use the same graph.',
+        'A normal dbt run builds selected resources in dependency order. Selectors can choose one node, its ancestors, its descendants, or intersections with tags, paths, resource types, and state comparisons. This is graph traversal with resource filters.',
+        'An incremental model starts with full-build SQL that must be valid when no target exists. On later runs, is_incremental is true only when the target table exists, the model is configured as incremental, and full refresh has not been requested. Inside that branch, the model filters to rows likely to be new or changed.',
+        'The strategy then applies the staged rows to the target. Append simply inserts. Merge uses a unique key or grain to update matching rows and insert missing rows. Insert overwrite replaces partitions. Schema-change configuration decides whether new, removed, or changed columns should fail the run, sync, or be ignored.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The DAG works because explicit edges create a partial order. A directed acyclic graph can be topologically sorted, so every model can be built after its declared parents. If a cycle appears, there is no valid build order; dbt should reject the shape instead of guessing.',
+        'Selection works because descendants are computed from recorded child edges, not from string matching table names in SQL. That is why hidden dependencies are dangerous. If a model depends on another relation without source or ref, the graph cannot protect the relationship.',
+        'Incremental correctness is a simulation argument. After each run, the target table should represent the same business grain a full rebuild would have produced for the data covered by the model. A lookback window handles late-arriving records. A unique key prevents duplicates. A full refresh handles logic changes that need to rewrite old rows.',
+        'The manifest widens the benefit. Documentation, CI jobs, ownership reports, lineage tools, and impact analysis can all read the same artifact. The dependency knowledge becomes shared data instead of local knowledge trapped in one dbt command.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'Suppose a daily revenue mart depends on raw order events, stg_orders, int_order_lines, dim_customers, and dim_products. A change to dim_products should rebuild the revenue mart and its tests, but it should not rebuild unrelated marketing attribution models. The DAG gives the selector enough structure to choose the affected subgraph.',
+        'For the mart itself, an incremental model might reprocess the last three days of order events, stage the resulting rows, and merge by order_id or by a surrogate key at the chosen grain. The three-day lookback is a deliberate cost. It catches late events and corrections that a strict today-only filter would miss.',
+        'If finance changes the definition of net revenue, the lookback is not enough. Historical rows were computed under old logic, so the safe operation is usually full refresh for the model and selected descendants. The graph decides the blast radius; the materialization decides how to rebuild each node in that radius.',
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        'Graph cost is mostly parse, compile, selection, scheduling, and artifact management. More nodes mean more relationships to inspect, more tests to plan, and more build-order decisions. The payoff is that a small change can run a small selected subgraph instead of the whole project.',
+        'Incremental cost lives in the warehouse. Filtering early can reduce scans, joins, and writes. Merge can be more expensive than append because the warehouse must match staged rows against existing target rows. Partition replacement can be cheaper when the data is naturally partitioned by date or batch.',
+        'When data doubles, a full rebuild usually grows with the whole table. A good incremental run grows with the changed slice plus the lookback window. That is the main economic reason to use it. The tax is that the team must now own state, keys, late data, schema drift, and refresh policy.',
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        'Use source and ref even when a hard-coded table name feels faster. The extra ceremony pays back through ordering, docs, tests, and impact analysis. If a dependency is conditional inside Jinja, make sure dbt can still discover it during parsing.',
+        'Treat unique_key as the grain of the output, not a convenience setting. If the key can be null, duplicated, or built from unstable fields, merge behavior will be unreliable. Add tests for uniqueness and not-null on the grain that the incremental model claims to maintain.',
+        'Choose lookback windows from data behavior, not hope. Measure late-arrival distribution, correction frequency, source clock quality, and warehouse cost. A model that reprocesses seven days may be better than one that reprocesses one day and requires emergency backfills every week.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'The dbt DAG is strong when analytics code has many dependencies and many consumers. It helps teams reason about staging layers, intermediate joins, marts, tests, docs, exposures, and ownership as one graph.',
+        'Incremental models fit large event streams, fact tables, slowly refreshed marts, feature tables, and daily aggregates where most runs touch a small fraction of history. They are especially useful when a full rebuild is possible but too expensive for every run.',
+        'The combination is useful in CI. A pull request can build only modified models and their children in a development schema, run tests on the affected path, and produce documentation or lineage evidence for reviewers.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'The DAG fails when dependencies stay hidden. Direct table names, undeclared sources, runtime-only refs, macros that obscure relationships, and stale artifacts make the graph less reliable than it looks.',
+        'Incremental models fail quietly. Missed late rows, bad unique keys, null keys, schema drift, changed business logic, timezone errors, and source truncation can produce plausible but wrong metrics. Cheap runs are not a victory if they preserve bad state.',
+        'The wrong lesson is to make everything incremental. Small dimensions, volatile business logic, and low-cost tables are often better as full rebuilds. Incremental state is a tool for expensive stable transformations, not a default badge of maturity.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: dbt ref documentation at https://docs.getdbt.com/reference/dbt-jinja-functions/ref, dbt source documentation at https://docs.getdbt.com/reference/dbt-jinja-functions/source, dbt manifest artifact documentation at https://docs.getdbt.com/reference/artifacts/manifest-json, and dbt incremental model documentation at https://docs.getdbt.com/docs/build/incremental-models.',
-        'Study this with Topological Sort for build ordering, OpenLineage for production lineage events, Delta Lake and Hudi for table-update storage mechanics, and Feature Store for downstream ML consumption of transformed tables.',
+        'Study Topological Sort for build ordering, OpenLineage for production lineage events, Delta Lake and Hudi for table-update storage mechanics, Slowly Changing Dimension for history modeling, and Feature Store for downstream ML consumption of transformed tables.',
       ],
     },
   ],

@@ -85,7 +85,7 @@ function* flightDiscovery() {
   yield {
     state: flightGraph('Flight separates metadata discovery from data transfer'),
     highlight: { active: ['client', 'list', 'info', 'e-client-list', 'e-list-info'], found: ['serverA', 'serverB'] },
-    explanation: 'A Flight client first discovers what streams exist. Metadata calls such as ListFlights and GetFlightInfo return schemas, endpoints, byte counts, and tickets before the client starts moving data.',
+    explanation: 'Read this as two planes. Discovery answers what streams exist, what schema they have, and where to fetch them. Data movement waits until the client has a Ticket and endpoint.',
   };
 
   yield {
@@ -109,7 +109,7 @@ function* flightDiscovery() {
       ],
     ),
     highlight: { active: ['info:holds', 'end:use', 'ticket:use'], compare: ['desc:holds'] },
-    explanation: 'The ticket is deliberately opaque to the client. The server can encode a dataset id, partition, authorization decision, or cached plan without making it a public protocol contract.',
+    explanation: 'The Ticket is a capability, not a friendly row id. The client presents it; the server decides what it means, how long it is valid, and which authorization decision it carries.',
     invariant: 'Discovery returns handles; DoGet uses handles to stream data.',
   };
 
@@ -140,7 +140,7 @@ function* flightDiscovery() {
       ],
     ),
     highlight: { found: ['g:result', 'd:result', 'b:result'], compare: ['l:call'] },
-    explanation: 'A complete read is a sequence: discover streams, get a ticket and endpoints, call DoGet, and receive Arrow IPC record batches without row-oriented serialization.',
+    explanation: 'The read path is: discover, bind to a ticket, call DoGet, then receive Arrow IPC batches. If the service converts to JSON or row objects in the middle, it has lost the main Flight advantage.',
   };
 }
 
@@ -148,7 +148,7 @@ function* columnarStreaming() {
   yield {
     state: streamGraph('DoPut uploads Arrow record batches'),
     highlight: { active: ['producer', 'doput', 'schema', 'batch1', 'batch2'], found: ['server'] },
-    explanation: 'DoPut streams Arrow record batches from a client to a server. The stream starts with schema information and then sends batches with column buffers, validity bitmaps, offsets, and values.',
+    explanation: 'DoPut is the write-side mirror: send schema first, then stream Arrow record batches. The server can validate schema once and then handle column buffers batch by batch.',
   };
 
   yield {
@@ -202,7 +202,7 @@ function* columnarStreaming() {
       ],
     ),
     highlight: { active: ['auth:need', 'flow:risk'], found: ['ver:need'] },
-    explanation: 'A production Flight service is more than a fast pipe. Tickets need authorization, endpoints need load placement, streams need backpressure, and schema changes need compatibility rules.',
+    explanation: 'The design checklist is where Flight becomes a service rather than a demo. Fast columnar transfer must be wrapped with authorization, endpoint placement, backpressure, schema compatibility, and observability.',
   };
 }
 
@@ -218,35 +218,87 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'Apache Arrow Flight is an RPC framework for high-performance data services built around Arrow data. It combines metadata methods for discovery with streaming methods that move Arrow record batches through the Arrow IPC format.',
-        'This case study extends Apache Arrow Columnar Memory Case Study, Parquet Columnar Format Case Study, Backpressure, Load Balancer, and Distributed Tracing. The key lesson is separating the catalog/control-plane question, "what data stream should I read?", from the data-plane operation, "move these columnar batches now."',
+        'Apache Arrow Flight is an RPC framework for Arrow-native data services. It combines metadata calls for discovery with streaming calls that move Arrow record batches through the Arrow IPC format.',
+        'The naive approach is to expose analytical data through row-shaped REST or generic RPC payloads. That works for small responses, but it burns CPU converting values into service-specific objects and makes large transfers hard to parallelize. Flight keeps the catalog question, "what should I read?", separate from the data-plane question, "move these columnar batches now."',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Core idea',
       paragraphs: [
-        'A client can describe a desired dataset with a FlightDescriptor, call GetFlightInfo, and receive a FlightInfo object with schema, endpoints, and Tickets. A Ticket is an opaque server-defined token that identifies exactly what the client should fetch. The client then calls DoGet with a Ticket and receives a stream of Arrow record batches.',
-        'Writes use DoPut. A client streams schema and record batches to the server, and the server can respond with application metadata. That response channel is useful for progress, resumable writes, accepted-row counts, or commit metadata.',
+        'A client describes a dataset with a FlightDescriptor, calls GetFlightInfo, and receives schema, endpoints, and Tickets. The Ticket is an opaque server-defined token. The client then calls DoGet with that Ticket and receives a stream of Arrow record batches.',
+        'Writes use DoPut. The client streams schema and batches to the server, and the server can send response metadata for progress, resumable writes, accepted-row counts, partition ids, or commit information.',
+        'The important split is control plane versus data plane. Discovery calls answer what exists, what schema it has, and where it can be read. Streaming calls move columnar batches. That split lets a catalog or coordinator stay light while data endpoints move the heavy payloads.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'How the protocol is structured',
       paragraphs: [
-        'Flight avoids much row-wise serialization overhead, but it does not remove distributed-systems work. A service still needs authorization around tickets, endpoint placement, backpressure, retry semantics, schema compatibility, and observability. The speed of the columnar pipe makes control-plane mistakes more expensive because clients can move large batches quickly.',
-        'Another design choice is endpoint topology. FlightInfo can point clients to data endpoints that differ from the metadata service. That is powerful for locality and scale, but it means load balancing and data placement become part of the API contract.',
+        'In the discovery view, follow the client to ListFlights and FlightInfo before any data moves. The important objects are schema, endpoints, and Tickets. Multiple endpoints show that the metadata service and the data servers do not have to be the same machine.',
+        'In the streaming view, follow schema then batches through DoPut. The acknowledgement metadata is not decoration; it is the control channel for progress, checkpoints, and write coordination.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Where it matters',
       paragraphs: [
-        'A feature platform exposes training data through Flight. The client asks for features for a date range. GetFlightInfo returns the Arrow schema, estimated rows, and endpoints close to the relevant partitions. Each endpoint receives a Ticket and streams record batches. The trainer can consume Arrow buffers directly instead of decoding JSON or row objects.',
-        'For online ingestion, the platform accepts DoPut streams from feature builders. The server returns progress metadata every few batches, so a failed client can resume from a known committed row count rather than restarting a huge upload.',
+        'A feature platform can expose training data through Flight. The client asks for features for a date range. GetFlightInfo returns the schema, estimated rows, endpoints near the relevant partitions, and Tickets. Each endpoint streams Arrow batches that the trainer can consume without decoding JSON.',
+        'For ingestion, feature builders can use DoPut. The server can acknowledge committed batches, so a failed upload resumes from a known point instead of restarting a huge transfer.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Tradeoffs and failure modes',
       paragraphs: [
-        'Flight is not just "gRPC for tables." The point is Arrow-native columnar transfer plus discovery. If a service converts everything to rows internally, it gives away much of the benefit. Another trap is treating Tickets as harmless ids. Tickets are capabilities; they must be scoped, authorized, logged, and expired appropriately.',
+        'Flight is not just "gRPC for tables." The point is Arrow-native columnar transfer plus discovery. If a service converts everything to rows internally, it gives away much of the benefit.',
+        'Tickets are not harmless ids. They are capabilities and need scoping, authorization, logging, expiration, and replay protection. Endpoints also become part of the contract: bad placement, missing backpressure, schema drift, or weak observability can make a fast pipe fail loudly.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Arrow Flight works because the payload shape matches analytic execution. Columnar engines want batches of typed columns, not one JSON object per row. Keeping data in Arrow format reduces conversion, preserves vectorized execution, and makes the transfer boundary look like the memory layout used by downstream processing.',
+        'It also works because discovery and transfer are separated. A client can ask for a dataset, receive several endpoints, and read partitions in parallel. The server can move metadata through one path and high-volume record batches through another. This is the same architectural principle seen in storage systems: keep the control plane expressive and the data plane efficient.',
+      ],
+    },
+    {
+      heading: 'A worked example',
+      paragraphs: [
+        'Suppose a training job needs feature rows for one week. The client sends a FlightDescriptor describing the feature set and time range. GetFlightInfo returns the schema plus endpoints for partitions in three regions. The client opens DoGet streams to those endpoints and consumes Arrow batches directly into the training pipeline.',
+        'If one endpoint is slow, the client can observe that stream separately from the metadata call. If the schema changed, the failure happens before the job silently decodes the wrong row shape. If the Ticket expires, the authorization boundary is explicit rather than hidden in a URL or ad hoc token.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'A Flight service should track metadata-call latency, stream throughput, endpoint skew, batch size distribution, backpressure time, schema mismatch errors, Ticket rejection reasons, retries, and conversion cost at the edges. These metrics distinguish a slow catalog from a slow data stream.',
+        'The most common mistake is to keep the wire protocol columnar while doing row-wise work before or after the transfer. That preserves the API name but loses the performance model. Arrow-native means the hot path should stay columnar across service boundaries.',
+      ],
+    },
+    {
+      heading: 'Security and governance',
+      paragraphs: [
+        'Tickets deserve special attention because they are opaque authority tokens. A Ticket may encode a partition, query, user scope, snapshot, or server-side handle. If it is too broad or long-lived, it becomes a confused-deputy risk. If it is not logged, a data movement event becomes hard to audit. If it is replayable without constraints, a client can reuse access beyond the intended window.',
+        'A serious Flight service treats Tickets like capabilities. Scope them to a dataset, user, operation, and time window. Bind them to authorization checks. Log their creation and use. Decide whether they can be shared across endpoints. Make expiration and error behavior explicit so clients can retry safely without silently broadening access.',
+        'Governance also includes schema evolution. A client reading Arrow batches needs to know whether a field was added, renamed, widened, or made nullable. Flight can carry schema information, but the service still needs compatibility rules. Columnar transfer is fast only when both sides agree on meaning, not just bytes.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Apache Arrow Flight is a data-plane RPC pattern for analytic batches. Descriptors and FlightInfo discover data. Tickets authorize specific reads. DoGet and DoPut move Arrow record batches. The design is valuable because it keeps columnar data columnar while still giving clients a service protocol.',
+        'The deep lesson is to match the interface to the physical data shape. Row-shaped APIs are pleasant for small objects. Columnar batch APIs are better for analytic scans, feature transfer, and vectorized engines.',
+        'For course design, place Arrow Flight after Arrow columnar memory and before feature stores or lakehouse serving. Students should see how an in-memory format becomes a service boundary once discovery, authorization, and streaming are added.',
+        'The wrong tool is a generic REST endpoint that serializes analytic data row by row. It may be easy to implement, but it discards the layout that made the engine fast. Flight keeps the physical representation visible across the network boundary, then adds the missing service pieces: discovery, endpoint placement, Tickets, streaming, and backpressure.',
+        'If students remember one diagnostic question, make it this: does the API preserve the shape the engine wants to process? If the answer is no, the service boundary has become a tax. Arrow Flight exists to keep analytical data in batch-columnar form across that boundary.',
+        'The practical contrast is simple. A row API is good for one object, one form submission, or one small command. A Flight stream is good when the natural unit is a table fragment, feature batch, query result partition, or columnar scan.',
+        'The comparison to Parquet is useful. Parquet is a durable columnar file format. Arrow is an in-memory columnar format. Flight is one way to move Arrow-shaped data between services without pretending the data is row-shaped.',
+        'A mature Flight deployment documents schema guarantees, Ticket lifetime, endpoint placement, and retry behavior as part of the API contract.',
+        'That contract is what separates a fast demo from an educational system design. The fast path moves batches; the full design explains who may read them, which schema they follow, how retries behave, and what the client can assume after partial failure.',
+      ],
+    },
+    {
+      heading: 'Practical guidance',
+      paragraphs: [
+        'Use Flight when the natural payload is batches of analytical data, not small request-response objects. Keep Arrow all the way through the hot path, make Tickets explicit security objects, and expose enough metadata for clients to parallelize without guessing.',
+        'When debugging Flight performance, separate metadata latency from stream throughput. A slow ListFlights path, overloaded endpoint, backpressured DoGet stream, and expensive Arrow-to-row conversion are different problems.',
       ],
     },
     {

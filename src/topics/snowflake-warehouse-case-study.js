@@ -193,35 +193,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The cloud warehouse problem',
       paragraphs: [
-        'Snowflake is a cloud data warehouse built around a multi-cluster shared-data architecture. Durable data lives in shared cloud storage, compute runs in independent virtual warehouses, and a cloud services layer handles metadata, optimization, transactions, and security.',
-        'The case study matters because it shows how cloud architecture changes database design. Elastic compute, cheap object storage, multi-tenancy, semi-structured data, and time travel are first-class design constraints.',
+        'Snowflake is a cloud data warehouse built around a multi-cluster shared-data architecture. Durable data lives in shared cloud storage. Compute runs in independent virtual warehouses. A cloud services layer handles metadata, optimization, transactions, security, and coordination. The design takes cloud object storage and elastic compute seriously instead of treating the cloud as rented hardware for a traditional database.',
+        'The case study matters because it shows how cloud architecture changes database design. Cheap durable object storage, elastic compute, multi-tenancy, semi-structured data, time travel, and workload isolation become first-class constraints. The core question is: how do you let many compute clusters query the same governed data without copying the data into every cluster?',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approaches and why they hurt',
       paragraphs: [
-        'Clients submit SQL to cloud services. The optimizer plans the query and assigns work to a warehouse. Warehouse workers scan shared storage, use local caches, exchange intermediate data, and return results. Multiple warehouses can access the same tables without sharing compute resources.',
-        'The architecture separates storage and compute while keeping centralized metadata and transaction semantics. That gives workload isolation and elastic scaling without copying table data for every cluster.',
+        'The first naive approach is a shared-nothing warehouse where storage and compute are tightly coupled. That can be fast, but scaling compute often means moving or rebalancing data. Workload isolation is hard because different teams contend for the same cluster. If one reporting workload consumes resources, another may suffer.',
+        'The second naive approach is to copy data into separate clusters for isolation. That gives each team compute independence, but it creates duplication, governance problems, stale copies, and high storage cost. Every copy becomes another version to secure, catalog, and reconcile.',
+        'The third naive approach is to keep data in object storage and let every query scan raw files naively. That gives cheap storage but poor performance. A warehouse still needs metadata, pruning, caching, transactions, optimization, and execution planning. Separating storage and compute is only useful if the metadata and execution layers make shared storage queryable.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core architecture',
       paragraphs: [
-        'Shared-data warehouses must manage metadata scale, file pruning, local cache effectiveness, query planning, warehouse sizing, cold starts, shuffle cost, and governance. Separating compute from storage improves elasticity but makes query planning and data layout more important.',
+        'Clients submit SQL to cloud services. The optimizer plans the query and assigns work to a virtual warehouse. Warehouse workers scan shared storage, use local caches, exchange intermediate data, and return results. Multiple warehouses can access the same tables without sharing compute resources.',
+        'Data is organized into immutable micro-partitions with metadata that helps pruning. If a query filters by date, region, or another column with useful clustering, the engine can skip micro-partitions that cannot match. This is the warehouse version of an index-like idea: metadata narrows the amount of data that compute must touch.',
+        'The architecture separates storage and compute while keeping centralized metadata and transaction semantics. Shared storage provides one durable copy of data. Virtual warehouses provide elastic, isolated compute. Cloud services coordinate the catalog, security, query planning, and transactional visibility that make the shared data safe to use.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'Snowflake-style architecture supports analytics, ELT, dashboards, data sharing, semi-structured data exploration, and mixed workloads where teams need independent compute over shared governed data.',
+        'Snowflake works because object storage is durable and cheap enough to be the shared data layer, while compute can be provisioned separately for different workloads. One team can run a large batch warehouse. Another can run small interactive queries. The data does not need to be copied for every compute cluster.',
+        'It also works because the metadata layer carries much of the intelligence. Micro-partition metadata, catalog state, statistics, transaction history, and access control let the optimizer turn shared files into a database. Without that layer, separated storage is just a pile of objects.',
+        'The design gives workload isolation. Warehouses are not only performance knobs; they are concurrency and cost-control boundaries. A heavy ETL job can run on one warehouse while a dashboard runs on another. Both see the same governed data, but they do not have to fight for the same compute slots.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it matters',
       paragraphs: [
-        'Separating compute and storage does not make queries free. Bad file layout, weak pruning, huge shuffles, and cold caches still hurt. Another misconception is that warehouses are only performance knobs; they are also isolation, concurrency, and cost-control boundaries.',
+        'Snowflake-style architecture supports analytics, ELT, dashboards, data sharing, semi-structured data exploration, ad hoc analysis, and mixed workloads where teams need independent compute over shared governed data. The pattern appears throughout modern cloud warehouses and lakehouse systems, even when the exact implementation differs.',
+        'The design is especially valuable in organizations with many teams using the same data. Finance, product analytics, machine learning, security, and operations may all query overlapping tables. A shared-data architecture lets them share governance and storage while scaling compute independently.',
+        'It also changes how users think about cost. In a coupled system, a cluster is always present. In an elastic warehouse, users can resize, suspend, resume, and isolate compute. That flexibility is powerful, but it requires discipline. Poorly sized warehouses, cold starts, weak pruning, and runaway queries still cost money.',
+      ],
+    },
+    {
+      heading: 'Costs and failure modes',
+      paragraphs: [
+        'Separating compute and storage does not make queries free. Bad micro-partition layout, weak pruning, huge shuffles, cold caches, and poor warehouse sizing still hurt. A query that scans too much data will be expensive no matter how elegant the architecture is.',
+        'Metadata scale is another pressure. The optimizer depends on metadata to prune, plan, and enforce visibility. If metadata becomes stale, too coarse, or too expensive to consult, shared storage loses its performance advantage. A cloud warehouse is only as good as its metadata and execution layer.',
+        'Governance can also become complex. Shared data means access control, lineage, masking, retention, and auditing matter. Compute isolation does not automatically imply policy isolation. The cloud services layer must make shared data safe, not merely fast.',
+      ],
+    },
+    {
+      heading: 'A worked query example',
+      paragraphs: [
+        'Suppose a dashboard queries one year of orders but filters to one region and one product family. A naive object-store scan reads every file for the year. A Snowflake-style warehouse uses micro-partition metadata to skip partitions whose min and max values cannot match. The warehouse scans fewer bytes, uses local cache where possible, and exchanges intermediate results across workers.',
+        'Now suppose a data-engineering job is loading new data at the same time. The dashboard should see a consistent table version, not half of the load. This is where the cloud services layer matters: metadata and transaction semantics decide which files are visible to which query. The storage files alone do not provide that contract.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'A shared-data warehouse should be evaluated through bytes scanned, partition pruning rate, cache hit rate, warehouse utilization, queue time, spill volume, shuffle cost, query compilation time, and credit or compute spend by workload. These signals reveal whether decoupled compute is being used intelligently or merely hiding waste.',
+        'Data layout deserves the same attention as compute size. Poor clustering can make pruning ineffective. Too many tiny files or partitions can make metadata heavy. Over-large partitions can reduce skipping precision. The warehouse works best when file layout, metadata, optimizer behavior, and warehouse sizing are tuned together.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Snowflake is a shared-data cloud warehouse: one governed storage layer, many independent compute warehouses, and a services layer that makes metadata, optimization, transactions, and security coherent. The architecture works because it treats object storage, metadata, and elastic compute as separate but coordinated parts.',
+        'The deep lesson is that decoupling is not absence of design. Separating compute and storage makes the metadata layer more important, not less. Pruning, caching, transactions, and workload isolation are what turn cheap storage into a usable warehouse.',
+        'The useful comparison is a traditional shared-nothing warehouse. Shared-nothing systems colocate data and compute for performance. Snowflake separates them for cloud elasticity and isolation, then relies on metadata, pruning, and caching to recover performance.',
+        'In a course sequence, teach Snowflake after columnar storage and query planning, then compare it with Delta Lake and Iceberg. The shared theme is that modern analytics systems are metadata engines as much as execution engines.',
+        'The practical test is whether teams need independent compute over the same governed data. If they do, shared-data architecture is compelling. If one tightly managed workload dominates, a simpler coupled system may be easier to tune.',
+        'Snowflake is the wrong abstraction for low-latency per-row application state. It is built for analytic scans, aggregations, governed sharing, and elastic SQL workloads. Teaching that boundary prevents students from treating every storage system as a database-shaped answer to every problem.',
+        'The best mental shortcut is "shared truth, separate engines." The shared storage and metadata define the truth; virtual warehouses give different teams independently scalable, separately billable engines for reading it without owning separate copies.',
       ],
     },
     {

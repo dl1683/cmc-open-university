@@ -80,41 +80,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why it exists',
       paragraphs: [
-        `Multi-armed bandits are adaptive experiments. Instead of splitting traffic evenly until a final A/B verdict, a bandit keeps learning while sending more traffic to the arm that currently looks best. The page uses three checkout buttons with hidden true rates: A = 4%, B = 6%, C = 5%. Each round has 300 visitors, and the epsilon-greedy policy pays a fixed exploration tax of either 20% or 10%.`,
-        `The objective is not a clean p-value; it is low regret. Regret is the gap between what you earned and what you would have earned by always serving the best arm from the start. A/B Testing & p-values is for proof; Multi-Armed Bandits are for earning while learning.`,
+        'A multi-armed bandit is the smallest useful model of learning while acting. There are several choices, called arms. Pulling an arm gives a reward drawn from an unknown distribution. The learner wants high reward now, but it also needs information about arms it has not tried enough. That tension is the explore-exploit problem.',
+        'The problem exists because many real systems cannot afford to freeze learning while they run a clean experiment. A website choosing checkout copy, a news site choosing headlines, an ad system choosing creatives, or a recommender choosing artwork all face the same pressure: every visitor sent to a weak option is an opportunity cost, but every option ignored too early may hide the best choice.',
+        'The right objective is therefore not only statistical certainty. It is regret. Regret is the reward lost compared with a policy that knew the best arm from the beginning. A bandit algorithm is judged by how much reward it gives up while learning. Low regret means the system found useful information without spending too many decisions on losers.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The reasonable first approach',
       paragraphs: [
-        `Epsilon-greedy is deliberately simple. Split epsilon traffic evenly across all arms so every estimate keeps improving, then send the rest to the current leader. The visualization begins with no evidence, so the exploit share defaults to A; after the estimates update, B usually pulls ahead and receives most of the traffic. The table shows pulls, wins, and estimated conversion after each batch.`,
-        `Better bandits explore according to uncertainty. Thompson Sampling samples from a belief distribution; UCB chooses the arm with the highest plausible upside. LinUCB Personalized News Case Study extends that UCB idea to contextual actions by adding a linear reward model and a confidence bonus. Softmax & Temperature is another exploration mechanism: high temperature spreads probability across arms, low temperature behaves greedily. The common theme is the explore/exploit trade from Value Iteration (Reinforcement Learning), stripped down to a one-state problem.`,
+        'The natural first answer is a fixed A/B or A/B/n experiment. Randomly split traffic evenly, wait until the sample is large enough, estimate conversion rates, and choose the winner. This is attractive because the data collection rule is simple. Each arm receives comparable exposure, and standard inference tools are easier to apply.',
+        'For pure measurement, that design is hard to beat. If the goal is to convince a skeptical analyst that variant B caused an increase, a fixed randomized design is cleaner than an adaptive one. It separates exploration from rollout: first learn, then exploit.',
+        'The wall is that fixed traffic allocation can be expensive. If an arm is obviously weak after the first few thousand visitors, an even split keeps feeding it anyway. The experiment may be statistically tidy while the business outcome is wasteful. Bandits ask whether the system can keep enough randomization to learn while moving most traffic toward the currently best evidence.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The core insight',
       paragraphs: [
-        `For k arms, epsilon-greedy costs O(k) per decision and O(k) memory. The statistical cost is harder: adaptive allocation means the data were not produced by a fixed randomized design. Estimating final causal effects or counterfactual policy value may require Importance Sampling & Off-Policy Estimation, Doubly Robust Estimation, or the full Contextual Bandit Logged Policy Evaluation Case Study, especially when logs were collected under an older policy.`,
+        'The core insight is that uncertainty has value. A high observed conversion rate after ten visitors is not the same kind of evidence as a high observed conversion rate after ten thousand visitors. A bandit policy should not only ask which arm looks best; it should ask which action best balances immediate reward and information gain.',
+        'Epsilon-greedy is the simplest version of that idea. With probability epsilon, explore. With probability 1 - epsilon, exploit the arm with the highest current estimated reward. In batch form, a fixed share of traffic is spread across all arms and the remaining share goes to the current leader. The invariant is continued support: every arm keeps receiving some observations, so a bad early estimate does not become permanent without more evidence.',
+        'More advanced bandits make exploration depend on uncertainty. Upper confidence bound methods choose the arm with the highest optimistic plausible value. Thompson sampling draws a random value from each arm belief distribution and plays the arm whose sampled value is best. Softmax policies convert estimated values into probabilities. All of these policies are different answers to the same question: how much should the system pay now to learn what will pay later?',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Mechanism in the example',
       paragraphs: [
-        `Bandits allocate headlines, ads, recommendations, onboarding flows, notification copy, and clinical trial treatments. A Load Balancer has a related operational flavor when it probes servers while favoring healthy ones, though the reward and safety constraints differ. Policy Gradients: REINFORCE to PPO generalizes the idea from independent arms to sequential actions where today's choice changes tomorrow's state.`,
+        'The topic uses three checkout buttons with hidden true conversion rates: A at 4 percent, B at 6 percent, and C at 5 percent. The learner does not know those rates. It only sees visitors and conversions. Each round sends 300 visitors according to an epsilon-greedy allocation.',
+        'At the beginning, every estimate is empty. The implementation breaks ties by choosing the first arm for the exploit share, which is intentionally imperfect. The exploration share still gives the other arms traffic. After rewards accumulate, the estimated conversion rates usually push B to the top, and B starts receiving most of the visitors while A and C continue receiving audit traffic.',
+        'The table is an experiment ledger. Visitors are pulls, conversions are rewards, and the estimated percentage is the current empirical mean. The final comparison against an even split demonstrates reward during learning. The bandit is not magic: it did not know B in advance. It earned more by shifting traffic as evidence arrived.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the visual proves',
       paragraphs: [
-        `Bandits assume rewards are measured quickly enough to update decisions. Delayed conversions, seasonality, novelty effects, and changing user mix can fool the estimates. They also optimize the metric you give them; if short-term clicks harm retention, the algorithm will not know. Do not declare "B is statistically proven" from an adaptive table without an inference plan. Optimize with a bandit, then confirm with a fixed experiment when proof matters.`,
+        'The visual proves that the state of a bandit is not a final verdict. It is a live allocation ledger. The current leader is the arm with the best evidence so far, not a proven permanent winner. That distinction matters because early rewards are noisy. If exploration vanished entirely, the first lucky arm could capture all traffic and prevent the correction that would reveal a better option.',
+        'The visual also proves the economic difference between fixed experiments and adaptive allocation. A fixed three-way split preserves clean symmetry but keeps spending equally on the worst arm. Epsilon-greedy accepts a continuing exploration tax so most traffic can move toward the best observed arm. The tax is visible in the rows that keep receiving visitors even after they stop leading.',
+        'The final row shows the central trade. The bandit earns more than a uniform split in this toy environment, but it does not produce the same kind of simple p-value story. The data were collected adaptively. The policy changed the exposure probabilities based on earlier outcomes, so downstream inference must account for the logging policy.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Why it works',
       paragraphs: [
-        `Read Thompson Sampling for Bayesian uncertainty, LinUCB Personalized News Case Study for contextual confidence bonuses, A/B Testing & p-values for fixed-sample proof, and Value Iteration (Reinforcement Learning) for delayed rewards. Importance Sampling & Off-Policy Estimation and Doubly Robust Estimation explain the estimators; Contextual Bandit Logged Policy Evaluation Case Study explains the production log contract that makes those estimators valid after adaptivity has already happened.`,
+        'Epsilon-greedy works in plain language because it prevents total ignorance while allowing exploitation. The exploration part makes every arm observable. The exploitation part converts accumulated evidence into reward. If the reward distributions are stationary and enough exploration continues, the estimates can correct early noise over time.',
+        'The method is not regret-optimal. A fixed epsilon keeps spending traffic on weak arms forever, so its long-run regret can grow linearly unless epsilon decays or the task ends. Too little exploration can lock in a wrong leader. Too much exploration wastes traffic. The parameter is therefore not cosmetic; it encodes how much reward the system is willing to spend on information.',
+        'UCB and Thompson sampling work by making the uncertainty term more intelligent. UCB gives under-sampled arms a confidence bonus that shrinks as evidence accumulates. Thompson sampling naturally tries uncertain arms because their sampled belief sometimes looks best. Both approaches make exploration responsive rather than blind, which is why they are often preferred when the cost of mistakes is high.',
+      ],
+    },
+    {
+      heading: 'Cost and data structures',
+      paragraphs: [
+        'For k arms, epsilon-greedy needs O(k) memory for counts and reward totals, and O(k) time to choose the current empirical leader if implemented directly. A heap or incremental leader can reduce constant work, but most product experiments have a small enough arm count that the bottleneck is measurement quality, not CPU time.',
+        'The important data structure is the log. A production bandit log should record decision id, timestamp, user or context features when allowed, eligible arms, chosen arm, action probability, reward definition, reward delay, policy version, and guardrail metrics. Without the probability of the logged action, later off-policy evaluation becomes much harder or impossible.',
+        'Contextual bandits add a feature model. Instead of one mean reward per arm, the policy estimates reward conditioned on context: user segment, query type, page location, device, or other safe features. That makes the algorithm more powerful and more dangerous. It can personalize decisions, but it can also learn biased allocation patterns if the features, rewards, or eligibility rules encode hidden confounders.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Bandits win when decisions repeat, rewards arrive soon enough to update the policy, arms are cheap to try, and the cost of serving a weak arm is real. Common uses include ad creative allocation, headline testing, recommendation slots, notification copy, onboarding flows, ranking exploration, model routing, and parameter tuning.',
+        'They are especially useful before a system has enough certainty to hard-code a winner. A bandit can act as a controlled rollout mechanism: try candidates, shift toward winners, keep auditing alternatives, and retire arms that are clearly dominated. In online products, that can convert experimentation from a separate phase into part of normal operation.',
+        'Bandits are also a conceptual bridge to reinforcement learning. In a bandit, the action affects only the immediate reward distribution. In reinforcement learning, the action also changes the future state. Learning bandits first isolates exploration, uncertainty, regret, and logging before adding the extra complexity of delayed consequences.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Bandits fail when rewards are delayed beyond the decision cycle. If a purchase arrives days after the click, a policy that updates on immediate clicks may optimize the wrong signal. They also struggle with nonstationarity: weekday traffic, seasonality, novelty effects, inventory changes, and competitor events can make old estimates misleading.',
+        'They fail ethically and operationally when the reward is too narrow. A headline bandit can maximize clicks while damaging trust. A recommender can maximize watch time while reducing user welfare. An ad system can exploit demographic correlations. A treatment allocation system can harm people if safety constraints are not stronger than reward maximization.',
+        'They also fail as proof machinery. Adaptive allocation can be analyzed, but not with the same casual assumptions as a fixed experiment. If the organization needs a defensible causal estimate, use a proper inference plan: randomized holdouts, logged propensities, off-policy estimators, doubly robust methods, or a follow-up fixed experiment. Optimize with bandits; prove with designs built for proof.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Thompson Sampling for Bayesian uncertainty, Upper Confidence Bound for optimism under uncertainty, LinUCB Personalized News Case Study for contextual confidence bonuses, Softmax and Temperature for probability-shaped exploration, and A/B Testing & p-values for fixed-sample inference.',
+        'Then study Importance Sampling and Off-Policy Estimation, Doubly Robust Estimation, and Contextual Bandit Logged Policy Evaluation Case Study. Those topics explain how to learn from adaptive logs without pretending they came from a fixed randomized split. For the larger family, continue to Value Iteration, Policy Gradients from REINFORCE to PPO, and reinforcement-learning safety constraints where actions change future states rather than only immediate rewards.',
       ],
     },
   ],

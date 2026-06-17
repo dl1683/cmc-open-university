@@ -204,41 +204,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Advanced packaging is where chiplets become a product. The package floorplan decides where logic dies, HBM stacks, I/O, bridges, interposers, organic fanout, power delivery, decoupling, keep-out zones, and cooling paths live. The data structure is a constrained map: every placement edge consumes routing, power, thermal, and manufacturing budget.',
-        'TSMC describes CoWoS as wafer-level system integration for ultra-high-performance computing, with a silicon interposer supporting logic chiplets and HBM cubes: https://3dfabric.tsmc.com/english/dedicatedFoundry/technology/cowos.htm. TSMC 3DFabric for HPC describes 3D stacking and CoWoS technologies for high memory bandwidth and cloud/data-center requirements: https://www.tsmc.com/english/dedicatedFoundry/technology/platform_HPC_tech_WLSI.',
+        'Advanced packaging exists because the old board-level story is too slow and too power hungry for modern accelerators. A large AI processor is not just a die surrounded by memory. It is a physical system that has to place compute, HBM, I/O, power delivery, cooling, test access, and mechanical support close enough to work, while still being manufacturable at scale.',
+        'The package floorplan is now part of the architecture. It decides how many HBM stacks can sit near the logic die, how wide the routes can be, how much voltage drop the power network suffers, where heat can escape, and which suppliers can actually build the product. A software team may experience this as memory bandwidth, thermal throttling, accelerator availability, or cost per token, but the root constraint can be a physical routing and thermal map.',
+        'That makes this a data-structure topic. The map has nodes, edges, capacities, keep-out zones, and coupled budgets. A route is not just a wire; it spends area, metal, signal-integrity margin, power-delivery space, thermal headroom, yield, and packaging capacity. The package is where the abstract system diagram becomes a set of physical constraints that cannot all be optimized independently.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to pick the densest available packaging technology and route everything as tightly as possible. If the accelerator needs HBM bandwidth, then a silicon interposer or another high-density option can look like the straightforward answer. More density seems to mean more bandwidth and less distance.',
+        'That fails because routing density is only one budget. Dense signal routing competes with power delivery metal, decoupling, bumps, thermal paths, keep-out zones, and test structures. Moving HBM close to logic improves energy per bit, but it can also put heat-sensitive memory near the hottest die. A route that closes electrically can still fail because the product cannot be cooled or yields poorly.',
+        'A second shortcut is to treat packaging as a late implementation detail. That is no longer safe. HBM placement, chiplet edge bandwidth, power-delivery impedance, and package substrate limits feed back into model serving, accelerator scale-up, and data-center deployment. The physical design can become visible all the way up at workload throughput.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is budget closure across coupled physical resources. The package is not optimized by one scalar score. It is a constrained optimizer where each placement and routing decision spends multiple budgets at once: signal route density, power delivery, thermal resistance, mechanical stability, yield, test access, and supply availability.',
+        'Different packaging approaches move those budgets around. A silicon interposer can provide fine routing density and tight HBM integration, but it costs area and capacity. Organic substrates can be larger and cheaper, but routing pitch and signal integrity become harder. Embedded bridges can provide local dense connectivity without turning the entire package into a high-cost interposer, but bridge placement and escape routing become central constraints.',
+        'A good mental model is a graph embedded in a heat map. The graph asks what must connect to what, at what bandwidth, voltage, and latency. The heat map asks where power is consumed and how heat leaves. The package succeeds only when both views close together.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A package map starts with the workload. AI accelerators need HBM bandwidth, compute power, scale-out I/O, and serviceable cooling. The package designer chooses silicon interposer, organic substrate, bridge, fanout, or hybrid flows to satisfy route density and reach. Then the design must close power integrity, signal integrity, thermal, mechanical, test, and supply constraints.',
-        'The local Eliyan article made the interposer tradeoff concrete: silicon interposers provide fine routing for HBM-class links, but cost, supply, thermal, mechanical, and proprietary packaging constraints can become strategic bottlenecks. This module turns that argument into a floorplan and ledger.',
+        'A package design starts from workload needs: memory bandwidth, capacity, compute power, I/O bandwidth, sustained operating temperature, product cost, and supplier capacity. Those needs become a floorplan: logic die placement, HBM stack placement, I/O location, bridge or interposer choice, power-delivery network, decoupling strategy, and cooling path.',
+        'The designer then checks coupled constraints. Can HBM routes be wide and short enough? Can I/O escape the package without crossing impossible congestion? Does the power network deliver current with acceptable IR drop and transient response? Does the thermal path keep logic and memory inside safe limits during sustained workloads? Does the mechanical stack avoid warpage and reliability failures?',
+        'The answer is iterative. Moving one component to improve routing can worsen thermal coupling. Adding power metal can reduce room for signal routes. Spreading dies can improve cooling but increase wire length and latency. Advanced packaging is therefore closer to physical systems planning than to drawing neat boxes around chiplets.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Routing density competes with everything. More HBM links need more wires and bumps. More power needs stronger PDN and decoupling. More thermal headroom needs better placement and cooling. More package area can improve placement but may increase yield and capacity risk. These constraints interact, so optimizing one in isolation can make the product worse.',
-        'The hidden cost is capacity. Even if compute dies exist, package capacity, interposer supply, substrate availability, or test throughput can limit shipped accelerators. Software teams feel that as GPU scarcity, higher rental prices, smaller batch sizes, or pressure to optimize memory and inference costs.',
+        'The package-map view proves that the floorplan is a constraint graph. HBM wants short, wide links to compute. I/O needs escape routes. The power-delivery network must reach both logic and memory. Cooling has to remove heat from the same neighborhood where bandwidth wants proximity. No element is isolated.',
+        'The package-choice table proves that interposer, organic substrate, bridge, and fanout are not a simple ranking. Each option wins a different budget. The right answer depends on the product target, not on a universal packaging hierarchy.',
+        'The thermal-routing view proves why routing, PDN, and heat must be solved together. An electrically valid link can still be a product failure if it creates too much voltage drop, traps heat, lowers yield, or depends on packaging capacity that cannot be purchased in time.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'The clearest use is AI accelerators with HBM. Package routing controls whether the model can get enough memory bandwidth. Power delivery controls whether the dies can run at target frequency. Thermal placement controls whether sustained workloads throttle. The same floorplan ideas appear in CPUs with 3D cache, networking ASICs, chiplet-based SoCs, and high-performance compute packages.',
-        'AMD describes 3D V-Cache as a stacking technology that increases interconnect density compared with on-package 2D chiplets: https://www.amd.com/en/products/processors/technologies/3d-v-cache.html. That is a different product class from HBM-heavy AI packages, but the shared lesson is that physical proximity, interconnect density, power, and thermal design are architectural choices.',
+        'Advanced packaging works by shortening and widening the paths that matter most. Bringing memory closer to compute reduces energy per bit and exposes more bandwidth. Placing chiplets on an interposer or bridge can provide edge bandwidth that would be impossible through an ordinary board-level interface.',
+        'It also works by letting one product combine dies that do not need to be manufactured as one giant monolith. Chiplets can separate compute, cache, I/O, and memory-adjacent functions into pieces that may have different process nodes, yields, and reuse patterns. Known-good die strategies can improve economics, but only if package assembly yield and test coverage cooperate.',
+        'The gain is real because physical distance and wire density are architectural facts. A model-serving stack may talk about tokens per second, but the accelerator underneath is constrained by how many bytes and joules move through a tiny physical neighborhood.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'The first misconception is that advanced packaging is a back-end implementation detail. It now shapes memory bandwidth, accelerator availability, cost, and software performance. The second misconception is that moving from silicon interposer to organic substrate is simply cheaper. The alternative must still meet route density, energy per bit, signal integrity, thermal, reliability, and supply goals.',
+        'The costs are not only unit cost. Advanced packaging spends engineering time, supplier capacity, verification effort, thermal design margin, and manufacturing risk. It can increase product value by making high-bandwidth systems possible, but it can also become the scarce resource that limits shipments.',
+        'Silicon interposers offer density but can be expensive and capacity constrained. Organic substrates can be attractive for size and cost but may struggle with the finest routing requirements. Bridges can target density where it is needed, but they add placement and validation complexity. Stacking can improve proximity while raising thermal and test difficulty.',
+        'There is also a software tradeoff. A package that exposes more memory bandwidth may reward algorithms that stream aggressively, while a package limited by thermal or power behavior may need scheduling, batching, or placement policies that avoid sustained hot spots. Hardware packaging decisions can change which software optimizations matter.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
+      paragraphs: [
+        'The clearest use is AI accelerators with HBM. Training and inference both need high memory bandwidth, and HBM placement controls whether the compute die can actually consume the advertised bandwidth. Power delivery controls sustained frequency. Thermal placement controls throttling during long runs.',
+        'Advanced packaging also matters in high-performance computing, network processors, cache-stacked CPUs, and chiplet systems that need more bandwidth than package pins or board traces can provide. It is especially useful when the workload repeatedly moves large volumes of data between a few nearby functions.',
+        'TSMC describes CoWoS as wafer-level system integration for ultra-high-performance computing, with a silicon interposer supporting logic chiplets and HBM cubes: https://3dfabric.tsmc.com/english/dedicatedFoundry/technology/cowos.htm. TSMC 3DFabric for HPC describes 3D stacking and CoWoS technologies for high memory bandwidth and cloud/data-center requirements: https://www.tsmc.com/english/dedicatedFoundry/technology/platform_HPC_tech_WLSI.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The abstraction fails when packaging is treated as a final mechanical wrapper. It is now an architectural constraint that can decide memory bandwidth, accelerator availability, cost, and software-visible performance.',
+        'Another failure is optimizing the headline interconnect while ignoring power and heat. A wide link that cannot run at target frequency under sustained workload is not a useful product feature. A floorplan that looks compact but thermally couples HBM to hot logic can lose the bandwidth it was built to deliver.',
+        'A third failure is assuming a cheaper packaging alternative is automatically equivalent. Moving from silicon interposer to organic substrate or bridge-based routing can be sensible, but the alternative must still meet route density, signal integrity, energy per bit, thermal, reliability, and supply goals.',
+        'AMD describes 3D V-Cache as a stacking technology that increases interconnect density compared with on-package 2D chiplets: https://www.amd.com/en/products/processors/technologies/3d-v-cache.html. The product class is different from HBM-heavy AI packages, but the shared lesson is physical proximity as an architectural choice, not decoration.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Sources: TSMC CoWoS at https://3dfabric.tsmc.com/english/dedicatedFoundry/technology/cowos.htm, TSMC 3DFabric for HPC at https://www.tsmc.com/english/dedicatedFoundry/technology/platform_HPC_tech_WLSI, AMD 3D V-Cache at https://www.amd.com/en/products/processors/technologies/3d-v-cache.html, and IEEE IRDS Packaging Integration at https://irds.ieee.org/images/files/pdf/2020/2020IRDS_PI.pdf. Study Chiplet Interconnect Case Study, HBM Pseudo-Channel Scheduler, UCIe Flit/Credit/Retry, and Known-Good-Die Yield Ledger next.',
       ],

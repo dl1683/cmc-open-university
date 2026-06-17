@@ -182,41 +182,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Linux Virtual File System is the layer that turns pathnames into filesystem objects. A dentry represents a name in a directory context and usually points to an inode. An inode represents file metadata and operations. Together they let Linux expose ext4, XFS, tmpfs, NFS, procfs, and many other filesystems through one lookup model.',
-        'The cache lesson is that names are expensive. The dentry cache keeps successful and failed lookups, while the inode cache keeps metadata objects. Repeated pathname walks can stay in memory instead of asking the underlying filesystem each time.',
+        'Every open, stat, import, shell PATH search, and dynamic-library lookup starts with the same problem: turn a human-facing pathname into kernel objects. The string /usr/bin/node is not the file. It is a sequence of names interpreted one component at a time under a mount namespace, permission context, and filesystem implementation.',
+        'Doing that from scratch would be ruinous. Programs repeatedly walk the same prefixes: /usr, /lib, /etc, node_modules, Python package paths, container overlay layers, and shared-library directories. The VFS dentry and inode caches exist because namespace answers are hot. If the kernel recently learned what a parent directory plus child name means, it should not ask the disk or remote filesystem again unless something changed.',
+        'The important design point is that Linux does not have one filesystem. ext4, XFS, tmpfs, overlayfs, NFS, procfs, and many others all expose files through the Virtual Filesystem layer. The VFS gives pathname lookup a common contract while still letting each filesystem answer misses in its own way.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'A reasonable first idea is to cache absolute path strings: /usr/bin/node maps to this file, /tmp/nope maps to missing. That works until rename, unlink, mount namespaces, chroot, bind mounts, permissions, and parent-directory changes enter the picture.',
+        'Linux caches one component at a time. The key is not just a string; it is parent directory context plus child name. That smaller invariant lets the kernel update only the affected namespace edges when the tree changes.',
+        'Another tempting simplification is to think the pathname is identity. It is not. The same path can refer to different inodes in different mount namespaces. The same inode can be reached by several names. An inode can stay alive after its name has been unlinked if a process still holds an open file. Pathnames are routes through a namespace, not permanent object IDs.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'A positive dentry says: in this parent directory, this name currently reaches this inode. A negative dentry says: in this parent directory, this name was looked up and currently has no inode. The inode then holds file metadata, operations, and the mapping that leads to cached file data.',
+        'The correctness rule is local: namespace operations such as create, unlink, and rename must update or invalidate the dentries whose parent-plus-name answers changed. The cache can be fast only because those answers have a precise scope.',
+        'That split between name and object is the core insight. Dentries cache namespace edges. Inodes represent filesystem objects and metadata. Page cache entries hold file data. File descriptors refer to open file descriptions after lookup succeeds. Keeping those identities separate is what lets Linux support hard links, renames, open-but-unlinked files, mount points, and many filesystem implementations without pretending path strings are stable truth.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The VFS resolves a pathname component by component. For each parent directory and child name, it tries the dentry cache. On a hit, it can move to the next component. On a miss, it calls the filesystem lookup method for the parent inode, gets or creates a dentry, and attaches the inode when the name exists.',
-        'A negative dentry represents a name that does not currently have an inode. It lets repeated failed lookups return quickly. If a file is created, the same name can become positive by attaching a new inode.',
+        'A pathname walk starts with a starting directory: root for absolute paths, current working directory for relative paths, or another directory file descriptor for openat-style APIs. The VFS splits the path into components and resolves each component against the current parent dentry and inode. For each child name, it first checks the dentry cache.',
+        'On a positive cache hit, the dentry points to an inode, and the walk can continue. On a negative cache hit, the kernel knows that name was recently looked up and did not exist in that parent, so it can return ENOENT without asking the filesystem again. On a miss, the VFS calls the filesystem-specific lookup method, then installs a positive or negative dentry according to the result.',
+        'After lookup reaches the final inode, later operations depend on what the caller requested. stat reads metadata. open creates a file object. read and write eventually interact with the inode mapping and page cache. The dentry cache is therefore the front door to several other kernel caches rather than the whole file I/O story.',
       ],
     },
     {
-      heading: 'Case study: missing config files',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Many programs probe optional paths: config files, shared libraries, plugins, imports, and executable names along PATH. Without negative dentries, every miss would repeatedly scan directories or contact remote filesystems. With negative dentries, the VFS can remember that a specific parent-plus-name lookup failed until namespace changes invalidate that answer.',
+        'The pathname-walk view proves that a path is resolved through a chain of component lookups. The hot path shows repeated prefixes being answered from dcache and inode cache. The cold path shows where the generic VFS has to delegate to ext4, XFS, tmpfs, NFS, or another filesystem.',
+        'The object table proves the identity split. A pathname is input text. A dentry is a parent-plus-name cache entry. An inode is the file object metadata and operations. The address_space mapping points toward cached file data. Mixing those roles leads to wrong explanations of rename, unlink, hard links, and open file behavior.',
+        'The negative-dentry case study proves that even failure can be cached. A missing optional config file, module path, or shared library candidate may be checked repeatedly. Remembering that a name is absent can save as much work as remembering that it exists, especially on network filesystems where a miss may require remote round trips.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'The dentry cache saves directory lookup work, but it is correctness-sensitive. Rename, unlink, mount namespace changes, permissions, network filesystem revalidation, and memory pressure all affect whether an entry can be reused. The inode cache saves metadata allocation and loading, but cached inodes still need reference counting and eviction discipline.',
+        'It works because namespace locality is high. Programs do not choose paths uniformly at random. They check the same directories, load the same libraries, import the same modules, and probe the same optional files. Component-level caching turns that locality into repeated memory lookups instead of repeated filesystem work.',
+        'It also works because the cache key is scoped correctly. Parent directory plus child name is small enough to invalidate when the namespace changes but expressive enough to reuse across many full paths. If /usr is hot, every path under /usr can benefit from that component before diverging into its own suffix.',
+        'Negative dentries work for the same reason. Many applications search lists of candidate names. Most candidates are absent. Caching absence prevents the system from repeatedly proving the same nonexistence.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'A pathname is not stable object identity. The same pathname can later refer to a different inode, and an unlinked inode can remain alive while an open file description still references it. File Descriptor Table & Open File Description explains that next layer. Linux Page Cache XArray explains how the inode mapping then indexes file data.',
+        'A warm pathname walk is still O(number of components), but each component can be a memory lookup. A cold component pays filesystem lookup cost and may trigger I/O. On a local disk that can be noticeable; on a remote filesystem it can dominate. Negative dentries save repeated failed lookups, but they still consume memory and must be invalidated correctly.',
+        'The engineering cost is cache coherence. Cached dentries and inodes need reference counts, RCU path-walk rules, shrinkers, revalidation hooks, and careful behavior under rename, unlink, create, mount changes, permissions, network filesystem consistency, and memory pressure. The cache must be fast on the common path without lying after the namespace changes.',
+        'There is also a security cost to sloppy mental models. If a program checks a path and then uses it later, a rename or symlink race may change what that path means. Modern APIs such as openat and directory file descriptors exist partly to make path resolution more explicit and less race-prone.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Linux VFS overview at https://docs.kernel.org/filesystems/vfs.html, pathname lookup documentation at https://www.kernel.org/doc/html/latest/filesystems/path-lookup.html, and filesystem API summary for inode cache helpers at https://docs.kernel.org/filesystems/api-summary.html. Study Hash Table, Tree Traversals, Linux Page Cache XArray, File Descriptor Table & Open File Description, and Filesystem Extent Trees next.',
+        'Dentry and inode caching wins in shell PATH search, language module imports, dynamic linking, package managers, build tools, container overlays, web servers serving repeated files, and NFS paths with expensive misses. It is one reason stat-heavy workloads can become much faster after warming up.',
+        'It is especially important in developer tooling. A JavaScript or Python process may probe many directories before resolving one import. A build tool may stat thousands of files. A container runtime may traverse layered filesystems. These workloads look like ordinary path usage from user space, but inside the kernel they are cache stress tests.',
+        'The model also helps explain production incidents. If a workload slows after cache pressure, after a container image layout change, or after moving from local disk to network storage, path lookup behavior may be part of the story.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The main conceptual failure is treating a pathname as stable identity. A path can be renamed, replaced, shadowed by a mount, interpreted differently in another namespace, or disconnected from an inode that still has open references. Correct programs should hold file descriptors or directory handles when identity matters.',
+        'The main cache failure is stale or overbroad assumptions. Network filesystems may need revalidation. Overlay filesystems add layered lookup behavior. Memory pressure can evict entries. A warm-cache benchmark may not represent cold start, and a cold-cache benchmark may exaggerate production cost if hot prefixes persist.',
+        'Another failure is ignoring negative lookups. Missing files can be a performance problem. Repeated optional-config probes, extension searches, and package resolution misses can hammer the namespace unless negative dentries stay hot.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Linux VFS overview at https://docs.kernel.org/filesystems/vfs.html, pathname lookup documentation at https://www.kernel.org/doc/html/latest/filesystems/path-lookup.html, and filesystem API summary for inode cache helpers at https://docs.kernel.org/filesystems/api-summary.html. Study Hash Table for lookup mechanics, Tree Traversals for pathname walks, File Descriptor Table & Open File Description for the object after open, Linux Page Cache XArray for file data, and Filesystem Extent Trees for disk mapping.',
+        'A useful exercise is to trace stat calls for a shell command or module import, then repeat after warmup. Count positive lookups, negative lookups, and repeated prefixes. That connects the abstract dentry/inode split to visible workload behavior.',
       ],
     },
   ],

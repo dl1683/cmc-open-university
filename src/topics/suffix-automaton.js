@@ -175,43 +175,109 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'A suffix automaton is a compact deterministic finite automaton that accepts every substring of one fixed text. It is often described as the minimal DFA of the text substrings. The structure has at most 2n - 1 states for a string of length n, so it is linear-size even though the text can have quadratically many substrings.',
-        'The core abstraction is an end-position equivalence class. Substrings that end in exactly the same set of positions have the same future behavior, so the automaton stores one state for that shared behavior instead of one node per substring.',
+        `A suffix automaton exists because one fixed text can have quadratically many substrings, but many substring questions need a compact index. Membership, distinct-substring counting, longest common substring, repeated substring analysis, and online construction all ask for all-substring structure without storing every substring separately.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious approach`,
       paragraphs: [
-        'The standard construction appends characters one at a time. Each append creates a current state for the whole new prefix, walks suffix links to add missing transitions, and either links directly to an existing state or creates a clone when an old state has to be split by length.',
-        'A state stores maxLen, a suffix link, and outgoing transitions. The number of new distinct substrings contributed by a state is maxLen(state) - maxLen(link(state)). That small formula is why the structure is so useful for substring counting.',
+        `The reasonable first attempt is a suffix trie or suffix tree. A trie of all suffixes makes every substring a path, but the naive version is too large. A suffix tree compresses edges, but its construction and edge-label mechanics can be heavy when the desired interface is an online finite automaton.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `The wall`,
       paragraphs: [
-        'Build time is O(n) with a suitable transition dictionary, and memory is O(n) states plus transitions. Membership for a pattern P is O(|P|). Longest common substring can be found by scanning another string through the automaton while falling back through suffix links.',
-        'The implementation complexity is concentrated in clone creation. The clone copies transitions, receives a shorter maxLen, and becomes the suffix-link target of states that previously pointed at the unsplit state. That operation preserves minimality.',
+        `The wall is duplicate future behavior. Many different substrings have the same set of possible continuations because they end at the same positions in the text. If the structure keeps separate nodes for histories that behave identically from now on, it wastes states.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Core insight`,
       paragraphs: [
-        'Suffix automata are used in string algorithms, plagiarism and near-duplicate analysis, bioinformatics exercises, compression research, competitive programming, and substring analytics where online construction matters.',
-        'A complete case study is finding the longest phrase shared by two documents. Build the suffix automaton for document A. Then stream document B through it, extending when transitions exist and following suffix links on failures. The longest reached length is the answer, without sorting every suffix of both texts.',
+        `Merge substrings by end-position equivalence. Substrings that end in exactly the same set of text positions have the same future possibilities, so one state can represent that behavior. Suffix links move from a longer context to the largest proper suffix context that preserves useful continuation information.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Animation notes',
       paragraphs: [
-        'A suffix automaton is not the same as a suffix tree. It merges equivalent substring futures instead of storing explicit text intervals on edges. It is also not automatically smaller than every compressed suffix index in practice; transition maps and alphabet size matter.',
+        `In the online-build view, read each new state as the longest prefix seen so far and each suffix link as the best shorter context to repair next. The important moment is not simply adding an edge. It is deciding whether an existing state can keep representing its length range or whether a clone must split that behavior.`,
+        `In the query view, a substring test is deliberately boring: follow transitions from the start state. The sophistication is in construction. The build has already compressed every substring path into a minimal automaton, so membership becomes a direct walk.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `How it works`,
       paragraphs: [
-        'Primary source: Blumer, Blumer, Haussler, McConnell, and Ehrenfeucht, Complete Inverted Files for Efficient Text Retrieval and Analysis, at https://www.cs.cornell.edu/courses/cs786/2004sp/Lectures/l15-blumer.pdf. Study Trie, KMP Prefix Function, Aho-Corasick Automaton, Eertree Palindromic Tree, Suffix Array & LCP, and FM-Index next.',
+        `The standard construction appends characters one at a time. Each append creates a current state for the whole new prefix, walks suffix links to add missing transitions, and either links directly to an existing state or creates a clone when an old state must be split by length. Each state stores maxLen, a suffix link, and transitions.`,
+        `For each state, maxLen is the longest substring represented by that state. The suffix link points to the state representing the largest proper suffix class. The state therefore represents a whole interval of substring lengths: maxLen(link(state)) + 1 through maxLen(state). That interval view is the easiest way to understand distinct-substring counting.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `The automaton is minimal because states represent distinct future behavior, not arbitrary construction history. Clone creation preserves that invariant when one transition would otherwise make a state represent incompatible length ranges. The formula maxLen(state) - maxLen(link(state)) counts the distinct substrings introduced by a state's length interval.`,
+        `End-position equivalence is the proof idea. If two substrings end at exactly the same positions in the text, then every possible continuation after one is possible after the other. Merging them loses no future behavior. If a new character proves that two histories no longer share the same length constraints, cloning separates them just enough to restore the invariant.`,
+      ],
+    },
+    {
+      heading: `Cost and behavior`,
+      paragraphs: [
+        `Build time is O(n) with suitable transition dictionaries, and memory is O(n) states plus transitions. The structure has at most 2n - 1 states for a string of length n. Pattern membership costs O(|P|). Longest common substring scans another string through the automaton while falling back by suffix links.`,
+        `Alphabet representation matters. For small alphabets, fixed arrays can make transitions fast. For Unicode, bytes, or large token alphabets, maps save space but add lookup overhead. The big-O story is linear, but the practical structure is shaped by the alphabet and by how many transitions each state carries.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Suffix automata win in online substring analytics, distinct-substring counting, longest-common-substring search, plagiarism and near-duplicate analysis, compression research, bioinformatics exercises, and competitive programming tasks where all-substring structure must stay linear-size.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `A suffix automaton is not a suffix tree. It does not store explicit text intervals on edges; it merges equivalent substring futures. Transition maps and alphabet size matter, so it is not automatically smaller than every compressed suffix index. For static compressed full-text search, a suffix array or FM-index may be a better engineering target.`,
+        `It is also easy to teach badly. If the explanation starts with clone pseudocode, beginners see a ritual. The better path is to start with the problem of duplicate substring futures, then show suffix links as fallback contexts, then introduce cloning as the one case where a shared future must be split by length.`,
+      ],
+    },
+    {
+      heading: `Worked example`,
+      paragraphs: [
+        `For the text ababa, many substrings share continuations. The substring a occurs at positions 1, 3, and 5; ba occurs at positions 2 and 4; aba occurs at positions 1 and 3. The automaton does not store all those substrings as separate trie paths from every suffix. It stores states for equivalence classes of where those substrings can end and what can follow them.`,
+        `A query for aba starts at the initial state and follows a, b, a. A query for abb fails as soon as the second b transition is missing. Counting distinct substrings then uses state length intervals rather than enumerating strings: each state contributes the number of lengths it newly represents.`,
+      ],
+    },
+    {
+      heading: `Implementation guidance`,
+      paragraphs: [
+        `Use suffix automata when the text is built online or when substring aggregate queries matter. Store transitions in a structure appropriate for the alphabet: arrays for tiny alphabets, maps for broad alphabets, and compact encodings when memory dominates.`,
+        `Test clone behavior heavily. Most implementation bugs appear when repeated contexts force a state split. Compare substring membership and distinct-substring counts against a slow suffix-set implementation on small random strings.`,
+      ],
+    },
+    {
+      heading: `Complete case study`,
+      paragraphs: [
+        `A plagiarism checker receives one document as the indexed text and scans another document through the automaton to find the longest common substring. The scan keeps the current automaton state and match length. When the next character has no transition, suffix links shorten the context until a transition exists or the scan returns to the start.`,
+        `That gives a linear pass over the second document after a linear build over the first. The result is not semantic plagiarism detection, but it is a strong exact-substring primitive that can feed a larger report with source positions and thresholds.`,
+      ],
+    },
+    {
+      heading: `Limits and failure modes`,
+      paragraphs: [
+        `Suffix automata answer substring questions over the exact symbol stream they were built from. Tokenization, case folding, Unicode normalization, and separator handling change the language being indexed. Those choices should be explicit before using counts as product evidence.`,
+        `The automaton can also be overkill. If the task is one pattern against one text, KMP is simpler. If the task is many known patterns, Aho-Corasick is clearer. If the task is compressed static full-text search, FM-indexes may use less memory.`,
+      ],
+    },
+    {
+      heading: `Operational guidance`,
+      paragraphs: [
+        `Expose the automaton's state count, transition count, alphabet size, and clone count when building indexes. A sudden increase often means the input changed shape, tokenization changed, or an expected repetitive corpus became much less repetitive.`,
+        `For product use, store enough metadata to reproduce the symbol stream. A suffix automaton built over bytes, code points, words, or normalized tokens answers different questions even when the visible text looks similar. Query results should name that unit so readers do not confuse byte substrings with words or user-visible characters.`,
+      ],
+    },
+    {
+      heading: `Study next`,
+      paragraphs: [
+        `Primary source: Blumer, Blumer, Haussler, McConnell, and Ehrenfeucht, Complete Inverted Files for Efficient Text Retrieval and Analysis, at https://www.cs.cornell.edu/courses/cs786/2004sp/Lectures/l15-blumer.pdf. Study Trie, KMP Prefix Function, Aho-Corasick Automaton, Eertree Palindromic Tree, Suffix Array & LCP, and FM-Index next.`,
       ],
     },
   ],

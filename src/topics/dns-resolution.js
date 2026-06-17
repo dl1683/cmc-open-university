@@ -39,25 +39,25 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { active: ['L'] },
-    explanation: 'You type www.example.com. The browser needs an IP address, and there is no global phonebook — no single machine could hold every domain or survive the traffic. DNS\'s 1983 answer still runs the internet: a HIERARCHY of name servers, where the domain name itself is the path — read it right to left: (root) → com → example → www. The same shape as a Trie (Prefix Tree), distributed across the planet.',
+    explanation: 'Start with the name, not the network. www.example.com is a path through delegated authority: root, com, example.com, then the host record. DNS scales because no one server owns the whole map.',
   };
 
   yield {
     state: snapshot(),
     highlight: { active: ['lr', 'R'] },
-    explanation: `First stop: caches. The browser checks its own cache, the OS checks its, and the question lands at the RESOLVER (your ISP's, or 8.8.8.8 / 1.1.1.1) — whose job is to do the full lookup so nobody else has to. ${cold ? 'COLD cache today: the resolver has never seen example.com (or its entry expired). Time to walk the tree.' : 'WARM cache: the resolver answered example.com an hour ago and the entry is still fresh…'}`,
+    explanation: `First check caches. The browser, OS, and recursive resolver may already know the answer. ${cold ? 'This run is cold, so the resolver must walk the hierarchy.' : 'This run is warm, so the resolver can answer from a still-valid cached record.'}`,
   };
 
   if (!cold) {
     yield {
       state: snapshot(),
       highlight: { found: ['R', 'lr'] },
-      explanation: 'Cache HIT: the resolver returns 93.184.216.34 instantly — one network hop, ~1ms, and the root/TLD/authoritative servers never hear about it. This is the overwhelmingly common case: the global DNS hierarchy survives BECAUSE caches absorb almost everything (an LRU Cache with expiry timers, at every layer).',
+      explanation: 'Cache hit: the resolver returns 93.184.216.34 without contacting root, TLD, or authoritative servers. Most DNS lookups are saved by TTL-bound caches, which is why the hierarchy can serve global traffic.',
     };
     yield {
       state: snapshot(),
       highlight: { found: ['R'] },
-      explanation: 'The expiry timer is the TTL (time-to-live) the domain owner chose. High TTL (a day): fewer lookups, but changes propagate slowly — move your server and some users hit the old IP for hours. Low TTL (60s): agile — this is how CDN Request Flow\'s GeoDNS steers traffic and how failover works — but every minute, caches everywhere re-ask. The cache invalidation trade-off, planet-sized. Re-run with a cold cache to see what the TTL is saving you from.',
+      explanation: 'TTL is the freshness budget chosen by the domain owner. High TTLs reduce load but slow changes. Low TTLs make failover and CDN steering faster but force caches to ask more often. The tradeoff is cache invalidation at internet scale.',
     };
     return;
   }
@@ -65,74 +65,114 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: { active: ['rroot', 'ROOT'] },
-    explanation: 'The resolver asks a ROOT server: "www.example.com?" The root knows almost nothing — by design. It answers with a REFERRAL: "I don\'t know, but the .com servers live at these addresses." Thirteen root server identities (a–m), each actually hundreds of machines sharing an IP via anycast routing, serve the entire planet this one tiny job.',
+    explanation: 'On a cold miss, the resolver asks a root server. The root does not know the final address; it returns a referral to the TLD servers for .com. Root servers stay small by delegating downward.',
     invariant: 'Each level of the tree only knows its children — no server holds the whole map.',
   };
 
   yield {
     state: snapshot(),
     highlight: { active: ['rtld', 'TLD'], visited: ['ROOT'] },
-    explanation: 'Next: a .com TLD server (run by the registry — Verisign for .com, handling trillions of queries a day). Same shape of answer, one level deeper: "example.com\'s nameservers are ns1.example.com at this IP." Another referral, another step down the trie.',
+    explanation: 'The resolver asks a .com TLD server next. The TLD returns the authoritative nameserver for example.com, another referral one level closer to the answer.',
   };
 
   yield {
     state: snapshot(),
     highlight: { active: ['rauth', 'AUTH'], visited: ['ROOT', 'TLD'] },
-    explanation: 'Finally the AUTHORITATIVE server — the one that actually holds example.com\'s records (run by the domain\'s owner or their DNS provider: Route 53, Cloudflare…). It answers, not with a referral, but with the RECORD: "www.example.com A 93.184.216.34, TTL 3600."',
+    explanation: 'The authoritative server owns the zone data for example.com. It finally returns the A record and its TTL instead of another referral.',
   };
 
   yield {
     state: snapshot(),
     highlight: { found: ['R', 'lr', 'L'], visited: ['ROOT', 'TLD', 'AUTH'] },
-    explanation: 'The resolver CACHES the answer (and the referrals!) for the TTL, hands the IP to your browser, and the TCP connection finally begins. The cold walk cost ~4 round trips (~50–100ms); every neighbor asking for example.com within the next hour gets the ~1ms cached answer. One slow lookup pays for a city — the same warm-the-cache economics as the CDN Request Flow.',
+    explanation: 'The resolver caches both the final answer and useful referrals, then hands the IP to the browser so TCP can start. The first lookup pays several round trips; later clients reuse that work until TTL expiry.',
   };
 
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: 'Appreciate what this design survived: forty years of growth from a few hundred hosts to billions, with no central operator and no flag day. The tree distributes AUTHORITY (each level delegates downward), caches distribute LOAD, TTLs trade freshness for traffic — and when DNS itself fails, "the whole internet" appears to die (the 2016 Dyn outage took down Twitter, Spotify, and GitHub without touching any of their servers). The most successful distributed database ever shipped, and you walk its tree before every page load.',
+    explanation: 'The design has survived because authority and load are distributed separately. Delegation decides who may answer; caches decide how often they must be asked. When authoritative DNS for a popular domain fails, healthy web servers can still look offline because clients cannot find them.',
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `DNS is the distributed database that turns a name such as www.example.com into an IP address. It is not one global phonebook. Authority is delegated down a hierarchy that mirrors the domain name from right to left: root, then com, then example.com, then a host record. That makes DNS feel like a Trie (Prefix Tree) spread across organizations instead of memory.`,
-        `The visualization follows a resolver through that tree. The root does not know the final answer; it knows where com lives. The com TLD does not know the address; it knows the authoritative nameserver for example.com. The authoritative server finally returns the record and a TTL. Then caches make the next lookup cheap.`,
+        `DNS exists because humans want stable names and networks route to changing addresses. A browser can remember www.example.com, but TCP needs an IP address. A service owner may move servers, add a CDN, rotate mail providers, split traffic by region, or recover from an outage without asking every user to edit a local file. The name has to stay useful while the infrastructure behind it changes.`,
+        `The first Internet naming system was closer to a shared hosts file. That worked when the network was small. It broke when organizations wanted to administer their own names, when the number of hosts grew, and when distributing a central file became a coordination and bandwidth problem. DNS replaced that file with a distributed hierarchy. Each part of the name space can be delegated to the organization responsible for it.`,
+        `The result is not a single global phonebook. It is a tree of authority plus many layers of caches. The tree answers who is allowed to speak for a name. The caches make the answer fast enough for ordinary web traffic.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The naive approach`,
       paragraphs: [
-        `A cold lookup starts after browser and OS caches miss. The recursive resolver asks a root server. There are 13 root identities, named a through m, but each identity is served by many machines using anycast. The root returns a referral to the com servers. The resolver asks com, receives a referral to the domain's authoritative servers, then asks one of those for the A or AAAA record. The demo uses 93.184.216.34 and TTL 3600, meaning the answer may be reused for one hour.`,
-        `A warm lookup skips the tree. The resolver returns the cached answer in one network hop, often around a millisecond on a local network. That is why DNS scales. Browser caches, OS caches, ISP or public resolvers, and authoritative-side caches all absorb repeat traffic. LRU Cache explains the capacity side; TTL explains the freshness side.`,
+        `The naive approach is a central table from names to addresses. It is attractive because lookup is simple: send the name to the table, get back the address, connect. It also gives one place to edit when a record changes. For a small private network, that can be enough.`,
+        `The wall is ownership and scale. A central table has to know every domain, accept updates from every owner, handle global query traffic, and avoid becoming a single operational and political bottleneck. Local copies make reads faster, but then freshness becomes hard. If every machine holds a stale file, a domain change does not become visible until every copy is updated.`,
+        `A second naive approach is to broadcast the question. That fails even faster. Most servers have no authority for the name being asked, and the network would drown in repeated questions for popular domains. The system needs a way to ask only the servers that can move the search closer to an answer.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The core insight`,
       paragraphs: [
-        `A cold recursive lookup is usually three or four resolver round trips before TCP: Handshake & Congestion Control can even start the connection. A warm lookup is O(1) from the client's point of view. DNS mostly uses UDP for speed, but TCP, DoT, and DoH are common for large responses, privacy, or policy. The architectural cost is consistency: if an IP changes, caches may keep the old answer until TTL expiry. Low TTLs improve agility and raise query load; high TTLs reduce load and slow failover.`,
+        `The core insight is to separate authority from resolution. Authority is delegated down the name tree. Resolution is the process of walking that delegation until a server with the right authority returns the record. The root does not need to know every host. It needs to know where top-level domains such as com can be found. The com servers do not need to know every host either. They need to know which authoritative nameservers own example.com.`,
+        `This is trie-like, but the trie is split across institutions rather than stored in one process. The labels are read from right to left: the root, then the top-level domain, then the registered domain, then the host name. Each level only needs enough information to delegate the next step. That keeps the root small and lets each zone owner control its own data.`,
+        `Caching is the other half of the idea. A recursive resolver stores answers and referrals for their time to live, or TTL. The hierarchy can be correct without being hit on every page load because repeated questions reuse recently learned answers. DNS works because delegation distributes authority and TTL-bound caches distribute load.`,
+      ],
+    },
+    {
+      heading: `How resolution works`,
+      paragraphs: [
+        `A browser usually starts by asking the operating system resolver. The OS checks local state and sends the question to a recursive resolver, often run by an ISP, company, public DNS provider, or local network. The recursive resolver does the walking for the client. The browser does not normally ask root, TLD, and authoritative servers itself.`,
+        `On a cold miss, the recursive resolver asks a root server for www.example.com. The root returns a referral to the com nameservers. A com server returns a referral to the authoritative nameservers for example.com. One of those authoritative servers returns the requested A or AAAA record plus a TTL.`,
+        `On a warm lookup, the resolver already has a valid cached answer. It can return the IP address directly to the client without contacting the hierarchy. It may also cache referrals, so later questions inside the same zone are not fully cold. Negative caching stores missing names or missing record types so typos do not repeatedly hit authoritative servers.`,
+      ],
+    },
+    {
+      heading: `What the visual is proving`,
+      paragraphs: [
+        `The cold path proves that DNS resolution is a chain of delegated questions, not one lookup in one global table. The user asks the recursive resolver. The resolver asks the root for a direction, then the TLD for a narrower direction, then the authoritative server for the final record. Each step removes a large part of the name space from consideration because authority narrows as the resolver walks downward.`,
+        `The warm-cache path proves why DNS can survive global volume. The recursive resolver returns a still-valid answer in one local hop, so the upper layers stay quiet. The TTL frame proves the tradeoff: a cached answer is useful because it avoids repeated work, and risky because it may keep an old address alive until the freshness budget expires.`,
+        `The node labels also prove a boundary that matters in debugging. The recursive resolver is not authoritative for the domain just because it returned the answer. It may be repeating a cached answer. The authoritative server is the source for the zone data. Confusing those roles leads to bad incident response.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `Delegation works because each zone signs up for only the names below it. The root zone can delegate com. The com zone can delegate example.com. The example.com zone can publish www.example.com. No server needs to store the whole Internet name space, and no domain owner needs permission from every resolver to change its own zone data.`,
+        `Caching works because DNS records are usually reusable for a short period. If ten thousand users behind the same resolver ask for the same popular site, the resolver can answer most of them from one earlier walk. TTL makes the cache contract explicit. Until the TTL expires, the resolver may reuse the record. After it expires, the resolver should refresh before treating the answer as current.`,
+        `The design also tolerates partial independence. A company can change authoritative providers without changing browser code. A recursive resolver can improve cache behavior without changing domain ownership. A CDN can publish different answers by geography or client resolver while staying inside the DNS model. The pieces coordinate through records, referrals, TTLs, and protocol rules rather than one central database.`,
+      ],
+    },
+    {
+      heading: `Cost and tradeoffs`,
+      paragraphs: [
+        `A cold recursive lookup costs several network round trips before the application can connect. That can dominate page startup when the resolver is far away, the network is lossy, or DNSSEC validation adds work. A warm resolver hit is close to O(1) from the client point of view: one request to a nearby resolver and one response back.`,
+        `The space cost is cache state across browsers, operating systems, recursive resolvers, and sometimes application runtimes. That state is worth keeping because popular names repeat constantly. LRU Cache explains the capacity pressure; Cache Invalidation & Versioning explains the freshness pressure. DNS adds TTL because invalidation messages to every resolver on the Internet are not realistic.`,
+        `The main tradeoff is agility versus load. A high TTL reduces authoritative traffic and improves resilience during short authoritative outages, but it slows migrations and failover. A low TTL makes steering and recovery faster, but more resolvers have to ask more often. Setting TTL is a product and operations decision, not a cosmetic zone-file field.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Every browser page, mobile API call, email route, and CDN Request Flow begins with DNS. CDN providers use GeoDNS and short TTLs to steer users toward nearby edges. Consistent Hashing may then choose a cache machine inside that edge, and a Load Balancer may choose an origin on a miss. Service Workers & Offline-First can skip some network requests after the page has been installed, but the first visit still depends on name resolution.`,
+        `Every browser page, mobile API call, webhook, package install, container pull, and email delivery path depends on DNS. Web traffic commonly needs A or AAAA records. Email depends on MX records. Service discovery may use SRV, TXT, or internal naming conventions. Certificate automation may use DNS challenges to prove domain control.`,
+        `CDNs use DNS as an early steering layer. The authoritative answer can point a user toward a nearby edge, a healthy region, or a traffic-management endpoint. After DNS returns an address, other structures take over: a Load Balancer chooses a backend, Consistent Hashing may select a cache shard, and CDN Request Flow handles cache hits and origin misses.`,
+        `Operational migrations are built around TTL. A team lowering TTL before a move is not performing superstition. It is shortening the maximum life of old cached answers. After enough time passes for previous TTLs to drain, the team can change the authoritative record and expect most resolvers to refresh soon.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Failure modes and misconceptions`,
       paragraphs: [
-        `DNS answers are not globally instant. Different users can see different answers because caches expire at different times or because authoritative servers intentionally steer by location. DNSSEC can validate signed data; DNS-over-HTTPS encrypts the path to a resolver; neither removes the need to trust the resolver's policy. Cache Invalidation & Versioning is the operational heart of DNS changes.`,
-        `The 2016 Dyn outage showed the concentration risk. Dyn was not a root or TLD operator, but many major domains depended on its authoritative nameservers. When those nameservers were attacked, users could not discover IP addresses for sites whose servers were otherwise healthy.`,
+        `DNS changes are not globally instant. Different users can see different answers because their recursive resolvers cached different records at different times, because authoritative servers steer by geography, or because one resolver is validating DNSSEC and another is not. "It works for me" is normal evidence in DNS debugging, not a contradiction.`,
+        `The common failure is asking the wrong layer. A stale browser cache, policy-filtered recursive resolver, broken delegation, unavailable authoritative server, DNSSEC validation failure, and application outage can all look like "the site is down." Good debugging follows the chain: local cache, resolver, referral path, authoritative answer, validation, then application connection.`,
+        `Authoritative concentration is another risk. A domain can have healthy web servers and still disappear if its authoritative DNS provider is unreachable. The 2016 Dyn attack made that lesson public: many major services were affected because clients could not resolve names, not because every origin server failed.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Trie (Prefix Tree), LRU Cache, and Cache Invalidation & Versioning for the local patterns inside DNS. DNS Negative Cache & NXDOMAIN explains the absence side of resolver caching: how NXDOMAIN, NODATA, SOA TTLs, and SERVFAIL boundaries keep typos and outages from flooding authoritative servers. DNS Serve-Stale Resolver Cache explains the positive-cache resilience pattern when authoritative servers cannot refresh expired RRsets. Then follow CDN Request Flow, Consistent Hashing, and Load Balancer to see how the returned IP becomes an actual path to content. TCP: Handshake & Congestion Control is the next packet-level step after the name resolves.`,
+        `Primary sources: RFC 1034 for DNS concepts and facilities, RFC 1035 for implementation and specification, and RFC 2308 for negative caching. Read them with one question in mind: which server is authoritative for this answer, and how long may someone else reuse it?`,
+        `Study Trie (Prefix Tree) for the name-tree shape, LRU Cache for resolver storage pressure, Cache Invalidation & Versioning for TTL tradeoffs, DNS Negative Cache & NXDOMAIN for absence caching, and DNS Serve-Stale Resolver Cache for resilience when authoritative refresh fails. Then follow CDN Request Flow, Load Balancer, Consistent Hashing, and TCP: Handshake & Congestion Control to see what happens after the name becomes an address.`,
       ],
     },
   ],

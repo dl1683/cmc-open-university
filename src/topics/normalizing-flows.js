@@ -202,43 +202,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why Flows Exist',
       paragraphs: [
-        'A normalizing flow is a generative model that transforms a simple base distribution into a complex data distribution through a sequence of invertible functions. Because every transformation is invertible and has a tractable Jacobian determinant, the model can compute exact likelihoods.',
-        'This makes flows the exact-density neighbor of Variational Autoencoders, GANs, and Diffusion Models. VAEs optimize a lower bound. GANs avoid explicit likelihood. Diffusion models learn iterative denoising. Flows keep the likelihood equation explicit.',
+        `A normalizing flow is a generative model that turns a simple probability distribution into a complex one through a chain of invertible transformations. Start with something easy, usually a standard Gaussian. Pass samples through learned invertible layers. The output distribution can bend around real data. Because every step is reversible, any data point can be mapped back to one base point, and the model can compute its exact likelihood through the change-of-variables formula.`,
+        `Flows exist because many generative models make a trade. GANs can produce sharp samples but do not give a usable likelihood. Variational autoencoders have latent variables and likelihood terms, but training optimizes a lower bound rather than the exact marginal likelihood. Diffusion models can produce excellent samples but usually require iterative denoising. Normalizing flows keep density estimation explicit. They are built for the case where you care not only about generating samples, but also about knowing how much probability the model assigns to an observation.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Wall They Answer',
       paragraphs: [
-        'The change-of-variables formula says log p(x) equals log p(z) plus a volume correction from the inverse transform. If the transform expands a region, density falls. If it compresses a region, density rises. The log determinant of the Jacobian records that volume change.',
-        'Flow layers are designed to be invertible and tractable. Coupling layers copy part of the vector through unchanged, use it to compute scale and shift for the remaining part, and alternate masks across layers. That gives a triangular Jacobian and a cheap determinant.',
+        `The obvious way to build a flexible density model is to use a powerful neural network that maps noise to data. The wall appears when you ask for likelihood. If the network is not invertible, one output may have many possible inputs or no clean input at all. If the Jacobian determinant is expensive, the probability accounting becomes too slow. A generic neural network can be expressive, but expression alone is not enough for exact density.`,
+        `Normalizing flows accept a narrower architecture in exchange for exact accounting. Every layer must be invertible, and the determinant of its Jacobian must be tractable. That constraint looks severe, and it is. But it buys a rare property: sampling and density evaluation are connected by one coherent probability equation. Probability mass is not created or destroyed. It is stretched, squeezed, and tracked.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight',
       paragraphs: [
-        'The main cost is architectural constraint. A flow cannot use arbitrary layers unless they preserve invertibility and tractable density. Expressiveness often requires many layers, permutations, or specialized designs. Exact likelihood is valuable, but high likelihood does not always align with human-perceived sample quality or anomaly detection.',
-        'There is also a directionality tradeoff. Some flows make sampling fast and density slower; others make density fast and sampling slower. Autoregressive structure, coupling layers, continuous-time flows, and invertible convolutions all choose different points in that design space. The right design depends on whether the workload needs fast samples, fast likelihoods, or flexible posterior inference.',
+        `The core insight is the change-of-variables formula. If z comes from a simple base density and x is produced by an invertible function f(z), then the density of x can be computed by going backward: find z = f inverse of x, evaluate the base density at z, and correct for how much the transform stretched or compressed volume. In log form, the correction becomes a log absolute determinant of the Jacobian.`,
+        `That volume correction is the heart of the model. If a transformation expands a small patch of space into a larger region, the density over that region must go down. If it compresses a larger region into a smaller one, density must go up. The determinant measures this local volume change. A flow is therefore not just a generator. It is a learned coordinate system where the model knows exactly how volume changes from base space to data space.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism',
       paragraphs: [
-        'Normalizing flows are used for density estimation, anomaly detection, variational inference, simulation, scientific modeling, audio generation, and as flexible posterior families inside VAE-style systems. They are especially useful when you need both sampling and likelihood evaluation.',
-        'They are also useful pedagogically because they make probability mass conservation explicit. When the model stretches a region, density must fall; when it compresses a region, density must rise. That mental model carries over to attention weights, calibration, Bayesian posteriors, and many other places where models reshape distributions.',
+        `A flow is a composition of invertible functions: f = f_k composed with ... composed with f_2 composed with f_1. Sampling runs forward. Draw z from the base distribution, apply the layers, and get x. Likelihood evaluation usually runs backward. Given x, invert each layer to recover z, add the base log density, and add all the log-determinant corrections. Because log determinants add across composed transformations, the model can accumulate exact likelihood one layer at a time.`,
+        `Coupling layers are a common design because they make the inverse and determinant cheap. Split the input vector into two parts. Copy one part through unchanged. Use the copied part as input to a neural network that predicts scale and shift values for the other part. The changed part can be inverted because the copied part is still known. The Jacobian is triangular, so its determinant is just the product of diagonal terms, or the sum of log scales in log space. Stacking many such layers with masks or permutations creates expressiveness.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked Example',
       paragraphs: [
-        'Invertible does not mean universally expressive at fixed size. The constraints that make flows exact can limit architecture choices. Another trap is treating likelihood as the only quality metric. A model can assign high likelihood for reasons that do not match semantic quality or operational risk.',
+        `Take a one-dimensional base variable z from a standard normal distribution and transform it with x = 2z + 3. This map is invertible: z = (x - 3) / 2. The derivative is 2, so the transformation stretches lengths by a factor of 2. The density at x is the base density at z multiplied by 1/2. Stretching space spreads probability mass out. In log form, log p(x) = log p(z) - log 2.`,
+        `Real flows use many dimensions and nonlinear transformations, but the same accounting remains. A two-dimensional flow might twist a round Gaussian cloud into a banana-shaped distribution. Points that were close in base space move into data space. The model can still trace each point backward. Wherever the transform compresses area, density rises. Wherever it expands area, density falls. The visual warping is easy to enjoy, but the determinant is what makes it a probability model instead of just a drawing machine.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why Coupling Works',
       paragraphs: [
-        'Primary sources: Variational Inference with Normalizing Flows at https://arxiv.org/abs/1505.05770 and the PMLR page at https://proceedings.mlr.press/v37/rezende15.html, plus Real NVP at https://arxiv.org/abs/1605.08803. Study Variational Autoencoders, Diffusion Models, Generative Adversarial Networks, Change-of-Variables intuition from probability, and Matrix Operations next.',
+        `A generic dense neural network has a dense Jacobian, and computing a determinant of a large dense matrix is expensive. Coupling layers avoid that by forcing structure. Because part of the vector is copied through and the other part is transformed using scale and shift functions conditioned on the copied part, the Jacobian becomes triangular. Triangular determinants are cheap. The neural network inside the coupling layer can be expressive, but the surrounding structure keeps the probability math tractable.`,
+        `One coupling layer is limited because it leaves some dimensions unchanged. The standard fix is stacking. Alternate which dimensions are copied and which are transformed. Insert permutations, invertible convolutions, or other structured invertible layers between coupling layers. Over many layers, every dimension can influence every other dimension while each local determinant remains manageable. This is the normal flow bargain: many simple reversible layers can imitate complex density shapes while preserving exact accounting.`,
+      ],
+    },
+    {
+      heading: 'What The Animation Teaches',
+      paragraphs: [
+        `The first view shows the base cloud before and after transformation. The points are not being randomly replaced. They are being moved by an invertible map. That is why the invariant says probability mass cannot vanish. A region can stretch or compress, but mass is conserved. The change-of-variables table then names the accounting terms: recover z, evaluate the base log density, add the log determinant correction, and obtain log p(x).`,
+        `The coupling-layer view shows the engineering trick behind many useful flows. Copy part of the vector, use that part to transform the rest, and keep the Jacobian triangular. The table comparing flows, VAEs, GANs, and diffusion models should be read as a tradeoff map. Flows win exact likelihood, but they pay with invertible architecture. Diffusion models often win sample quality, but sampling is iterative. GANs can sample quickly, but likelihood is not directly available. The right model depends on the job.`,
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        `The main cost of a flow is architectural constraint. You cannot freely drop in arbitrary attention blocks, pooling layers, dimension-changing projections, or stochastic operations unless the design preserves invertibility and tractable determinants. Expressiveness often requires many layers, careful masking, invertible convolutions, or specialized continuous-time machinery. This makes flows elegant but sometimes awkward compared with models that can use any differentiable network as a generator or score model.`,
+        `There are also directionality tradeoffs. Some flow designs make sampling fast and likelihood evaluation slower. Others make density evaluation fast and sampling slower. Autoregressive flows, coupling flows, continuous normalizing flows, neural spline flows, and invertible residual networks choose different points in this space. Continuous flows may need ODE solvers and trace estimates. Coupling flows may need depth to become expressive. Exact likelihood is valuable, but it is never free.`,
+      ],
+    },
+    {
+      heading: 'Where They Win And Fail',
+      paragraphs: [
+        `Flows are useful for density estimation, anomaly detection experiments, simulation, Bayesian posterior modeling, variational inference, audio and image modeling, scientific inverse problems, and cases where sampling and likelihood both matter. They are especially valuable when the question is "how probable is this observation under the learned distribution?" rather than only "can the model produce a plausible sample?" They also make strong components inside larger systems, such as richer approximate posteriors for VAE-style models.`,
+        `Flows are weaker when the data distribution requires extreme semantic abstraction and the architecture cannot express it efficiently. In images, diffusion models and autoregressive models have often produced stronger sample quality at scale. For anomaly detection, likelihood can be misleading because models may assign high likelihood to simple background statistics rather than semantic normality. A flow can be mathematically exact and still operationally wrong for the task metric. Exact density is a tool, not a guarantee of useful judgment.`,
+      ],
+    },
+    {
+      heading: 'Pitfalls And Misconceptions',
+      paragraphs: [
+        `The first misconception is that invertible means unlimited. Invertibility is a constraint. If the model must preserve dimensionality and compute determinants cheaply, it cannot use every architecture that works in ordinary deep learning. The second misconception is that exact likelihood means better samples. Likelihood measures probability under the model, not human perceptual quality. A model can score density well and still produce samples that look worse than a diffusion model.`,
+        `The third trap is anomaly detection overconfidence. Low likelihood can flag unusual inputs, but high likelihood does not always mean semantically normal. Background texture, local statistics, and preprocessing can dominate density. Another pitfall is forgetting numerical stability. Scale terms in coupling layers, log determinants, and inverse computations can blow up or collapse if parameterized carelessly. The beautiful theory still needs careful implementation.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        `Primary sources: Variational Inference with Normalizing Flows at https://arxiv.org/abs/1505.05770 and the PMLR page at https://proceedings.mlr.press/v37/rezende15.html, plus Real NVP at https://arxiv.org/abs/1605.08803. Work through the one-dimensional change-of-variables equation first, then a two-dimensional coupling layer. If you can compute the inverse and log determinant by hand on a toy example, the architecture choices become much less mysterious.`,
+        `Study Probability Density, Change of Variables, Jacobian Matrices, Determinants, Variational Autoencoders, Generative Adversarial Networks, Diffusion Models, Autoregressive Models, Matrix Operations, and Bayesian Inference next. Normalizing flows sit at the place where calculus, probability, and neural-network architecture meet. The study goal is to see why exact likelihood requires both mathematical reversibility and hardware-conscious design.`,
       ],
     },
   ],

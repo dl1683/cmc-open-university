@@ -51,7 +51,7 @@ function* runtimeStats() {
   yield {
     state: aqeGraph('AQE replans after runtime statistics arrive'),
     highlight: { active: ['logical', 'static', 'stage1', 'stats', 'e-static-stage1', 'e-stage1-stats'], compare: ['reopt'] },
-    explanation: 'Spark SQL starts with a physical plan, but exchanges and query stages produce runtime statistics. AQE can then revise parts of the plan before downstream stages run.',
+    explanation: 'Spark starts with a static physical plan, but shuffle stages produce real size information. AQE uses those stage statistics to revise downstream work before it runs.',
   };
   yield {
     state: labelMatrix(
@@ -74,7 +74,7 @@ function* runtimeStats() {
       ],
     ),
     highlight: { active: ['broadcast:action', 'coalesce:action', 'skew:action'], compare: ['shuffleHash:action'] },
-    explanation: 'AQE uses observed shuffle output sizes. It can turn a sort-merge join into broadcast hash join, coalesce small shuffle partitions, or split skewed partitions.',
+    explanation: 'Read the decisions as supported rewrites, not arbitrary magic. Observed shuffle sizes can justify a broadcast join, a shuffle-hash join, partition coalescing, or skew splitting.',
     invariant: 'AQE improves a plan after stage boundaries; it cannot change work that has already run.',
   };
   yield {
@@ -91,7 +91,7 @@ function* runtimeStats() {
       ],
     }),
     highlight: { active: ['before'], found: ['small'] },
-    explanation: 'Coalescing post-shuffle partitions can reduce scheduler overhead when many partitions are tiny. The goal is fewer, better-sized tasks without destroying parallelism.',
+    explanation: 'The plot shows coalescing. Many tiny partitions create scheduling overhead; AQE merges them into fewer better-sized tasks, while trying not to remove useful parallelism.',
   };
   yield {
     state: labelMatrix(
@@ -150,7 +150,7 @@ function* skewAndCoalesce() {
       ],
     ),
     highlight: { active: ['detect:effect', 'split:effect', 'join:effect'], compare: ['replicate:effect'] },
-    explanation: 'AQE can split a skewed partition and replicate the matching small-side partition so the join work is divided across more tasks.',
+    explanation: 'Skew repair splits the big partition and replicates the matching small-side data. That spends some extra work to shorten the long tail that would otherwise hold the whole stage open.',
   };
   yield {
     state: aqeGraph('Skew handling lives at exchange boundaries'),
@@ -201,7 +201,7 @@ function* skewAndCoalesce() {
       ],
     ),
     highlight: { active: ['before:runtime', 'after:runtime'], found: ['lesson:runtime'] },
-    explanation: 'A practical AQE win is a join where the static plan chose sort-merge join, but runtime stats reveal a broadcastable side and one skewed partition. AQE switches strategy and balances the tail.',
+    explanation: 'The complete case shows AQE at its best: runtime facts reveal a broadcastable side and a skewed partition, so Spark changes the remaining join strategy and balances the tail.',
   };
 }
 
@@ -214,20 +214,77 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'Spark Adaptive Query Execution is a runtime optimization layer for Spark SQL. It uses statistics collected at query-stage boundaries, especially shuffle output sizes, to revise the remaining physical plan.',
-      'AQE is useful because static cardinality estimates can be wrong and distributed execution exposes real sizes only after partial work has completed. It does not replace the optimizer; it adds a feedback loop after runtime evidence appears.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'Spark starts with a logical plan and a static physical plan. When a shuffle stage completes, Spark knows partition sizes and output sizes. AQE can then switch join strategies, use local shuffle readers, coalesce post-shuffle partitions, or optimize skew joins.',
-      'The important boundary is the query stage. AQE can change downstream work, but it cannot undo a completed stage. This makes exchange operators and shuffle data structures central to adaptive planning.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'A sales query joins a large fact table to a filtered dimension. Static estimates choose sort-merge join. After the first shuffle, Spark sees the dimension side is small enough to broadcast and that one fact partition is skewed. AQE converts the join, coalesces tiny partitions, and splits the skewed partition so fewer tasks wait on the tail.',
-      'The lesson is not that adaptive execution eliminates statistics. Better static estimates still help avoid wasted early stages. AQE is a second chance at physical planning once real stage sizes are visible.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Primary sources: Apache Spark SQL performance tuning and AQE documentation at https://spark.apache.org/docs/latest/sql-performance-tuning.html, Spark 3.5 AQE documentation at https://spark.apache.org/docs/3.5.6/sql-performance-tuning.html, and Spark 3.2 release notes enabling AQE by default at https://spark.apache.org/releases/spark-release-3-2-0.html. Study Cardinality Estimation Error Propagation, Exchange Operator Parallel Query, SQL Join Algorithms Primer, Volcano Iterator Query Execution, and Spark RDD Case Study next.',
-    ] },
+    {
+      heading: 'Why it exists',
+      paragraphs: [
+        'Spark Adaptive Query Execution is a runtime optimization layer for Spark SQL. It exists because a distributed SQL engine must choose a physical plan before it has seen the true runtime shape of the data. Catalog statistics, file statistics, sampled estimates, and user hints can be useful, but they are often incomplete or stale. Filters may be more selective than expected. Columns may be correlated. One key may be far hotter than the rest. A table that looks large at planning time may become small after a predicate.',
+        'A static plan has to commit early. It chooses join strategies, shuffle partition counts, exchange boundaries, and task shapes before the shuffle output is materialized. If the estimate is wrong, the cluster pays: it can sort and shuffle data that should have been broadcast, create hundreds of tiny tasks that spend more time scheduling than computing, or leave one skewed partition running while the rest of the stage is idle.',
+        'AQE adds a feedback loop. Spark still starts with an initial plan, but it treats completed query stages as new evidence. Once a shuffle stage finishes, Spark knows real output sizes and partition sizes. That evidence can be used to rewrite downstream parts of the physical plan before those parts run.',
+      ],
+    },
+    {
+      heading: 'Why the obvious planner fails',
+      paragraphs: [
+        'The obvious approach is to make the static optimizer better and trust it. That helps, but it cannot remove runtime uncertainty. Data changes between analysis runs. A file source may lack complete statistics. A user-defined function may hide selectivity. A filter on two correlated columns may be estimated as if the columns were independent. A single large customer, country, or event type can make one partition dominate a supposedly uniform distribution.',
+        'Hints are not enough either. A broadcast hint can be wrong when a filtered table is larger than expected. A join hint can force a plan that was good last month and bad today. Static partition settings can be too high for one query and too low for another. AQE exists because the completed shuffle contains facts that the static planner did not have: actual bytes, actual row counts where available, and actual per-partition skew.',
+        'The key limitation is timing. AQE can use evidence only after a boundary that materializes evidence, usually an exchange or query stage. It cannot go back in time and make an earlier scan, filter, or shuffle cheaper. This makes AQE a second chance for downstream planning, not a replacement for table statistics and good data layout.',
+      ],
+    },
+    {
+      heading: 'Core mechanism',
+      paragraphs: [
+        'Spark begins with a logical plan, applies analysis and optimization, and produces an initial physical plan. Exchange operators divide the plan into query stages. When a stage runs, shuffle writers produce data and record statistics about output sizes and partition sizes. The adaptive planner then reviews the remaining plan using those runtime statistics.',
+        'The supported rewrites are specific. Spark can convert a sort-merge join into a broadcast hash join when one side is now known to be small enough. It can choose a shuffle hash join in cases where partition sizes make that attractive. It can coalesce many small post-shuffle partitions into fewer better-sized tasks. It can split skewed shuffle partitions and replicate the matching small-side data so one huge task becomes several smaller tasks. It can also use local shuffle readers to avoid unnecessary network reads after certain join changes.',
+        'This is why exchange operators are central to the topic. A shuffle is not only a data movement step. Under AQE, it is also a planning checkpoint. The materialized shuffle output gives Spark a measured representation of the data distribution that can drive a safer physical choice for the work that remains.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'AQE works because some of the most expensive distributed-query mistakes are visible at stage boundaries. If a shuffled relation is small enough to broadcast, Spark can avoid a later distributed sort-merge path. If many partitions contain only tiny outputs, Spark can merge them and reduce scheduler overhead. If one partition is far larger than the median, Spark can split it and shorten the tail. These are local, evidence-backed repairs.',
+        'The mechanism is bounded, which is also why it is safe enough to use. Spark does not rewrite arbitrary completed work. It changes plan fragments that have not yet executed and only through supported physical transformations. The correctness of the SQL result is preserved because the rewrites are alternative implementations of the same relational operators. The benefit is performance: less network movement, fewer tasks, less sorting, better parallelism, or less tail latency.',
+        'The runtime-stats view in this module shows that loop directly: logical plan, static plan, first shuffle stage, runtime statistics, adaptive reoptimization, and revised physical work. The skew-and-coalesce view shows the two opposite task-shape repairs: merge tiny partitions to avoid overhead, and split huge partitions to avoid a long tail.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine a retail query that joins a large orders fact table to a product dimension and then groups by region. The static catalog says the product dimension is 3 GB, so Spark chooses sort-merge join. The query has a predicate on product category, but the table statistics do not capture that the selected category is small. After the first stage, Spark observes that the filtered dimension side is only 40 MB.',
+        'With AQE enabled and the broadcast threshold allowing it, Spark can convert the downstream join to broadcast hash join. The dimension is sent to executors, and the orders side can be joined without the same distributed sort-merge cost. That is the first repair: a join strategy change based on measured size rather than stale size.',
+        'The same query has a second issue. One region has a much larger number of orders than the rest, so one shuffle partition is hundreds of megabytes while neighboring partitions are small. Without skew handling, most tasks finish quickly and the final task holds the stage open. AQE can mark that partition as skewed, split it into multiple pieces, and replicate the needed small-side data. The system spends some extra work to reduce the user-visible tail.',
+        'Finally, the query has many tiny post-shuffle partitions after filtering. AQE can coalesce them into fewer tasks. That reduces scheduling overhead and improves task efficiency while still preserving enough parallelism. The final plan may contain a broadcast join, skew partition splits, local shuffle readers, and coalesced partitions, even though the initial plan did not.',
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        'AQE matters most in ETL, analytics, and lakehouse workloads where the same SQL shape can see very different data sizes from day to day. A daily partition may be empty on one run and huge on another. A tenant filter may select a tiny customer or the largest customer. A dimension table may be small after filtering even if the full table is large. Static settings cannot perfectly cover all of these cases.',
+        'It also matters in shared clusters. Hundreds of tiny tasks waste scheduler capacity. One skewed task wastes executor capacity by leaving most workers idle. A join strategy that shuffles large data unnecessarily consumes network and disk. AQE can reduce those costs without requiring every user to hand-tune every query.',
+        'AQE is especially relevant when teaching distributed execution because it connects high-level SQL planning with concrete data structures: shuffle files, partition-size arrays, query-stage DAGs, exchange operators, task metrics, and physical operator choices. It shows that an optimizer is not only a compile-time component; in a distributed system, the runtime can feed the planner new facts.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'AQE cannot fix work that has already run. If the expensive part of the query is an early scan, an expensive UDF, a bad filter, or a shuffle that was already completed, adaptive planning may have little room left to help. It also cannot invent unsupported physical operators or change query semantics.',
+        'It can make poor choices if thresholds are wrong for the cluster. A broadcast conversion can pressure executor memory if the supposedly small side is still too large for the workload. Partition coalescing can reduce scheduling overhead but remove useful parallelism. Skew splitting can add overhead by replicating data and creating more tasks. Local shuffle readers can help locality but must be understood in the final plan.',
+        'Operational confusion is another failure mode. Spark explain output can show both the initial plan and the final adaptive plan. Engineers who look only at the initial plan may miss the operator that actually ran. Engineers who look only at the final plan may miss wasted early work. Debugging AQE requires reading the plan evolution and the task metrics together.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'When tuning a Spark SQL query, compare the initial physical plan with the final adaptive plan. Look for join strategy changes, broadcast decisions, coalesced shuffle partitions, skew partition splits, local shuffle readers, shuffle bytes, task duration distribution, spill, and executor memory pressure. The important question is not just whether AQE fired, but whether the rewrite addressed the dominant cost.',
+        'Keep table statistics and data layout healthy. AQE is a second chance, not a license to ignore statistics, file sizing, partitioning, bucketing, or skew-aware keys. Better static estimates reduce wasted early stages. Good file sizes reduce scan overhead. Good partitioning reduces unnecessary shuffle. AQE is strongest when it starts from a reasonable plan and repairs the parts that only runtime evidence can reveal.',
+        'Treat thresholds as workload controls. Broadcast thresholds, advisory partition sizes, skew detection thresholds, and shuffle partition settings should reflect executor memory, network bandwidth, task startup cost, and workload shape. A configuration that helps a small interactive query can hurt a large batch job. Validate with plan diffs and task metrics instead of relying on a single runtime number.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources for this topic are the Apache Spark SQL performance tuning and AQE documentation at https://spark.apache.org/docs/latest/sql-performance-tuning.html, the Spark 3.5 SQL performance tuning documentation at https://spark.apache.org/docs/3.5.6/sql-performance-tuning.html, and the Spark 3.2 release notes that describe AQE being enabled by default at https://spark.apache.org/releases/spark-release-3-2-0.html.',
+        'Study next: Cardinality Estimation Error Propagation for why static estimates fail, Exchange Operator Parallel Query for the stage boundary that AQE uses, SQL Join Algorithms Primer for the physical join choices, Runtime Bloom Filter Join Pruning for another runtime filtering optimization, Volcano Iterator Query Execution for physical execution structure, Spark RDD Case Study for lineage and partitions, and Tail Latency for the skewed-task problem.',
+      ],
+    },
   ],
 };

@@ -162,42 +162,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'Diffusion models are generative models trained by adding noise to data and learning to reverse that noising process. They became central to image generation because the training target is stable, the samples are high quality, and the method scales well with large neural denoisers.',
-        'The local document corpus has a diffusion-model investigation, and this module turns the core mechanism into an animation: forward corruption is fixed, reverse denoising is learned, and sampling is many small refinement steps from noise to structure.',
+        `A generative model has to learn a distribution, not a lookup table. For images, that means learning what natural pixels look like together: edges, texture, object parts, lighting, perspective, style, and the strange long-range constraints that make a face or room feel coherent. The output space is enormous. A 512 by 512 RGB image already has hundreds of thousands of values, and almost every possible assignment of those values is meaningless noise.`,
+        `The hard part is that the model must create a sample that is both diverse and plausible. If it only memorizes training images, it fails as a generative model. If it spreads probability too broadly, it produces blur or nonsense. Diffusion models solve this by turning generation into a sequence of small repair problems. Instead of asking one network to jump from nothing to a finished image, training asks it to remove a known amount of noise from a partially corrupted example.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'The forward process gradually corrupts a clean example x0 into noisy xt and eventually xT, which is close to pure noise. Because the corruption process is known, training can ask the neural network to predict the noise added at a timestep or an equivalent clean-sample direction. The timestep is an input because the denoising problem changes with noise level.',
-        'Generation runs the process backward. Start from random noise. At each step, the denoiser predicts how to remove a little noise, and the sampler updates the sample. After many steps, a structured image, audio sample, molecule, or latent representation emerges.',
+        `A first attempt might train a neural net to emit an entire image directly from a random vector. That can work in some settings, but the learning signal is awkward. A bad image can be wrong in countless ways, and a single global loss often rewards average-looking outputs. The model has to invent fine detail, global arrangement, and sample diversity all at once.`,
+        `Another approach is autoregression: generate pixels or patches one at a time. That gives a clean probability factorization, but long sequences are expensive and the order is arbitrary for images. The model spends computation deciding tiny local values while still needing global consistency. The wall is not only compute. The wall is credit assignment: how should a training objective tell the model which local correction would have made the sample more realistic?`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'Diffusion quality often comes from iterative computation, so sampling latency can be expensive. Fewer steps reduce cost but can hurt detail. Classifier-free guidance improves prompt adherence but can reduce diversity or create artifacts when pushed too hard. Latent diffusion reduces pixel-space cost by generating in a compressed latent representation, but it depends on an autoencoder and decoder quality.',
-        'The training loop also has subtle choices: noising schedule, prediction target, architecture, conditioning, loss weighting, and sampler. Gradient Descent and Backpropagation still do the optimization work, but the generative framing is different from autoregressive language modeling.',
+        `Diffusion creates its own supervised task. Start with a real training example x0. Choose a timestep t. Add noise according to a fixed schedule to produce xt. Because the training procedure created the noisy example, it knows the exact noise that was added. The denoiser can be trained to predict that noise, or an equivalent target such as the clean sample direction or velocity parameterization.`,
+        `This turns generation into learned reverse thermodynamics. The forward process is a known corruption path from data toward simple noise. The reverse process is a learned path from simple noise back toward data. The model does not need labels from humans for every pixel-level repair. The corruption process supplies synthetic supervision, and the neural network learns the statistical direction that moves a noisy point closer to the data manifold.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Forward process',
       paragraphs: [
-        'Diffusion models are used for text-to-image generation, image editing, inpainting, super-resolution, video generation, 3D asset generation, molecule design, audio generation, and some recent language-model experiments. The important general lesson is broader than images: hard generation can be made easier by learning a sequence of local denoising moves.',
+        `The forward process is deliberately boring. At timestep zero the sample is clean. At later timesteps, Gaussian noise is mixed in according to a variance schedule. Early steps preserve much of the original structure. Middle steps leave a ghost of the object but disturb local values. Late steps are almost pure noise. The schedule is chosen so the final distribution is easy to sample, usually close to a standard normal distribution.`,
+        `The timestep matters because the denoising problem changes. At low noise, the model is doing fine cleanup: sharpen an edge, remove speckle, restore texture. At high noise, the model must infer broad structure from almost nothing. Training therefore gives the network both xt and t. In conditional models, the network also receives text embeddings, class labels, masks, depth maps, audio features, or other conditioning signals that say what kind of sample should emerge.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Reverse sampling',
       paragraphs: [
-        'Diffusion models do not store one training image and retrieve it by default, but they can still memorize or reproduce sensitive training examples if training data and safeguards are weak. They are also not automatically faithful to prompts. Guidance improves conditioning but can create overconfident or distorted samples. Evaluation remains difficult because likelihood, FID, human preference, safety, and diversity do not always agree.',
+        `Sampling begins from random noise. The denoiser predicts a small move at the current timestep, and the sampler uses that prediction to produce a slightly less noisy sample. Repeat the process many times and structure appears. The repeated loop is the price of the method and also the source of its controllability: intermediate states can be guided, masked, edited, restarted, or blended.`,
+        `Different samplers interpret the learned denoising field in different ways. The original DDPM sampler is stochastic and step-by-step. DDIM and later ODE or SDE solvers can take larger, more deterministic steps. Distillation methods train smaller or specialized models to approximate many denoising steps with fewer calls. The conceptual invariant is the same: generation follows a learned vector field from noise toward the training distribution.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Denoising Diffusion Probabilistic Models at https://proceedings.neurips.cc/paper_files/paper/2020/hash/4c5bcfec8584af0d967f1ab10179ca4b-Abstract.html and https://arxiv.org/abs/2006.11239, Deep Unsupervised Learning using Nonequilibrium Thermodynamics at https://arxiv.org/abs/1503.03585, Score-Based Generative Modeling through Stochastic Differential Equations at https://arxiv.org/abs/2011.13456, and Classifier-Free Diffusion Guidance at https://arxiv.org/abs/2207.12598. Study Gradient Descent, Backpropagation, Convolution, Softmax & Temperature, and Batch Size Scaling next.',
+        `In the toy matrix in this topic, the clean sample is a bright diamond-like pattern. The forward view mixes each cell with a fixed noise matrix. At 35 percent noise, the center is still recognizable but the values no longer perfectly match the original. At 90 percent noise, the pattern is barely visible. Training examples are created at many such noise levels, so the model learns a family of repairs rather than one cleanup operation.`,
+        `During generation, the process runs in the opposite direction. The first frame is random-looking. A reverse step predicts the noise component and subtracts it. Later steps recover the center and symmetric arms. This toy example hides the neural architecture, but it preserves the essential bookkeeping: x0 is clean data, xt is a noisy intermediate, t tells the denoiser how much corruption to expect, and the loss compares the prediction with a target known from the forward process.`,
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        `The important visual lesson is that the model is not trained by starting from noise and hoping for the best. Training starts from real data, corrupts it with a known random process, and asks the model to predict a local correction. Sampling then reuses that local correction rule repeatedly from the high-noise end of the schedule.`,
+        `The guidance table shows why production systems are more than the base denoiser. Classifier-free guidance compares a conditional prediction with an unconditional prediction and pushes the sample toward the condition. Latent diffusion performs denoising in a compressed representation rather than raw pixels. Fast samplers change the numerical path. Evaluation has to consider visual quality, prompt following, diversity, safety, and whether the model memorizes rare training examples.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `The main cost is iterative inference. If a model needs 30, 50, or 100 denoiser calls per sample, latency and GPU memory become central product constraints. Fewer steps save compute but can lose detail, color consistency, or global structure. Larger denoisers improve quality but increase training and serving cost. Latent diffusion reduces pixel-space work, but the autoencoder can introduce compression artifacts and limits what details can be represented.`,
+        `Guidance is also a tradeoff. Stronger classifier-free guidance often improves prompt adherence, yet it can reduce diversity and push images into oversaturated, brittle, or distorted regions. Conditioning can conflict with the learned data prior: a prompt may request an impossible pose, a mask may remove necessary context, or a control signal may be noisy. Diffusion systems are powerful because they expose these controls, but every control changes the distribution being sampled.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Diffusion works especially well when the output is continuous, high dimensional, and tolerant of iterative refinement. Text-to-image generation, inpainting, image-to-image editing, super-resolution, video, audio, 3D asset generation, and molecular conformation search all fit this shape. The method is good at combining global plausibility with local detail because late denoising steps can spend compute on texture while earlier steps settle coarse structure.`,
+        `It is also useful when conditioning is rich. A model can condition on text, class labels, bounding boxes, segmentation maps, depth, edges, pose, low-resolution images, or previous frames. The same denoising backbone can become a generator, editor, restorer, or controlled simulator depending on the conditioning and sampler.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Diffusion is not automatically factual, aligned, or controllable. A text prompt is a weak specification, and the model may satisfy surface cues while violating counts, identities, spatial relations, or safety constraints. Repeated denoising can also amplify artifacts. Hands, text rendering, object permanence in video, and exact geometry remain difficult because the model is optimizing learned visual plausibility rather than a symbolic scene graph.`,
+        `The training data can leak into outputs. Diffusion models do not normally retrieve a stored image by design, but rare images, duplicated images, copyrighted works, private medical images, and personally identifying content can be memorized if the dataset and training process allow it. Evaluation is therefore not one number. Likelihood, FID, CLIP score, human preference, safety filters, diversity, and memorization tests each catch different failures.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Denoising Diffusion Probabilistic Models at https://proceedings.neurips.cc/paper_files/paper/2020/hash/4c5bcfec8584af0d967f1ab10179ca4b-Abstract.html and https://arxiv.org/abs/2006.11239, Deep Unsupervised Learning using Nonequilibrium Thermodynamics at https://arxiv.org/abs/1503.03585, Score-Based Generative Modeling through Stochastic Differential Equations at https://arxiv.org/abs/2011.13456, and Classifier-Free Diffusion Guidance at https://arxiv.org/abs/2207.12598.`,
+        `Good next topics are Gradient Descent for the optimization loop, Backpropagation for how the denoiser learns, Convolution for image architectures, Softmax & Temperature for sampling intuition, Variational Autoencoders for latent representations, Consistency Distillation for few-step generation, and Discrete Diffusion Language Models for what changes when the state space is tokens instead of pixels.`,
       ],
     },
   ],

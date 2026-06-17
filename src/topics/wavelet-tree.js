@@ -210,43 +210,86 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'A wavelet tree is a succinct index over a sequence of symbols. It recursively splits the alphabet and stores a bitvector at each internal node, recording whether each symbol goes left or right. The child sequences preserve the original relative order of symbols routed to that child.',
-        'The structure supports access, rank, select, range quantiles, range counting, top-k style queries, and compressed-index operations. It is the natural companion to FM-index because FM-index Occ queries are rank queries over the BWT.',
+        `Many sequence queries ask about symbols, not just positions. How many a values occur before index i? Where is the kth n? What is the second-smallest value in this range? Which documents appear in the interval produced by a text index?`,
+        `A plain array can answer access(i), but rank, select, range counts, and range quantiles require scans or extra indexes. A wavelet tree exists to answer these symbol-aware queries exactly while storing the sequence close to its information content.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious approach`,
       paragraphs: [
-        'To build a balanced wavelet tree, split the alphabet into lower and upper halves. Emit 0 for symbols sent left and 1 for symbols sent right. Recurse on the left subsequence and right subsequence. Leaves correspond to symbols. The original sequence is no longer stored as plain values; it is represented by bitvectors across levels.',
-        'rank(c, i) walks from root to the leaf for c. At each node, rank0 or rank1 maps the prefix length i into the child prefix length. access(i) follows the bit at position i downward. select(c, k) walks upward from the c leaf, using select on bitvectors.',
+        `The first reasonable choice is the sequence itself. access(i) is constant time, and everything else can be found by scanning. That is fine for small strings and rare queries.`,
+        `The second choice is a prefix-count table for every symbol. rank(c, i) becomes a table lookup. The cost is O(n sigma) space for length n and alphabet size sigma. That is too large for long texts, document arrays, or integer sequences with many distinct values.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `The wall`,
       paragraphs: [
-        'With a balanced tree, operations usually cost O(log sigma), where sigma is alphabet size, assuming efficient rank/select on bitvectors. Space is close to n log sigma bits plus rank/select support, and compressed variants can approach entropy bounds by changing shape or encoding bitvectors.',
-        'The bitvector primitive is crucial. Without fast rank and select, a wavelet tree is just a clever layout. With succinct bitvectors, it becomes a practical sequence index.',
+        `The wall is answering symbol-specific questions without materializing a separate structure for every symbol. The index has to narrow a position range and a value range at the same time.`,
+        `It also has to preserve order. rank and select aren't just set-membership questions. They depend on how many matching symbols appear before a position, so the structure must keep enough ordering information while it compresses the sequence.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Core layout`,
       paragraphs: [
-        'Wavelet trees appear in compressed full-text indexes, FM-index implementations, document retrieval, range quantile queries, inverted-index compression, graph representations, XML indexes, and analytics over compact categorical sequences.',
-        'A complete case study is a compressed BWT index. The BWT is a string over an alphabet. The FM-index repeatedly asks Occ(c, i), a rank query over that string. A wavelet tree answers those rank queries without storing a dense count table for every character and every position.',
+        `Recursively split the alphabet. At each internal node, write one bit per symbol in that node's sequence: 0 if the symbol goes to the left alphabet half, 1 if it goes to the right half. The left child stores the stable subsequence of 0-routed symbols. The right child stores the stable subsequence of 1-routed symbols.`,
+        `The invariant is stable partitioning. A child sequence keeps the relative order its symbols had in the parent. rank0 and rank1 on the node bitvector map a parent prefix or range into the corresponding child prefix or range.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `How it works`,
       paragraphs: [
-        'A wavelet tree is not related to signal-processing wavelets in the everyday implementation sense. The name reflects a recursive decomposition, but the data-structure contract is rank/select over symbols. Another trap is ignoring alphabet size; large alphabets often need wavelet matrices or compressed shapes.',
+        `To build a balanced wavelet tree, split the alphabet into lower and upper halves, emit the routing bitvector for the current sequence, then recurse on the two stable subsequences. Leaves correspond to individual symbols.`,
+        `rank(c, i) walks from the root to c's leaf. At each node, it chooses the side containing c and remaps i using rank0 or rank1 on the node bitvector. When the walk reaches the leaf, the current prefix length is the number of c symbols before i.`,
+        `access(i) follows the bit at position i downward. The bit reveals which child contains the symbol, and rank maps i into the child position. select(c, k) runs the reverse path: start at c's leaf and use select operations while walking back to the root.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Concrete examples`,
       paragraphs: [
-        'Primary and survey sources: Grossi, Gupta, and Vitter journal copy at https://www.ittc.ku.edu/~jsv/Papers/FGGV06.TextindexingExperimentsJournal.pdf and Navarro, Wavelet Trees for All, at https://users.dcc.uchile.cl/~gnavarro/ps/cpm12.pdf. Study FM-Index & Burrows-Wheeler Transform, Suffix Array & LCP, Huffman Coding, Inverted Index, and Product Quantization next.',
+        `For sequence annbana, count rank(a, 6). The root bitvector separates n from the other symbols. The first six positions contain three symbols that route left. The left child sequence for those three routed positions is a b a. Counting a there gives 2.`,
+        `For a range quantile, carry an interval [l, r) instead of a single prefix. Count how many positions in the interval route left. If k fits inside that count, descend left. Otherwise subtract the left count and descend right. The query never materializes the range; it only remaps boundaries through bitvectors.`,
+        `For document retrieval, a suffix-array interval can be treated as a range over document ids. A wavelet tree can report which document ids occur in that interval, count how often each appears, or find heavy documents without scanning every suffix. This is where the structure stops being a classroom index and becomes a compact analytics tool over search results.`,
+      ],
+    },
+    {
+      heading: `Why it is correct`,
+      paragraphs: [
+        `The bitvector at a node records the exact routing decision for every symbol in that node's sequence. Because the child subsequences are stable, the kth routed symbol in the parent is the kth symbol in the child.`,
+        `rank on the bitvector computes exactly how many routed symbols appear before a boundary. That is why prefix lengths and interval boundaries can be moved to children without losing order. Following the path for one symbol filters away all other symbols while preserving the occurrence order of that symbol.`,
+        `Range quantile uses the same invariant. The left-count tells how many values in the query range belong to the lower alphabet half. If k is within that count, the answer must be in the left half. If not, exactly that many smaller values are skipped and the search continues on the right.`,
+      ],
+    },
+    {
+      heading: `Cost and behavior`,
+      paragraphs: [
+        `With a balanced tree, access, rank, and select take O(log sigma) rank or select steps for alphabet size sigma. Range quantile also takes O(log sigma). Range reporting and top-k queries add output-dependent work.`,
+        `Space is roughly one bit per sequence element per tree level, plus rank/select support. A balanced tree stores about n log sigma routing bits. Huffman-shaped trees can shorten paths for common symbols. Compressed bitvectors can reduce space when routing bits are biased. Wavelet matrices use a level-by-level layout that is often simpler and faster for large integer alphabets.`,
+        `The hidden dependency is the bitvector engine. Without fast rank and select, a wavelet tree turns into a slow recursive scan. With good rank/select support, the structure becomes a compact sequence index rather than just a clever layout.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Wavelet trees win in compressed full-text indexes, especially as the Occ structure inside an FM-index. They also fit document retrieval, range quantile queries, range counting, inverted-index compression, graph representations, XML indexes, and analytics over compact categorical sequences.`,
+        `The common access pattern is exact navigation over a static or mostly static sequence. The structure avoids dense per-symbol prefix tables while still answering symbol-aware queries without scanning the original range.`,
+        `They are especially useful when the alphabet is not tiny and the query mix is richer than lookup. If all you need is access(i), an array is better. If all you need is membership, a set is better. The wavelet tree earns its complexity when rank, select, quantile, and range counting are all part of the workload.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `A wavelet tree isn't signal-processing wavelets in ordinary use. It is a rank/select sequence index. The name is historical enough to confuse readers, so judge it by the operations it supports.`,
+        `Updates are hard because one sequence change can affect routing bits across levels. Pointer-heavy implementations can hurt cache behavior. Very small alphabets may be served well by a few plain bitvectors. Workloads that mostly append, mutate, or scan short ranges may not earn back the implementation cost.`,
+        `Another failure is ignoring construction choices. A balanced tree is simple, but a skewed alphabet may want a Huffman shape. Large integer alphabets may want a wavelet matrix. Compressed bitvectors save space only when their access cost still fits the workload. The idea is stable partitioning; the engineering choice is which layout makes that idea fast on the actual data.`,
+      ],
+    },
+    {
+      heading: `Study next`,
+      paragraphs: [
+        `Study Rank/Select Bitvector first if the bitvector mapping feels mysterious. Study FM-Index & Burrows-Wheeler Transform to see wavelet trees used for Occ queries. Study Suffix Array & LCP, Huffman Coding, Inverted Index, and Range Minimum Query for neighboring sequence-index ideas.`,
+        `Primary and survey sources: Grossi, Gupta, and Vitter, High-Order Entropy-Compressed Text Indexes, at https://www.ittc.ku.edu/~jsv/Papers/FGGV06.TextindexingExperimentsJournal.pdf, and Navarro, Wavelet Trees for All, at https://users.dcc.uchile.cl/~gnavarro/ps/cpm12.pdf.`,
       ],
     },
   ],

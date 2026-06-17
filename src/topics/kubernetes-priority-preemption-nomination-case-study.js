@@ -186,30 +186,114 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Kubernetes PriorityClass gives Pods relative importance. The scheduler tries higher-priority pending Pods earlier. If a high-priority Pod cannot fit anywhere, preemption can evict lower-priority Pods so the pending Pod can eventually run.',
-        'The official Pod Priority and Preemption documentation explains queue ordering, preemptionPolicy, victim removal, nominatedNodeName, graceful termination gaps, and the best-effort relationship with PodDisruptionBudget: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/. The scheduling overview distinguishes scheduling, preemption, and eviction: https://kubernetes.io/docs/concepts/scheduling-eviction/.',
+        'A Kubernetes cluster is a shared machine with finite CPU, memory, devices, ports, volumes, and topology slots. When every node is full, the scheduler has to decide which pending work is allowed to wait and which work is allowed to displace something already running.',
+        'Priority and preemption give that decision a control-plane contract. PriorityClass turns importance into an integer ordering. Preemption lets the scheduler evict lower-priority Pods when that is the only way to run a higher-priority pending Pod.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The baseline',
       paragraphs: [
-        'The scheduler holds a priority-ordered pending queue, then produces a victim-candidate ledger when ordinary filtering fails. Each node candidate asks: if some lower-priority Pods disappeared, would the pending Pod satisfy resource, affinity, taint, volume, and topology constraints? If yes, the scheduler can nominate that node and initiate victim termination.',
-        'nominatedNodeName is a coordination hint, not a final binding. Victim Pods may still be terminating, another node may become free, or an even higher-priority Pod may arrive. The scheduler must keep recomputing from live cluster state.',
+        'The normal scheduler loop picks a pending Pod, filters nodes by the Pod requirements, scores feasible nodes, and binds the Pod to one node. This works when capacity exists somewhere or when waiting is acceptable.',
+        'A reasonable first policy is first-ready, first-served. A batch Pod that asked for resources earlier keeps them, and a control-plane add-on waits until a node naturally frees space. That policy is simple, fair by arrival time, and dangerous during scarcity.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The wall',
       paragraphs: [
-        'A control-plane addon has a high PriorityClass and must run during resource pressure. A batch job fills every node. The high-priority Pod enters the active queue first, fails normal filtering, and triggers preemption. The scheduler finds node N, selects lower-priority batch victims, sets nominatedNodeName on the pending Pod, and waits for graceful termination. When resources free, the Pod binds. If a higher-priority Pod arrives first, the nomination can change.',
-        'The governance mistake is letting ordinary tenants create high-priority Pods. The Kubernetes docs warn that high priorities can cause other Pods to be evicted or not scheduled; ResourceQuota should limit who can consume those classes.',
+        'Arrival order does not express operational importance. A DNS Pod, node agent, admission webhook, or emergency repair job may be more important than a long-running batch task that happened to arrive first.',
+        'Blind eviction is also wrong. The scheduler cannot just delete low-priority Pods until something happens to fit. The pending Pod still has node selectors, taints, affinity, volume, resource, and topology constraints. The victim set has to make a specific node feasible.',
+      ],
+    },
+    {
+      heading: 'The state model',
+      paragraphs: [
+        'The scheduler keeps a priority-ordered pending queue. A PriorityClass maps a name to an integer value, and the admission path resolves that value onto each Pod. Higher values move earlier in the queue, but they do not bypass feasibility checks.',
+        'Preemption adds a candidate ledger. For each node that currently fails, the scheduler asks whether removing lower-priority Pods from that node would make the pending Pod fit. The answer is a victim set, not a vague signal that the node is busy.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The scheduler first tries ordinary scheduling. If no node fits, and the Pod is allowed to preempt, the scheduler evaluates nodes again under a hypothetical change: remove some lower-priority Pods and rerun the fit checks.',
+        'A valid preemption choice must leave the high-priority Pod schedulable on that node. The scheduler prefers victim sets that are lower priority, smaller when possible, and less disruptive to PodDisruptionBudgets. PDB protection is best effort, so it influences victim choice but does not make a Pod immune to preemption.',
+        'After choosing a node, the scheduler sets the pending Pod status field `nominatedNodeName`. That records the intended node while victims receive graceful termination time. Binding happens later, after enough resources actually appear.',
+      ],
+    },
+    {
+      heading: 'The nomination gap',
+      paragraphs: [
+        '`nominatedNodeName` is not a reservation. It is a scheduling hint and user-visible explanation for a decision that has not reached binding yet.',
+        'The gap matters because victims may take their full termination grace period. During that time, the scheduler keeps processing other Pods. Another node may become feasible, or an even higher-priority Pod may arrive and take the nominated slot. The original Pod can have its nomination cleared and be reconsidered.',
+      ],
+    },
+    {
+      heading: 'Reliability argument',
+      paragraphs: [
+        'The reliability property is conditional feasibility. The scheduler only preempts on a node when the high-priority Pod would fit after the selected lower-priority Pods are gone. That keeps preemption tied to the same placement rules as normal scheduling.',
+        'The property is not availability by itself. If every node lacks a required GPU, volume attachment, zone, or toleration, removing victims cannot make the Pod schedulable. If a lower-priority Pod is part of the preemptor affinity target, removing it can make the placement invalid.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Preemption buys priority by spending disruption. The costs are terminated work, cold starts, cache loss, retry storms, longer tail latency for victims, and operator noise during incidents.',
+        'The scheduler work also grows under pressure. Instead of a simple no-fit result, it may evaluate candidate nodes and victim sets. The exact cost depends on scheduler plugins, node count, Pod count, and constraints, but the expensive case is broad scarcity with many nearly feasible nodes.',
+        'Governance is part of the data structure. In an untrusted cluster, a user who can create the highest-priority Pods can evict other tenants. ResourceQuota should restrict PriorityClass use, and events should make preemption visible enough to debug.',
+      ],
+    },
+    {
+      heading: 'Production uses',
+      paragraphs: [
+        'System-critical classes are useful for DNS, networking, storage agents, metrics collectors, and control-plane add-ons that keep the cluster usable. During node pressure, those Pods often matter more than replaceable batch work.',
+        '`preemptionPolicy: Never` is useful when a job deserves queue priority but should not discard existing work. A data-science job can wait ahead of lower-priority pending Pods while still letting running Pods finish naturally.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The common failure is priority inflation. If every team marks its workload critical, priority stops carrying information and the cluster turns scarcity into churn.',
+        'PDB surprises are another failure. Owners may assume a PodDisruptionBudget is a hard shield, but preemption can violate it when no non-violating victim set works. Workloads that cannot tolerate interruption need quotas, reservations, separate node pools, or application-level recovery.',
+        'A third failure is overtrusting nomination. `nominatedNodeName` explains an intended placement, not a completed one. Alerting and operators should treat it as pending state until `nodeName` is set.',
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        'A cluster runs ten low-priority ETL Pods on every node. A high-priority CoreDNS replacement Pod arrives after a node failure. Normal filtering finds no node with enough free CPU and memory.',
+        'The scheduler tests each node as if some ETL Pods were removed. On node N, evicting two ETL Pods would make the CoreDNS Pod fit without breaking its node selector or tolerations. The scheduler nominates node N, evicts the victims, waits for termination, then binds CoreDNS if the slot still exists.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Keep the PriorityClass taxonomy small. A useful cluster might distinguish system-critical add-ons, platform-critical services, important tenant services, normal services, and interruptible batch work. Do not create a new class for every team. A class should represent a different operational promise.',
+        'Restrict high-priority classes with ResourceQuota and admission policy. The important question is not whether a Pod author can write a high priority value. The question is whether that author is allowed to impose termination risk on other workloads during scarcity.',
+        'Design low-priority victims to be safe victims. Batch work should checkpoint, retry idempotently, and avoid storing unique progress only in Pod memory. Preemption is much less dangerous when the lower-priority workload was already designed as disposable capacity.',
+      ],
+    },
+    {
+      heading: 'Debugging preemption',
+      paragraphs: [
+        'When a Pod is pending, separate three states. It may have no feasible node at all. It may have a feasible node only after lower-priority victims terminate. Or it may already be bound and waiting for kubelet startup. These states lead to different fixes.',
+        'Events and status fields are the first evidence. nominatedNodeName explains an intended target, while nodeName is the actual binding. Victim Pods should show deletion and termination events. PDB events can show when the scheduler chose disruption despite a budget preference.',
+        'If preemption keeps repeating, the answer is usually not another priority tweak. Look for priority inflation, resource requests that are too large, insufficient reserved capacity, slow graceful termination, broad anti-affinity, or a workload class that belongs in a separate node pool.',
+      ],
+    },
+    {
+      heading: 'Mental model',
+      paragraphs: [
+        'Priority is an ordering signal. Preemption is a conditional repair action. Nomination is pending state. Binding is the committed placement. Keeping those four ideas separate prevents many wrong explanations.',
+        'A good preemption design does not try to make every important Pod immediately runnable. It decides which work may be sacrificed, under which constraints, and how operators can see the decision. That makes the cluster more predictable under pressure, not magically unlimited.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Kubernetes Scheduler PriorityQueue & Preemption for the wider scheduler loop, PodDisruptionBudget Eviction Budget for voluntary disruption limits, Kubernetes Taints and Tolerations Node Pool for admission control, Kubernetes Affinity and Topology Spread Placement for feasibility constraints, Binary Heap and Queue for the underlying ordering structures.',
+        'Study the Kubernetes scheduler framework next if you want the plugin points behind filtering, scoring, and preemption. Study PodDisruptionBudgets to understand why voluntary disruption limits are not hard preemption barriers.',
+        'Then compare ResourceQuota, taints and tolerations, node affinity, topology spread constraints, and separate node pools. Those mechanisms prevent scarcity or isolate risk; priority and preemption decide what happens after scarcity has already arrived.',
+        'Primary sources: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/ and https://kubernetes.io/docs/concepts/scheduling-eviction/.',
       ],
     },
   ],

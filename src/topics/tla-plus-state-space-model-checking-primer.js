@@ -228,11 +228,84 @@ export const article = {
     { title: 'Current TLA+ Tools', url: 'https://github.com/tlaplus/tlaplus/blob/master/general/docs/current-tools.md' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['TLA+ is a language for modeling systems as state machines. TLC is a model checker for TLA+ specifications. It explores reachable states and checks whether invariants and other properties hold.', 'The official TLA+ wiki frames the tools as a way to eliminate fundamental design errors, especially in concurrent and distributed systems: https://docs.tlapl.us/.'] },
-    { heading: 'How it works', paragraphs: ['A spec names variables, defines Init, defines Next, and states properties. TLC instantiates a finite model, explores successors, deduplicates visited states, checks invariants, and reports a trace when a property fails.', 'Lamport and Yu describe TLC as a model checker for debugging a TLA+ specification by checking invariance properties of a finite-state model: https://lamport.azurewebsites.net/pubs/yuanyu-model-checking.pdf.'] },
-    { heading: 'Complete case study', paragraphs: ['A lock service allows clients to acquire A, acquire B, and wait for both. The model finds an interleaving where one client holds A, another holds B, and both wait forever. The counterexample trace is a design artifact: it shows exactly which action sequence creates deadlock.', 'The fix might be lock ordering, timeout, preemption, or a different protocol. The trace tells the team which fix needs to be represented in the model.'] },
-    { heading: 'Data structures', paragraphs: ['A model checker is graph search: frontier, visited set, state fingerprint, parent pointer, property evaluator, and trace reconstruction. These ordinary structures are what make a formal method feel concrete.', 'State explosion is the main cost. Bound the model, abstract irrelevant data, use symmetry when valid, and check one property at a time when necessary.'] },
-    { heading: 'Pitfalls', paragraphs: ['A model can be wrong in both directions. Too much detail explodes the state space. Too little detail proves a toy that hides the real race. A passing model is evidence about the bounded abstraction, not a production proof.', 'Counterexamples also need judgment. Some are real design bugs; some are missing environment assumptions; some are spec typos. Treat the trace as an investigation object.'] },
-    { heading: 'Study next', paragraphs: ['Study Finite State Machine, Graph BFS, Symbolic Execution Path Constraints, Alloy Relational Model Finder, SMT Solver Theory Combination, and Property-Based Testing Shrinking next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        `TLA+ exists because some bugs live in the design before any implementation exists. Distributed systems, lock managers, retry loops, quorum protocols, and concurrent workflows can fail even when each individual step looks reasonable. The failure is a reachable sequence of legal actions: client A waits, client B retries, a message is delayed, a timeout fires, and a state that was supposed to be impossible appears.`,
+        `Code review and tests are weak at this kind of bug because they sample executions. A reviewer follows the path that seems likely. A test runner schedules a few interleavings. The system may still contain a deadlock, split brain, stale read, lost update, or broken ownership invariant in a path nobody happened to exercise.`,
+        `TLA+ moves the question earlier. Instead of asking whether one program run behaved, you write a model of the design as a state machine and ask which states are reachable. TLC, the model checker, explores a finite version of that state space and reports a concrete counterexample when a property fails. The official TLA+ materials frame this as a way to eliminate fundamental design errors in concurrent and distributed systems: https://docs.tlapl.us/.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The obvious approach is to draw the protocol and write scenario tests. That is not foolish. A small sequence diagram catches many missing transitions, and executable tests are necessary later. The problem is coverage. A lock service with two clients and two locks already has enough interleavings to hide a circular wait.`,
+        `Another reasonable approach is to reason informally from invariants. You might say each lock has at most one owner, every committed entry has a quorum, or every message is eventually handled. Those statements are useful, but the human proof often skips the uncomfortable cases: retry after partial failure, two timeouts in a row, a node that receives an old message, or a client that observes the system during reconfiguration.`,
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        `The wall is state explosion plus human selectivity. If a system has several variables, each with several possible values, the total number of snapshots grows as their combinations multiply. Add process interleavings and message queues, and the graph becomes too large to inspect by hand.`,
+        `The second wall is that implementation tests arrive late. By the time a bug is found in code, the team may have already built APIs, storage formats, and operational assumptions around the flawed design. A model is cheaper because it can be wrong on purpose. It can use tiny bounded sets, abstract messages, and simplified time while preserving the bug class that matters.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `The core insight is that a design can be treated as a graph of states. A state is one valuation of the model variables. Init defines the possible starting states. Next defines which actions can produce successor states. Invariants state facts that must hold in every reachable state. Liveness properties state progress obligations, usually with fairness assumptions.`,
+        `TLC turns that specification into graph search. It starts from Init, applies Next to generate successors, stores a visited set so it does not revisit the same state forever, checks properties on each state, and keeps enough parent information to reconstruct a failing path. Lamport and Yu describe TLC as a model checker for debugging TLA+ specifications by checking invariance properties of a finite-state model: https://lamport.azurewebsites.net/pubs/yuanyu-model-checking.pdf.`,
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        `A useful model begins with variables that are just detailed enough. For a lock protocol, variables might be lock ownership, waiting clients, outstanding messages, and a small set of client states. The model does not need real TCP packets or production timestamps if the property depends only on ownership and waiting.`,
+        `Actions describe legal transitions. Acquire may move a client from idle to holding a lock. Release may free a lock. Timeout may move a waiting client back to retry. Message delivery may update a replica. The model checker does not guess which action is realistic next; it tries every enabled action inside the finite bounds.`,
+        `Properties are the reason to model. A safety invariant says something bad never happens: two owners for one lock, a committed value without a quorum, a negative balance, or a queue item lost from all data structures. A liveness property says something good eventually happens: a request eventually completes, a leader is eventually elected, or a retry loop does not starve forever under the stated fairness assumptions.`,
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        `The state-graph view should be read as the model checker, not as the production system. The spec creates the initial nodes and transition rules. The frontier stores states still waiting to expand. The seen set prevents duplicate work. The invariant checker is the gate every reachable state must pass.`,
+        `The counterexample view shows the real payoff. A failure is not a vague warning. It is a replayable sequence of model states and actions: start here, take this legal action, then this one, and the property breaks. That trace is often more useful than a failing test because it names the design interleaving, not just the symptom observed in one implementation run.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `Within its finite model, TLC is exhaustive. If every reachable state has been explored and the invariant held in each one, then the invariant holds for that bounded model. The argument is plain induction over graph reachability: Init states pass, and every successor generated from already reachable states is checked before the search finishes.`,
+        `If an invariant fails, parent pointers give the proof of failure. The checker does not merely claim that a bad state exists. It returns the chain of actions from an initial state to that state. That makes the result falsifiable and actionable: the engineer can decide whether the trace is a real design bug, a missing environment assumption, a spec typo, or an unrealistic bound.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `The cost is dominated by states and transitions. If you double the number of processes, messages, or data values, the state space can grow far more than double because combinations multiply. TLC needs memory for the visited set, time to generate successors, property checks for each state, and sometimes disk-backed storage or fingerprints to keep large searches practical.`,
+        `Abstraction is the main performance tool. Replace unimportant payloads with small symbols. Bound process counts. Collapse symmetric identities when the property does not care which client is named A or B. Split one huge property into focused models. Each abstraction is a risk: remove the detail that creates the bug, and the model can prove a toy while production remains unsafe.`,
+        `Liveness adds another tax. Safety asks whether a bad state is reachable. Liveness asks about infinite behavior and fairness: whether the system can avoid progress forever. Those checks require more discipline because the wrong fairness assumption can either hide a starvation bug or invent an impossible one.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `TLA+ is strongest for protocols and coordination logic: leader election, distributed locks, transaction state machines, snapshot protocols, retries, deduplication, queue ownership, consensus-adjacent designs, cache coherence rules, and storage metadata updates. These systems have small logical states but many interleavings.`,
+        `It is also useful as a design communication tool. A good spec forces the team to name variables, actions, and invariants. The model becomes a sharper artifact than a prose design document because every ambiguity eventually has to become a transition or a property.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `TLA+ fails when the model is either too faithful or not faithful enough. Too much implementation detail explodes the state space before it teaches anything. Too little detail removes the bug. The skill is not writing a large spec; it is preserving the failure mode while deleting everything irrelevant to that failure mode.`,
+        `It also does not prove that the implementation matches the model. A checked design can still be implemented incorrectly, deployed with different timeouts, or connected to an environment the spec never modeled. Treat the model checker as a design verifier, not as a substitute for code review, property-based tests, fault injection, or production telemetry.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study finite state machines for the modeling base, graph BFS and DFS for the search mechanics, hash tables for visited-state storage, property-based testing for executable sampling, Alloy for bounded relational models, SMT solvers for formula-backed constraints, and distributed systems topics such as Raft, two-phase commit, leases, fencing tokens, and snapshot isolation. Then practice by modeling one small real workflow before trying to model a whole service.`,
+      ],
+    },
   ],
 };

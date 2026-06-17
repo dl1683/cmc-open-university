@@ -234,36 +234,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Delta bit-packing is a family of integer-compression techniques used in search engines, column stores, time-series databases, and graph systems. The central move is to transform large integers into small integers before packing. Frame-of-reference subtracts a block base. Delta coding subtracts the previous value. Delta-of-delta coding subtracts the previous delta. Once values are small, the encoder chooses a bit width and packs many codes into dense machine words.',
-        'This is not archive compression like gzip. It is query-path compression. The format must decode quickly, skip predictably, and often feed SIMD or vectorized operators. A few extra bits per integer can be worth it if decoding becomes branch-free and cache-friendly.',
+        'Search engines, column stores, graph systems, and time-series databases move enormous integer arrays through CPU caches. Raw 32-bit or 64-bit values waste bandwidth when the values are sorted, nearby, or regularly spaced. Delta bit-packing exists to make those arrays smaller without making query-time decoding slow.',
+        'The central resource is memory bandwidth. If a query can read half as many bytes and decode them predictably, it may run faster even after paying CPU instructions for unpacking. Compression and execution are part of the same design.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first approach stores each integer in a machine word. That is simple and supports direct indexing. It becomes wasteful for sorted document ids, timestamps, offsets, dictionary codes, and adjacency lists whose local gaps are much smaller than their absolute values.',
+        'The opposite approach is to use a general compressor around the whole file. That may save space at rest, but it often forces large decompression units and does not give the query engine cheap access to the next block of ids or timestamps.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'General compression can shrink bytes but add branches, tables, and serial dependencies. Query engines need predictable decode, skipping, vectorization, and block-level access. The wall is not just compression ratio; it is compression that still belongs on the hot path.',
+        'A search engine intersecting postings lists may decode millions of integers only to discard most of them. A column store may decode a block to apply a filter. In both cases, the codec has to cooperate with scans and skips instead of behaving like an opaque blob.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Transform large integers into small local codes, then pack those codes back-to-back. Frame-of-reference subtracts a block base. Delta coding stores gaps. Delta-of-delta stores changes in gaps. The encoder then chooses the bit width needed by the largest code in the block.',
+        'The transform is reversible and local. A decoder does not need a statistical model or a dictionary learned elsewhere; it needs the block metadata and the packed bits. That simplicity is why these codecs remain common in systems that care about predictable latency.',
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        'In the frame-of-reference view, look for the moment large absolute values become small local codes. That transform is the compression. Bit-packing only cashes in after the transform has exposed smaller numbers.',
+        'In the exceptions view, watch the outlier. One large value can force a whole block to use too many bits. Patched schemes keep the common path fast and store exceptional values separately.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For a frame-of-reference block, store a base such as the minimum value. Replace each integer x with x - base. If the largest offset is 14, every offset fits in 4 bits. For delta coding, store the first value and then gaps. Sorted document ids or timestamps often have small gaps, so the deltas fit in fewer bits than the raw 32-bit or 64-bit values.',
-        'Patched frame-of-reference handles outliers. If most values fit in 5 bits but one needs 13 bits, the codec can keep a 5-bit main stream and store exception positions plus extra bits separately. Decoding unpacks the dense stream and patches the exceptions back in. Fast codecs tune block size, width selection, exception format, and SIMD layout together.',
+        'For frame-of-reference, store a base such as the block minimum and replace x with x - base. If the largest offset is 14, every offset fits in 4 bits. For deltas, store the first value and then gaps. Patched schemes keep a small main width and store outlier positions plus extra bits separately.',
+        'The decoder reverses a tiny contract: decode codes at the block width, restore exceptions if the format has them, then add the base or compute the prefix sum. Search systems design that contract around the query path because decoded integers often feed intersections, filters, joins, or vectorized scans immediately.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Encoding scans a block to compute the base, deltas, maximum code, and sometimes exception positions. Decoding is usually linear in the number of integers and optimized around shifts, masks, table lookups, or vector instructions. Random access inside a packed block is possible but less direct than plain arrays; many systems decode one block at a time because scans and intersections dominate.',
+        'Sorted or locally smooth sequences have lower entropy after differencing or base subtraction. Bit-packing then removes unused high bits while preserving exact reconstruction: add the base back, or take the running sum of deltas. Exceptions keep one large value from forcing the whole block to a wasteful width.',
+        'It also works with CPU architecture. Packed blocks use straight-line shifts and masks, often vectorized. The best implementations are designed so the decoder can run in tight loops with few unpredictable branches.',
       ],
     },
     {
-      heading: 'Complete case studies',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Apache Parquet uses encodings such as RLE/bit-packing and delta encodings inside data pages, because analytical columns often contain repeated dictionary ids, small deltas, or monotone-ish values. Lucene uses frame-of-reference-style packed integer blocks in codecs for postings and numeric data, where decode speed affects every search query. Gorilla-style time-series compression uses delta-of-delta timestamps because most samples arrive at regular intervals.',
-        'The FastPFOR and SIMD-BP128 line of work shows the performance target: compressed integer arrays can decode at billions of integers per second when the layout cooperates with modern CPUs. That matters for inverted indexes, OLAP scans, graph adjacency lists, and telemetry stores where memory bandwidth is often the bottleneck.',
+        'Encoding scans a block to compute bases, deltas, widths, and exceptions. Decoding is linear and tuned around shifts, masks, table lookups, or SIMD. Random access inside a packed block is less direct than a plain array, so many systems decode blocks because scans, filters, and intersections dominate.',
+        'Block size is a tradeoff. Larger blocks amortize metadata and improve compression when values are smooth, but one outlier has wider impact and random access gets coarser. Smaller blocks adapt to local changes but pay more headers and more loop overhead.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins',
       paragraphs: [
-        'Bit-packing is not always smaller. One outlier can raise the block width unless exceptions are handled. Delta coding also assumes useful locality or sorted order; random integers do not compress much. Another mistake is optimizing only compression ratio. A denser format that is slow to decode can make a query engine worse. Storage systems care about bytes, CPU, branch predictability, vectorization, skip support, and update granularity at the same time.',
+        'Parquet uses RLE/bit-packing and delta encodings inside data pages. Lucene uses packed integer blocks for postings and numeric data. Gorilla-style time-series compression uses delta-of-delta timestamps. FastPFOR and SIMD-BP128-style codecs target billions of decoded integers per second when memory bandwidth is the bottleneck.',
+        'Graph engines use the same idea for adjacency lists when node ids are sorted. Analytics systems use it for dictionary-encoded columns. Metrics systems use it for timestamps. The shared condition is local regularity: nearby values have small differences.',
+      ],
+    },
+    {
+      heading: 'Worked production example',
+      paragraphs: [
+        'A search index stores a postings list for the word "cache": document ids 1000, 1003, 1004, 1012, and many more. Storing every id as 32 bits wastes space because the ids are sorted and close together. The codec stores a base and small gaps or offsets instead.',
+        'At query time, the postings intersection loop decodes one block, compares doc ids with another postings list, and skips ahead when possible. The codec is successful only if this whole loop is faster or smaller, not merely if the compressed file is pretty.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Random integers across the full range do not compress much. One outlier can raise block width unless patched. A denser but branchy codec can slow the query engine. Storage systems care about bytes, CPU, branch predictability, vectorization, skip support, and update granularity together.',
+        'It also fails when updates are frequent and in-place mutation is required. Packed blocks are happiest as immutable or append-oriented data. Changing one value can require rewriting a block because the maximum width, exception list, or delta chain may change.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'For values 1000, 1003, 1004, 1012, and 1014, frame-of-reference stores base 1000 and offsets 0, 3, 4, 12, 14. The largest offset is 14, so four bits per value are enough. Five 32-bit integers become a base plus 20 packed bits in the toy version.',
+        'With delta coding, the same sequence becomes 1000, 3, 1, 8, 2. The decoder rebuilds by prefix sum. That is why sorted document ids and timestamps compress well: their gaps are usually much smaller than their absolute values.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Choose the unit of compression deliberately: page, block, posting-list chunk, time-series segment, or column batch. The block size controls metadata overhead, vectorization, random access, and how much damage one outlier can do.',
+        'Keep metadata close to the packed data: base value, count, bit width, exception count, exception positions, and any delta mode. A decoder should be able to skip or decode a block without consulting scattered side structures.',
+        'Benchmark the actual query path. Measure decode throughput, filter throughput, branch misses, cache behavior, and tail latency for representative data. The best ratio on a synthetic file may lose once the decoded integers feed joins or postings intersections.',
+      ],
+    },
+    {
+      heading: 'Rule of thumb',
+      paragraphs: [
+        'Use delta or frame-of-reference packing when nearby integers are much closer together than their absolute values suggest. Sorted ids, monotonically increasing timestamps, offsets, and dictionary codes are natural fits.',
+        'Switch to patched, variable, or plain encodings when local smoothness breaks. Compression should make the hot path simpler or cheaper. If it creates branchy exception handling on every query, it may be optimizing the wrong number.',
       ],
     },
     {

@@ -56,14 +56,14 @@ export function* run(input) {
   yield {
     state: show(tokens.map(embed), 'You are looking at the inside of a GPT'),
     highlight: {},
-    explanation: 'Every AI topic on this site has been a component of one machine. This is the machine: a TRANSFORMER BLOCK, walked end-to-end with real arithmetic. GPT-class models are nothing but this block, stacked ~30–100 times, with Tokenization (BPE) at the front door and Softmax & Temperature at the exit.',
+    explanation: 'This frame shows the contract of a Transformer block: a token-by-dimension matrix goes in, the same shape comes out, and the block can be stacked many times. Tokenization creates the rows; the final model head later turns the last rows into next-token probabilities.',
   };
 
   const X = tokens.map(embed);
   yield {
     state: show(X, 'Input: embeddings + position'),
     highlight: { active: rows.map((r) => r.id) },
-    explanation: 'Step 1 — tokens become vectors (see Embeddings & Similarity), with a small POSITION signal mixed in (note d0 grows slightly down the rows): attention is order-blind, so word order must be injected into the numbers themselves. Real models use thousands of dimensions; we use 4 so you can read every number.',
+    explanation: 'Tokens first become vectors, then a small position signal is mixed in. Attention is order-blind without this signal, so the visible drift down the rows is what lets the block distinguish the same word in different places.',
   };
 
   const Q = matMul(X, Wq);
@@ -75,7 +75,7 @@ export function* run(input) {
   yield {
     state: show(attnOut, 'Sublayer 1: attention output'),
     highlight: {},
-    explanation: 'Step 2 — ATTENTION: queries meet keys, softmax makes weights, values get mixed (the full unfolding is the Attention Mechanism topic). Result: each token\'s vector now contains information from the OTHER tokens — "sat" knows about "cat". This is the only place in the block where tokens communicate.',
+    explanation: 'Attention is the communication step. Queries compare with keys, softmax turns scores into weights, and values are mixed so each row can carry information from other rows. This is the only sublayer where tokens directly exchange context.',
   };
 
   const res1 = addM(X, attnOut);
@@ -83,7 +83,7 @@ export function* run(input) {
   yield {
     state: show(norm1, 'Add & Norm: x + attention(x), then LayerNorm'),
     highlight: {},
-    explanation: 'Step 3 — the unsung heroes. RESIDUAL: the attention output is ADDED to the original input, not substituted — so the original signal always survives, and gradients flow backward through the addition untouched (the fix for vanishing gradients at depth — see Backpropagation). LAYERNORM: each row is rescaled to mean 0, variance 1, keeping a hundred stacked layers numerically sane.',
+    explanation: 'The residual addition keeps the original row available instead of replacing it with attention output. LayerNorm then rescales each row, preserving the invariant that deep stacks keep a controlled activation scale.',
     invariant: 'After LayerNorm every token row has mean ≈ 0 and variance ≈ 1.',
   };
 
@@ -91,63 +91,99 @@ export function* run(input) {
   yield {
     state: show(ffnOut, 'Sublayer 2: feed-forward output'),
     highlight: {},
-    explanation: 'Step 4 — the FFN: each token, INDEPENDENTLY, through a two-layer network with a ReLU bend (exactly the Neural Network Forward Pass, and the layer that Mixture of Experts (MoE) replaces with routed experts). Attention gathered the context; the FFN now processes it. Two-thirds of a Transformer\'s parameters live here.',
+    explanation: 'The feed-forward network processes each row independently after attention has gathered context. It changes features within a token representation, while the row-to-row information flow has already happened.',
   };
 
   const out = layerNorm(addM(norm1, ffnOut));
   yield {
     state: show(out, 'Block output: ready for the next block'),
     highlight: { found: rows.map((r) => r.id) },
-    explanation: 'Step 5 — add & norm once more, and the block is done: same shape out as in (tokens × dimensions), which is exactly what makes blocks STACKABLE. Each pass enriches every token\'s vector with more context, more abstraction.',
+    explanation: 'The second add-and-normalize step returns the same token-by-dimension shape. That shape invariant is why the next block can consume the output without a special adapter.',
   };
 
   yield {
     state: show(out, 'attention → add&norm → FFN → add&norm, times 100'),
     highlight: {},
-    explanation: 'Now zoom out: stack this block ~32 times (a 7B model) to ~100 (frontier models), put Tokenization (BPE) before block 1, and after the last block project to vocabulary scores and sample with Softmax & Temperature — served fast by the KV Cache, decoded by Speculative Decoding, compressed by Quantization, adapted by LoRA Fine-Tuning. You have now walked every load-bearing idea of the architecture behind modern AI — and each one has its own page here when you want to go deeper.',
+    explanation: 'A language model repeats this block many times, then projects the final vectors to vocabulary scores. Serving work such as KV cache, speculative decoding, quantization, and adapters optimizes this same repeated block rather than changing its basic contract.',
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this block exists`,
       paragraphs: [
-        `A Transformer block is the repeating unit inside GPT-style language models, BERT-style encoders, Vision Transformers, and many speech and multimodal systems. Vaswani et al. introduced the original encoder-decoder Transformer in 2017; later GPT models kept the decoder-style block and stacked it deeply. Each block takes a matrix shaped tokens by dimensions, lets tokens communicate through attention, applies a per-token feed-forward network, and returns the same shape so another block can consume it.`,
-        `The block is a compact assembly line. Tokenization (BPE) creates token IDs, Embeddings & Similarity maps them into vectors, Attention Mechanism moves information between positions, Multi-Head Attention gives multiple relationship channels, BatchNorm & LayerNorm-style normalization keeps activations usable, and Neural Network Forward Pass explains the feed-forward sublayer. At the very end of the whole model, Softmax & Temperature turns final logits into a next-token distribution. The block itself is not the whole model, but it is the load-bearing unit.`,
+        `A Transformer block exists because a language model needs two jobs at the same time. Each token must look at other tokens to gather context, and each token must transform its own internal features after that context arrives. A plain feed-forward network can transform features, but it cannot let the word "sat" read information from "cat." A plain attention layer can move information between positions, but it is not enough by itself to build deep, stable representations.`,
+        `The block is the repeatable unit that combines those jobs. It accepts a token-by-dimension matrix, applies attention, adds the original signal back, normalizes the result, applies a feed-forward network, adds and normalizes again, and returns the same shape. That same-shape contract is what lets GPT-style models stack dozens or hundreds of blocks without redesigning the interface between layers.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The tempting wrong model`,
       paragraphs: [
-        `The common decoder block has two sublayers. First, attention forms Q, K, and V, applies a causal mask when generating text, normalizes scores with softmax, and mixes values so each token receives context from earlier tokens. Second, the feed-forward network applies the same small MLP to each token independently, often expanding the hidden width by about 4x before projecting back down. Attention is where tokens communicate; the feed-forward layer is where each token's updated representation is transformed.`,
-        `Residual connections wrap both sublayers: x becomes x + sublayer(x). Normalization appears either before each sublayer (pre-norm, common in modern LLMs) or after it (post-norm, used in the original paper). The residual path preserves a clean gradient route through depth, while normalization prevents activation scale from drifting. This is why a 32-layer 7B model or a 96-layer GPT-3-scale model can train at all.`,
+        `The obvious design is to turn every token into a vector, run one big neural network over the sequence, and hope the network learns the rest. That fails in two ways. If the network treats positions independently, no token can use context from another token. If the network fully mixes every token with every other token through dense layers, the parameter count depends directly on the maximum sequence length, which makes variable-length text awkward and expensive.`,
+        `The Transformer block splits the problem. Attention handles token-to-token communication with shared matrices that work for many sequence lengths. The feed-forward sublayer handles per-token feature transformation. Residual paths and normalization make the result trainable at depth. The design is modular rather than one giant undifferentiated operation.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The core contract`,
       paragraphs: [
-        `For sequence length n and model width d, attention prefill is O(n^2 d) and the feed-forward network is O(n d d_ff). With d_ff often near 4d, the FFN holds a large share of parameters, while attention becomes dominant as n grows. A 4,096-token sequence creates 16.8 million query-key scores per head per layer before batching. LayerNorm is O(n d), comparatively small but latency-relevant because it touches memory. During decoding, the KV Cache removes repeated K/V projection work for old tokens, yet every new token still attends over the cached context.`,
+        `The input to the block is a matrix X with one row per token and one column per hidden dimension. The output has the same shape. Inside the block, each row changes because it has absorbed information from other rows and passed through learned feature transforms. Outside the block, the next layer does not need to know how that happened. It only sees another token-by-dimension matrix.`,
+        `That contract is the reason the block is a data-structure idea as much as a neural-network idea. The representation has a stable shape, the operations preserve that shape, and the stack can be extended by repeating the same interface. The model becomes a pipeline of compatible state transformations.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `The attention sublayer`,
       paragraphs: [
-        `The same block pattern appears across model families. BERT uses bidirectional encoder blocks for understanding tasks. GPT and Llama use causal decoder blocks for next-token prediction. T5 uses encoder and decoder stacks. Vision Transformer splits an image into patches and sends patch embeddings through blocks. Whisper-like speech models use Transformer blocks over audio features. The surrounding training objective changes, but the repeated unit remains recognizable: attention, residual path, normalization, feed-forward network, residual path, normalization.`,
-        `Production optimization also targets this block. Kernel fusion reduces memory traffic around normalization and projections. Quantized weights reduce bandwidth. Low-rank adapters add small trainable matrices beside the frozen block. Serving systems batch many users through the same block while carefully paging each user's KV cache.`,
+        `Attention is the communication step. The block projects X into queries, keys, and values. A query asks what this token wants. A key advertises what another token contains. A value carries the information to mix in if the score is high. Dot products between queries and keys create scores, softmax turns those scores into weights, and the weighted values become the attention output.`,
+        `In a decoder model, a causal mask prevents a token from reading future tokens during training and generation. During inference, keys and values for old tokens are stored in a KV cache so the model does not recompute them on every new token. The mathematical sublayer is simple; the serving version becomes a memory-layout and scheduling problem.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Residuals and normalization`,
       paragraphs: [
-        `A block is not a brain cell, a database row, or a search engine. It is a differentiable function with learned matrices. Attention is weighted aggregation, not symbolic retrieval. The FFN is not optional glue; in many language models it contains most parameters. Normalization does not magically solve all depth problems; poor initialization, bad learning rates, and numerical precision can still destabilize training. And "more blocks" is not free: latency, memory, optimizer state, and data requirements all rise with depth.`,
-        `Another misconception is that inference runs the same graph as training. The math is equivalent, but serving a causal decoder uses cached keys and values, paged memory, batched requests, and sometimes different precision. Those engineering choices change speed and memory without changing the learned weights.`,
+        `A residual connection adds the input of a sublayer back to its output. Instead of replacing X with attention(X), the block uses X plus attention(X). This gives gradients a shorter route through many layers and lets the model refine a representation rather than rebuild it from scratch at every step. If attention is unhelpful for a token, the residual path still carries the old information forward.`,
+        `Layer normalization keeps each token row on a controlled scale. Without normalization, small scale errors can grow across deep stacks and make training unstable. Modern decoder models often use pre-norm, where normalization happens before each sublayer, while older descriptions often show post-norm, where normalization follows the residual addition. Both serve the same broad purpose: keep deep repeated blocks numerically usable.`,
+      ],
+    },
+    {
+      heading: `The feed-forward sublayer`,
+      paragraphs: [
+        `After attention has moved context between tokens, the feed-forward network transforms each row independently. It is usually a small multilayer perceptron applied with the same weights at every position. In many LLMs it expands the hidden width, applies a nonlinearity or gated activation, and projects back to the model width. This is where a token's mixed context becomes richer features.`,
+        `The feed-forward sublayer is not minor glue. It often contains a large share of the parameters and compute in a Transformer layer. Attention decides what other positions should be consulted. The feed-forward network decides what to do with the resulting representation at each position.`,
+      ],
+    },
+    {
+      heading: `What the visual proves`,
+      paragraphs: [
+        `The visual keeps the same token rows visible across the whole block. That is the proof. Embeddings start as token vectors. Attention changes each row by mixing information from other rows. Add-and-normalize keeps the old signal and stabilizes the scale. The feed-forward step changes features inside each row. The final add-and-normalize returns a matrix with the same shape as the input.`,
+        `The important distinction is row communication versus row transformation. Attention is the only sublayer in this toy block where rows directly exchange information. The feed-forward network is row-local. Once you can see that split, many Transformer variations become easier to classify: they either change how tokens communicate, how rows are transformed, or how the repeated stack is stabilized.`,
+      ],
+    },
+    {
+      heading: `Costs and tradeoffs`,
+      paragraphs: [
+        `For sequence length n and model width d, attention prefill costs about O(n^2 d) because every token can score every other token. The feed-forward network costs about O(n d d_ff), where d_ff is often several times wider than d. At short context lengths, dense projections and the feed-forward layer may dominate. At long context lengths, the quadratic attention term and KV cache memory become central.`,
+        `The block also has training cost that is easy to miss. Optimizer state multiplies parameter memory. Activations must be saved or recomputed for backpropagation. LayerNorm and residual additions look cheap in arithmetic, but they touch memory and can affect latency. Production systems therefore optimize the block with fused kernels, quantization, attention kernels, tensor parallelism, and cache-aware scheduling rather than only changing the high-level formula.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Transformer blocks win when the task benefits from flexible context. Language needs pronouns, syntax, topic, style, and long-range dependencies. Code needs variable names, scopes, imports, and tests. Vision Transformers use patch tokens instead of word tokens. Speech models use audio frames. The same block pattern works because the input is represented as a sequence of vectors and the block learns how positions should influence each other.`,
+        `The design also wins operationally because it is regular. Large matrix multiplications map well to GPUs and accelerators. Blocks can be stacked, sharded, quantized, adapted with LoRA, and served with KV caching. Most LLM infrastructure work is about making this repeated block cheaper, faster, or easier to route.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `A Transformer block is not symbolic reasoning, a database, or a search engine. Attention is weighted aggregation over learned vectors. It can retrieve a useful signal from context, but it does not prove facts or enforce program semantics by itself. The feed-forward layer can store and transform patterns, but it is still a learned function with finite capacity and training bias.`,
+        `More blocks are not free. Extra depth raises latency, memory, optimizer state, and data requirements. Poor initialization, bad learning rates, small numerical precision margins, or weak normalization choices can still destabilize training. During serving, long contexts can exhaust KV memory even when the weights fit. The block is powerful because it is reusable, not because it removes engineering limits.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Attention Mechanism and Multi-Head Attention for the communication sublayer. Use Neural Network Forward Pass for the per-token FFN. Read BatchNorm & LayerNorm to understand why modern blocks prefer layer-style normalization over batch statistics. Then read KV Cache to see why decoding speed is mostly an inference-systems problem. FNet Fourier Token Mixing Case Study shows how the block changes when attention is replaced by a fixed Fourier sublayer. Perceiver IO Latent Array Bottleneck shows how transformer blocks can operate over a fixed latent memory instead of the full raw input. Finally, revisit Softmax & Temperature, because the model's last block is only useful after logits become a distribution.`,
+        `Study Tokenization (BPE), Embeddings & Similarity, Attention Mechanism, and Multi-Head Attention first. Then read BatchNorm & LayerNorm for the stabilizers, Neural Network Forward Pass for the feed-forward sublayer, Softmax & Temperature for the final distribution, and KV Cache for the serving path. Transformer Layer FLOPs Cost Model, Transformer Inference Roofline, Prefix Caching & RadixAttention, and Grouped-Query Attention show how this same block becomes a production systems problem.`,
       ],
     },
   ],

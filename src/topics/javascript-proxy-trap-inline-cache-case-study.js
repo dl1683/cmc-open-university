@@ -181,31 +181,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'What a Proxy actually changes',
       paragraphs: [
-        'A JavaScript Proxy virtualizes another object. The proxy has a target and a handler. The handler defines traps for fundamental operations such as get, set, has, apply, construct, ownKeys, and defineProperty.',
-        'The data structure is an interposition node. Every operation flows through the proxy, then either custom trap code answers it or Reflect forwards it to the target with ordinary semantics.',
+        'A JavaScript Proxy changes the path an object operation takes. Instead of a property read, write, function call, construction, enumeration, or descriptor operation going straight to the target object, it first reaches a handler. The handler can intercept that operation through traps such as get, set, has, apply, construct, ownKeys, and defineProperty.',
+        'That makes Proxy an interposition primitive. It is not just a nicer getter or setter. It can stand in front of the object protocol itself. The target still exists, but the caller no longer talks to it directly.',
+        'This is powerful at boundaries: logging, validation, compatibility shims, lazy objects, access control, membranes, and test doubles. It is also dangerous as a default data model because it makes ordinary object operations run user code.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and its wall',
+      paragraphs: [
+        'The obvious way to add policy is to wrap methods manually: create a facade with functions that validate, log, or forward. That works when the API is explicit and small.',
+        'The wall is that JavaScript object behavior is not limited to method calls. Code can read a property, assign a property, use `in`, enumerate keys, call a function, construct with `new`, inspect descriptors, or interact with the prototype chain. A method wrapper does not see all of those operations.',
+        'Proxy solves the coverage problem by interposing at the protocol layer. The price is that the engine must treat the operation as potentially arbitrary. A property read on a proxy can allocate, throw, mutate unrelated objects, call back into the same proxy, or synthesize a value that never existed on the target.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the trap-path view, follow the operation from call site to proxy to handler. The important fact is that `obj.x` no longer means "load a slot from this object." It means "ask the proxy handler what this property read should do."',
+        'When Reflect appears, read it as deliberate forwarding. A trap can enforce policy, log access, or transform arguments, then use Reflect.get, Reflect.set, or another Reflect method to preserve the ordinary object operation. Reflect keeps the trap from hand-implementing the language semantics poorly.',
+        'In the engine-cost view, compare the proxy path with the shape and inline-cache path. Plain objects give the engine stable structure. Proxies replace that predictable structure with user-code dispatch, which is exactly the feature and exactly the cost.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For obj.x, if obj is a proxy and the handler defines get, the engine calls the trap with target, property, and receiver. The trap can return a synthetic value, enforce policy, or call Reflect.get. Required invariants are checked against the target.',
-        'This interposition changes performance expectations. Ordinary objects can benefit from hidden classes, property descriptors, and inline caches. A proxy trap can run arbitrary JavaScript, so hot proxy access often loses the predictability that engines need for fast paths.',
+        'For `proxy.x`, the engine checks whether the handler defines a get trap. If it does, the trap receives the target, property key, and receiver. The trap can return a synthetic value, deny access, lazily compute a value, or forward with Reflect.get.',
+        'For `proxy.x = value`, the set trap can validate, redirect, or reject the write. For function proxies, apply and construct traps intercept calls and `new`. For enumeration and reflection, ownKeys and getOwnPropertyDescriptor participate.',
+        'The language still enforces invariants. A trap cannot pretend a non-configurable property vanished, report impossible descriptors, or violate non-extensible object constraints. Proxy virtualizes behavior, but it does not erase the object model underneath.',
+        'That invariant enforcement is why Reflect is common in serious proxy code. It delegates the ordinary operation back to the engine after the handler has made its policy decision. Hand-written forwarding often gets receiver binding, accessors, prototypes, or descriptor rules wrong.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'A plugin API exposes a project object through a membrane. The membrane proxies every reachable object, blocks writes outside the plugin sandbox, logs path reads, and can revoke access. The proxy overhead is acceptable because this is a trust boundary.',
-        'The same proxy wrapped around every row in a large table is a different story. A render loop reading row.name thousands of times now pays trap overhead and may defeat inline-cache assumptions. The correct structure there is plain data plus explicit validation at the boundary.',
+        'Proxy moves the decision point from object layout to operation dispatch. A normal property load can be optimized around a known hidden class and offset. A proxied load must ask the handler what the operation means.',
+        'That is the whole trade. It enables membranes because every read, write, and call can pass through policy. It hurts hot paths because the engine loses the stable assumptions that make inline caches fast.',
+        'Reflect is the controlled path back to normal semantics. It lets a trap say: "run my policy first, then perform the operation the language would have performed." But Reflect is not a bypass for correctness. Bad receiver handling or recursive forwarding can still create loops.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Proxy is not a free way to make every object magical. It is a boundary tool. It also does not let you violate core object invariants. A handler that lies about non-configurable or non-extensible properties can throw.',
-        'Reflect does not remove proxy behavior. If Reflect is called on a proxy from inside a trap, it can route back through traps and recurse if the handler is not written carefully.',
+        'A plugin host exposes a project object to untrusted plugins. The host wraps the object in a membrane. Reads are allowed, writes to protected paths are rejected, functions are wrapped so arguments and return values stay inside the membrane, and access can be revoked when the plugin unloads.',
+        'In that case the proxy cost is justified because the boundary is the product. The host wants interposition more than raw property speed.',
+        'Now put a proxy around every row in a 100,000-row table and render `row.name`, `row.status`, and `row.total` in a tight loop. The code may become much slower because every read runs through traps and the engine cannot treat the rows as plain stable objects. The better design is plain row data plus validation when data enters the table model.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Proxy wins when interposition is the point: plugin boundaries, security membranes, compatibility adapters, observability wrappers, lazy remote objects, deprecation warnings, test doubles, and schema guards at API edges.',
+        'It is also useful when you need to virtualize an object whose full property set is not known up front. The handler can synthesize values, hide implementation details, or bridge to another storage layer.',
+        'A good proxy design is explicit about the boundary it protects. If the boundary can be named, tested, and documented, Proxy may be the right primitive. If the goal is only convenience inside ordinary application data, plain objects plus normal functions are usually easier to optimize and debug.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Proxy fails when used as a blanket data model for hot code. Tight render loops, numeric data, array-heavy algorithms, stable domain objects, and frequently read table rows usually want plain structures that engines can optimize.',
+        'It also fails when handlers lie casually. Invariant violations can throw. Overly broad traps can hide real bugs. A default get trap that returns undefined for everything can make missing-property errors harder to find.',
+        'The rule of thumb is simple: use Proxy where the boundary has value. Do not use it just to make ordinary objects feel clever.',
+      ],
+    },
+    {
+      heading: 'Costs and debugging',
+      paragraphs: [
+        'The visible cost is runtime overhead. The less visible cost is debugging. Stack traces may point into handler code rather than the call site that looked like a normal property access. Logging every get trap can also create noise because ordinary libraries inspect objects more often than humans expect.',
+        'Proxies can also interact badly with identity assumptions. A membrane may wrap the same target multiple times unless it keeps a WeakMap from target to proxy. Without that cache, equality and object graph traversal become confusing.',
+        'There is also a maintenance cost. A proxy can make simple-looking code depend on hidden handler behavior. Teams should document proxy boundaries the same way they document network or security boundaries: what is intercepted, what is forwarded, what can throw, and what invariants callers may rely on.',
       ],
     },
     {

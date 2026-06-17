@@ -127,40 +127,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why imbalance matters`,
       paragraphs: [
-        `Imbalanced classification is the regime where one class overwhelms the other: fraud is 1% of transactions, defects are rare, and many diseases are absent in most screenings. In the demo, 1,000 card transactions contain 10 frauds and 990 legitimate payments. A do-nothing model approves everything and scores 99.0% accuracy. A useful model catches 6 of the 10 frauds, misses 4, and creates 20 false alarms; its accuracy is only 97.6%. Accuracy prefers the useless model because the majority class dominates the arithmetic.`,
+        `Imbalanced classification is the regime where one class is much more common than the other. Fraud may be 1 percent of card transactions, a manufacturing defect may appear in one part per thousand, and a disease may be absent in most screenings. The rare class is often the class that matters most. The model is not being built to admire the majority. It is being built to find the few cases that carry risk, cost, or intervention value.`,
+        `Imbalance matters because ordinary metrics can reward useless behavior. In a dataset with 1,000 transactions, 10 frauds, and 990 legitimate payments, a model that approves everything is 99 percent accurate. It catches zero fraud. A second model may catch 6 of the 10 frauds and create 20 false alarms, but its accuracy is 97.6 percent. Accuracy prefers the model that does nothing because the majority class dominates the count.`,
+        `The core lesson is that a metric is a question. Accuracy asks what fraction of all examples were classified correctly. In rare-event systems, that question is often too broad to be useful. Investigators care how many frauds were caught, how many alarms were false, and whether the review queue fits operational capacity. Doctors care about missed disease and unnecessary follow-up. Security teams care about analyst overload. The denominator determines the story.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The naive approach and its wall`,
       paragraphs: [
-        `The same counts tell different stories depending on the denominator. The useful model's recall is 6/10 = 60%. Its false-positive rate is 20/990 = 2.0%, which looks excellent on ROC Curves & AUC. But precision is 6/(6+20) = 23.1%, meaning about three out of four alarms are false. Now multiply legitimate traffic by ten while keeping the same 2% false-positive rate: false alarms rise to 200 and precision collapses to 6/206 = 2.9%. The ROC point does not move because FPR ignores prevalence; the precision-recall view changes immediately.`,
-        `The fixes all re-price mistakes. Class weights make a fraud error count about 99 times more than a legitimate error in the loss. Oversampling copies or synthesizes rare examples; undersampling discards many majority examples. The cheapest first move is often thresholding: Picking a Threshold with Real Costs shows that if a missed fraud costs 99 times a false alarm, the calibrated cutoff is around 0.01, not 0.5.`,
+        `The naive approach is to train a classifier, use the default threshold, and report accuracy. Default thresholds are often inherited from balanced classroom examples. A probability above 0.5 means positive; otherwise negative. But when the positive class is rare and the cost of missing it is high, 0.5 may be an absurd decision boundary. A fraud probability of 0.03 can be worth investigating if a missed fraud is expensive and a review is cheap.`,
+        `The second naive approach is to fix the data distribution by blindly oversampling the rare class. Copying fraud examples can help the learner notice them, but it can also teach the model to memorize repeated cases. Undersampling the majority class can balance the dataset but throws away evidence about normal behavior. Synthetic methods such as SMOTE can create helpful minority examples, but they can also invent examples that cross class boundaries or leak structure if used before splitting data.`,
+        `The wall is that imbalance is not just a training problem. It is an evaluation and deployment problem. A model can rank rare cases well but look bad under accuracy. A model can have a beautiful ROC point and still overwhelm investigators. A model can be improved by class weights but produce probabilities that no longer match real-world prevalence. Fixing imbalance requires aligning training, metrics, calibration, and thresholding with the actual decision.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core insight`,
       paragraphs: [
-        `Moving a threshold costs almost nothing and requires no retraining. Class weights require one retraining run. Oversampling increases the training set; undersampling throws data away; SMOTE adds synthetic examples and preprocessing complexity. The hidden cost is probability distortion: weighted and resampled models no longer see the real class distribution during training, so Calibration & Reliability Diagrams should be run on untouched validation data before anyone treats scores as probabilities. Operational cost matters too: a 23% precision fraud queue may be acceptable with automation and impossible with human investigators.`,
+        `Imbalance is a decision problem wearing a dataset shape. The rare class may be statistically small and operationally central. A model that ignores the minority can look strong under the wrong metric, while a useful model can look worse because it creates visible false alarms in order to catch rare positives.`,
+        `The clean way to reason about it is to keep three objects separate: the score distribution, the threshold or action policy, and the workflow that pays for errors. Changing class weights, resampling, and moving thresholds all re-price mistakes, but they do so at different points in the system.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `The denominator is the argument`,
       paragraphs: [
-        `Fraud detection, medical screening, cybersecurity alerts, rare manufacturing defects, churn rescue, abuse detection, and legal discovery all live here. Investigators care about alarm budgets, not just model elegance. Team capacity, not elegance, sets the limit. Precision, Recall & the Confusion Matrix gives the operational vocabulary. Cross-Validation & Honest Evaluation must usually be stratified or grouped so each fold contains enough rare positives to measure anything. Focal Loss & Hard Examples is a deep-learning response to the same problem: easy majority examples should not drown the gradient.`,
+        `Use the same confusion matrix and ask different denominator questions. Recall is TP / (TP + FN). Among real frauds, how many did the model catch? Precision is TP / (TP + FP). Among alarms, how many were real? False-positive rate is FP / (FP + TN). Among legitimate transactions, how many were falsely flagged? Accuracy is (TP + TN) / all examples. Each metric is correct for its own question and misleading for others.`,
+        `In the transaction example, the useful model catches 6 frauds, misses 4, creates 20 false alarms, and correctly passes 970 legitimate payments. Recall is 60 percent. False-positive rate is 20 / 990, about 2 percent. Precision is 6 / 26, about 23 percent. Those are not contradictions. They are different views of the same system. The ROC view says the false-positive fraction among negatives is low. The precision view says most alarms are false.`,
+        `Now scale the legitimate traffic to 9,900 while keeping fraud and false-positive rate behavior similar. A 2 percent false-positive rate creates about 200 false alarms. The ROC point may barely change, because false-positive rate still divides by all negatives. Precision collapses because the alarm queue now contains 6 true frauds and about 200 false alarms. This is why rare-positive teams often live on precision-recall curves and alert budgets rather than accuracy or ROC alone.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Mechanism`,
       paragraphs: [
-        `The phrase my model ignores the minority class often means the metric or threshold is wrong, not that learning failed. Check the confusion matrix before changing algorithms. Do not report accuracy alone. Do not trust ROC alone when positives are rare. Do not oversample before splitting; that creates Data Leakage & Contamination by putting duplicates or synthetic neighbors on both sides. Do not assume class weights solve deployment costs; the final threshold still has to match the real cost of false positives and false negatives.`,
+        `The mechanism is a feedback loop between counts and costs. The confusion matrix gives TP, FP, TN, and FN at one threshold. Metrics choose denominators for those counts. Training changes the score distribution. Thresholding chooses which scores become actions. Calibration decides whether scores can be interpreted as probabilities.`,
+        `For a rare-positive workflow, the most useful dashboard usually combines recall, precision, false-positive volume, alert budget, calibration, and slice performance. No single number can tell whether the model is learning, whether the threshold is sensible, and whether the downstream team can absorb the alarms.`,
+      ],
+    },
+    {
+      heading: `Fix 1: move the threshold`,
+      paragraphs: [
+        `The cheapest fix is often to leave the trained model alone and move the threshold. If the model produces calibrated probabilities, the cost-based threshold is tied to the relative cost of mistakes. If a false alarm costs 1 unit and a missed fraud costs 99 units, then suspicion well below 0.5 can justify action. A threshold near 0.01 may be rational. The default 0.5 threshold silently assumes false positives and false negatives have comparable cost under the modeled probability.`,
+        `Thresholding has practical advantages. It does not require retraining. It is reversible. It can be tuned per product surface, customer tier, geography, or review capacity. A fraud system may use a low threshold for automatic soft holds, a higher threshold for human review, and an even higher threshold for irreversible account action. The same score can feed multiple decisions.`,
+        `The danger is choosing the threshold on contaminated or unrepresentative data. The validation set must reflect deployment prevalence, and the threshold should be selected using the intended cost model or capacity constraint. If probabilities are not calibrated, a cost formula based on probability can be wrong. In that case, choose thresholds empirically from validation curves and calibrate before interpreting scores as risk.`,
+      ],
+    },
+    {
+      heading: `Fix 2: class weights and losses`,
+      paragraphs: [
+        `Class weighting changes training. Instead of letting the loss be dominated by easy majority examples, the learner gives more penalty to rare-class mistakes. In a 99-to-1 dataset, a balanced class-weight setting may make one fraud error count roughly like 99 legitimate errors. This can force the decision boundary to pay attention to rare examples that would otherwise contribute little to the total gradient.`,
+        `Weighted losses are useful when the model truly is not learning the minority signal. They are common in logistic regression, tree ensembles, neural networks, and many library defaults. Focal loss is a related idea used in deep learning: it downweights easy examples and focuses training on hard or misclassified cases. Both approaches address the same failure mode, where abundant easy negatives drown the signal from rare positives.`,
+        `The tradeoff is probability distortion. If the training objective pretends fraud is much more common or much more costly than it is, the raw model scores may no longer be calibrated to real prevalence. That can be fine if the score is only used for ranking, but it is dangerous if downstream systems interpret the score as probability. After class weighting, evaluate ranking, choose thresholds on untouched validation data, and run calibration checks before exposing probability-like scores.`,
+      ],
+    },
+    {
+      heading: `Fix 3: resampling`,
+      paragraphs: [
+        `Resampling changes the examples the learner sees. Oversampling repeats rare examples or synthesizes new ones so the model receives more minority-class signal. Undersampling keeps the rare examples and discards many majority examples so the class ratio becomes less extreme. Hybrid methods combine both. These methods can be effective, especially for learners that are sensitive to class frequency.`,
+        `Oversampling is not free. If the rare class has only a few examples, copying them many times can produce memorization. Synthetic methods can help by interpolating between minority neighbors, but they assume the local geometry is meaningful. In high-dimensional sparse spaces, or near class boundaries, synthetic points can be unrealistic. Undersampling can reduce training cost and rebalance the task, but it discards information about the majority class and may remove rare but important negative patterns.`,
+        `The most important rule is to split before resampling. If duplicates or synthetic neighbors appear in both training and validation sets, evaluation is contaminated. The model is being tested on near-copies of what it saw during training. Resampling belongs inside the training fold of cross-validation, never across the full dataset before the split.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `Threshold movement works because the deployed decision boundary is not forced to be 0.5. If missing a positive is much more expensive than checking a false alarm, the rational threshold can be far lower. This is often the cheapest improvement because it uses the ranking signal the model already learned.`,
+        `Class weights and resampling work when the learner was underexposed to rare-positive mistakes during training. They change the optimization pressure so the model spends capacity on the minority class. They should be validated carefully because the same intervention that improves recall can distort probability meaning or increase false positives beyond the workflow budget.`,
+      ],
+    },
+    {
+      heading: `Evaluation signals`,
+      paragraphs: [
+        `Start with the confusion matrix at the intended operating threshold. Then report recall, precision, false-positive rate, false-negative rate, and the number of alerts per day or per million examples. Counts matter. A 1 percent false-positive rate means something very different at 1,000 examples than at 100 million examples. Operational teams need volumes, not just rates.`,
+        `Use precision-recall curves when positives are rare. Precision-recall focuses on the positive class and the alert queue. ROC and AUC are still useful for ranking comparison, but they should not be the only evidence. Report AUC-PR or average precision alongside ROC AUC, and include precision at fixed recall or recall at fixed alert budget when the product has a real constraint.`,
+        `Use stratified or grouped validation so every split contains enough rare positives and avoids leakage between related examples. Fraud, medical, and security datasets often contain repeated users, families, merchants, devices, or incidents. If related examples cross train and test boundaries, the measured rare-class performance can be far too optimistic. Also report uncertainty. With only a handful of positives, one extra true positive can move recall dramatically.`,
+      ],
+    },
+    {
+      heading: `Where it is used and where it fails`,
+      paragraphs: [
+        `Imbalanced classification appears in fraud detection, medical screening, cybersecurity alerting, rare manufacturing defects, churn rescue, abuse detection, content safety, predictive maintenance, and legal discovery. In each case, the rare class is attached to a workflow. A fraud alert may create a review task. A medical positive may create follow-up testing. A security alert may wake an analyst. The model is only useful if the workflow can absorb its errors.`,
+        `The approach fails when teams optimize the metric that is easiest to improve rather than the decision that matters. Accuracy can be meaningless. ROC can hide alert volume. Oversampling can leak. Class weighting can damage calibration. Thresholds can be tuned to a validation set that does not match deployment. Another common failure is ignoring slices: the model may catch common fraud patterns while missing a new merchant category, region, or attack type.`,
+        `Imbalance is also not a license to chase the rare class at any cost. False positives have real costs. A cancer screening test that produces too many false positives can cause harm. A fraud model that blocks too many legitimate transactions can damage trust and revenue. The right system prices both sides honestly and makes those prices visible.`,
+      ],
+    },
+    {
+      heading: `Case study: fraud review queue`,
+      paragraphs: [
+        `A payments team receives 100,000 transactions per day, with fraud around 0.5 percent. The model scores every transaction. At the old threshold, the team reviews 300 alerts per day, catches 180 frauds, and wastes 120 reviews. A new model has higher ROC AUC, but at the same alert volume it catches only 175 frauds because its gain is in a threshold region the team cannot use. Another model has similar AUC but better precision among the top 300 alerts, so it is the better deployment candidate.`,
+        `The team evaluates several operating points. Automatic declines require very high precision because false positives are painful. Human review can tolerate lower precision but is capacity-limited. Passive monitoring can use lower thresholds because the action is cheap. The final system does not have one magic threshold. It has a score, calibrated risk bands, action-specific thresholds, review-capacity monitoring, and drift checks for new fraud patterns.`,
+        `This case shows why imbalance work is broader than algorithm choice. The model, threshold, calibration, queue size, and cost model all interact. The rare class is not merely a statistical inconvenience. It is the reason the system exists.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Precision, Recall & the Confusion Matrix first, then ROC Curves & AUC to understand why ROC can flatter rare-event models. Use Picking a Threshold with Real Costs to deploy the score, Calibration & Reliability Diagrams to repair probability meaning, and Focal Loss & Hard Examples when neural training itself is dominated by easy negatives.`,
+        `Study precision, recall, and the confusion matrix first, because every imbalance discussion depends on those counts. Then study ROC curves and AUC to understand ranking, and precision-recall curves to understand rare-event alert quality. Study threshold selection with real costs before changing algorithms. Study calibration and reliability diagrams if any downstream system treats scores as probabilities.`,
+        `For training methods, study class-weighted logistic regression, cost-sensitive learning, focal loss, hard-example mining, SMOTE, and stratified cross-validation. For production systems, study drift monitoring, alert-budget evaluation, human-in-the-loop review, and data leakage. The durable habit is simple: name the base rate, name the cost of each error, choose metrics with the right denominators, and validate on data that looks like deployment.`,
       ],
     },
   ],

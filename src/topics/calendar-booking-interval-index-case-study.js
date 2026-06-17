@@ -216,43 +216,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why scheduling is an interval-index problem',
       paragraphs: [
-        'A calendar booking interval index is the production version of the interval-tree problem. Every event, hold, maintenance block, room reservation, or out-of-office marker becomes a time interval. The central question is whether a proposed interval overlaps anything already busy.',
-        'This case study builds on Interval Tree, Segment Tree, and Cloudflare Durable Objects Case Study. The data-structure part finds overlaps quickly; the systems part prevents two clients from booking the same resource after both observe a stale free slot.',
+        'Scheduling looks simple until the system has to prevent two clients from booking the same room, expand recurring meetings across daylight saving time, hide private event details, and still answer free/busy queries quickly.',
+        'The core data question is narrow: does this proposed interval overlap any existing busy interval for the same resource? If the answer is yes, reject or propose another slot. If the answer is no, the system may proceed to reservation, but only with a consistency boundary around the write.',
+        'That makes calendar booking a practical interval-index problem wrapped in product rules, privacy rules, and transaction rules.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to scan every event on the calendar and check overlap. That works for a personal calendar with a handful of events. It does not scale well to busy conference rooms, appointment systems, shared equipment, or assistants searching many calendars.',
+        'A second shallow approach is worse: read free/busy once and treat "free" as a reservation. Two users can both observe the room as free and then both insert conflicting bookings. Availability is not a lock.',
+        'The first wall is semantics. Calendars need a precise interval convention, usually half-open `[start, end)`, so a meeting ending at 11:00 and another starting at 11:00 can coexist. The second wall is consistency. The overlap check and insert must be serialized for the resource being booked.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Model every busy object as a half-open interval over comparable instants. For one resource, an interval tree, segment tree, database range index, or ordered interval table can reject conflicts quickly.',
+        'For multiple calendars, collect busy intervals, merge their union, invert the union inside the requested search window, and rank the gaps. That gives candidate slots. It does not reserve them.',
+        'The final booking step must recheck the resource and insert atomically. The interval index answers "what overlaps?" The transaction boundary answers "can anyone else sneak in between check and insert?"',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the single-resource view, follow the request into the interval index. The conflict node represents the overlap predicate: `start < busyEnd && busyStart < end`. If that predicate is true for any busy interval, the request cannot be accepted for that resource.',
+        'The transaction node is not decoration. It is the boundary that prevents two clients from both seeing a slot as free and both inserting. The animation separates lookup from reservation because production systems must separate those ideas.',
+        'In the free/busy aggregation view, watch many private calendars collapse into busy intervals, then into merged gaps. The system does not need event titles to find availability. It needs time ranges, privacy boundaries, and a final atomic booking step.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Normalize every event into a comparable instant range, usually UTC instants plus the original time-zone metadata for display. Use half-open intervals [start, end). Two intervals overlap when startA < endB and startB < endA. With half-open semantics, a meeting ending at 11:00 and another starting at 11:00 do not conflict.',
-        'For one resource, an interval tree can answer "does this proposed booking overlap an existing busy interval?" in logarithmic time for the first overlap and O(log n + k) for all overlaps. For many people and rooms, free/busy aggregation fetches or computes busy intervals per calendar, unions them, and inverts the union inside the requested scheduling window to produce candidate gaps.',
-        'Recurring events are not stored as infinite intervals. A scheduler expands recurrence rules over a bounded query horizon, applies exceptions and overrides, and then indexes concrete instances. This keeps query work finite and makes daylight-saving-time edge cases explicit rather than hidden in a comparison function.',
+        'Normalize every event into comparable instants while preserving original time-zone metadata for display and recurrence interpretation. The overlap rule for half-open intervals is `startA < endB && startB < endA`.',
+        'Recurring events are expanded over a bounded query horizon. Exceptions remove instances. Overrides replace instances. Only concrete intervals inside the relevant window enter the overlap query.',
+        'For a single resource, the booking service queries overlaps. If none exist, it inserts the new busy interval inside the same serialized operation. The serialization can come from a database transaction with range constraints, a single resource owner, a durable object, or another concurrency-control mechanism.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'The clean data-structure cost is modest: O(log n) overlap checks per resource and O(m log m) merging for m busy intervals across calendars. The real cost is correctness at the boundary. Checking availability and inserting a booking must be one serialized operation. Otherwise two clients can both read "free" and then both write conflicting events.',
-        'A production scheduler also needs idempotency keys for retries, outbox-style notification publishing, cancellation semantics, provisional holds, visibility rules, room capacity filters, working-hours constraints, and time-zone display rules. The interval tree answers overlap; it does not own the whole product.',
+        'It works because scheduling conflicts reduce to interval overlap once time is normalized and recurrence is materialized for the query window. Half-open intervals make boundary behavior predictable: adjacent meetings do not overlap; real intersections do.',
+        'It works in production only when the read path and write path are separated correctly. Free/busy can propose candidates. Booking must recheck and commit atomically.',
+        'The privacy model also works because free/busy answers do not need event contents. A scheduler can know that Alice is busy from 10:00 to 10:30 without knowing why.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A room has bookings `[9:00,10:00)` and `[10:00,11:00)`. A request for `[10:30,11:00)` conflicts because `10:30 < 11:00` and `10:00 < 11:00`. A request for `[11:00,11:30)` is adjacent, not overlapping, and can be accepted if no other interval conflicts.',
+        'For a group meeting, Alice is busy `[9:30,10:00)`, Bob is busy `[10:00,10:30)`, and the room is busy `[11:00,12:00)`. The aggregator merges those busy intervals inside the search window, then offers gaps such as `[10:30,11:00)`. When the user chooses that slot, the room booking still rechecks before insert.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The clean data-structure cost is modest. An interval tree can answer overlap queries in O(log n + k), where k is the number of reported overlaps. Merging m busy intervals for free/busy search is typically O(m log m) after sorting.',
+        'The hard cost is system correctness. A scheduler needs idempotency keys, retry handling, outbox-style notifications, cancellation semantics, provisional holds, privacy rules, room capacity filters, working hours, travel buffers, and time-zone display rules.',
+        'Time zones are a serious source of bugs. A recurring 9 AM meeting is not just a sequence of UTC timestamps if daylight saving rules change. Recurrence should be interpreted in the intended calendar time zone, then expanded into concrete instants for comparison.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Interval indexing wins for rooms, equipment, appointment slots, doctor schedules, maintenance windows, on-call rotations, classroom allocation, livestream booking, and any resource that cannot be double-booked.',
+        'Free/busy aggregation wins when many calendars need to be searched without leaking full event details. It is enough to expose busy ranges, not titles, attendees, notes, or locations.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails if availability is treated as a lock. A free result can become stale before insertion. Only the atomic booking step can prevent double booking.',
+        'It fails if recurrence rules are compared as rules instead of expanded into concrete instances inside a bounded horizon. It also fails if zero-length, all-day, floating-time, or daylight-saving cases are left implicit.',
+        'It fails socially and legally if full event details are exposed when busy intervals would be enough. Privacy-preserving free/busy is a product requirement, not an optional optimization.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'A meeting assistant receives a request for Alice, Bob, and Room 12 between 10:00 and 14:00. It asks each calendar for busy intervals, merges the intervals, and finds candidate gaps. It ranks gaps by working hours and room capacity, then proposes 11:30-12:00. When the user confirms, the room booking service rechecks Room 12 inside a transaction or single resource owner and inserts the reservation only if the interval is still free.',
-        'If recurrence is involved, the assistant expands Alice\'s weekly standup, removes holiday exceptions, applies moved occurrences, and only includes concrete busy intervals that intersect the query window. The final free/busy response can hide titles and attendees while still exposing enough interval information to schedule safely.',
+        'A meeting assistant receives a request for Alice, Bob, and Room 12 between 10:00 and 14:00. It asks each calendar for busy intervals, merges them, and finds candidate gaps. It ranks gaps by working hours, room capacity, and time zones, then proposes 11:30-12:00.',
+        'When the user confirms, the room booking service rechecks Room 12 inside a transaction or single resource owner and inserts only if the interval is still free. Notifications are published through an outbox so booking and invite delivery do not diverge.',
+        'If that final write fails, the assistant should return to search instead of pretending the earlier free/busy result was a reservation.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'The first trap is treating the availability result as a reservation. Free/busy is a read. Booking is a write. They need different consistency guarantees. The second trap is ambiguous interval boundaries. Closed intervals make back-to-back events look like conflicts; half-open intervals avoid that. The third trap is ignoring recurrence and daylight saving time. A weekly 9 AM meeting is a local-time rule, not a fixed UTC offset forever.',
-        'Another mistake is exposing full event details when free/busy intervals are enough. Scheduling usually needs busy ranges, not titles, participants, or descriptions. Privacy-preserving free/busy views are a product and compliance feature, not just an API convenience.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: RFC 5545 iCalendar at https://datatracker.ietf.org/doc/html/rfc5545, Google Calendar Freebusy query at https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query, RFC 7953 Calendar Availability at https://datatracker.ietf.org/doc/html/rfc7953, and CalDAV free-busy query semantics at https://icalendar.org/CalDAV-Access-RFC-4791/7-10-caldav-free-busy-query-report.html. Study Interval Tree, Segment Tree & Lazy Propagation, Idempotency, Transactional Outbox, and Cloudflare Durable Objects Case Study next.',
       ],

@@ -15,12 +15,12 @@ export const topic = {
 
 export function* run(input) {
   const values = parseNumberList(input.values, { max: 8 });
-  const stack = []; // index 0 = top, matching how the renderer draws it
+  const stack = []; // Visualization keeps index 0 as the drawn top; production JS stacks usually use array push/pop at the end.
 
   yield {
     state: sequenceState('stack', stack),
     highlight: {},
-    explanation: 'A stack starts empty. The only place anything ever happens is the top — like a stack of plates: you add to the top and take from the top.',
+    explanation: 'A stack starts empty. Only the top is accessible: new work goes on top, and the next removal also comes from the top.',
   };
 
   let counter = 0;
@@ -29,7 +29,7 @@ export function* run(input) {
     yield {
       state: sequenceState('stack', stack),
       highlight: { active: [stack[0].id] },
-      explanation: `push(${value}): the new value goes on top of everything already there. No shifting, no searching — push is O(1).`,
+      explanation: `push(${value}): the new value becomes the top. The invariant is simple: the most recent unfinished item is always the next one available.`,
       invariant: 'The most recently pushed value is always on top.',
     };
   }
@@ -37,7 +37,7 @@ export function* run(input) {
   yield {
     state: sequenceState('stack', stack),
     highlight: { found: [stack[0].id] },
-    explanation: `peek() returns ${stack[0].value} — the top — without removing it. Notice it is the LAST value we pushed: Last In, First Out.`,
+    explanation: `peek() returns ${stack[0].value}, the top value, without removing it. It is the last value pushed, which is exactly Last In, First Out.`,
   };
 
   while (stack.length > 0) {
@@ -45,7 +45,7 @@ export function* run(input) {
     yield {
       state: sequenceState('stack', stack),
       highlight: { removed: [top.id] },
-      explanation: `pop() removes and returns ${top.value}. We never dig below the top — which is why a stack is the natural shape for undo history and function calls.`,
+      explanation: `pop() removes and returns ${top.value}. Nothing below it can be touched until newer items above it are gone.`,
     };
     stack.shift();
   }
@@ -53,44 +53,83 @@ export function* run(input) {
   yield {
     state: sequenceState('stack', stack),
     highlight: {},
-    explanation: `Empty again — and the values came out in exactly the reverse order they went in (${[...values].reverse().join(', ')}). Reversal is the stack's superpower.`,
+    explanation: `Empty again. The values came out in reverse order (${[...values].reverse().join(', ')}), because each pop removes the newest remaining value.`,
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `A stack is a Last-In, First-Out container: the newest item is the first one you can remove. Think of cafeteria plates, browser back history, or a pile of sticky notes on your desk. You add to the top, remove from the top, and deliberately ignore everything below it until the newer work is gone. That narrow rule is what makes the structure useful.`,
-        `The public interface is tiny: push adds an item, pop removes and returns the newest item, and peek reads the newest item without removing it. There is usually an isEmpty check too, because popping from an empty container is an underflow error. You do not search, sort, or delete from the middle. If you need keyed lookup, use Hash Table; if you need arrival order, use Queue. The value here is disciplined reversal: the last unfinished thing gets handled first.`,
+        `Stacks exist for unfinished work where the newest item must be handled first. Function calls, undo history, nested parentheses, and depth-first search all have the same shape: start something, start something inside it, then finish the inner thing before returning to the outer thing.`,
+        `The public interface is tiny: push adds an item, pop removes and returns the newest item, and peek reads the newest item without removing it. There is usually an isEmpty check too, because popping from an empty stack is an underflow error.`,
+        `That small interface is the point. A stack is not a weak list. It is a list with a rule strong enough to make algorithms simpler. The caller cannot remove an old frame by accident, so nested lifetimes stay nested.`,
+      ],
+    },
+    {
+      heading: `The obvious approach and the wall`,
+      paragraphs: [
+        `The obvious approach is a general list where you insert, remove, and inspect anywhere. That flexibility is useful, but it makes the caller responsible for preserving the right order. For nested work, arbitrary access is not a feature. It is a source of bugs.`,
+        `A stack removes that freedom. You can only touch the top. The wall it solves is bookkeeping: the structure itself remembers the latest unfinished item, so the algorithm does not need to search for what should happen next.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `The core insight is Last In, First Out. The last item pushed is the first item popped. That one rule reverses order and matches nested lifetimes: inner work must finish before outer work can resume.`,
+        `This is not just a storage choice. It is a correctness rule. If a parser sees an opening bracket, the next closing bracket must match the most recent unmatched opening bracket, not an older one. A stack makes that rule automatic.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `Watch only the top. The animation deliberately makes the rest of the stack passive because older items are blocked by newer items. Push creates a new top. Peek reads that top. Pop removes it and reveals the previous unfinished item.`,
+        `The visual reversal at the end is the lesson. Values leave in the opposite order from arrival because every pop removes the most recent remaining value. If you imagine an undo system, a parser, or a recursive call stack while watching, the same invariant is doing the work.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `In JavaScript, the natural array implementation treats the end of the array as the top. Array push appends at the end, and pop removes from the end, so neither operation shifts the other elements. That gives amortized O(1) behavior: most pushes are one write, with an occasional resize when the backing storage grows. Using unshift and shift at the front is the classic mistake, because those operations must re-index the array and can cost O(n).`,
-        `A pointer implementation is just as simple. With Linked List, make the head node the top: push creates a new head, pop moves the head pointer to the next node, and peek reads the head value. Each operation rewires one pointer. This is why stacks pair so naturally with Recursion: every function call pushes a frame containing local variables and a return address, and every return pops that frame.`,
+        `In JavaScript, the natural array implementation treats the end of the array as the top. Array push appends at the end, and pop removes from the end, so neither operation shifts the other elements. That gives amortized O(1) behavior: most pushes are one write, with an occasional resize when the backing storage grows.`,
+        `A pointer implementation is just as simple. With Linked List, make the head node the top: push creates a new head, pop moves the head pointer to the next node, and peek reads the head value. Each operation rewires one pointer.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Why it works`,
+      paragraphs: [
+        `Correctness comes from the top invariant: after any sequence of pushes and pops, the top is the most recently pushed item that has not yet been popped. Push makes a new item top. Pop removes the current top and exposes the next most recent unfinished item.`,
+        `For balanced parentheses, that invariant proves the algorithm. Push each opener. When a closer arrives, it must match the stack top. If it does, pop. If it does not, the nesting is wrong. At the end, the stack must be empty because every opener needs a matching closer.`,
+      ],
+    },
+    {
+      heading: `Cost and tradeoffs`,
       paragraphs: [
         `Push, pop, and peek are O(1) in the intended implementation. Array-backed push is amortized O(1); linked-list push is worst-case O(1) but allocates a node per item. Space is O(n), where n is the number of stored items, plus small overhead for array capacity or node pointers. Searching is O(n) because the interface gives you no shortcut to older entries. Big-O Growth Rates matters here because the structure earns its speed by refusing operations that would require scanning.`,
+        `The implementation detail that matters most in JavaScript is which end you use. Array push and pop at the end are the natural stack operations. Array unshift and shift at the front are poor stack operations because they can reindex the array. The abstract data type says "top"; the runtime still has opinions about which physical end is cheap.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Where it wins`,
       paragraphs: [
         `Undo systems usually keep one history stack for actions and a second one for redo. Expression evaluators use stacks for operators and operands; Dijkstra's shunting-yard algorithm turns infix math like 3 + 4 * 5 into an order a machine can execute. Compilers and interpreters use call stacks, parsers use stacks to match nested parentheses, and depth-first Tree Traversals often use an explicit stack instead of recursive calls. Web navigation also looks stack-shaped: each page visit pushes a location, and Back pops toward the previous one.`,
         `Systems code leans on the same idea. The JavaScript engine uses the call stack beside The Event Loop; the event loop schedules callbacks, while the call stack records what is currently executing. Backtracking regex engines also use stack-like saved choices, which is why Regex Backtracking & ReDoS Case Study belongs next to this topic. Graph algorithms choose between structures too: Graph BFS uses Queue for level order, while depth-first search uses a stack when it wants to chase one path deeply before backing up.`,
+        `Stacks are also useful as a way to remove recursion without changing the algorithm's shape. A recursive DFS stores unfinished calls in the language runtime. An iterative DFS stores those calls explicitly as stack frames. The second version is more verbose, but it gives you control over memory, cancellation, pause/resume behavior, and instrumentation.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it fails`,
       paragraphs: [
-        `The first pitfall is choosing the wrong end of an array. In JavaScript, push/pop is the fast stack pair; unshift/shift is the slow pair for this purpose. The second is treating the structure like a general list. If you keep popping just to inspect older values, your design probably wants Hash Table, Linked List, or an array instead. The third is ignoring overflow: recursive code can exhaust the call stack long before it exhausts heap memory, especially in browsers with relatively shallow stack limits.`,
-        `Another interview trap is confusing LIFO and FIFO. A stack reverses order; a Queue preserves it. That one distinction explains why undo, parsing, and depth-first search feel natural here, while print jobs and request scheduling do not.`,
+        `Stacks fail when older items need to be served before newer ones. Print jobs, customer support tickets, and breadth-first search want Queue instead. A stack also fails as a lookup table: if you keep popping just to inspect older values, your design probably wants Hash Table, Linked List, or an array.`,
+        `Implementation details matter. In JavaScript, push/pop at the end of an array is the fast stack pair; unshift/shift at the front can re-index elements and cost O(n). Recursive code can also exhaust the call stack long before it exhausts heap memory.`,
+        `A stack can also hide exponential work. Backtracking algorithms often feel neat because the stack records choices cleanly, but the number of saved choices can explode. Regex backtracking, naive search in games, and recursive combinatorics all need pruning, memoization, or a different state representation once the stack starts recording too many possible futures.`,
+      ],
+    },
+    {
+      heading: `Complete case study`,
+      paragraphs: [
+        `A text editor undo system is a complete stack case. Each edit pushes an action onto the undo stack. Pressing Undo pops the most recent action and applies its inverse. That popped action can be pushed onto a redo stack. Pressing Redo pops from redo and applies the action again.`,
+        `The stack rule is what users expect: undo the last thing I did, not the first thing I did today. A queue would preserve arrival order and undo old edits first, which would be wrong. A hash table could find an edit by ID, but it would not encode the newest-first rule.`,
       ],
     },
     {

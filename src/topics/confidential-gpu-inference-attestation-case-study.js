@@ -178,51 +178,108 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Confidential GPU inference extends confidential computing from CPU memory into accelerator-backed AI serving. The goal is to protect prompts, outputs, model weights, and runtime state while still using high-throughput GPUs.',
-        'The key data structure is a joined trust record: CPU confidential-VM quote, GPU device attestation, driver and firmware state, model digest, tenant policy, session key, and audit span.',
+        `Modern inference moves sensitive material through the accelerator path. Proprietary weights, user prompts, retrieved documents, KV cache, logits, outputs, and telemetry may all touch GPU memory or buffers next to it. CPU-only confidential computing leaves a gap if plaintext data is protected while it enters the VM and then exposed when it moves into an ordinary accelerator runtime.`,
+        `Confidential GPU inference exists to close that gap without giving up GPU throughput. The tenant or model owner wants evidence that the confidential VM, GPU device state, driver stack, model artifact, key-release policy, and serving path match an approved deployment before encrypted weights or private prompts become usable.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The server boots in a confidential VM, attests the CPU environment, attests or verifies GPU trust state, and asks a verifier or KMS to release encrypted model weights only if the whole serving path matches policy.',
-        'During inference, request state crosses TLS, CPU pre-processing, GPU kernels, KV cache, batching, output buffers, metering, and logs. Each data structure needs tenant and policy tags so confidentiality is not lost in ordinary serving mechanics.',
+        `The obvious approach is TLS for requests, encrypted storage for weights, and a normal GPU VM with access controls around the service. That protects data in transit and at rest, and it may be enough when the infrastructure owner, model owner, and data owner are the same party.`,
+        `The confidential-computing baseline improves the CPU side: release encrypted model weights only after the VM attests. But if the actual tokens and weights run through a GPU path that policy did not measure, the system still trusts firmware, driver state, host buffers, profiling tools, and shared serving data structures outside the evidence boundary.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'Confidential GPU deployments add launch checks, driver constraints, attestation APIs, key-release policy, telemetry redaction, and more difficult debugging. They may also restrict low-level profiling or custom kernels depending on platform support.',
-        'The payoff is that model owners and data owners can reduce trust in the cloud host. That matters for proprietary weights, regulated prompts, data clean rooms, private fine-tuning, and multi-tenant inference.',
+        `The wall is that AI serving is not one trust boundary. It is a chain: confidential VM, GPU firmware and mode, driver, model artifact, key-release policy, request router, batch queue, KV cache, output buffer, metering row, and log pipeline. Evidence for only one link does not secure the whole path.`,
+        `The second wall is application bookkeeping. If a shared data structure drops tenant or policy state, confidential hardware cannot repair the leak. A correct launch can still produce cross-tenant KV reuse, raw prompt logs, a debug snapshot containing weights, or a batch entry that routes one tenant's output to another.`,
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Core invariant',
       paragraphs: [
-        'NVIDIA confidential computing documentation describes protecting accelerated workloads and attesting platform state: https://docs.nvidia.com/confidential-computing/latest/. NVIDIA NVTrust documentation covers components for GPU attestation and confidential computing: https://docs.nvidia.com/nvtrust/latest/index.html.',
-        'Microsoft Azure confidential computing documentation covers confidential VMs and trusted execution environments: https://learn.microsoft.com/en-us/azure/confidential-computing/overview. Google Cloud Confidential Computing documents confidential workloads and Confidential Space: https://cloud.google.com/confidential-computing/confidential-space/docs.',
+        `The key-release invariant is: encrypted weights remain unusable until the verifier accepts both workload state and accelerator state for the requested tenant and model. CPU attestation alone is not enough. GPU evidence alone is not enough. The decision must bind the whole serving state to the key that will unwrap the model.`,
+        `The runtime invariant is: confidentiality labels move with data. Prompt buffers, KV blocks, batch slots, output chunks, metering rows, and logs need tenant id, model id, policy id, session id, and lifetime. Once a request enters a high-throughput server, every queue and cache must preserve the boundary that the attestation step established.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Trust record',
       paragraphs: [
-        'A model provider can serve encrypted weights on cloud GPUs without handing plaintext weights to the host environment. A healthcare customer can send prompts into an attested serving enclave and require redacted telemetry. A data clean room can run GPU inference over private data with a measurable release policy.',
-        'This also changes procurement. The question is no longer only tokens per second; it is tokens per second under a verifiable trust boundary with usable audit evidence.',
+        `A useful data model is a joined trust row. It contains the CPU confidential-VM quote, GPU attestation evidence, vendor root, driver and firmware versions, GPU mode, model digest, tenant policy, session public key, key-release decision, and audit span. The verifier evaluates this row before KMS releases the model key.`,
+        `The row also gives operators something to investigate later. If a driver version is revoked, a GPU firmware issue appears, or a model digest is found to be wrong, the audit trail can identify which key releases used that state. Without the joined row, the system can say "a key was released" but not whether the accelerator path matched the policy people thought they were enforcing.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Boot and release flow',
       paragraphs: [
-        'Do not assume confidential hardware solves application leakage. Logs, metrics, batching metadata, retrieval documents, and outputs can still leak. Do not ignore tenant tags on KV cache and batch queues.',
-        'Do not treat a GPU attestation as a model-quality proof. It proves hardware and software state claims, not correctness, fairness, safety, or absence of prompt injection.',
+        `A typical deployment boots a confidential VM, starts a measured serving stack, establishes a protected session, gathers CPU evidence, gathers GPU evidence, and sends the combined evidence to a verifier. Policy checks measurement, device state, firmware, driver version, model digest, tenant, and session public key. If the row passes, the service releases a model key wrapped to the accepted environment.`,
+        `Only then do encrypted weights become usable. The unwrap step should be scoped to the model and session, not a standing ability to decrypt every model artifact. When the service rotates model versions or moves to different hardware, the verifier should see a different trust row and either accept it deliberately or deny release with a clear reason.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Serving path',
       paragraphs: [
-        'Primary sources: NVIDIA Confidential Computing at https://docs.nvidia.com/confidential-computing/latest/, NVIDIA NVTrust at https://docs.nvidia.com/nvtrust/latest/index.html, Azure confidential computing at https://learn.microsoft.com/en-us/azure/confidential-computing/overview, Google Confidential Space at https://cloud.google.com/confidential-computing/confidential-space/docs, and AMD SEV at https://www.amd.com/en/developer/sev.html. Study Private RAG Confidential Enclave Case Study, Enclave Secret Release Policy Case Study, LLM Continuous Batching, KV Cache, and SLO-Aware LLM Request Router next.',
+        `The serving path still needs the usual high-performance machinery: request routing, tokenization, prefill, decode, continuous batching, KV cache allocation, output streaming, metering, error handling, and logging. Confidential hardware does not remove those structures. It raises the cost of losing ownership metadata inside them.`,
+        `Continuous batching is the pressure point. Batching improves throughput by mixing token streams, but each stream must retain tenant, model, policy, and session identity. KV cache blocks need ownership. Output buffers need ownership. Scheduler rows need ownership. If those labels are missing or mutable in the wrong place, the leak is in the software even if the GPU attests correctly.`,
+      ],
+    },
+    {
+      heading: 'Telemetry and logs',
+      paragraphs: [
+        `Operators still need latency, token counts, errors, saturation, queue depth, cost, and hardware health. Confidential inference should not mean blind inference. The design goal is telemetry that explains performance and billing without copying raw prompts, retrieved documents, completions, or plaintext model material into broad log systems.`,
+        `Good telemetry prefers ids, hashes, counters, redacted summaries, policy ids, and audit spans. Raw payload logging should be off by default and treated as a separate high-risk capability. Metering rows must keep tenant and model identity, but they do not need full prompts. Debug dumps must be scoped, time-limited, and reviewed because they can bypass the care taken in the main path.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The release side works because encrypted model material stays unusable until the verifier accepts an evidence row that includes the accelerator path. A copied model file, a wrong GPU mode, or an unapproved driver stack does not receive the key. The session public key binding prevents the host from becoming the real decrypting party.`,
+        `The runtime side works only when labels stay attached. If each prompt, KV block, batch slot, output chunk, and telemetry row carries tenant and policy identity until deletion, the server can use throughput optimizations without confusing ownership. The hardware boundary and the software ownership model have to agree.`,
+      ],
+    },
+    {
+      heading: 'Costs',
+      paragraphs: [
+        `The deployment cost is high. Teams now care about supported GPU SKUs, confidential-computing modes, firmware, driver versions, VM images, verifier availability, launch latency, key-policy rollout, audit storage, and fallback behavior when attestation is unavailable. A normal GPU upgrade can become a security-policy rollout.`,
+        `The engineering cost is also high. Low-level profiling, custom kernels, crash dumps, and performance debugging may be harder under confidential modes. Some optimizations rely on shared buffers or global caches that were not designed to carry tenant labels. Those optimizations need redesign or stronger isolation before they belong in a protected serving path.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `It wins when the model owner, data owner, and infrastructure owner are not the same party. A model provider can serve encrypted weights on cloud GPUs with less trust in the host. A healthcare, finance, or legal tenant can require attested inference for regulated prompts and require redacted telemetry as part of the service contract.`,
+        `It also fits data clean rooms, private RAG, sensitive evaluation, and private fine-tuning. The performance question becomes not merely tokens per second. It becomes tokens per second under an auditable boundary, with evidence that the requested model and serving stack were the ones actually used.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Confidential GPU inference is not a model-safety system. It does not prove the model is correct, fair, non-toxic, or resistant to prompt injection. It proves claims about platform state, release policy, and deployment evidence. Application-level safety and data-governance checks still need their own mechanisms.`,
+        `It also fails when the surrounding system is sloppy. Retrieval documents outside the protected path, raw prompts in logs, cross-tenant KV reuse, unscoped output buffers, permissive debug endpoints, and unredacted error reports can leak the same sensitive data that the confidential serving path was meant to protect.`,
+      ],
+    },
+    {
+      heading: 'Concrete failures',
+      paragraphs: [
+        `A policy that accepts CPU attestation but ignores GPU state can release weights to a VM that later runs plaintext work on an untrusted accelerator path. A model-release rule without a model digest can decrypt the wrong weights under an otherwise valid deployment. A verifier that ignores driver or firmware version can miss a known-bad stack.`,
+        `A batch scheduler that strips tenant ids can mix requests and KV blocks across customers. A metering pipeline that logs raw prompts or completions can leak payloads after inference is done. A fallback path that silently disables confidential mode during capacity pressure can turn an availability event into a confidentiality incident.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Start by listing the assets: weights, prompts, retrieval context, KV cache, logits, outputs, logs, metrics, and debug artifacts. For each asset, write where it is plaintext, who owns it, how long it lives, and which evidence row allows it to exist. Then make the serving code carry tenant and policy fields through request queues, cache allocators, batch records, output streams, and telemetry.`,
+        `For release policy, require joined CPU and GPU evidence, model digest, tenant policy, driver and firmware allowlists, session public key binding, and explicit denial reasons. For validation, test wrong model digest, wrong tenant, stale evidence, untrusted GPU mode, revoked driver version, missing label on a KV block, mixed-tenant batch entries, and raw prompt logging.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: NVIDIA Trusted Computing Solutions at https://docs.nvidia.com/nvtrust/index.html, NVIDIA Attestation at https://docs.nvidia.com/attestation/index.html, and Azure Confidential GPU options at https://learn.microsoft.com/en-us/azure/confidential-computing/gpu-options.`,
+        `Study Enclave Secret Release Policy Case Study for key-release policy, Confidential Computing Attestation Chain Case Study for evidence validation, Private RAG Confidential Enclave Case Study for retrieval boundaries, LLM Continuous Batching and KV Cache for serving data structures, and SLO-Aware LLM Request Router for routing under policy.`,
       ],
     },
   ],

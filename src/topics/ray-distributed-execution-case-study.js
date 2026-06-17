@@ -61,7 +61,7 @@ function* taskGraphAndObjectStore() {
   yield {
     state: architecture('Ray turns futures into a distributed task graph'),
     highlight: { active: ['driver', 'scheduler', 'worker1', 'worker2', 'worker3', 'e-driver-scheduler'], compare: ['object'] },
-    explanation: 'Ray programs submit remote functions and get futures back. Dependencies among futures form a dynamic task graph, which is a better fit for AI workloads than a fixed batch pipeline.',
+    explanation: 'Ray turns remote calls into futures. Dependencies among those futures form a task graph that can grow while the program runs, which fits AI workloads better than a fixed batch pipeline.',
   };
 
   yield {
@@ -88,14 +88,14 @@ function* taskGraphAndObjectStore() {
       ],
     ),
     highlight: { active: ['load:output', 'prep:inputs', 'infer:inputs', 'score:inputs'], found: ['select:output'] },
-    explanation: 'The graph can change while it runs. Reinforcement learning, hyperparameter search, simulation, and model serving often create more work based on partial results. Ray makes that dynamism a first-class execution model.',
+    explanation: 'The key row is "select next jobs." Partial results can create new tasks, so the graph is not fully known at launch time. Reinforcement learning, tuning, simulation, and serving often have this shape.',
     invariant: 'Tasks consume object references and produce new object references.',
   };
 
   yield {
     state: architecture('Large objects move through an object store'),
     highlight: { active: ['object', 'worker1', 'worker2', 'worker3', 'e-w1-object', 'e-w2-object', 'e-w3-object'], found: ['scheduler'] },
-    explanation: 'Instead of sending large tensors through the scheduler, workers put objects into a distributed object store and pass references. That is essential for ML workloads where intermediate arrays and model outputs are large.',
+    explanation: 'The object store keeps big tensors off the scheduler path. Workers pass references through control metadata and move large arrays through the data plane.',
   };
 
   yield {
@@ -152,7 +152,7 @@ function* actorsAndScheduling() {
       ],
     ),
     highlight: { active: ['task:use', 'actor:use'], found: ['placement:resource', 'autoscale:resource'] },
-    explanation: 'The useful abstraction is not just "run this somewhere." Ray exposes tasks, actors, resource labels, and placement so applications can express the shape of distributed AI work.',
+    explanation: 'The useful abstraction is not merely "run this somewhere." Tasks, actors, placement groups, resource labels, and autoscaling let the program describe CPU, GPU, state, and colocation needs.',
   };
 
   yield {
@@ -176,7 +176,7 @@ function* actorsAndScheduling() {
       ],
     ),
     highlight: { active: ['queue:symptom', 'gpu:symptom'], found: ['worker:system_response', 'object:system_response'] },
-    explanation: 'The hard part is not launching tasks. It is keeping a dynamic workload stable when tasks fail, dependencies are large, queues grow, and GPU stages dominate tail latency.',
+    explanation: 'The hard part is stability, not launch. Dynamic workloads fail when dependencies are huge, queues grow without backpressure, objects disappear, or one GPU stage dominates the tail.',
   };
 
   yield {
@@ -196,41 +196,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why Ray exists',
       paragraphs: [
-        'Ray is a distributed execution framework for emerging AI applications. It supports dynamic task graphs, futures, stateful actors, resource-aware scheduling, and a distributed object store. The design targets workloads such as reinforcement learning, hyperparameter search, simulation, model serving, and distributed training.',
-        'The case study matters because AI workloads often do not look like static batch pipelines. They create tasks based on partial results, mix CPUs and GPUs, move large tensors, and keep long-lived state. Ray gives those patterns direct runtime support.',
+        'Ray is a distributed execution framework built for programs that do not fit cleanly into a fixed batch pipeline. The original OSDI paper framed the target as emerging AI applications: reinforcement learning, simulation, training, serving, and search workloads that create new work while they run. These applications mix short CPU tasks, long-lived stateful workers, GPU computation, large tensors, and feedback loops.',
+        'A static system can be excellent when the work graph is known in advance. MapReduce works well for batch stages. Pregel works well for vertex-centric graph supersteps. A message queue works well for decoupled services. Ray targets a different shape: a Python program launches remote tasks and actors, receives futures, branches based on partial results, and keeps submitting more work. The execution graph is a live data structure, not a file written before the job starts.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and wall',
       paragraphs: [
-        'A driver submits remote functions and actors. The scheduler places tasks according to dependencies and resources. Workers execute tasks or actor methods. Large outputs go into a distributed object store and are referenced by object ids. Control metadata is maintained separately so the system can coordinate scheduling, object location, and failures.',
-        'This architecture lets the application build a dynamic DAG at runtime. A reinforcement learning loop can run environment actors, train a policy on GPUs, score results, and launch new rollouts without forcing the workflow into fixed map and reduce stages.',
+        'The obvious approach is to glue together existing tools. Use multiprocessing on one machine, a queue for distributed tasks, object storage for large data, Kubernetes for placement, and custom retry logic around failures. That can work for a narrow application. Many teams ship useful systems that way.',
+        'The wall appears when the application needs all of those pieces at once. A reinforcement-learning loop may keep simulator state alive in actors, send batches to GPU learners, score policies, and launch new rollouts based on the results. A hyperparameter search may spawn thousands of short trials but keep large datasets shared. A serving workflow may need placement constraints so model shards or replicas sit near the right resources. Hand-rolled queues do not naturally expose futures, object locality, resource labels, actor state, lineage, and autoscaling as one programming model.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'Ray exposes real distributed-systems costs: object movement, scheduling overhead, task granularity, GPU utilization, actor placement, backpressure, retries, lineage reconstruction, and cluster autoscaling. Tiny tasks can drown in overhead. Huge objects can overwhelm memory and network. Stateful actors improve locality but create placement and recovery concerns.',
+        'The core insight is to make dynamic distributed execution feel like ordinary function calls while keeping enough runtime structure for scheduling. A Ray remote function returns an object reference, commonly treated like a future. That reference can be passed to other remote calls before the value is ready. The dependency graph formed by these references tells the runtime which tasks are ready and which objects must be available first.',
+        'Ray also makes stateful actors first-class. A task is a stateless remote call. An actor is a long-lived worker-bound object with methods and internal state. That distinction is central for AI workloads. Stateless tasks are good for parallel preprocessing or scoring. Actors are good for simulators, model replicas, parameter servers, environment workers, and services that benefit from warm state or local resources.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'Ray is used for reinforcement learning, distributed training, batch inference, hyperparameter search, data processing, model serving, simulation, and agent workloads. It is a useful bridge between algorithmic AI topics and systems topics such as Borg scheduling, distributed tracing, backpressure, and object storage.',
+        'The main data structures are the task graph, object references, worker leases, actor handles, resource requirements, placement groups, object-store metadata, and control-plane metadata. A driver submits tasks. The scheduler places ready tasks on workers that satisfy CPU, GPU, memory, and custom resource constraints. Workers execute tasks and put large results in an object store. Downstream tasks receive object references rather than shipping large values through the scheduler.',
+        'Separating control and data is the important systems move. The control plane tracks dependencies, task state, actor state, object locations, and scheduling decisions. The data plane moves large objects between workers and object stores. If large tensors flowed through scheduler messages, the scheduler would become the bottleneck. Object references let the runtime coordinate work with small metadata while keeping large arrays on the data path.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Ray is not just a faster multiprocessing library. It is a distributed runtime with scheduling, object storage, actors, and failure semantics. Another misconception is that dynamic task graphs remove the need for workload design. Task granularity, object sizes, placement, and backpressure still decide whether the system performs well.',
+        'Ray works when the runtime can see enough of the dependency structure to schedule around it. Object references reveal that task B depends on the output of task A. Resource annotations reveal that a task needs a GPU or a custom accelerator. Actor handles reveal that a method must run near the actor state. Placement groups reveal that a set of resources should be co-scheduled. These facts let the runtime make decisions that a plain queue cannot make safely.',
+        'The correctness property is dependency preservation. A task should not run until its input objects are ready. An actor method should observe actor state in the order guaranteed by the actor execution model. A downstream task should receive the object version produced by the upstream task it references. Performance comes from exposing enough parallelism while preserving those ordering and dependency constraints.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost behavior',
       paragraphs: [
-        'Primary sources: "Ray: A Distributed Framework for Emerging AI Applications" at https://www.usenix.org/system/files/osdi18-moritz.pdf, the arXiv version at https://arxiv.org/abs/1712.05889, and Ray documentation at https://docs.ray.io/en/latest/ray-core/walkthrough.html. Study Hyperparameter Search, Policy Gradients, Feature Store: Offline/Online Consistency, LLM Serving Autoscaling Warm Pool, Borg Cluster Scheduler Case Study, Pregel Graph Processing Case Study, and Backpressure & Flow Control next.',
+        'Ray does not remove distributed-systems cost. It makes the cost programmable. Every task pays scheduling overhead. Tiny tasks can drown in that overhead. Every large object pays memory and network cost. Huge objects can spill, copy, or block downstream workers. Every stateful actor can become a hot spot if many calls serialize through one worker. Every GPU task can leave expensive hardware idle if input objects arrive late or batches are too small.',
+        'When the workload scales, tail behavior matters more than the happy path. A few slow object transfers can hold many dependent tasks. A backlog of pending GPU tasks can make CPU preprocessing look successful while the cluster is actually bottlenecked. Autoscaling can add nodes after demand appears, but cold-start delay still exists. A good Ray design makes task granularity, object size, placement, and backpressure explicit.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'Ray is useful when work is dynamic, resource-aware, stateful, and tied to large objects. Reinforcement learning is the classic example: environment actors generate experience, learners train on GPUs, evaluators score policies, and the driver chooses what to run next. Hyperparameter tuning has a similar shape because trial results create future search decisions. Simulation workloads often keep state alive across many calls.',
+        'It also fits batch inference, model serving support code, data processing, distributed training orchestration, agent evaluation, and online experimentation systems where Python control logic matters. The common access pattern is not just parallel map. It is remote calls plus futures plus large shared objects plus stateful workers plus resource constraints. If those are all present, Ray gives the application a coherent execution substrate.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Ray is the wrong tool when a simpler execution model already matches the job. A SQL engine is better for declarative relational queries. A streaming engine is better for event-time windows and durable streams. Kubernetes jobs may be enough for coarse batch tasks. A local multiprocessing pool may be enough for one-machine parallelism. Ray adds a runtime, scheduler, object store, failure model, and operational surface. Those costs should buy real flexibility.',
+        'It can also fail when the workload is designed against the runtime. Too many tiny tasks create scheduler pressure. Oversized objects create memory and network pressure. Unbounded task submission creates backpressure problems. Poor actor placement creates hot spots. Unclear resource labels cause GPUs to sit idle or starve. Treating Ray like magic multiprocessing usually produces disappointing systems.',
+      ],
+    },
+    {
+      heading: 'Failure handling',
+      paragraphs: [
+        'Distributed execution means partial failure is normal. Workers crash. Objects can be lost. Nodes disappear. Tasks retry. Actors may need restart policies or checkpointed state. Lineage can help reconstruct lost objects when the producing task can be rerun, but lineage is not free and not always enough. A long-lived actor with unique in-memory state needs a different recovery plan than a stateless preprocessing task.',
+        'Backpressure is the failure mode that looks like success until it is too late. The driver can submit tasks faster than the cluster can run them. Object stores can fill with results that downstream stages are not consuming. GPU queues can grow while CPU stages keep producing. A robust workload has explicit limits: maximum in-flight tasks, bounded object sizes, actor concurrency controls, and dashboards that show pending work by stage and resource.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Monitor pending tasks, runnable tasks, task runtime distribution, scheduler delay, object-store memory, object spill volume, object transfer size, actor mailbox depth, actor restart count, worker failure count, retry count, GPU utilization, CPU utilization, autoscaler decisions, and end-to-end critical path length. The useful question is not whether the cluster is busy. It is whether the bottlenecked resource is doing the right work.',
+        'Debugging should follow references. If a task waits, ask which object reference or resource requirement blocks it. If an actor is hot, ask whether state can be sharded or calls can be batched. If object-store pressure is high, ask which objects are largest, longest-lived, and most copied. If GPU utilization is low, inspect upstream data readiness and placement.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources are the OSDI paper at https://www.usenix.org/system/files/osdi18-moritz.pdf, the arXiv version at https://arxiv.org/abs/1712.05889, the USENIX presentation page at https://www.usenix.org/conference/osdi18/presentation/moritz, and Ray Core documentation at https://docs.ray.io/en/latest/ray-core/walkthrough.html.',
+        'Study futures and promises, DAG scheduling, actor models, object stores, backpressure, distributed tracing, placement scheduling, Borg and Omega schedulers, Pregel, MapReduce, parameter servers, reinforcement learning, hyperparameter search, and LLM serving autoscaling next. Ray is valuable because it sits at the intersection: algorithmic control flow becomes a distributed-systems scheduling problem.',
       ],
     },
   ],

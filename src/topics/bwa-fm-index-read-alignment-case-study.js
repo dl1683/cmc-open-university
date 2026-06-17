@@ -194,11 +194,116 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: ['BWA-style aligners use an FM-index over a reference genome to map short reads efficiently. The FM-index is built on the Burrows-Wheeler Transform and supports fast backward search over compressed text.'] },
-    { heading: 'How it works', paragraphs: ['Build BWT, occurrence/rank tables, character-start counts, and sampled suffix-array positions. Backward search narrows the suffix-array interval for a read seed. Candidate positions are then extended and scored.'] },
-    { heading: 'Case study', paragraphs: ['A read seed ACGT is consumed from right to left. Each character shrinks the interval. The final interval locates candidate reference positions, which are scored into SAM records with position, CIGAR, and mapping quality.'] },
-    { heading: 'Pitfalls', paragraphs: ['Exact seed hits are not final alignments. Repeats create many candidate positions. Different reference versions produce different coordinates. Low-quality bases and duplicates can distort downstream variant calls.'] },
-    { heading: 'Why it matters', paragraphs: ['FM-index alignment is a canonical real-world use of suffix arrays, BWT, rank/select, and approximate string matching at genome scale.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: BWA paper at https://pubmed.ncbi.nlm.nih.gov/19451168/, BWA docs at https://bio-bwa.sourceforge.net/bwa.shtml, and BWA source at https://github.com/lh3/bwa. Study FM-index BWT, Suffix Array, Wavelet Tree, Edit Distance, and Minimizer Index next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Short-read alignment asks where millions or billions of sequenced fragments came from in a known reference genome. Each read is small, but the reference is large and the batch is enormous.',
+        'A mapper can\'t scan the whole genome for every read. It has to preprocess the reference into a search structure, then reuse that structure across all reads.',
+        'BWA-style alignment uses the FM-index for that job. The index stores the reference in a compressed form while still supporting exact seed lookup through backward search.',
+      ],
+    },
+    {
+      heading: 'The naive baseline',
+      paragraphs: [
+        'The simplest mapper tries each read at each reference position and scores the alignment. That is easy to trust but unusable at genome scale.',
+        'A better baseline is a suffix array. Sort every suffix of the reference, binary-search read seeds, and locate candidate positions. That makes exact matching fast, but a full suffix array over a large genome uses a lot of memory.',
+        'The FM-index keeps the suffix-array search behavior without storing the entire suffix array densely. It trades some locate work for much lower memory.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The exact wall is repeated indexed search. A human genome reference is large, and a sequencing run asks the same reference-search question millions of times.',
+        'The mapper needs exact seed lookup, compact storage, and a way to recover coordinates after the search. It also needs to survive repeats, because an exact seed can match many loci.',
+        'The FM-index solves the exact-search and storage part. It doesn\'t solve the whole biological alignment problem. Mismatches, gaps, paired-end constraints, and mapping quality are later layers.',
+      ],
+    },
+    {
+      heading: 'Core data model',
+      paragraphs: [
+        'The index starts from the Burrows-Wheeler Transform of the reference plus a sentinel character. The BWT stores the character that precedes each suffix in suffix-array order.',
+        'The C table stores where each character block begins in the sorted first column. The Occ table answers rank queries: how many times a character appears in the BWT before a given row.',
+        'Sampled suffix-array positions let the mapper convert final interval rows back into reference coordinates without storing every suffix-array value.',
+      ],
+    },
+    {
+      heading: 'Mechanics',
+      paragraphs: [
+        'Backward search consumes the seed from right to left. After reading a suffix of the seed, the algorithm maintains a suffix-array interval containing exactly the reference suffixes that start with that consumed suffix.',
+        'To add the next character c, the mapper uses C and Occ to keep only rows whose preceding character is c. The interval shrinks without scanning the reference text.',
+        'When the seed is consumed, the interval contains all exact matches for that seed. The mapper locates candidate positions, extends or scores them, and emits SAM/BAM fields such as position, CIGAR, flags, tags, and mapping quality.',
+      ],
+    },
+    {
+      heading: 'Worked intuition',
+      paragraphs: [
+        'For the seed ACGT, backward search starts with T. The interval contains suffixes that begin with T. Adding G keeps only suffixes beginning with GT. Adding C keeps CGT. Adding A keeps ACGT.',
+        'Each step asks a narrow question: among suffixes already matching the suffix I have, which ones have this next character immediately before them?',
+        'If the interval becomes empty, the exact seed is absent. If it remains large, the seed is repetitive and later scoring must decide whether any candidate is useful.',
+      ],
+    },
+    {
+      heading: 'From seeds to alignments',
+      paragraphs: [
+        'The FM-index usually finds exact seeds, not the whole biological answer. A seed is a short substring of the read that is likely to survive sequencing error and real variation. The mapper uses it to find candidate loci quickly, then spends heavier scoring work only on those loci.',
+        'Extension compares the read against the reference around each candidate. Mismatches may represent sequencing error, a SNP, contamination, or a bad candidate. Gaps may represent insertions, deletions, or alignment artifacts. The CIGAR string is the compact record of that chosen edit path.',
+        'Paired-end reads add another constraint. If two reads came from opposite ends of the same fragment, their orientations and distance should be plausible. A weak seed can become credible when its mate lands in the expected neighborhood, and a good exact seed can lose confidence when its mate contradicts it.',
+      ],
+    },
+    {
+      heading: 'Correctness and reliability',
+      paragraphs: [
+        'The backward-search invariant gives the correctness argument. After each character is added, the interval contains exactly the suffix-array rows whose suffixes start with the consumed pattern suffix.',
+        'C and Occ preserve that invariant because the BWT records preceding characters in suffix-array order. LF-mapping moves from a range of matched suffixes to the range that also has the next required character before it.',
+        'The seed search is exact. The final read alignment isn\'t a formal proof of origin; it is a scored choice under read errors, repeats, variants, quality values, and mapper heuristics.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The index is built once per reference and reused. Build cost is paid upfront. Query cost for an exact seed is proportional to seed length times the cost of rank queries, plus the cost of locating candidate positions.',
+        'The expensive cases are repetitive seeds and extension. A repetitive seed can leave a large interval, so the mapper may need to cap hits, choose longer seeds, use paired-end evidence, or lower confidence.',
+        'Suffix-array sampling controls a direct tradeoff. Denser samples locate positions faster and use more memory. Sparser samples save memory and require more LF steps to recover coordinates.',
+      ],
+    },
+    {
+      heading: 'Mapping quality as uncertainty',
+      paragraphs: [
+        'Mapping quality is not base quality. Base quality estimates the chance that a sequenced base is wrong. Mapping quality estimates confidence in the chosen placement of the read. A read can have high base quality and low mapping quality if it matches several repeat copies equally well.',
+        'A high MAPQ value usually means the best alignment is much better than the alternatives under the mapper model. A low value means downstream tools should treat the coordinate carefully. Variant callers, duplicate marking, coverage estimates, and structural-variant tools all inherit this uncertainty.',
+        'This is why the FM-index interval size matters beyond speed. A large interval is evidence that the seed is not specific. The mapper may extend several hits, cap the candidate count, use the mate, or report secondary and supplementary alignments.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Pin the reference build. Coordinates only mean something relative to a specific reference FASTA, decoy set, alt-contig policy, and index build. A pipeline that mixes references can produce valid-looking SAM records that are biologically meaningless.',
+        'Choose seed length and hit caps from the workload. Short seeds are sensitive but repetitive. Long seeds are specific but break under errors and variants. Good mappers tune these choices with read length, error profile, genome repetitiveness, and expected variant distance in mind.',
+        'Store enough index metadata to make loading boring. The mapper needs the BWT, C table, rank data, suffix-array sampling policy, contig dictionary, and reference names in agreement. Serialization bugs here look like alignment bugs later.',
+        'Keep exact search and scoring conceptually separate in tests. Unit examples should prove that backward search returns the right suffix-array interval. Alignment fixtures should separately test CIGAR construction, clipping, paired-end rescue, MAPQ behavior, and reporting of multiple hits.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'FM-index alignment fits high-volume short-read mapping against a known reference. The reference is static, the read set is huge, and exact seeds are a cheap way to find candidate loci.',
+        'It is also a clean example of compressed indexing. BWT, rank queries, suffix-array intervals, and sampled locate data cooperate to make a large text searchable without keeping the plain suffix array in memory.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The method struggles when the correct sequence is absent from the reference. The index can only search the reference it was built from.',
+        'It also struggles in highly repetitive regions, structural variation, contamination, and reads whose errors destroy useful seeds. Mapping quality exists because exact hits can still be ambiguous.',
+        'It isn\'t de novo assembly. It places reads onto a reference coordinate system; it doesn\'t reconstruct a genome from scratch.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: BWA paper at https://pubmed.ncbi.nlm.nih.gov/19451168/, BWA docs at https://bio-bwa.sourceforge.net/bwa.shtml, and BWA source at https://github.com/lh3/bwa.',
+        'Study FM-index BWT for the index mechanics, Suffix Array for the sorted-suffix view, Wavelet Tree for rank support, Edit Distance for approximate alignment, Genome k-mer Minimizer Index for long-read seeding, De Bruijn Graph Genome Assembly for assembly, and Pangenome Variation Graph for reference-bias reduction.',
+      ],
+    },
   ],
 };

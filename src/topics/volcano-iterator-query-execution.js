@@ -97,13 +97,13 @@ function* openNextClose() {
       ],
     ),
     highlight: { active: ['open:job', 'next:job', 'close:job'], found: ['state:executorMeaning'] },
-    explanation: 'Volcano-style execution gives every physical operator the same small interface: open it, ask for next rows until it is done, then close it. Each operator hides its own internal state.',
+    explanation: 'Volcano makes every physical operator speak the same small protocol: open, next, close. The interface is tiny, but each operator can hide a cursor, hash table, sort run, file handle, or join position.',
   };
 
   yield {
     state: planGraph('A parent pulls one row from its child tree'),
     highlight: { active: ['client', 'limit', 'join', 'e-client-limit', 'e-limit-join'], compare: ['sort', 'scanA', 'scanB'] },
-    explanation: 'The top node does not receive a flood of rows. It asks for one row. That demand recursively travels down the plan tree until a leaf scan produces work.',
+    explanation: 'Read the arrows as demand, not data flood. The client asks Limit for one row, Limit asks Join, Join asks its children, and the request keeps descending until a leaf can produce a tuple.',
     invariant: 'Pull execution gives natural backpressure: no child produces the next row until a parent asks.',
   };
 
@@ -168,7 +168,7 @@ function* blockingSort() {
       ],
     ),
     highlight: { active: ['scan:canReturn', 'filter:canReturn', 'join:canReturn'], compare: ['sort:canReturn', 'hashAgg:canReturn'] },
-    explanation: 'A plan is not one smooth pipe. Blocking nodes define materialization points, memory risk, and places where latency appears before the first result row.',
+    explanation: 'This table is the first-row latency map. Scan and filter can return quickly; Sort and HashAggregate often need the whole child input before returning anything.',
   };
 
   yield {
@@ -212,7 +212,7 @@ function* vectorizedContrast() {
   yield {
     state: vectorGraph('Vectorized engines exchange chunks instead'),
     highlight: { active: ['scan', 'chunk', 'filter', 'project', 'e-scan-chunk', 'e-chunk-filter', 'e-filter-project'], found: ['sink'] },
-    explanation: 'DuckDB-style vectorized execution moves DataChunks through operators. One call carries many values, making tight loops and selection vectors possible.',
+    explanation: 'Vectorized execution changes the work unit. Instead of one next call per tuple, one chunk call carries many values, so predicates can run in tight loops with selection vectors.',
   };
 
   yield {
@@ -257,46 +257,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Volcano iterator model is the classic query-execution interface: every physical operator implements open, next, and close. A parent operator asks a child for one more row. That request recursively descends through the plan tree and one tuple eventually returns upward.',
-        'This is the execution counterpart to PostgreSQL Query Planner Case Study. The planner chooses the tree. The executor runs the tree. It also connects to Stack and Recursion because the plan is a recursive operator tree, to Backpressure because demand starts at the parent, and to DuckDB Vectorized Execution Case Study because modern engines often change the unit from one tuple to one chunk.',
+        'A SQL query is compiled into a physical plan: scans read tables, filters reject rows, joins combine relations, sorts impose order, aggregates summarize groups, and limits stop early. The executor needs a way to run that tree without writing a custom program for every possible combination of operators.',
+        'The Volcano iterator model gives every physical operator the same small interface: open, next, and close. A parent asks a child for one more tuple. That request recursively travels down the plan tree until a leaf can produce a row, and the row returns upward through the same operators. PostgreSQL still documents its executor in this demand-pull style.',
+      ],
+    },
+    {
+      heading: 'The obvious executor and wall',
+      paragraphs: [
+        'The obvious executor is a set of special cases. If the plan is scan-filter-project, run one loop. If it is scan-sort-limit, run another. If it is join-aggregate-sort, write another path. This seems reasonable while the operator set is small, but query planners produce many shapes, and database systems keep adding operators.',
+        'The wall is composability. A query engine needs scans, index scans, nested-loop joins, hash joins, merge joins, sorts, aggregates, materialization, limits, exchanges, subquery nodes, and write nodes to fit together. Hard-coded control flow turns every new operator into a rewrite of the executor. It also makes resource cleanup, cancellation, errors, and early LIMIT termination harder to keep consistent.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that every physical operator can be treated as a lazy stream with local state. open initializes the stream. next returns the next tuple or reports completion. close releases resources. The parent does not know whether a child is scanning a file, probing a hash table, merging sorted inputs, or draining a sorted run.',
+        'This hides complexity behind a uniform contract. A Sort node can consume its whole child before producing the first row, while a Filter node can return as soon as it sees a passing tuple. Both still answer the same next call. The executor tree becomes a recursive composition of small state machines.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Open initializes an operator and its children. Next asks it to produce the next tuple or report completion. Close releases memory, files, buffers, and child state. The operator can hide complex internal state: a scan cursor, a sort run, a hash table, a nested-loop position, or an aggregate table.',
-        'PostgreSQL describes its executor as a demand-pull pipeline mechanism: each plan node is called to deliver one more row or report that it is done. A MergeJoin node recursively asks its children for rows; a Sort node must first consume and sort all child rows before returning its first output row.',
+        'Execution starts at the root. The client asks the top node for a row. A Limit node may ask its child until it has returned enough rows. A Join node may ask both children. A scan reads from storage. A filter evaluates a predicate before passing a tuple upward. Each operator stores only the state it needs to resume on the next call.',
+        'Blocking operators are still legal, but they change latency and memory behavior. PostgreSQL gives the classic example: a Sort node repeatedly calls its child until the input is exhausted, performs the sort, and only then returns its first output row. Hash aggregate and hash join build phases have the same shape: the iterator interface stays uniform while the internal state becomes large. This is why the same tree notation can represent a streaming plan or a plan with a full materialization point in the middle.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual proves',
       paragraphs: [
-        'The iterator model is composable and memory-conscious. It lets LIMIT stop early, lets filters stream rows immediately, and lets operators be added without rewriting the whole engine. The tradeoff is per-tuple overhead: function calls, virtual dispatch, expression interpretation, and branch-heavy control at every row boundary.',
-        'Blocking operators are the pressure points. Sort, hash aggregate, hash join build phases, and materialization nodes can consume full inputs before producing output. They are where memory limits, spilling, latency to first row, and plan shape become visible.',
+        'The open-next-close view shows demand flowing downward, not data flooding upward. The client asks Limit, Limit asks Join, Join asks its children, and the request continues until a leaf can produce a tuple. This proves the backpressure property: a child does not need to produce the next row until a parent asks.',
+        'The blocking-sort view proves that a tree edge does not always mean immediate streaming. Sort looks like another child node, but it must pull all input before it can answer its parent. The vectorized contrast proves that modern engines often keep operator boundaries while changing the work unit from one tuple to one chunk.',
       ],
     },
     {
-      heading: 'Complete case studies',
+      heading: 'Why it works',
       paragraphs: [
-        'Slow first page: a product listing query has ORDER BY created_at LIMIT 50. Without an index matching the order, the executor scans many rows and blocks in Sort before returning any page. A covering index on the filter and order key lets the executor stream rows in the needed order.',
-        'CPU-heavy analytics: a tuple-at-a-time executor evaluates the same predicate over millions of column values. A vectorized engine batches values into chunks, carries selection vectors, and amortizes overhead. DuckDB uses this route for embedded analytical workloads.',
-        'Parallel scan: one iterator tree is simple, but one core is not enough. Volcano adds exchange operators that bridge demand-driven local iterators with data-driven producer-consumer pipelines across processes.',
+        'The correctness argument is local composition. Each operator promises that repeated next calls enumerate exactly the rows defined by its physical operation, then report completion. If each child enumerates its output correctly, a Filter can correctly return the subset that satisfies its predicate, a Limit can correctly stop after k rows, and a Join can correctly combine rows according to its join algorithm.',
+        'The model also works because state ownership is explicit. A scan owns its cursor. A nested-loop join owns the current outer tuple and inner position. A sort owns its materialized run. close gives the engine a structured cleanup path for buffers, files, memory contexts, and child operators. That discipline matters for cancellation and errors as much as for normal query completion.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Volcano is not just "old and slow." It is a clean abstraction that still explains many production executors. The mistake is assuming the abstraction determines every performance property. Real engines specialize expressions, vectorize hot paths, compile fragments, push filters, add exchanges, and spill carefully.',
-        'Another trap is ignoring blocking nodes. A plan can look like a pipeline but still hide a Sort or HashAggregate that must consume everything before it returns one row. Reading EXPLAIN means reading both the tree shape and the streaming/blocking behavior of each node.',
+        'Volcano is memory-conscious for streaming plans. A scan-filter-limit query can stop early and hold little state. Doubling the table does not matter if an index and LIMIT let the executor find enough qualifying rows quickly. The model also handles pipelining naturally because rows move only when requested. Its best case is therefore not tied to table size alone; it is tied to where selective access and early termination appear in the plan.',
+        'The tax is per-tuple overhead. Every row can cross many next calls, branches, function pointers, virtual dispatch sites, expression interpreters, and tuple materialization boundaries. For analytical scans over millions of values, that overhead can dominate simple arithmetic. Blocking nodes add a second cost: memory pressure, spilling, and slow first-row latency when a Sort or HashAggregate must consume the whole child input.',
+        'This is why execution plans should be read as latency shapes, not only cost totals. Ask which operators can produce the first row immediately, which ones must consume a child first, which ones can spill, and which ones break a pipeline boundary.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
+      paragraphs: [
+        'The model wins when composability, early stopping, and clear operator ownership matter. OLTP-style queries often return few rows and benefit from lazy pulls through indexes, filters, joins, and limits. It is also an excellent teaching model for reading EXPLAIN plans because each node can be understood as a state machine that asks children for rows.',
+        'It also wins as a baseline inside more advanced engines. Vectorized and compiled systems still need physical operators, state ownership, blocking-node analysis, and exchange boundaries. Volcano gives the vocabulary for those questions even when the engine changes the work unit or generates specialized code for hot fragments. If a learner can explain where next calls happen, they can usually explain where a modern engine replaced those calls with batches, generated loops, or parallel exchanges.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Tuple-at-a-time execution can be a poor fit for CPU-heavy analytics. If a predicate is applied to 100 million column values, a vectorized engine can run tight loops over contiguous arrays and selection vectors, while a naive iterator may bounce through layers of calls and branches per row. DuckDB documents DataChunks and Vectors as the execution format for this reason.',
+        'The model can also hide first-row latency if the reader treats every edge as a pipeline. A plan with ORDER BY and no matching index may scan and sort a large input before returning page one. A hash aggregate may hold all groups. A hash join may build a table before probing. Reading a plan means marking which nodes stream, which block, and where memory can spill.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: PostgreSQL Executor documentation at https://www.postgresql.org/docs/current/executor.html and Graefe, Volcano: An Extensible and Parallel Query Evaluation System, at https://cs-people.bu.edu/mathan/reading-groups/papers-classics/volcano.pdf. DuckDB internals describe the vectorized contrast at https://duckdb.org/docs/current/internals/overview and https://duckdb.org/docs/current/internals/vector.',
-        'Study SQL Join Algorithms Primer for the join operators this model runs, PostgreSQL Query Planner Case Study for the plan-selection side, Cascades Memo Query Optimizer for the optimizer framework descended from Volcano ideas, DuckDB Vectorized Execution Case Study for the batch-oriented successor, Backpressure for the demand-pull intuition, and Exchange Operator Parallel Query for the parallel bridge.',
+        'Study SQL Join Algorithms Primer for the operators the executor runs, PostgreSQL Query Planner Case Study for plan selection, Cascades Memo Query Optimizer for optimizer lineage, DuckDB Vectorized Execution Case Study for the chunk-oriented successor, Backpressure for the demand-pull intuition, and Exchange Operator Parallel Query for the bridge from local iterators to parallel execution.',
       ],
     },
   ],

@@ -79,42 +79,90 @@ function sortedInsert(arr, value) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why This Exists`,
       paragraphs: [
-        `An LSM tree, short for Log-Structured Merge tree, is a storage engine design for turning random writes into sequential work. The 1996 O'Neil paper described the core bargain: accept writes into memory quickly, flush immutable sorted runs to disk, and merge those runs later in the background. Cassandra, HBase, LevelDB, and RocksDB use this pattern because disks and SSDs are much better at large sequential writes than at scattered small rewrites.`,
-        `The write path has two parts. First append the update to a Write-Ahead Log (WAL) so a crash can replay it. Then insert it into a memtable, often a skip list, tree, or other ordered in-memory structure. When the memtable reaches a threshold such as 64 MB or 128 MB, it becomes immutable and flushes as an SSTable: a sorted string table on disk. The cost is shifted to reads and compaction, not erased.`,
+        `Some databases are dominated by writes: events, metrics, logs, time-series data, counters, and replicated key-value updates. The storage engine has to acknowledge many small changes without seeking to a different old page for each one.`,
+        `A Log-Structured Merge tree changes the foreground path. It logs the write, stores the newest value in memory, flushes immutable sorted files, and merges those files later. The database trades random page updates now for sequential writes and background compaction.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Baseline and the Wall`,
       paragraphs: [
-        `A read checks the newest places first: active memtable, immutable memtables waiting to flush, then SSTables from newest to oldest or by level. Each SSTable has an index and usually a Bloom Filter, so the engine can skip files that definitely do not contain the key. If the key appears several times, the newest version wins. Deletes are stored as tombstones until compaction proves older versions can be discarded.`,
-        `Compaction is the heart of the design. Background workers merge sorted files using the same linear merge idea as Merge Sort, dropping overwritten values and expired tombstones. Size-tiered compaction groups similarly sized files; leveled compaction keeps most levels non-overlapping to reduce read amplification. This is why an LSM can write fast but still needs careful tuning: too little compaction hurts reads, too much steals I/O from foreground writes.`,
+        `The obvious design is a B-tree-style index. Find the page for the key, update the page, and keep the tree ordered. That design is strong for point reads and range scans because the latest value is near the place the search already reaches.`,
+        `The wall is the foreground write path. Many tiny writes scatter across many pages. The engine must read, modify, and rewrite old pages while also logging enough information to survive a crash. At high write rates, touching old locations becomes the bottleneck.`,
+        `An append-only log is the other simple idea. It makes writes cheap, but raw logs are poor indexes. An LSM tree keeps the append-friendly write path while periodically rebuilding sorted indexes out of the appended data.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core Data Layout`,
       paragraphs: [
-        `A write is O(1) for the log append plus O(log M) or similar for the memtable, where M is active memory state. A point read is O(log M) plus probes into candidate SSTables; filters often make the number of disk probes small. Compaction is linear in the bytes it rewrites for each merge, but the same data may be rewritten many times. That write amplification is the hidden tax. Space amplification comes from old versions and tombstones waiting for compaction.`,
+        `An LSM tree has three main pieces. The Write-Ahead Log is an append-only recovery record. The memtable is an in-memory ordered structure that holds recent writes. SSTables are immutable sorted files on disk.`,
+        `Each SSTable usually contains data blocks, a sparse index, metadata, and a Bloom filter. The filter answers a narrow question: this file definitely lacks the key, or it might contain the key. That lets reads skip many files without touching their data blocks.`,
+        `The layout is multi-version by storage position. The same key can exist in the memtable and several SSTables. The search order gives meaning to those duplicates: newer state is checked before older state, and the newest visible value wins.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Write Path`,
       paragraphs: [
-        `Cassandra combines token ownership from Consistent Hashing with an LSM storage engine on each node. RocksDB powers MyRocks, Kafka Streams state stores, Flink state backends, and many embedded indexes. LevelDB made the design easy to study; Pebble reimplemented a RocksDB-like engine in Go for CockroachDB. The competing shape is B-Trees (How Databases Read): PostgreSQL and InnoDB update buffered pages and indexes in place, still protected by logs, rather than accumulating immutable runs.`,
+        `A write first appends to the WAL. Once the log record is durable enough for the system's policy, the engine can recover the write after a crash. Then the key enters the memtable, often a skip list, tree, or other ordered in-memory structure.`,
+        `When the memtable reaches a size threshold, it freezes and flushes to disk as an SSTable. That flush is a large sequential write. A fresh memtable starts accepting new writes while the old one becomes an immutable file.`,
+        `The foreground operation doesn't search for an old page and rewrite it. It appends, updates memory, and leaves later organization to the compaction system.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Read Path and Compaction`,
       paragraphs: [
-        `The first misconception is that an LSM never rewrites data. It avoids rewriting on the foreground write path, then rewrites heavily during compaction. The second is that reads are automatically slow. A well-tuned engine with good filters, block cache, and low overlap can serve fast point reads; a neglected one with thousands of SSTables can fall apart. The third is that tombstones are harmless. In Cassandra, a delete may remain visible to compaction for hours or days so replicas can learn it; too many tombstones can make range scans painfully slow.`,
-        `Do not confuse the memtable with a Hash Table. Hash structures help membership tests and caches, but sorted order is what makes range scans and merge compaction possible. Also separate LSM mechanics from MVCC Internals & VACUUM: both manage old versions, but LSM compaction is a storage-layout process, while MVCC visibility is a transaction rule.`,
+        `A point read checks newest state first: active memtable, immutable memtables waiting to flush, and then SSTables from newer to older candidates. Bloom filters and indexes reduce the number of files that need data-block reads.`,
+        `A range scan is harder. Each sorted run may contain part of the range, so the engine merges iterators from several sources and resolves duplicates by recency. Too many files make this expensive.`,
+        `Compaction pays the cleanup bill. It reads sorted runs, merges them into new sorted runs, drops overwritten records when safe, and carries forward tombstones until older deleted values can no longer reappear. Size-tiered, leveled, and universal compaction policies make different tradeoffs between write amplification, read amplification, and space amplification.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Why It Works`,
       paragraphs: [
-        `Read Write-Ahead Log (WAL) for crash recovery, Merge Sort for compaction, Bloom Filter for read avoidance, and SSTable Block Index & Filter for the immutable file layout. Then study LSM Compaction Strategies Primer, RocksDB MANIFEST & VersionSet, and LSM Tombstones & Range Deletes to see how file metadata, versions, and delete cleanup work. Compare against B-Trees (How Databases Read), B+ Tree Leaf Sibling Scan Case Study, and Write-Through vs Write-Back to understand why buffering changes the I/O shape. Then connect storage layout to MVCC Internals & VACUUM and Consistent Hashing, which answer different questions: which versions are visible, and which server owns the key.`,
+        `Crash safety comes from the WAL. If the process dies after acknowledging a write but before flushing the memtable, recovery replays the log and rebuilds the lost memory state.`,
+        `Read correctness comes from search order. The engine checks newer structures before older ones, so an older value can't override a newer value for the same key. A tombstone is a value in this ordering: it says the newest visible state is deletion.`,
+        `Compaction is safe because sorted runs can be merged without losing order. For each key, the merge keeps the newest still-needed version and writes a new sorted run. The logical key-value map stays the same while the physical files change.`,
+      ],
+    },
+    {
+      heading: `Cost and Behavior`,
+      paragraphs: [
+        `A write is usually one log append plus an insertion into the memtable, often O(log M) for M keys in memory. The important behavior is sequential I/O on the foreground path.`,
+        `A point read costs a memtable lookup plus probes into candidate SSTables. Bloom filters reduce unnecessary file reads, but false positives still cause some extra work. A range scan may have to merge entries from many sorted runs.`,
+        `The central tax is amplification. Write amplification means compaction rewrites the same logical data multiple times. Read amplification means a lookup or scan checks multiple structures. Space amplification means old versions and tombstones occupy disk until compaction can remove them.`,
+        `Compaction scheduling is a control problem. Too little compaction makes reads slow and space grow. Too much compaction steals disk bandwidth from writes and can create latency spikes.`,
+        `A useful operational dashboard separates foreground write latency from compaction debt. If write latency rises while pending compaction bytes grow, the storage engine is falling behind on the cleanup work that makes later reads cheap.`,
+        `That dashboard should also show tombstone age, file count by level, and compaction bandwidth, because those are the signals that explain why a write-optimized design suddenly becomes a read-latency incident.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `LSM trees fit write-heavy storage: Cassandra, HBase, LevelDB, RocksDB, Kafka Streams state stores, Flink state backends, and many embedded databases. They are strongest when sequential writes and batched merges beat scattered page rewrites.`,
+        `They also fit workloads that ingest data now and query it later. A metrics system can accept a flood of timestamped points, flush them as sorted files, and compact them while reads use filters and indexes to avoid irrelevant files.`,
+        `In distributed stores, consistent hashing and replication decide which machines own the key. The LSM tree decides how each machine stores that key locally.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `An LSM tree doesn't make writes free. It moves rewrite work to compaction. A system with too many SSTables, weak filters, or tombstone buildup can make reads and scans painful.`,
+        `The design is a poor fit when the workload is mostly ordered reads over stable data and foreground write rate is modest. A B-tree may serve those reads with fewer files, fewer merges, and less compaction tuning.`,
+        `An LSM tree is also not MVCC. LSM compaction is a storage-layout process. MVCC visibility is a transaction rule. They often coexist, but they answer different questions.`,
+      ],
+    },
+    {
+      heading: `Concrete Example`,
+      paragraphs: [
+        `Suppose key 42 is written three times and then deleted. The memtable or newest SSTable may contain the tombstone. Older SSTables may still contain the previous values. A correct read must find the tombstone first and stop there. A correct compaction can later remove the old values once it knows no older file can resurrect them for a visible reader.`,
+        `Tombstones aren't just markers to skip. They are part of the newest-wins ordering until compaction and snapshot rules prove they are no longer needed.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Study Write-Ahead Log (WAL) for crash recovery, Merge Sort for compaction, Bloom Filter for read avoidance, and SSTable Block Index & Filter for immutable file layout. Then read LSM Compaction Strategies Primer, RocksDB MANIFEST & VersionSet, and LSM Tombstones & Range Deletes for file metadata, versions, and deletion cleanup. Compare against B-Trees (How Databases Read), B+ Tree Leaf Sibling Scan Case Study, Write-Through vs Write-Back, MVCC Internals & VACUUM, and Consistent Hashing.`,
       ],
     },
   ],

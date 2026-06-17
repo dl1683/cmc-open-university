@@ -136,43 +136,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why tries exist',
       paragraphs: [
-        `A trie stores strings by shared prefixes. Each edge or node represents the next character or token, and a marked node says that the path from the root is a complete key. Edward Fredkin coined the name around 1960 from retrieval; many people pronounce it try to avoid confusion with tree.`,
-        `The structure is useful because common beginnings become common storage. The words cat, car, card, and care share c-a, then split. A Hash Table can answer exact membership quickly, but it does not naturally answer every key starting with ca. A prefix tree does: walk the prefix once, then traverse the subtree below it.`,
+        `A trie exists because many string problems are not really whole-string problems. Search boxes ask for every word that begins with what the user has typed. Routers ask for the longest stored IP prefix that matches an address. Spell checkers, command palettes, tokenizers, IDE symbol indexes, and dictionary engines all care about shared beginnings.`,
+        `A flat collection of complete strings hides that structure. It can tell you whether "care" is present, but it does not give the prefix "car" a place in the data structure. A trie turns every prefix into a reachable node. Once the query reaches that node, the rest of the dictionary outside that subtree is irrelevant.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The baseline and the wall',
       paragraphs: [
-        `Insertion walks from the root one symbol at a time. If the child for the next symbol exists, reuse it. If not, create it. At the end, mark the node as a complete key. Exact lookup follows the same path and succeeds only if the final node is marked; reaching an unmarked prefix means the prefix exists but the full word does not.`,
-        `Autocomplete is the signature operation. Walk the requested prefix in O(prefix length). If any step is missing, no stored key has that prefix. If the walk succeeds, collect completions with Tree Traversals over the descendant subtree. Deletion unmarks the terminal node and then removes now-useless childless nodes on the way back up.`,
+        `The obvious baseline is a hash table of complete words. For exact lookup, it is hard to beat. "Is card in the dictionary?" becomes a hash computation and a bucket check. A sorted array or balanced tree is also reasonable when ordered iteration matters.`,
+        `The wall appears when the query asks for a prefix. A hash table must scan keys or maintain a separate index for prefixes. A sorted array can binary-search the beginning of a prefix range, but it still stores the same leading characters again and again in every word. As prefix queries become the main workload, hiding common beginnings inside full strings becomes the wrong representation.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core insight',
       paragraphs: [
-        `Exact lookup and insertion cost O(L), where L is key length, independent of the number of stored keys. Autocomplete costs O(P + R), where P is prefix length and R is the size of the returned subtree. Space is O(total stored symbols) in the worst case, but shared prefixes reduce real usage. For cat, car, card, and care, the raw words contain 14 letters; the shared-prefix structure needs only c, a, t, r, d, and e plus the root.`,
-        `Memory details depend on child representation. An array of 26 child pointers is fast for lowercase English but wasteful for Unicode. A map per node saves sparse space but adds hashing overhead. Compressed radix tries collapse chains of single-child nodes into edge labels, often winning in production.`,
+        `The core insight is to store a key as a path from the root. Each edge consumes one symbol. If two words begin with the same symbols, they share the same path until the first symbol where they differ. The trie stores the shared beginning once and branches only at the point of disagreement.`,
+        `The node is not just a container; it has meaning. The node reached by c then a represents the prefix "ca". Every descendant of that node starts with "ca". A terminal marker says that the path itself is a complete key, which is why "car" can be present even when "card" and "care" continue below it.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Invariant',
       paragraphs: [
-        `Autocomplete in search boxes, IDE symbol completion, phone keyboards, spell-checkers, and command shells all rely on prefix lookup. Routers use binary prefix tries for longest-prefix IP matching. Databases and storage engines use trie-like or radix structures for ordered byte keys; B-Trees (How Databases Read) solve a related indexing problem with disk-friendly high fanout. Tokenization (BPE) implementations often use trie-like tables to find the longest mergeable token prefix. Huffman Coding also produces prefix-free codes, although its tree is optimized for compression rather than lookup by human-readable prefix.`,
+        `The invariant is path meaning: the sequence of edge labels from the root to a node is exactly the prefix represented by that node. Every terminal descendant of a prefix node is a stored key with that prefix. Every stored key with that prefix must be in that subtree.`,
+        `This invariant gives the trie its strongest negative result. If a required child edge is missing while walking a prefix, no stored key can have that prefix. A missing branch is proof, not a guess. That is why autocomplete for an absent first character can return immediately without reading the rest of the dictionary.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Mechanics',
       paragraphs: [
-        `A trie is not automatically better than a Hash Table. For exact lookup on a small static dictionary, hashing is simpler and often faster. Prefix trees win when prefix queries, lexicographic traversal, or longest-prefix matching are core operations. Another misconception is that each node stores a full word. Usually the path spells the key, while nodes store one symbol, child links, and a terminal marker.`,
-        `Large alphabets change the engineering. Unicode normalization, case folding, accents, and emojis can turn a character-by-character design into a bug farm. Finite State Machines and minimal deterministic automata can compress large static dictionaries even more aggressively, while Bloom Filter can cheaply reject impossible exact lookups before touching a larger index.`,
+        `Insertion starts at the root and consumes one symbol at a time. If the next child already exists, the insertion reuses it. If the child does not exist, the insertion creates it. After the last symbol, the node is marked terminal. Without that marker, the structure could not distinguish "car is a stored word" from "car is only a prefix of longer stored words."`,
+        `Exact lookup follows the same path and then checks the terminal marker. Prefix lookup follows only the prefix. If the walk succeeds, autocomplete is a traversal of the descendant subtree that collects terminal nodes. If the walk fails, the result is empty immediately. The algorithm spends time on the query prefix and the returned results, not on unrelated words.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Why it works',
       paragraphs: [
-        `Study Hash Table to understand the exact-lookup alternative. Tree Traversals explains completion harvesting. PATRICIA Trie compresses prefix paths for routing-style lookups, and eBPF LPM Trie CIDR Policy Case Study shows longest-prefix matching exposed as a kernel map. Hierarchical Heavy Hitters: Prefix Sketch shows how prefix trees become a network-telemetry aggregation hierarchy. B-Trees (How Databases Read) shows disk-oriented multiway indexing. Tokenization (BPE) connects prefix matching to AI text processing. Huffman Coding covers prefix-free trees, and Finite State Machines show another way to represent many string patterns compactly.`,
+        `Correctness follows from insertion preserving the path invariant. When a word is inserted, the algorithm creates exactly the missing edges needed to spell it and marks exactly the final node terminal. Therefore every inserted word has a root-to-terminal path whose labels spell the word.`,
+        `Exact lookup is correct because it accepts only when that path exists and the final node is terminal. Autocomplete is correct because descendants preserve the prefix that reached their ancestor. After walking "ca", every terminal node below that point spells a word beginning with "ca", and any inserted word beginning with "ca" must have passed through the same node during insertion.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Insert "cat" into an empty trie. The root gains a c child, c gains an a child, a gains a t child, and the t node is marked terminal. Insert "car" next. The c and a nodes already exist, so the insertion reuses them and creates only r. The two words share c-a and split at the last letter.`,
+        `Now insert "card" and "care". Both reuse c-a-r. One creates a d child and marks it terminal; the other creates an e child and marks it terminal. Autocomplete "car" walks c, a, r. The r node itself is terminal, so "car" is a result. The traversal below r also finds "card" and "care". Autocomplete "x" fails at the root, proving the result is empty in one missing-edge check.`,
+      ],
+    },
+    {
+      heading: 'Cost model',
+      paragraphs: [
+        `Insertion and exact lookup cost O(L), where L is the key length in symbols. Prefix lookup costs O(P) to reach the prefix node, where P is the prefix length, plus the cost of enumerating the output subtree. This is the central performance promise: lookup time depends on the string being walked and the results being returned, not directly on the number of stored keys.`,
+        `Space is the tradeoff. A plain trie can allocate many nodes, especially when keys share little prefix structure. Child representation matters. A fixed array per node is fast for a tiny alphabet but wasteful for sparse Unicode. A map per node saves space but adds hashing or tree lookup cost. Packed arrays, sorted child lists, radix compression, and PATRICIA-style bit tries all adjust this memory-speed tradeoff.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Tries win when prefix is the natural query shape: autocomplete, IDE symbol completion, command lookup, dictionary search, spell-check candidate generation, longest-prefix IP routing, ordered byte-key dictionaries, tokenizer prefix lookup, and hierarchical policy matching. They turn "find the relevant range" into "walk the shared beginning."`,
+        `They also win when failed prefix queries should be cheap. A missing edge can reject an entire dictionary region that a scan would have to discover item by item. For user-facing search, that matters because many partial inputs are not complete words and many typed prefixes produce small result sets.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `A trie is not automatically better than a hash table. If the workload is exact lookup on random strings, hashing is simpler and often faster. If the key set is small, a sorted array can be easier to build, easier to serialize, and fast enough. A trie earns its keep when prefix structure is used heavily.`,
+        `Real text also complicates the clean model. Unicode normalization, case folding, accents, grapheme clusters, locale-specific comparisons, and token boundaries decide what a "symbol" means. If the application treats bytes as symbols in one place and user-visible characters in another, the trie can return surprising results. Production systems must define the alphabet before they define the data structure.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Choose the child representation from the alphabet and workload. For lowercase English words, a compact array or small sorted vector can be reasonable. For arbitrary strings, use a map or a packed representation. For memory-heavy dictionaries, consider a radix tree that stores multi-symbol edge labels, or a minimal deterministic automaton when the key set is static.`,
+        `Be careful with deletion. Unmarking the terminal node is not always enough; you may also want to remove now-unused nodes on the path back to the root. But removing shared nodes would corrupt other keys, so deletion must stop as soon as it reaches a node that is terminal or has another child. For ranked autocomplete, store scores or top-k summaries near prefix nodes, but update them consistently during insertions, deletions, and score changes.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `During insertion, the useful thing to notice is reuse. "car", "card", and "care" share c-a-r, so the structure stores that beginning once and branches only for the different endings. The highlighted path is not just a route through nodes; it is the prefix represented by those nodes.`,
+        `During autocomplete, the highlighted prefix node becomes the boundary of the answer. Everything below it is relevant, and everything outside it is irrelevant. When the chosen prefix is absent, the dead end itself is the result: the missing edge proves there are no completions.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Hash Table for the exact-lookup alternative, Tree Traversals for completion harvesting, PATRICIA Trie and Radix Tree for compressed paths, eBPF LPM Trie CIDR Policy Case Study for longest-prefix matching, Hierarchical Heavy Hitters: Prefix Sketch for prefix aggregation, B-Trees for disk-oriented indexing, Tokenization (BPE) for AI text processing, Huffman Coding for prefix-free codes, and Finite State Machines for compact pattern recognition.`,
       ],
     },
   ],

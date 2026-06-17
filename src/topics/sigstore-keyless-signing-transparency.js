@@ -189,10 +189,24 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
         'Sigstore is a modern software-signing stack. Its keyless flow lets a user or workload sign artifacts without managing a long-lived signing key. Instead, the signer authenticates through OIDC, Fulcio issues a short-lived certificate binding identity to an ephemeral public key, and Rekor records the signing event in a transparency log.',
         'The data-structure view is a linked proof packet: artifact digest, signature, Fulcio certificate, signing identity, log entry, inclusion and timestamp evidence, TUF-distributed trust roots, and policy expectations.',
+      ],
+    },
+    {
+      heading: 'The obvious attempt',
+      paragraphs: [
+        'The traditional answer to artifact signing is to create a long-lived private key, store it in CI or a release machine, and use it to sign builds. That is understandable, but it creates a custody problem. Keys must be generated, backed up, rotated, revoked, scoped, audited, and protected from every workflow that can reach them.',
+        'Another weak answer is to rely on package names, registry tags, or checksums posted in release notes. Tags can be moved. Accounts can be compromised. Checksums prove bytes match a posted value, but not who produced that value or whether the event was visible to auditors. Sigstore moves the trust record from hidden key custody toward short-lived identity-bound signing plus public transparency.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that many build systems already have strong workload identity at the moment of release. A CI job can prove it is a specific repository, workflow, branch, or runner through OIDC. Fulcio can turn that temporary identity into a short-lived signing certificate for an ephemeral key. The artifact can then be signed without storing a permanent private key in the pipeline.',
+        'Rekor adds a second property: visibility. A signing event is placed in an append-only transparency log so verifiers and monitors can detect what identities signed what artifacts. The verification question becomes a policy question: did the expected identity sign this digest, at a valid time, with evidence recorded under trusted roots?',
       ],
     },
     {
@@ -214,13 +228,36 @@ export const article = {
       paragraphs: [
         'A GitHub Actions workflow builds a container image. The workflow receives an OIDC identity from GitHub, uses cosign keyless signing to get a Fulcio certificate for the workflow identity, signs the image digest, and records the signature in Rekor. The deployment gate later verifies that the image digest matches, the certificate issuer and subject match the expected workflow, the Rekor evidence is valid, and the SLSA provenance says the expected builder produced the image.',
         'If an attacker steals a registry password and uploads a new image under the same tag, the signature check fails for the new digest. If an attacker signs with a personal identity, the cryptography may pass but policy rejects the wrong subject. If Rekor contains an unexpected certificate for the release identity, monitoring should raise an incident even before a deployment uses it.',
+        'The same pattern applies to language packages, release archives, SBOMs, and provenance attestations. The artifact digest is the anchor. Tags, filenames, and package versions are labels around it. A serious verifier ties the digest to the expected builder identity and then checks whether the surrounding provenance says the artifact came from the right source, workflow, and dependency boundary.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The signing-flow view is proving that the key is not the identity. The ephemeral key signs the artifact, but the certificate binds that key to an OIDC identity and a short validity window. The transparency entry then records evidence that the event happened. The result is a packet a verifier can inspect without trusting a private release machine.',
+        'The verification-flow view is proving that cryptography alone is not authorization. A valid signature from the wrong workflow should fail policy. A logged event proves visibility, not approval. A trusted root tells the verifier which Fulcio and Rekor records to trust, not whether the artifact is safe. The deployment gate must combine signature validity, identity policy, digest match, timestamp evidence, and provenance expectations.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Keyless signing works because the signing key is temporary and the identity proof is externalized. Stealing yesterday\'s ephemeral private key is far less useful than stealing a long-lived release key, because the certificate has expired and policy can require a fresh OIDC-bound identity. That does not remove all risk, but it narrows the secret-management problem.',
+        'Transparency works because hidden signing events become detectable. If an attacker obtains an identity token and signs an artifact, the event can appear in Rekor where monitors can notice an unexpected subject, issuer, repository, workflow, or artifact namespace. The model is closer to certificate transparency for software artifacts than to a private approval database.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Sigstore shifts operational burden rather than deleting it. Teams must secure CI permissions, scope OIDC trust, write verifier policy, monitor transparency logs, manage TUF roots, and decide how to respond to suspicious entries. A weak policy that accepts any valid Sigstore signature is barely better than accepting any signed binary.',
+        'There is also ecosystem complexity. Offline verification may require bundles. Air-gapped environments need root and log material handled carefully. Incident response must answer whether a bad signature was caused by compromised CI identity, a malicious workflow change, a policy gap, or a dependency artifact signed by an unexpected maintainer.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
       paragraphs: [
         'Keyless does not mean identity-free. It shifts trust from stored private keys to identity providers, Fulcio, Rekor, TUF roots, and policy. That is often easier to operate, but it still needs identity scoping, monitoring, and incident response.',
-        'Another mistake is treating transparency inclusion as approval. Rekor proves a signing event was logged. It does not prove the signer was authorized for a particular package or that the signed artifact is safe.',
+        'Another mistake is treating transparency inclusion as approval. Rekor proves a signing event was logged. It does not prove the signer was authorized for a particular package or that the signed artifact is safe. A deployment system must reject signatures from unexpected subjects even when all cryptographic checks pass.',
+        'The useful mental model is not "signed equals trusted." It is "signed by whom, for which digest, under which identity provider, at what time, visible in which log, allowed by which policy?" Sigstore supplies evidence for those questions, but the organization still has to write and enforce the answers.',
       ],
     },
     {

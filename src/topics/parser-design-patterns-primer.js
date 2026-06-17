@@ -237,36 +237,119 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'What A Parser Really Does',
       paragraphs: [
-        'Parser design is the discipline of turning raw input into one explicit meaning. The shape repeats across formats: bytes are decoded, characters become tokens, tokens update parser state, parser state emits structured output, and every failure gets a location and an expected-next-token story.',
-        'The primer ties together UTF-8, CSV, JSON, Pratt parsing, regex automata, Protobuf, Avro, and HPACK. Those formats differ, but the implementation questions are the same: what language is valid, what memory does the parser need, what output does the caller want, and what limits keep bad inputs from consuming the machine?',
+        'A parser turns raw input into one explicit meaning. That sounds simple until the input is malformed, partial, huge, ambiguous, encoded oddly, or hostile. Parser design is the work of making those cases boring.',
+        'The same shape appears in UTF-8 decoders, CSV readers, JSON parsers, expression parsers, regex engines, Protobuf readers, Avro decoders, HTTP header compressors, SQL parsers, and compiler front ends. Bytes become characters or primitive values. Characters become tokens. Tokens update state. State emits events, rows, trees, typed records, or diagnostics.',
+        'A production parser answers five questions before code starts: what language is valid, what state structure recognizes it, what output the caller needs, what resource limits protect the machine, and what error information helps a human or upstream system repair the input.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach And Its Wall',
       paragraphs: [
-        'A byte decoder validates the lowest layer. A lexer converts character runs or byte patterns into tokens. A structural parser applies grammar rules. Some grammars fit in a finite state machine, some require a stack, and programming-language expressions often build trees. The output can be events, row batches, typed values, or AST nodes.',
-        'Good parsers keep source spans. That metadata costs memory, but it changes failure from "parse error" into "expected colon after key at line 12, column 8." Spans also power editor refactors, diagnostics, source maps, and security logs.',
+        'The obvious implementation is one large loop with many branches: read a byte, check a quote, append a character, maybe build an object, maybe throw an error. This works for tiny examples and becomes unmaintainable as soon as the grammar grows.',
+        'The wall is responsibility collapse. A tangled parser cannot explain whether a failure came from invalid bytes, tokenization, grammar, schema validation, resource limits, or output construction. It cannot resume cleanly after partial input because no layer owns resumable state. It cannot produce useful diagnostics because source positions were thrown away too early.',
+        'The cure is not abstraction for its own sake. It is separating kinds of meaning. Byte validity, lexical categories, grammar structure, semantic validation, output shape, and diagnostics are different jobs.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The Layered Pipeline',
       paragraphs: [
-        'A browser uploads a large CSV file. The byte decoder validates UTF-8. The CSV state machine keeps quoted-field state across chunks. It emits row batches to a worker pipeline. The worker reports malformed quote errors with byte offsets and row numbers. The main thread stays responsive because the parser preserves streaming state instead of loading everything into one giant string.',
-        'A JSON API gateway has a different shape. It validates UTF-8, tokenizes JSON, keeps an object/array stack, enforces depth and byte limits, and emits a typed value for schema validation. The same parser architecture appears, but the state structure and output shape change.',
+        'The decoder validates the lowest representation. For text, that may mean UTF-8 byte sequences and Unicode scalar values. For binary formats, it may mean varints, fixed-width integers, endianness, lengths, checksums, or frame boundaries.',
+        'The lexer groups the decoded stream into symbols the grammar can use: identifiers, numbers, strings, braces, delimiters, operators, field tags, or record separators. Some formats, such as CSV, can skip a separate lexer and use a small state machine directly, but the separation is still conceptually useful.',
+        'The parser applies structure. It recognizes arrays inside objects, expressions inside parentheses, statements inside blocks, or fields inside records. The builder then emits the chosen output: events, row batches, DOM-like trees, AST nodes, typed structs, or validation errors with source spans.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Parsing is often linear in input size, but linear work can still dominate latency. Allocation, string unescaping, source spans, tree construction, validation, and cross-thread transfer are usually more expensive than the state transition itself. Production parsers must budget memory, depth, field count, time, and error volume.',
+        'A parser works when each layer has a smaller contract than the layer before it. The lexer turns messy bytes into tokens. The parser turns tokens into structure. The semantic layer checks names, types, limits, and domain rules. Keeping those contracts separate makes the system easier to prove, test, stream, and repair after errors.',
+        'The correctness invariant is that the parser state explains every token consumed so far. A stack frame records the construct currently open, what token is legal next, and where the finished value should be attached. When a token violates that state, the parser can reject at the source span that made the input impossible instead of guessing later. That is why explicit parser state beats ad hoc string splitting for languages, data formats, and protocols that must fail safely.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Choosing The Right State',
       paragraphs: [
-        'Primary sources include RFC 3629 for UTF-8 at https://www.rfc-editor.org/rfc/rfc3629, RFC 4180 for CSV at https://www.rfc-editor.org/rfc/rfc4180, RFC 8259 for JSON at https://www.rfc-editor.org/rfc/rfc8259, Vaughan Pratt Top Down Operator Precedence at https://tdop.github.io/, and Russ Cox on regex engine implementation at https://swtch.com/~rsc/regexp/regexp1.html. Study UTF-8 Decoder DFA, CSV Parser State Machine, JSON Parser Stack, Pratt Parser Expression AST, Thompson NFA Regex Engine Case Study, Regex Backtracking & ReDoS Case Study, Protobuf Wire Format, Avro Binary Encoding, HPACK Dynamic Table HTTP/2 Case Study, and Web Workers next.',
+        'The grammar determines the memory model. Bounded modes fit a finite-state machine. CSV quoted fields are a good example: outside field, inside unquoted field, inside quoted field, after quote. No unbounded nesting is needed.',
+        'Nested languages need a stack. JSON arrays and objects can nest arbitrarily, so the parser must remember whether it is inside an array, object key, object value, or closing delimiter. XML, HTML, many binary container formats, and programming-language block structures have the same pressure.',
+        'Expressions need precedence state. A Pratt parser uses a table of prefix and infix parselets plus binding powers to decide whether `a + b * c` groups as `a + (b * c)`. Recursive descent, operator-precedence parsing, shunting-yard, LR parsers, and parser combinators all encode different answers to the same state question.',
+      ],
+    },
+    {
+      heading: 'Choosing The Output',
+      paragraphs: [
+        'Output is a product decision, not a parser convenience. A CSV ingestion path may want row batches so it can stream into a worker or database loader. A JSON API gateway may want a typed value for schema validation. A compiler wants an AST with source spans because later passes analyze, transform, and report errors.',
+        'Event streams minimize memory but push state to the consumer. Full trees are easy to navigate but expensive for huge inputs. Typed records are convenient but can hide malformed optional fields if construction and validation are mixed. ASTs preserve structure but require more node types and source metadata.',
+        'The best parser can often support more than one output shape because recognition and building are separated. The recognizer says what the input means. The builder decides how much of that meaning to retain.',
+      ],
+    },
+    {
+      heading: 'Worked Case Study: Streaming CSV',
+      paragraphs: [
+        'A browser uploads a 2 GB CSV file. Loading the whole file into one string would freeze the page and blow memory. A streaming parser instead consumes chunks in a worker. The decoder validates UTF-8 and keeps partial multibyte sequences between chunks.',
+        'The CSV state machine keeps the current row, current field, quote mode, row number, byte offset, and whether a delimiter or newline is legal at this point. It emits row batches, not one giant table. Backpressure from the consumer can pause reading without losing parser state.',
+        'Diagnostics need the same discipline. A malformed quote should report the row, column, byte range, and expected transition. "Invalid CSV" is not enough for a user trying to fix a file with millions of rows.',
+      ],
+    },
+    {
+      heading: 'Worked Case Study: JSON Gateway',
+      paragraphs: [
+        'A JSON API gateway has a different state shape. It validates UTF-8, tokenizes strings, numbers, punctuation, booleans, and null, then uses an object/array stack to enforce nesting. It tracks byte count, depth, string length, key count, duplicate-key policy, and parse time.',
+        'The output may be a typed value handed to schema validation. The parser should not silently repair missing commas, accept comments in strict JSON, or coerce duplicate fields unless the contract says so. Permissive parsing can be useful at an edge, but it must be a named mode because it changes the language accepted by the service.',
+        'The same architecture appears as in CSV: decoder, tokenizer, structural state, output builder, limits, diagnostics. The state structure changes because JSON has unbounded nesting and typed values.',
+      ],
+    },
+    {
+      heading: 'Errors And Source Spans',
+      paragraphs: [
+        'Good diagnostics are designed, not sprinkled on later. The lexer or low-level reader must preserve enough location information for higher layers to explain failures. That can mean byte offset, line, column, token span, decoded character range, original slice, and include-file or source-map identity.',
+        'The parser should report what it expected from its current state. "Expected colon after object key at line 12, column 8" is actionable. "Unexpected token" is often not. In editors, spans power underlines, code actions, incremental reparsing, rename safety, and formatting preservation.',
+        'Spans cost memory. Full AST spans can dominate small inputs, and retaining original slices can keep large buffers alive. Production parsers choose how much location data to keep based on whether the output is for ingestion, diagnostics, compilation, or interactive editing.',
+      ],
+    },
+    {
+      heading: 'Resource Limits And Security',
+      paragraphs: [
+        'Parsers sit on untrusted input. A correct grammar is not enough if the implementation can be forced into huge allocation, deep recursion, catastrophic backtracking, endless error recovery, or quadratic string concatenation.',
+        'Useful limits include total bytes, nesting depth, token length, string length, number of fields, number of errors reported, parse time, row batch size, recursion depth, and output tree size. Streaming parsers also need backpressure so a fast producer cannot overwhelm a slow consumer.',
+        'Regular-expression based lexers need special care. Backtracking regex engines can turn a small hostile string into exponential work. DFA-style tokenizers, bounded regexes, and explicit state machines are often better for protocol boundaries.',
+      ],
+    },
+    {
+      heading: 'Incremental And Streaming Parsers',
+      paragraphs: [
+        'Streaming parsers preserve state across chunks. They are mandatory for large files, sockets, browser uploads, and pipeline ingestion. The parser must remember partial tokens, incomplete UTF-8 sequences, open containers, quote modes, row counters, and consumer backpressure.',
+        'Incremental parsers preserve work across edits. Editors and IDEs do not want to reparse a whole project after one character changes. They keep syntax trees, invalidation ranges, source spans, and grammar state so only affected regions are rebuilt.',
+        'Both designs punish hidden global state. If the parser cannot serialize or localize its state, it cannot pause, resume, recover, or reparse cheaply.',
+      ],
+    },
+    {
+      heading: 'Costs And Failure Modes',
+      paragraphs: [
+        'Parsing is often O(n), but the constant factors matter. Decoding, allocation, string unescaping, interning, source-span storage, tree construction, validation, schema lookup, and cross-thread transfer can dominate the state transition itself.',
+        'Common failures include accepting more than the specification allows, rejecting valid edge cases, losing source positions, producing ambiguous output, repairing silently, recursing too deeply, copying slices repeatedly, and mixing syntax parsing with business validation.',
+        'The most subtle failure is version drift. File formats and protocols evolve. A parser needs a named compatibility mode, feature flags, schema versioning, and tests for old inputs. Otherwise a "minor" grammar extension can break old clients or make security filters parse a different language from application code.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Layered parser design wins for compilers, API gateways, browser uploads, configuration files, protocol decoders, log ingestion, data import tools, security filters, and editor tooling. These domains need clear failure, bounded resource use, and outputs that downstream code can trust.',
+        'It is especially valuable when multiple consumers need the same language: a validator, formatter, highlighter, compiler, linter, and migration tool can share recognition while building different outputs.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'The pattern fails when syntax is treated as the whole problem. Real ingestion also needs schema validation, type conversion, canonicalization, duplicate handling, normalization, security policy, version negotiation, and backpressure above the parser.',
+        'It also fails when the layers are too rigid. A parser that refuses to expose source spans cannot support editor diagnostics. A tree builder that requires the whole input cannot support streaming. A permissive mode with no name or audit trail can become a security bug because different system components disagree about what the input means.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary references include RFC 3629 for UTF-8 at https://www.rfc-editor.org/rfc/rfc3629, RFC 4180 for CSV at https://www.rfc-editor.org/rfc/rfc4180, RFC 8259 for JSON at https://www.rfc-editor.org/rfc/rfc8259, Vaughan Pratt Top Down Operator Precedence at https://tdop.github.io/, and Russ Cox on regex engine implementation at https://swtch.com/~rsc/regexp/regexp1.html.',
+        'Study UTF-8 Decoder DFA, CSV Parser State Machine, JSON Parser Stack, Pratt Parser Expression AST, Thompson NFA Regex Engine Case Study, Regex Backtracking Catastrophic Case Study, Protobuf Wire Format, Avro Binary Encoding Schema Resolution, HPACK Dynamic Table HTTP/2 Case Study, Tree-sitter Incremental Parsing, and Web Workers next.',
       ],
     },
   ],

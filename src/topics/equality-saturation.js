@@ -140,42 +140,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `An e-graph is a data structure for representing many equivalent expressions at once. Equality saturation is the optimization strategy built on top: repeatedly apply rewrite rules, merge equivalent expressions, and delay the final choice until extraction. The core move is anti-greedy. Instead of rewriting A into B and forgetting A, the e-graph records that A and B are equal.`,
-        `This matters whenever local rewrites fight each other. Compilers, SQL optimizers, tensor-graph optimizers, and symbolic algebra systems all suffer phase-ordering problems: a rule that looks good now can block a better rule later. Equality saturation keeps alternatives alive until a cost model can choose for the actual target.`,
+        `Optimizers are full of choices that look local but are not. Simplify an expression now and you may erase the shape a later vectorizer needed. Reassociate floating-point math and you may break a numerical contract. Lower a tensor operation too early and you may hide a fusion opportunity. The name for this pain is phase ordering: the result depends on which rewrite pass happened to run first.`,
+        `Equality saturation exists to stop early choices from destroying later options. Instead of rewriting expression A into expression B and forgetting A, an e-graph records that A and B are equivalent. It keeps many forms alive at once, runs more rewrites over the shared space, and delays the final decision until a cost model extracts the best representative for the target.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `An e-graph contains e-nodes and e-classes. An e-node is an operator applied to child e-classes, such as add(a, b). An e-class is a set of e-nodes known to be equivalent. Rewrite rules search for matching patterns and add new e-nodes into existing or new e-classes. When two classes are proven equal, they merge, and congruence closure propagates that equality to parents.`,
-        `Saturation means repeatedly running those rewrites until no more useful changes appear or a resource budget is reached. Extraction then solves a dynamic-programming-style cost problem over the e-graph: choose the cheapest expression in each class according to latency, code size, numerical stability, energy, or any target-specific cost model.`,
+        `The reasonable first design is a pipeline. Run constant folding, then algebraic simplification, then canonicalization, then vectorization, then lowering, then cleanup. Each pass sees one program, applies rules that look helpful, and hands one program to the next pass. This design is understandable, debuggable, and fast enough for many compilers.`,
+        `The wall appears when a rewrite is only helpful in combination with another rewrite. Turning x * 2 into x + x may look worse until a target rule turns x + x into x << 1. Adding a redundant + 0 looks useless until it exposes a pattern required by another rule. A greedy pipeline has no memory of abandoned forms. Once it commits, the old route is gone.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The core insight',
       paragraphs: [
-        `The danger is explosion. Rewrites can add an enormous number of equivalent forms, many of which are useless. Practical equality saturation uses rule schedules, node limits, timeouts, analysis data, and extraction costs to keep the search finite. Union-Find (Disjoint Sets) intuition helps: merging equivalence classes is central, but e-graphs also maintain operator structure and parent links, so they are richer than plain disjoint sets.`,
+        `The core move is to store equivalence directly. An e-node is an operator applied to children, such as add(a, b). An e-class is a set of e-nodes known to compute the same value. The children of an e-node are not single expressions; they are e-classes. That means one compact graph can represent a huge family of equivalent expressions.`,
+        `When two e-classes merge, equality propagates upward through congruence closure. If a equals b, then f(a) and f(b) are also equal under the same operator and equal surrounding structure. This is the data-structure advantage over a plain rewrite log. The e-graph is not just collecting strings. It is maintaining a shared quotient of the expression space where equivalent subexpressions collapse together.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Mechanism and algorithm',
       paragraphs: [
-        `The egg project made equality saturation practical for research and production-style optimizers. E-graphs have been used for floating-point rewrites, DSP and hardware optimization, SQL and tensor algebra rewrites, theorem-proving workflows, and program-synthesis loops. The pattern also explains a lot of modern AI-for-code systems: generate many candidate programs, prove or test equivalence where possible, and extract the cheapest verified result.`,
-        `This is close in spirit to Evolutionary Search, but the meaning of "mutation" is different. Evolutionary search can try arbitrary candidates and rely on a fitness function. Equality saturation applies sound rewrites, so every retained expression stays inside the equivalence class. That soundness is why it pairs naturally with verifiers.`,
+        `Equality saturation starts by inserting the input expression into the e-graph. Rewrite rules then search for matching patterns. When a rule matches, the engine adds the rewritten form to the graph and records the equality instead of replacing the old form. After many rules fire, the rebuild step repairs congruence information so equivalent parents can merge.`,
+        `Saturation does not have to mean mathematical completion. Practical systems stop when no useful rules fire, when a node limit is reached, when a time budget expires, or when the rule schedule says enough evidence has been collected. Extraction then solves a cost problem over the e-graph. The extractor chooses one representative expression from each relevant e-class according to latency, code size, energy, numerical safety, portability, or another target-specific objective.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the visual is proving',
       paragraphs: [
-        `The most important pitfall is unsound rewriting. Algebraic identities depend on semantics: x + 0 = x is safe for integers, but floating-point rules involving reassociation, NaNs, infinities, and overflow can be false under strict semantics. Another trap is assuming saturation always finishes. It often does not; production systems use budgets and accept "saturated enough." Finally, the best extracted expression depends on the cost model. A rule that wins on one CPU, compiler flag, or numerical contract may lose on another.`,
+        `The rewrite-saturation view proves that a new node is an alternative, not a replacement. The starting expression, the simplified expression, the commuted expression, the deliberately worse expression, and the machine-shaped expression can coexist. The important event is not the appearance of a prettier string. The important event is that all of those forms remain connected by equalities.`,
+        `The extraction view proves that "best" is a later decision. x << 1 may win for a target where shift is cheap and semantics allow it. x + x may win if the target rule is unavailable. x * 2 may win if the cost model values portability or if overflow rules differ. The animation is not saying every rewrite is profitable. It is showing why keeping unprofitable-looking intermediate forms can expose a better final choice.`,
       ],
     },
     {
-      heading: `Sources and study next`,
+      heading: 'Why it works',
       paragraphs: [
-        `Primary source: "egg: Fast and Extensible Equality Saturation" at https://arxiv.org/abs/2004.03082. Study Union-Find (Disjoint Sets) for equivalence-class intuition, Graph BFS for graph search instincts, Finite State Machines and Pratt Parser Expression AST for rewrite-rule matching over syntax, Control Flow Graph & Dominator Tree and Static Single Assignment & Phi Nodes for compiler IR context, Linear Scan Register Allocation for the machine-code payoff, Evolutionary Search for black-box optimization contrast, and Code World Models Case Study for the verifier-centered AI-code direction this points toward.`,
+        `The correctness argument is plain: every expression in an e-class must be equivalent under the trusted rules and analyses. A rewrite rule is allowed to add a new form only when the rule is sound for the language semantics in use. A merge is allowed only when equality has been established. Congruence closure then preserves equality through surrounding operators.`,
+        `Extraction is safe because it selects from an equivalence class rather than inventing an unrelated program. If the root e-class represents the original program, any extracted representative from that class is equal to the original under the chosen semantics. The cost model can be wrong about speed and still produce a correct program. It only becomes a correctness risk if it is allowed to choose across classes that are not actually equivalent.`,
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        `The tax is growth. Associativity, commutativity, distributivity, inverse rules, and expansion rules can create enormous e-graphs. A naive rule runner can spend all its time rediscovering variants that extraction will never choose. This is why practical equality saturation uses rule schedules, node limits, timeouts, memoization, analysis data, and sometimes learned or manually tuned rule ordering.`,
+        `Union-Find intuition helps because merging equivalence classes is central, but an e-graph is richer than disjoint sets. It stores operator structure, parent links, pattern indexes, analysis values, and pending rebuild work. The expensive operations are not only union and find. Matching many rules over many classes, maintaining congruence, and extracting a minimum-cost expression can dominate runtime.`,
+      ],
+    },
+    {
+      heading: 'Real use cases',
+      paragraphs: [
+        `Equality saturation is strongest when many equivalent forms exist and the best form depends on a target. Compiler algebra is the usual example, but the same pattern appears in DSP rewrites, hardware design, SQL optimization, tensor graph optimization, symbolic algebra, theorem proving, and program synthesis. The method is especially attractive when correctness matters enough that arbitrary mutation is too risky.`,
+        `This separates it from black-box evolutionary search. Evolutionary search can try anything and let a fitness function decide. Equality saturation explores through sound rewrites, so retained candidates stay inside the equivalence class. That makes it a natural fit for verifier-centered systems: generate or discover rewrite rules, prove or test their soundness, add them to the e-graph, then extract the cheapest verified result.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The most dangerous failure is an unsound rewrite. Algebraic identities depend on semantics. x + 0 = x is safe in many settings, but floating-point reassociation can change rounding, NaN behavior, infinities, signed zero, and exception behavior. Integer overflow, undefined behavior, pointer aliasing, memory effects, and concurrency can all make a familiar math rule illegal in a real compiler IR.`,
+        `A second failure is pretending saturation always finishes. It often does not. Production systems are usually "saturated enough" systems. They choose budgets and accept that some opportunities will be missed. A third failure is trusting the wrong cost model. An expression that is fast on one CPU, GPU, vector width, compiler flag, or numerical contract may be slower or invalid on another.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Union-Find (Disjoint Sets) for the class-merging intuition, then Graph BFS for search instincts and Finite State Machines plus Pratt Parser Expression AST for pattern matching over syntax. For compiler context, study Control Flow Graph & Dominator Tree, Static Single Assignment & Phi Nodes, and Linear Scan Register Allocation. For contrast, study Evolutionary Search and Code World Models Case Study.`,
+        `Primary source: "egg: Fast and Extensible Equality Saturation" at https://arxiv.org/abs/2004.03082. As you read it, keep the article's three questions in mind: what equalities are trusted, what stops the graph from exploding, and what cost model gets to decide the extracted program.`,
       ],
     },
   ],

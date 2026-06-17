@@ -250,31 +250,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The real problem',
       paragraphs: [
-        'Arithmetization is the translation layer between a computation and a zero-knowledge proof system. Source code, a transaction validity rule, or a hash preimage claim must become finite-field constraints that a witness can satisfy.',
-        'Zcash describes zk-SNARKs as proofs where one can prove possession of information without revealing it, and where succinct non-interactive proofs can be verified quickly: https://z.cash/learn/what-are-zk-snarks/. The halo2 book describes PLONKish arithmetization as a rectangular matrix of rows, columns, and cells over a finite field: https://zcash.github.io/halo2/concepts/arithmetization.html.',
+        'A zk-SNARK is useful when a verifier needs confidence that a computation was done correctly, but the prover should not reveal the private inputs and the verifier should not rerun the whole computation. The public statement might be "this transaction is valid", "this committed balance is nonnegative", or "I know a preimage of this hash."',
+        'Proof systems do not verify source code directly. They verify algebra. Arithmetization is the translation from program intent into finite-field constraints, witness columns, public inputs, fixed tables, and polynomial relations.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'What the proof actually checks',
       paragraphs: [
-        'A computation is broken into wires and constraints. In an R1CS-style model, each row can be read as a product of two linear combinations equaling a third linear combination. In a PLONKish model, values live in columns and rows, and polynomial constraints, selectors, equality constraints, and lookup arguments define which assignments are valid.',
-        'The witness is the private assignment to advice values. Public inputs are exposed to the verifier. The proof should convince the verifier that a valid witness exists for the agreed circuit and public inputs, without revealing the witness itself.',
+        'A SNARK proof says that there exists a witness satisfying an agreed constraint system for the public inputs. It does not say the original Rust, JavaScript, Solidity, or Circom source was correct in a human sense. It says the compiled algebraic contract was satisfied.',
+        'That distinction is the security boundary. If the circuit forgets a range check, binds the wrong public input, allows an unconstrained advice cell, or encodes a branch incorrectly, the proof system can still produce a valid proof for the wrong language.',
       ],
     },
     {
-      heading: 'Complete case study: private solvency check',
+      heading: 'Finite-field arithmetic',
       paragraphs: [
-        'A wallet wants to prove it knows account balances whose committed total exceeds a withdrawal amount, without revealing each balance. The circuit constrains commitments, ownership signatures, nonnegative ranges, and the sum relation. The public statement includes commitments and the withdrawal amount. The witness includes balances, blinding values, and keys.',
-        'Arithmetization is where product risk appears. A missing range check can allow negative balances. A wrong public-input binding can prove the right computation for the wrong account. A lookup table with incomplete constraints can make impossible values pass. The data structure is the security boundary.',
+        'The field is not ordinary integer arithmetic. Values live modulo a large prime or inside another finite field. Addition and multiplication are cheap native operations for the proof system, but comparison, bit decomposition, overflow rules, and byte encodings must be added as constraints.',
+        'This is why "x is between 0 and 255" is not implied by a field element named x. The circuit must constrain x as a byte, usually through bit constraints, lookup tables, or range-check gadgets.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'A small arithmetization',
       paragraphs: [
-        'A zk-SNARK does not prove that the original source code was well written. It proves that an assignment satisfies the compiled constraint system. Bugs in the circuit, public-input mapping, field encoding, or range constraints become protocol bugs.',
-        'Succinct verification does not mean cheap proving. Provers may spend significant CPU, memory, GPU, or specialized hardware time building witness columns, FFTs, commitments, and openings. Lookups and custom gates reduce constraint count only when modeled correctly.',
+        'For the claim y = x^3 + x + 5 with public y = 35 and private x = 3, the circuit introduces intermediate wires x2 and x3. It constrains x * x = x2, x2 * x = x3, and x3 + x + 5 = y.',
+        'The prover supplies the witness assignment: x = 3, x2 = 9, x3 = 27. The verifier sees y = 35. The proof should convince the verifier that some private assignment makes every row true, without revealing x.',
+      ],
+    },
+    {
+      heading: 'R1CS and PLONKish tables',
+      paragraphs: [
+        'In an R1CS-style model, each constraint has the shape A(w) * B(w) = C(w), where A, B, and C are linear combinations over the witness vector. Multiplication is explicit, and additions are folded into linear expressions.',
+        'In a PLONKish model such as halo2, values sit in a rectangular matrix of rows and columns over a finite field. Advice columns hold witness values, fixed columns hold circuit constants or selector data, instance columns usually hold public inputs, equality constraints copy values, and lookup arguments prove membership in fixed tables.',
+      ],
+    },
+    {
+      heading: 'Proof pipeline',
+      paragraphs: [
+        'The prover builds witness columns, commits to polynomial encodings of those columns, receives transcript challenges through a Fiat-Shamir transform, and opens selected polynomial relationships. Different SNARK families use different commitment schemes and setup assumptions, but the high-level flow is commitment, challenge, opening, verification.',
+        'The verifier checks a short proof against the public inputs and a verification key for the circuit. Succinct verification is the payoff: the verifier does not replay the whole private computation or read every witness value.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Soundness comes from making cheating equivalent to breaking the algebraic protocol assumptions. A prover should not be able to commit to columns that satisfy the verifier checks unless those columns encode a valid witness for the circuit.',
+        'Zero knowledge is a separate property. It hides witness information beyond what the public statement and proof system intentionally reveal. It does not hide public inputs, circuit shape, proof timing, transaction metadata, or information leaked outside the circuit.',
+      ],
+    },
+    {
+      heading: 'Complete case study: private solvency',
+      paragraphs: [
+        'A wallet wants to prove it controls committed balances whose total covers a withdrawal, without revealing individual balances. The public statement includes commitments, the withdrawal amount, and the account identifier. The witness includes balances, blinding factors, ownership keys, and signature material.',
+        'The circuit must constrain commitment openings, ownership, nonnegative ranges, uniqueness of notes, and the sum relation. If balances are field elements without range checks, a value that behaves like a negative number modulo the field may pass. If the account identifier is not bound to the public input, the proof may describe the wrong account.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Verification can be tiny while proving is expensive. Provers may spend significant CPU, memory, GPU, or specialized hardware time generating witness data, evaluating polynomials, running FFT-like routines, building commitments, and opening equations.',
+        'Custom gates and lookup tables can reduce rows, but they add their own soundness obligations. A lookup only proves membership in the table relation that was actually constrained. A custom gate only enforces the polynomial identity that was written.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Arithmetized SNARKs fit high-value statements that can be expressed as constraints: rollup validity, private payments, membership proofs with hidden paths, credentials, solvency checks, bridge validity, and outsourced computation.',
+        'They are strongest when verification must be cheap or public, while proving can be done by a specialized prover. On-chain verification is the classic case, because the verifier is expensive and public data is permanent.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fits poorly when the computation is huge, branchy, string-heavy, floating-point-heavy, or full of operations that are unnatural over a finite field. The circuit may become too large, too slow to prove, or too hard to audit.',
+        'It also fails organizationally when teams treat the circuit as a generated artifact nobody reviews. The circuit is the program the verifier trusts. It deserves the same scrutiny as consensus code or cryptographic protocol code.',
+      ],
+    },
+    {
+      heading: 'What the diagram emphasizes',
+      paragraphs: [
+        'The constraints view follows the translation from code to gates, witness, public input, rows, and proof. The matrix frame makes the hidden assignment concrete: private values, derived values, and public values must satisfy every row together.',
+        'The proof pipeline view separates roles. Statement and witness enter arithmetization differently; columns are committed before challenges; the verifier receives only the proof, public inputs, and verification key. That separation is the reason the proof can be both private and succinct.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Write the public statement before writing the circuit. List every value the verifier must bind: commitments, roots, amounts, nullifiers, chain ids, domain separators, timestamps, or program hashes. If a value matters outside the proof, it should be either public input or cryptographically linked to a public input.',
+        'Treat unconstrained advice as a bug until proven otherwise. Add tests that mutate each witness column and expect verification to fail. Add range-check tests around field wraparound, byte decomposition, and boundary values such as 0, 1, maximum allowed value, and one above maximum.',
+        'Keep circuit metrics in review: row count, column count, lookup table size, proving time, memory, verification cost, setup assumptions, and trusted parameters. A circuit can be logically correct and still too expensive for the product path.',
+      ],
+    },
+    {
+      heading: 'Primary references',
+      paragraphs: [
+        'Zcash describes zk-SNARKs as zero-knowledge, succinct, non-interactive arguments of knowledge where a prover can show possession of information without revealing it: https://z.cash/learn/what-are-zk-snarks/.',
+        'The halo2 book describes PLONKish arithmetization as rows, columns, finite-field cells, fixed/advice/instance columns, equality constraints, polynomial constraints, and lookup arguments: https://zcash.github.io/halo2/concepts/arithmetization.html.',
       ],
     },
     {

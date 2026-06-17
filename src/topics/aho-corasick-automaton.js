@@ -220,44 +220,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'Aho-Corasick is a multi-pattern string matching automaton. Given a dictionary of keywords, it builds a trie, adds failure links, and scans the text once while emitting every dictionary word that ends at each position.',
-        'It generalizes KMP. KMP keeps one fallback chain for one pattern. Aho-Corasick keeps fallback links across a trie of many patterns, so a failed transition can reuse the longest suffix that is also a dictionary prefix.',
-        'The payoff is especially clear when patterns overlap. If the dictionary contains he, she, and hers, one pass through ushers must report multiple matches ending at nearby positions. The automaton carries those overlaps as state instead of restarting separate searches.',
+        `Aho-Corasick exists because many systems search for a dictionary of patterns, not one pattern. Antivirus signatures, intrusion detection, content filters, token scanners, and DNA motif tools need every keyword match, including overlaps, while reading the text once.`,
+        `The important constraint is that the dictionary is reused. You pay a preprocessing cost to compile all patterns into a machine, then every stream benefits. That is different from one-off search, where building the automaton may cost more than it saves.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious approach`,
       paragraphs: [
-        'First insert all patterns into a trie. Then build failure links breadth-first. For a state representing some prefix, its failure link points to the state for the longest proper suffix that is also a trie prefix. Output sets are merged through failure links so suffix patterns are reported too.',
-        'During search, the automaton reads one text character at a time. If a goto edge exists, follow it. If not, follow failure links until a transition exists or the root is reached. After each transition, emit the output set for the current state.',
+        `The reasonable first attempt is to run KMP or a normal substring search once per pattern. That keeps each matcher simple, but it repeats the text scan and repeats overlap reasoning across patterns that share prefixes or suffixes.`,
+        `A second approach is to build one giant regular expression. Some regex engines can optimize this, but the behavior depends on engine internals and pattern shape. Aho-Corasick gives a direct data-structure contract: one compiled automaton, one scan, every exact dictionary match.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `The wall`,
       paragraphs: [
-        'Construction is linear in the total pattern length, up to alphabet-transition representation choices. Search is O(n + z), where n is text length and z is the number of matches reported. Space is proportional to trie states, transitions, failure links, and output references.',
-        'The output term matters. A dictionary with many overlapping patterns can produce many matches at one character. That is not inefficiency; it is the required result size.',
+        `The wall is repeated scanning and overlap handling. If the dictionary has thousands of patterns, one pass per pattern is too expensive. If patterns overlap, separate matchers also rediscover the same suffix facts instead of sharing them.`,
+        `The other wall is streaming. In a network scanner or log pipeline, the text may not sit in one convenient string. The matcher needs to carry state across chunks. A finite-state automaton is a natural fit because the current state summarizes the useful suffix of everything seen so far.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Core insight`,
       paragraphs: [
-        'Aho-Corasick is used in intrusion detection, antivirus signatures, spam filters, content moderation, token scanners, log inspection, DNA motif search, and bibliographic keyword search. The original paper frames it as an aid to bibliographic search, but the same compiled-dictionary idea appears across modern systems.',
-        'A complete case study is a network payload scanner. Thousands of signatures are compiled once. Each packet stream is scanned in one pass. When a signature suffix overlaps another signature, output inheritance reports both without restarting the scan.',
+        `Compile the dictionary into one automaton. A trie shares prefixes. Failure links share the best suffix fallback, just as KMP does for one pattern. Output inheritance makes suffix patterns visible, so matching "she" can also report "he" when both belong to the dictionary.`,
+        `This turns many independent searches into one state update per character. The text pointer is sacred: it moves forward only. All the complexity is pushed into the automaton state, failure links, and output lists built before scanning begins.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism',
       paragraphs: [
-        'Aho-Corasick assumes a known dictionary. If patterns change constantly, rebuild cost or dynamic variants matter. Another trap is ignoring normalization: case folding, Unicode, token boundaries, and escaping can decide whether matches are meaningful.',
+        "In the trie view, read normal edges as successful character consumption and failure edges as preserved suffix knowledge. A failure edge is not an error path. It is the automaton saying, \"this longer prefix failed, but this shorter suffix is still useful.\"",
+        "In the stream view, watch the text pointer: it never rewinds. The current automaton state carries the longest dictionary prefix that is also a suffix of the text seen so far. Outputs fire whenever that state, or one of its output-linked suffix states, ends a pattern.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `How it works`,
       paragraphs: [
-        'Primary source: Aho and Corasick, Efficient String Matching: An Aid to Bibliographic Search, at https://cr.yp.to/bib/1975/aho.pdf. Study Trie, KMP Prefix Function, Finite State Machines, Inverted Index, Suffix Array & LCP, and Bloom Filter next.',
+        `Insert every pattern into a trie. Build failure links breadth-first so each parent fallback is known before its children need it. During search, read one text character, follow a goto edge if it exists, otherwise follow failure links until a transition exists or the root is reached. Emit the current state's output set after each character.`,
+        `For streaming input, keep the current state between chunks. If one chunk ends with "sh" and the next begins with "e", the matcher should still emit "she". Resetting state at chunk boundaries is a common implementation bug.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `The invariant is that the current state represents the longest suffix of the text prefix that is also a trie prefix. A missing transition means the current prefix cannot continue, but a shorter suffix might. Failure links move to exactly that next possible suffix, so no match is skipped and the text pointer never rewinds.`,
+        `Output inheritance is the second invariant. If a state represents "she", then suffix state "he" may also be a completed pattern. The matcher must report both because both end at the current character. That is why Aho-Corasick handles overlapping matches naturally.`,
+      ],
+    },
+    {
+      heading: `Cost and behavior`,
+      paragraphs: [
+        `Construction is linear in the total pattern length, up to transition representation. Search is O(n + z), where n is text length and z is the number of matches reported. Space stores trie states, transitions, failure links, and output references. The z term is unavoidable when many patterns end at the same position.`,
+        `Transition representation is the practical cost knob. A dense alphabet table gives fast transitions and high memory use. Hash maps or sorted edge lists save memory but cost lookup time. Security scanners often care about both because pattern dictionaries can be large and streams can be continuous.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Aho-Corasick wins when the dictionary is known ahead of time and the stream is large: network payload scanning, antivirus signatures, spam filters, content moderation, log inspection, DNA motif search, bibliographic keyword search, and token scanners. Compile once, scan many streams.`,
+        `It also wins when false negatives are expensive. Because the automaton is exact for its normalized input, every dictionary string occurrence is found. Ranking, policy, and suppression can happen later, but the candidate generation layer remains complete.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `If patterns change constantly, rebuild cost or dynamic variants matter. If the alphabet is large, transition storage can dominate. Normalization is part of correctness: case folding, Unicode normalization, token boundaries, escaping, and word-boundary rules decide what a match means before the automaton ever runs.`,
+        `It also fails when a match is not a pure substring question. Regular expressions with unbounded repetition, approximate matching, semantic equivalence, or context-sensitive policy need additional machinery. Aho-Corasick finds dictionary strings exactly and fast; it does not understand language by itself.`,
+      ],
+    },
+    {
+      heading: `Worked example`,
+      paragraphs: [
+        `With dictionary he, she, his, and hers, scanning "ushers" reaches state "she" when it reads the e. That state reports "she." Its output-linked suffix state is "he," so the same character position also reports "he." The scanner then continues to r and s and reports "hers."`,
+        `A naive dictionary loop would scan the text separately for each word. Aho-Corasick turns the dictionary into one shared machine. The shared prefixes live in the trie; the shared suffix recoveries live in the failure links.`,
+      ],
+    },
+    {
+      heading: `Implementation checklist`,
+      paragraphs: [
+        `Normalize input before building and scanning. Decide case folding, Unicode normalization, token boundaries, punctuation handling, and escape decoding up front. The automaton can only match the byte or character stream it is given.`,
+        `Store outputs as pattern ids, not as copied strings, when the dictionary is large. If suffix outputs are frequent, consider output links or compact inherited-output lists so reporting stays efficient without duplicating huge arrays on every state.`,
+        `Choose transition storage based on alphabet and dictionary size. Dense arrays are fast for small fixed alphabets. Maps or sorted edge lists are better when the alphabet is large and most states have few outgoing edges.`,
+      ],
+    },
+    {
+      heading: `Rule of thumb`,
+      paragraphs: [
+        `Use Aho-Corasick when the dictionary is mostly fixed and the text stream is large. Compile once, scan many times. The more patterns share prefixes and suffixes, the more valuable the shared automaton becomes.`,
+        `Do not use it as a policy engine by itself. It finds exact pattern occurrences. Decisions about word boundaries, allowed contexts, severity, false positives, and semantic meaning belong in layers around the matcher.`,
+        `A good integration reports enough evidence for the next layer: pattern id, start offset, end offset, normalized text version, and scanner state if the match crossed a chunk boundary. That makes fast matching debuggable instead of turning it into a black box. Debuggable matchers are much easier to tune safely.`,
+      ],
+    },
+    {
+      heading: `Sources and study next`,
+      paragraphs: [
+        `Primary source: Aho and Corasick, Efficient String Matching: An Aid to Bibliographic Search, at https://cr.yp.to/bib/1975/aho.pdf. Study Trie, KMP Prefix Function, Finite State Machines, Inverted Index, Suffix Array & LCP, and Bloom Filter next.`,
       ],
     },
   ],

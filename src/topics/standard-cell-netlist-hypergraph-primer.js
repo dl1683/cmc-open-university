@@ -204,11 +204,75 @@ export const article = {
     { title: 'OpenROAD Flow Overview', url: 'https://openroad.readthedocs.io/en/latest/' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['A standard-cell netlist is a circuit database made from instances, pins, nets, and library cells. It is best understood as a typed hypergraph: a net can connect one driver to many loads, and each cell contributes timing arcs from input pins to output pins.', 'The same identity layer feeds static timing, placement, routing, power analysis, ECO repair, DRC debugging, and final signoff reports.'] },
-    { heading: 'How it works', paragraphs: ['Verilog gives the instance and net connectivity. Liberty describes cell timing, power, pin capacitance, and timing arcs. LEF/DEF-like physical data adds placement rows, pin shapes, blockages, and routing layers. Constraints such as SDC define clocks and path exceptions.', 'Tools build fanin and fanout lists, driver/load maps, levelized traversal buckets, hierarchy paths, and dirty sets. Those indexes keep later analyses from repeatedly parsing the whole design.'] },
-    { heading: 'Cost and complexity', paragraphs: ['A large chip can have millions or billions of pins and timing arcs. Full graph traversal is too expensive for every small change, so incremental caches and stable object IDs matter as much as asymptotic graph theory.', 'The hard part is synchronization: synthesis, timing repair, placement, routing, and ECO edits all mutate related state. A stale netlist-to-physical mapping can make a clean report meaningless.'] },
-    { heading: 'Complete case study', paragraphs: ['A timing report flags endpoint Y. The debugger starts from Y, walks the fanin cone through net n2 and cell U1, stops at the launching flip-flop, joins each arc to Liberty delay data, then joins each physical net to placement and routing estimates.', 'The report is only actionable because the graph IDs survive across views: U1/A in the netlist, the Liberty A-to-Y timing arc, the DEF instance location, and the routing net segment all remain joinable.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not model a net as a simple pairwise edge unless the fanout semantics are still represented. Do not lose hierarchy names during flattening if humans need to debug reports. Do not let physical ECOs and timing caches drift apart.', 'A second trap is treating the netlist alone as enough. Delay depends on library arcs, slew, load, parasitics, clock constraints, and physical placement. Connectivity is the skeleton, not the whole chip.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: OpenROAD OpenSTA docs at https://openroad.readthedocs.io/en/latest/main/src/sta/README.html and OpenSTA API notes at https://github.com/The-OpenROAD-Project/OpenSTA/blob/master/doc/StaApi.txt. Study Static Timing Analysis Timing Graph Case Study, Standard Cell Placement Row Legalization Case Study, Global Routing Congestion Grid Case Study, Control Flow Graph & Dominator Tree, and GraphBLAS Sparse Matrix Graph Case Study next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A chip implementation flow needs one shared identity layer. Synthesis, static timing, placement, routing, power analysis, ECO repair, and signoff reports must all point at the same cells, pins, nets, clocks, hierarchy paths, and library arcs. If those views disagree, the flow can produce a clean report for a design that is not the design being manufactured.',
+        'A standard-cell netlist is that identity layer. It is the gate-level circuit database after logic has been mapped into library cells such as NANDs, inverters, flip-flops, buffers, adders, and clock cells. The netlist says which instances exist and which pins are connected. Later tools attach timing delay, load, placement coordinates, routing parasitics, power activity, congestion, violations, and repair history to the same objects.',
+      ],
+    },
+    {
+      heading: 'The naive model and wall',
+      paragraphs: [
+        'The first model most people reach for is a simple directed graph: gates are nodes and wires are edges. That is useful for small logic diagrams, but it hides the feature that makes real netlists awkward. One net can connect a driver pin to many load pins, a clock can fan out to thousands of sinks, and a bus can become many scalar nets after elaboration. A pairwise edge loses the fact that these loads share one electrical object.',
+        'The next wall is that connectivity alone does not answer timing or physical questions. A path delay depends on the cell timing arc from one input pin to one output pin, the input slew, the output load, the library corner, the clock constraint, the placement distance, and the routed parasitic network. A graph of gates can show reachability, but it cannot explain why endpoint Y missed setup by 80 picoseconds or which resize would repair it.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The better model is a typed hypergraph with stable object IDs. Cells own pins. Nets connect pins. Liberty timing arcs connect input pins to output pins inside a cell. Hierarchy names tell humans where an object came from. Physical views attach rows, coordinates, shapes, blockages, and routing resources. Timing views attach clocks, required times, arrivals, slews, loads, and slack.',
+        'The hypergraph part matters because a net is not just many independent edges. All loads on the same net share one driver, one parasitic network, one naming identity, and one place where buffering or routing changes propagate. The typed part matters because U1/A as a pin, n2 as a net, U1 as an instance, and A-to-Y as a timing arc answer different questions even when they sit next to each other in the diagram.',
+      ],
+    },
+    {
+      heading: 'How the system works',
+      paragraphs: [
+        'The implementation flow begins with inputs such as Verilog for instances and net connectivity, Liberty for cell timing and pin properties, SDC for clocks and timing exceptions, and LEF/DEF-style physical data for rows, layers, pins, blockages, and placed locations. The database normalizes those inputs into objects that other tools can join. That joinability is the practical value of the netlist.',
+        'Tools then build indexes over the graph instead of reparsing the whole design for every query. Driver-to-load maps answer fanout questions. Load-to-driver maps support fanin backtraces. Levelized buckets let timing visit combinational logic in a safe order. Cone marks keep debug local. Dirty sets tell incremental engines which arrivals, loads, parasitics, or reports became stale after a change.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The netlist-hypergraph view makes the fanout semantics visible. Ports A and B feed net n1, n1 enters cell U1, U1 drives net n2, and n2 reaches both a combinational inverter and a flip-flop. Drawing n2 as ordinary independent edges would miss the shared electrical object that timing, routing, and buffering must treat as one net.',
+        'The cone-index view shows why production tools invest in fanin and fanout indexes. A timing endpoint can be traced backward through nets and cell arcs without visiting unrelated logic. Sequential elements act as boundaries for a combinational cone, so the analysis knows where one timing path stops and where a new clocked path begins.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is an identity invariant. Every derived view must remain attached to the same source objects. If U1/A is the input pin in the netlist, then the timing arc, load calculation, placement record, routed segment, and report line for U1/A must all refer to that same pin. When that invariant holds, tools can exchange evidence rather than hand-wave across incompatible files.',
+        'The traversal indexes are correct because they preserve the direction and boundary rules of the circuit. Fanout propagation follows drivers to loads. Fanin debug walks loads back to drivers. Levelization visits a combinational cell only after its drivers are known. Flip-flops, latches, clocks, generated clocks, and path exceptions define where ordinary combinational propagation must stop or change rules.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The raw sizes are large. A modern design can have millions of instances, far more pins, and many timing arcs per cell. A full scan of every object after every ECO is wasteful, so runtime often depends less on textbook graph complexity and more on how much of the design became dirty. Incremental updates are valuable because a small resize should not force a complete timing rebuild.',
+        'The costs are memory, synchronization, and cache invalidation. Driver/load indexes, cone caches, hierarchy maps, and level buckets consume space. They also must be repaired when synthesis rewrites logic, placement moves instances, routing updates parasitics, or ECO scripts reconnect nets. The database earns its keep only if those indexes remain current enough for signoff decisions, and if stale derived data is cheap to detect before it misleads a repair loop.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This model wins anywhere several analyses need to discuss the same circuit. Static timing can flag an endpoint, placement can show where the critical cells sit, routing can show the parasitic burden, and ECO repair can ask which legal cell swaps are available. The shared netlist object lets one debug path cross all those domains.',
+        'It also wins in human workflows. Engineers read reports through hierarchy names, instance names, pin names, and source modules. Flattening may improve optimization, but debug still needs a path back to the design intent. A typed netlist lets tools optimize a low-level circuit while preserving enough provenance for a person to fix it.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A netlist is not the whole chip. Delay depends on library arcs, process corners, slew, load, parasitics, clocks, exceptions, power state, placement, and routing. Treating connectivity as the final answer leads to false confidence. The netlist is the skeleton that lets other facts attach; it is not a substitute for those facts.',
+        'The model also fails when names and views drift. A physical ECO that changes connectivity but leaves stale timing caches can produce a clean-looking report with bad evidence. Flattening can destroy hierarchy that debug teams need. Modeling a high-fanout net as many unrelated pairwise edges can hide buffering and load problems. The tax is database discipline.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: OpenROAD OpenSTA documentation explains gate-level timing inputs such as Verilog, Liberty, SDC, SDF, and SPEF, plus the incremental timing-engine role. The OpenSTA API notes are useful for seeing how a timing engine connects to host netlist data structures without duplicating every object.',
+        'Study Static Timing Analysis Timing Graph Case Study next for arrival and required time propagation. Study Standard Cell Placement Row Legalization for the physical side, Global Routing Congestion Grid for net-resource pressure, Control Flow Graph and Dominator Tree for another graph-plus-analysis identity layer, and GraphBLAS Sparse Matrix Graph for high-throughput graph computation patterns.',
+      ],
+    },
   ],
 };

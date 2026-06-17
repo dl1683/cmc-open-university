@@ -341,44 +341,75 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Titans: Learning to Memorize at Test Time is a sequence-model architecture built around a neural long-term memory module. The paper argues that attention behaves like accurate short-term memory over a limited context window, while neural memory can act as a more persistent long-term store for historical information. Unlike an external vector database, this memory is model-internal: it is a neural module whose parameters can be updated while processing a stream.',
-        'The useful teaching sentence is simple: Titans tries to avoid choosing between exact but expensive attention and cheap but compressed recurrent state. It keeps local attention for the current chunk, writes surprising information into neural memory, and reads that memory back when later chunks need older context.',
+        `Long-context modeling keeps running into the same tradeoff. Full attention can connect a token to every earlier token in the window, which makes it precise, but its memory and compute grow badly as the context grows. Recurrent and state-space models are cheaper over long streams, but they compress history into a fixed-size state. That state can forget details that become important much later.`,
+        `Titans: Learning to Memorize at Test Time is a paper about escaping that forced choice. It treats attention as accurate short-term memory and introduces a neural long-term memory module that can update while the model processes a stream. The goal is not merely to increase the context window. The goal is to give the model a trainable internal place to write useful historical information and read it back later.`,
+      ],
+    },
+    {
+      heading: 'The obvious approaches',
+      paragraphs: [
+        `The first obvious approach is to make attention windows larger. This preserves exact token-to-token access, and for many tasks it is the cleanest solution. The wall is cost. A model that attends over millions of tokens must move and compare enormous key-value state, and the serving system must pay for that state on every long request.`,
+        `The second obvious approach is external memory: retrieval, notes, tool logs, vector databases, or agent memory. That works well when the relevant facts can be stored and fetched as documents. But external memory is a system layer, not the model's own sequence mechanism. It has retrieval errors, permission boundaries, stale indexes, citation requirements, and latency. Titans asks a different question: can the model update an internal neural memory at test time while reading the sequence itself?`,
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        `Fixed recurrent state and state-space memory provide another path. They scan efficiently, so length grows more gently than full attention. The cost is capacity and selectivity. Once old information has been compressed into a fixed vector or matrix, the model must hope that the future query only needs what the state retained. If a rare detail looks unimportant now but becomes important 100,000 tokens later, the compression may have already destroyed it.`,
+        `This is the long-context wall Titans is trying to move. Exact attention keeps too much and becomes expensive. Fixed state keeps too little and can forget. External retrieval keeps information outside the model and requires a separate indexing discipline. The missing design point is a model-internal memory that can be written selectively, read later, and trained with the sequence model rather than bolted on as a post hoc retrieval system.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `Titans separates memory by job. Short-term attention handles the current local context. Persistent parameters store ordinary learned knowledge from training. Neural long-term memory stores stream-specific information by updating a memory module during inference. That last piece is the unusual one: the model is not only reading activations; it is changing a learned memory state as it encounters new context.`,
+        `The write signal is based on surprise. If the memory already predicts or represents the incoming chunk well, the update can be small. If the chunk is unexpected, the gradient signal is stronger, and the memory changes more. Momentum and forgetting mechanisms shape how writes accumulate and decay. The idea is close to an online learner embedded inside the sequence model: ordinary tokens pass through, but surprising information applies pressure to the long-term memory.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The long-term memory is trained as an online learning problem. Incoming chunks are compared against what the memory already represents. A surprise signal, expressed through gradients in the associative-memory objective, decides how strongly new information should update the memory. Momentum carries recent surprise forward, and decay acts as controlled forgetting so finite memory does not accumulate every routine token with equal force.',
-        'The architecture also includes persistent memory: learned, data-independent parameters that encode task-level knowledge. The Titans paper presents three placement variants. Memory-as-Context retrieves memory summaries into attention context. Memory-as-Layer injects memory as a layer. Memory-as-Gate blends memory through a gated branch. Each placement changes the latency, alignment, and failure surface.',
+        `A stream is processed in chunks. Local attention handles the near context. In parallel, the neural memory module receives information from the current chunk and produces a memory readout that can help later computation. The memory module is often described as an MLP-like associative memory rather than a simple vector slot. Its parameters or state are updated by a test-time learning rule derived from how poorly the memory handled the new input.`,
+        `The Titans family explores several placements for this memory. Memory-as-Context retrieves memory output and feeds it into the attention context, letting attention decide how to combine short-term and long-term information. Memory-as-Layer inserts memory as a layer inside the network. Memory-as-Gate uses a gated branch to blend memory with the main path. These are not cosmetic variants. Placement changes latency, alignment, batching behavior, interpretability, and what kind of failure is easiest to diagnose.`,
+        `Persistent memory is a separate role. It is not updated per stream; it is learned during training and carries task-level knowledge, much like ordinary parameters or persistent tokens. Keeping persistent, short-term, and long-term memory separate matters because their trust and debugging rules differ. KV cache can be inspected as recent attention state. RAG can be audited through source documents. Test-time neural memory needs write traces, chunk boundaries, surprise scores, decay settings, and replayable evaluation cases.`,
       ],
     },
     {
-      heading: 'Complete case study: long document triage',
+      heading: 'Why it can work',
       paragraphs: [
-        'Imagine a model reading a multi-million-token legal archive or genomic sequence. Full attention over every token is too expensive, while a fixed-size recurrent state may compress away the one clause or mutation that matters. A Titans-style model chunks the stream. Local attention handles the current segment. The neural memory writes high-surprise facts into long-term parameters. Later chunks query that memory and pass retrieved summaries into the current attention window.',
-        'A production system would still need ordinary engineering scaffolding: deterministic chunk boundaries, memory-version IDs, surprise-score logs, decay settings, replayable write traces, protected evaluation slices, and route telemetry showing when the memory path was used. Without those, the memory can become impossible to debug even if benchmark scores look good.',
+        `The argument is not a classic algorithm proof. Titans is a learned architecture, so the question is whether the memory decomposition gives optimization a useful shape. Attention is good at exact local dependencies. A neural memory module can have more expressive capacity than a fixed recurrent vector. Surprise-based writes prioritize information that the current memory failed to predict, so routine context should consume less memory pressure than unusual details.`,
+        `That division also matches a common long-context need. Many future questions do not require every old token; they require a compressed but queryable representation of facts, entities, patterns, or anomalies that appeared earlier. If the memory learns what to preserve and how to retrieve it, the model can avoid paying exact-attention cost over the whole history while still using older information when it matters.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The original arXiv abstract reports stronger results than Transformers and recent linear recurrent models across language modeling, common-sense reasoning, genomics, and time-series tasks, and says Titans can scale beyond 2M context on needle-in-haystack evaluations. The systems promise is that local attention plus trainable memory can avoid the quadratic context wall while preserving more long-range detail than a simple fixed state.',
-        'The caveat is implementation reality. Test-time memory updates are not free; they add optimizer-like state, write rules, decay behavior, and possible latency. The memory path also needs kernels and batching behavior that survive real serving. A 2025 reimplementation reports mixed baseline comparisons due to chunking, while still finding that the Neural Memory component consistently improved over attention-only models.',
+        `The paper reports strong results across language modeling, common-sense reasoning, genomics, and time-series tasks, including needle-in-haystack experiments beyond 2M context. Treat that as a research claim to be evaluated in context, not as a guarantee that every Titans-style model beats every Transformer on every workload.`,
+        `The cost advantage comes from avoiding full attention over the entire history. Local attention plus memory can be cheaper than comparing every token with every previous token. But test-time memory is not free. It adds write rules, gradient-like updates, memory state, decay, momentum, and extra implementation paths. Serving systems also care about batching, kernel fusion, cache locality, determinism, and whether memory updates make requests harder to parallelize.`,
+        `A later reimplementation and critical analysis reported that the lack of public code and under-specified details made reproduction difficult, and that Titans did not always beat established baselines because chunking choices mattered. The same analysis still found that the neural memory component improved over attention-only models in its setting. That is the right level of confidence: promising mechanism, not settled replacement.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Complete case study',
       paragraphs: [
-        'Titans is not the same thing as KV Cache, RAG, or agent memory. KV cache stores exact short-term attention keys and values. RAG retrieves external documents. Agent memory persists traces and notes outside the model. Titans updates an internal neural memory module during the forward stream. These can be combined, but they have different provenance, trust, privacy, and debugging rules.',
-        'Do not convert the paper into a universal claim that attention is obsolete. Chunking choices, code availability, ambiguity in implementation details, evaluation tasks, and hardware kernels all matter. The safer statement is that test-time neural memory is an important design point in the sequence-memory search space, and it deserves the same route-level validation as Mamba, RWKV, FNet, and hybrid attention budgets.',
+        `Imagine a model reading a multi-million-token legal archive, clinical timeline, source-code history, or genomic sequence. Full attention over the entire stream is expensive. A fixed state-space model may compress away the single clause, event, mutation, or function definition that later becomes decisive. A RAG system could index the material externally, but then the answer depends on retriever quality and source-management infrastructure.`,
+        `A Titans-style route chunks the stream. Local attention handles the current segment. The neural memory writes high-surprise information into long-term memory. Later chunks query that memory and combine the readout with the current window. If the system is built well, the model can remember old stream-specific details without dragging every old token through attention.`,
+        `A product implementation would still need strict scaffolding. Chunk boundaries must be deterministic. Memory versions must be logged. Surprise scores should be inspectable. Decay settings must be part of the run configuration. Evaluation should include protected recall slices and adversarial cases where the relevant fact appears early, looks unimportant, and becomes useful only much later. Otherwise the memory path becomes another opaque source of benchmark variance.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins and fails',
       paragraphs: [
-        'Primary sources: Titans at https://arxiv.org/abs/2501.00663, Google Research on Titans and MIRAS at https://research.google/blog/titans-miras-helping-ai-have-long-term-memory/, ATLAS at https://arxiv.org/abs/2505.23735, and Titans Revisited at https://arxiv.org/abs/2510.09551. Study Agent Memory & Context Engineering, Attention Mechanism, KV Cache, Hybrid Attention State Budget Case Study, RWKV Recurrent Transformer, Selective State Space Models: Mamba, FNet Fourier Token Mixing Case Study, Transformer Inference Roofline, LLM Inference Scaling Playbook, and Benchmark Variance & Model Selection next.',
+        `Titans is most useful as a design point for very long streams where exact attention is too expensive and fixed compression is too lossy: long documents, event streams, time series, genomics, code history, and agent trajectories. It is also useful as a conceptual bridge between model-internal memory and external memory systems, because it forces the engineer to ask what should be remembered by the model itself versus by a searchable corpus.`,
+        `It is the wrong tool when exact source provenance is required, when updates must be reversible and inspectable at the document level, or when a simpler long-context Transformer fits the latency and cost budget. It is also risky when implementation details are unresolved. Chunking, memory capacity, write frequency, recurrence, kernel quality, and evaluation design can decide whether the architecture helps or merely adds moving parts.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Titans at https://arxiv.org/abs/2501.00663, Google Research on Titans and MIRAS at https://research.google/blog/titans-miras-helping-ai-have-long-term-memory/, ATLAS at https://arxiv.org/abs/2505.23735, and Titans Revisited at https://arxiv.org/abs/2510.09551. Study Attention Mechanism and KV Cache for short-term memory, RWKV Recurrent Transformer and Selective State Space Models: Mamba for compressed sequence state, RAG Pipeline and Agent Memory & Context Engineering for external memory, and Benchmark Variance & Model Selection for the evaluation traps around long-context claims.`,
       ],
     },
   ],

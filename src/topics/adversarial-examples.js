@@ -139,42 +139,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `An adversarial example is an input deliberately changed to fool a model while preserving the thing a human cares about. The demo uses a Logistic Regression spam filter with two features. The original scam has four exclamation marks, three ALL-CAPS words, and p(spam) = 97%. After two small feature edits, it becomes two exclamation marks and one caps word, and p(spam) drops to 14%. The scam did not become safe; it moved across the model boundary. The gap between meaning and model features is the vulnerability.`,
+        `Adversarial examples exist because model features are not the same as human meaning. A spam filter may represent an email through counts, tokens, phrases, and learned weights. A vision model may represent an image through millions of pixel-derived activations. Those features can change in ways that preserve the human-level object: the scam is still a scam, the stop sign is still a stop sign, the panda is still a panda. The model can still cross its decision boundary.`,
+        `This matters because a confidence score is not a robustness guarantee. A classifier can assign 97 percent spam to a message and still be only two small edits from sending it to the inbox. The model is confident at the observed point, but an attacker chooses the direction of movement. The security question is not just "How accurate is the model on normal data?" It is "How close is a harmful input to an allowed input under the attacker's edit budget?"`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The naive approach and its wall`,
       paragraphs: [
-        `FGSM uses the fact that gradients work on inputs, not just weights. Gradient Descent asks how weights should move to reduce loss. An attacker asks how the input should move to increase or reduce a target score. For this linear spam model, the input gradient points along weights (1.1, 1.6), so moving negative on both features is the escape route. One epsilon step drops the score to 71%; two steps cross the 0.5 boundary.`,
-        `The high-dimensional view explains why image perturbations can be invisible. A tiny epsilon applied to every pixel adds epsilon times the sum of many small sensitivities. The demo is linear in dimension count, not exponential: two features barely move the logit, while 150,528 ImageNet inputs can accumulate a huge shift from changes too small to notice individually. Backpropagation makes the direction cheap to compute, which is why the simplest attack is also fast.`,
+        `The naive defense is to train a more accurate classifier and trust its confidence. That helps against ordinary mistakes, but it does not answer adaptive pressure. If the attacker can probe the model, see rejections, or approximate the decision boundary, they can search for edits that preserve intent while changing features. In spam, that might be spelling tricks, punctuation changes, image text, or phrase substitutions. In vision, it can be pixel-level noise that a human does not notice.`,
+        `Another naive reaction is to hide the exact model. Secrecy raises the attacker's cost, but it is not a clean boundary. Attacks can transfer from substitute models, and gradient-free search can exploit feedback from the deployed system. The wall is geometry. Smooth models trained by gradient methods tend to expose local directions where the score changes quickly. Accuracy on clean validation data does not measure how much movement is needed in those directions.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The core insight`,
       paragraphs: [
-        `FGSM costs one forward pass, one backward pass, then a sign step, so it is almost as cheap as ordinary training machinery. Defenses cost more. Adversarial training generates attacked copies during training, often multiplying compute and trading away clean accuracy. Randomized smoothing votes over noisy copies. Gradient masking looks attractive but fails when attacks transfer from substitute models or use gradient-free probes. Robustness is a system property, not a post-hoc confidence score.`,
+        `The same calculus used for training can be aimed at the input. During training, backpropagation asks how weights should change to reduce loss. During an attack, the question changes: how should the input change to increase a target loss, lower a spam score, or force a chosen class? For a linear model, the input gradient is especially visible because the weights themselves describe how each feature pushes the score.`,
+        `FGSM, the Fast Gradient Sign Method, turns that idea into a cheap attack. Compute the gradient of loss with respect to the input, keep only the sign of each component, and move each allowed feature by epsilon in the harmful direction. The sign step is crude, but it is fast and coordinated. In many dimensions, many tiny movements can add into a large logit shift even when each individual movement is small.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Mechanism`,
       paragraphs: [
-        `Spam, phishing, malware, fraud, and vision systems all face evasion pressure. Calibration & Reliability Diagrams can tell you whether 97% confidence is honest on normal data, but robustness is a different property: the boundary can still be close in an attacker-chosen direction. Uncertainty: Teaching Models to Say "I Don't Know" can flag some strange inputs, but adaptive attacks can target the detector too. Rate limits, ensembles, review queues, and monitoring matter because attackers learn from feedback.`,
+        `The toy spam filter has two features: exclamation marks and ALL-CAPS words. Logistic regression computes a weighted sum, then passes it through a sigmoid. The original scam sits on the spam side of the boundary. Because both feature weights are positive, reducing both features moves the message away from spam according to the model. One step lowers the score but may not cross the threshold. A second step can cross from flagged to inbox while the malicious payload remains intact.`,
+        `In images, the mechanism is the same but the scale is different. A two-feature spam example needs visible edits because there are only two dimensions contributing to the logit. An ImageNet-sized input has 150,528 pixel-channel values. If each value moves by a tiny epsilon in the gradient sign direction, the total score shift is roughly epsilon times the sum of many sensitivities. The perturbation can be visually tiny while the model's internal score moves a long distance.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `What the visual proves`,
       paragraphs: [
-        `High confidence is not security. A locally linear model can be confident and close to a boundary at the same time. Loss Landscapes & Optimization Geometry explains the broader geometry: smooth gradients are what make learning possible, and they also reveal attack directions. Saliency Maps & Feature Attribution uses the same input gradients for explanation, which is why explanations and attacks are mathematically adjacent. Do not sell gradient masking as a defense; test against adaptive and transfer attacks.`,
+        `The spam-filter plot proves that evasion is a boundary problem, not a meaning problem. The plotted point moves across the learned line while the human interpretation of the email stays the same. The arrow is not a random edit; it is the model revealing the direction that changes its own score fastest under the chosen features. The before-and-after table makes the security failure concrete: confidence was high, yet the allowed edit budget was small.`,
+        `The high-dimensional view proves why "imperceptible" does not mean "irrelevant." A small per-feature change is harmless in two dimensions, but the same per-feature budget applied across thousands of dimensions can dominate a classifier's logit. The plot is linear in dimension count. That is enough to explain why attacks can be cheap, why they can transfer, and why a model can be both trainable by gradients and vulnerable through gradients.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `FGSM works because many neural networks are locally close to linear over small neighborhoods. The exact global function may be complex, but near a particular input the first-order gradient often gives a useful direction. The attacker does not need to solve the whole model. One backward pass supplies a local map. If the allowed perturbation set includes many dimensions, the sign step uses all of them at once.`,
+        `The attack also works because human-preserving transformations and model-preserving transformations are different. Humans treat "FREE", "FR-EE", and "F R E E" as the same sales trick; a feature extractor may not. Humans ignore tiny pixel changes; a model may add their effects. The robustness gap is the distance between semantic equivalence for the user and feature equivalence for the model.`,
+      ],
+    },
+    {
+      heading: `Tradeoffs and defenses`,
+      paragraphs: [
+        `FGSM is cheap: one forward pass, one backward pass, and one sign step. Stronger attacks iterate, tune step sizes, project back into an allowed perturbation set, or optimize for a targeted class. Defenses are more expensive. Adversarial training generates attacked examples during training and teaches the model to classify them correctly, often trading clean accuracy and compute for robustness. Randomized smoothing can certify small radii but does not make large edit budgets safe.`,
+        `Gradient masking is the classic trap. If a defense only makes gradients look useless, attackers may route around it with transfer attacks, gradient-free probes, or a differentiable substitute. Uncertainty detection, ensembles, rate limits, and human review can reduce harm, but adaptive attackers can target the detector too. Robustness has to be evaluated against the attacker's allowed actions, feedback, and budget, not against a single canned perturbation.`,
+      ],
+    },
+    {
+      heading: `Uses and failure modes`,
+      paragraphs: [
+        `Adversarial thinking applies to spam, phishing, malware classification, fraud models, content moderation, face recognition, medical imaging, autonomous driving perception, and any model whose output changes an adversary's payoff. It also applies beyond security. A recommender can be gamed by behavior that preserves the actor's goal while changing model features. A ranking model can be pushed by keyword stuffing. A fraud model can be tested by small transaction-shape edits.`,
+        `The main failure mode is confusing validation accuracy with safety. Another is evaluating only non-adaptive attacks. A third is assuming that a human-inspection standard is enough: if the model consumes normalized tokens, resized images, compressed audio, or extracted features, the attack surface is that preprocessing pipeline too. Calibration and reliability diagrams answer whether probabilities are honest on a distribution. They do not answer whether a nearby adversarial input can change the outcome.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `After this, study the gradient machinery, the linear classifier boundary, calibration, and saliency. The main takeaway is defensive: any model trained by smooth gradients exposes some local direction of change, so high-stakes deployments need layers around the classifier, not faith in the classifier alone.`,
-        `A practical security review should ask how many probes an attacker gets, what feedback they see, and whether small input edits preserve the harmful intent. Robustness is weaker when the attacker can iterate cheaply.`,
-        `The demo is small so the boundary is visible, but the habit generalizes: reason about the attacker's allowed moves, not just the model's average accuracy.`,
+        `Study Logistic Regression for the linear boundary, Gradient Descent and Backpropagation for why input gradients are available, Loss Landscapes and Optimization Geometry for local linear behavior, Saliency Maps and Feature Attribution for the explanation side of the same gradients, Calibration and Reliability Diagrams for the difference between honest confidence and robustness, and Uncertainty methods for detection limits. Then read the original FGSM work by Goodfellow, Shlens, and Szegedy, plus later work on adversarial training and transfer attacks.`,
+        `The durable habit is to specify the adversary. What edits are allowed? How many probes do they get? What feedback do they see? Does the harmful intent survive the edit? Which preprocessing steps create new handles? A model that answers those questions may still be imperfect, but it is being evaluated as a deployed system rather than as a clean-data leaderboard score.`,
       ],
     },
   ],

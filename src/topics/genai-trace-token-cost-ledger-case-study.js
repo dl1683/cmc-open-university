@@ -360,38 +360,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A GenAI trace token-cost ledger is the observability data structure that makes LLM systems debuggable. It extends ordinary distributed tracing with model identity, prompt and cache versions, token usage, tool calls, eval scores, safety actions, route decisions, cost, redaction policy, and sampling decisions.',
-        'Distributed Tracing teaches span trees. OpenTelemetry Collector Case Study teaches telemetry pipelines. This case study adds the GenAI-specific fields that let a team explain why one request was slow, expensive, unsafe, low quality, cache-missed, or routed to the wrong model.',
+        'A normal web trace can say that POST /chat took 1.1 seconds. That is not enough for a GenAI incident. The request may have routed across models, expanded a prompt with retrieval, missed a prompt cache, called tools, retried a tool, streamed an answer, run a judge, passed through safety policy, and produced a billable token row. One opaque HTTP span cannot explain that path.',
+        'A GenAI trace token-cost ledger exists to make the request explainable without replaying production. It should answer why a request was slow, expensive, unsafe, low quality, cache-missed, or routed to the wrong model. It should also do that without dumping private prompts and outputs into telemetry by default.',
       ],
     },
     {
-      heading: 'Semantic convention anchors',
+      heading: 'The obvious approach',
       paragraphs: [
-        'OpenTelemetry GenAI semantic conventions define the direction for model-request telemetry. The OpenTelemetry registry includes attributes such as provider, requested model, response model, input tokens, output tokens, cached input tokens, time to first chunk, evaluation score labels, and warnings that message attributes can contain sensitive information: https://github.com/open-telemetry/semantic-conventions/blob/main/docs/registry/attributes/gen-ai.md.',
-        'The GenAI events page describes request-detail events for completion operations: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-events/. Treat those conventions as the common vocabulary, then add product-specific bounded fields for route id, prompt hash, cache key version, tenant tier, eval slice, and rollback cohort.',
+        'The first reasonable design is ordinary distributed tracing plus application logs. The gateway span records latency. The model client logs the provider response id and total tokens. The billing system records cost later. The evaluator writes scores to a separate table. Cache behavior may live in model-server logs or not be recorded at all.',
+        'This works while incidents are simple. It breaks when cost, quality, safety, and routing interact. A model rollout changes output length. A prompt template change misses cache. A retrieval expansion increases input tokens. A tool loop causes both latency and spend. If those facts are split across unjoined systems, the team spends the incident reconstructing the request instead of fixing it.',
       ],
     },
     {
-      heading: 'Token and cost accounting',
+      heading: 'Where it breaks',
       paragraphs: [
-        'Token fields should distinguish input, cached input, output, hidden or reasoning tokens where exposed, and tool/schema overhead. Provider billing and latency can differ across those classes, so a single total is not enough for cost attribution.',
-        'Prompt Cache-Key Canonicalization Ledger and LLM Unit Economics Ledger Case Study meet here. Cache-read tokens explain cost savings; cache-write or miss reasons explain warmup cost; model price ids and eval calls explain why two equal-looking answers had different bills.',
+        'A single token total hides the economics. Input tokens, cached input tokens, output tokens, reasoning tokens where exposed, tool schemas, retrieval chunks, and judge calls can have different latency and cost behavior. A total of 8,000 tokens does not say whether the problem was a long prompt, a verbose answer, a cache miss, or a tool loop.',
+        'Raw logging creates the opposite problem. Full prompts, full outputs, tool arguments, tenant identifiers, and evaluator rationales may contain private or regulated data. They are also poor metric labels because they create extreme cardinality. Bad GenAI observability can be both unsafe and hard to query.',
+        'Sampling can hide the traces that matter most. Head sampling decides early, before the system knows whether the request became slow, costly, unsafe, or important to a canary rollout. GenAI failures often live in the tail, so random early dropping can remove the evidence needed for debugging.',
       ],
     },
     {
-      heading: 'Complete case study: expensive agent trace',
+      heading: 'Core insight',
       paragraphs: [
-        'A coding agent request spikes p99 and cost. The ordinary HTTP trace says the request took 1.1 seconds. The GenAI ledger shows the real path: route chose model v2, prompt hash missed cache because the tool schema version changed, retrieval returned 18 chunks, the model used a long input plus output tokens, a tool call retried once, the judge ran twice, and a safety policy allowed the final answer. The fix is not a vague model complaint; it is a prompt-layout and tool-schema rollout issue.',
-        'The same ledger protects rollouts. LLM Model Rollout Shadow Canary Ledger can compare stable and canary spans by model version, prompt hash, cache-key version, eval score, safety verdict, latency, and cost. If the canary regresses only on long repository prompts, the trace fields make the slice visible.',
+        'The core data structure is a span tree plus a joinable token-cost row. The span tree preserves causality: gateway, router, retrieval, model call, tool call, evaluator, safety policy, cost accounting, and export. The token-cost row preserves economics: model, price id, input tokens, cached input tokens, output tokens, tool overhead, evaluator spend, latency, and accepted-answer state.',
+        'The key invariant is that fields used to change behavior must also be fields used to explain behavior. If the router reads tenant tier, model policy, prompt version, or cache state, the trace should expose a bounded representation of those fields. If a rollout gate can send traffic to model v2, the trace must say which model was requested and which model was served.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'How it works',
       paragraphs: [
-        'Do not dump full prompts and outputs into always-on spans. Do not use raw tenant ids or raw prompt text as metric labels. Do not sample away all rare failures. Do not aggregate token cost without model/version and cache context. Do not let eval rationales or tool arguments bypass redaction.',
-        'Study Distributed Tracing, Trace Context & Baggage Propagation, OpenTelemetry Collector Case Study, OpenTelemetry Tail Sampling Policy, Metric Exemplars Trace Correlation, PII Redaction Token Span Pipeline, LLM Model Rollout Shadow Canary Ledger, Prompt Cache-Key Canonicalization Ledger, LLM Response Cache Safety Ledger, LLM Serving Admission-Control Goodput Gate, LLM Unit Economics Ledger Case Study, and AI Audit Evidence Packet Case Study next.',
+        'The trace begins at the gateway with a trace id and request class. A routing span records the requested model, served model, route id, policy version, tenant tier, and fallback decision. Retrieval spans record document collection, query hash, chunk count, and retrieval latency. Model spans record provider, model version, prompt hash, input tokens, cached tokens, output tokens, time to first chunk, finish reason, and provider response id where safe.',
+        'Tool spans record tool name, schema version, argument shape, result status, retry count, and latency. Evaluation spans record evaluator version, score bucket, rubric id, and action. Safety spans record policy version, verdict, reason bucket, and enforcement action. A cost span or row joins those pieces into a billable and debuggable record.',
+        'OpenTelemetry GenAI semantic conventions provide a common direction for this telemetry. The registry includes fields for providers, requested and response models, token counts, cached input tokens, time to first token or chunk, and evaluation-related attributes. The conventions also warn that message content can be sensitive. That warning is central, not incidental.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'A span tree preserves order and parentage. If retrieval expanded the prompt before the model call, the trace shows that. If a tool retry happened after the first model call and before a second judge pass, the trace shows that too. This matters because GenAI incidents are often path-dependent. The answer may be wrong because the wrong document was retrieved, not because the model decoded poorly.',
+        'The token-cost row makes the economics queryable. A team can ask whether cost rose because output length increased, cache hit rate fell, retrieval expanded prompts, or evaluators ran more often. It can compare model versions by cost per accepted answer instead of raw latency alone. It can also connect billing disputes to specific request classes and policy versions.',
+        'Bounded fields make aggregation safe enough to use. Prompt hashes, prompt-template versions, cache-key versions, tenant tiers, model versions, route ids, evaluator versions, and score buckets preserve explainability without turning raw content into high-cardinality labels or privacy leaks.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Detailed GenAI tracing costs storage, collector CPU, schema work, privacy review, and developer discipline. It can also slow incident response if every service invents its own field names. The answer is not to record everything. The answer is to record the fields that explain behavior in bounded, documented forms.',
+        'The hardest tradeoff is content. Full prompts and outputs are useful during debugging, but they may contain personal data, secrets, customer records, or regulated information. Many systems should store hashes, ids, redacted snippets, or sampled content under policy rather than raw text by default. Content capture should have an owner, a retention rule, and an access model.',
+        'Cardinality is the other tradeoff. Raw tenant ids, prompt text, free-form model strings, tool arguments, and evaluator rationales can make metrics expensive and hard to query. Bucket, hash, normalize, or move those fields into controlled logs instead of high-cardinality span attributes.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins for agent cost spikes, model rollout regressions, cache misses, tool-call loops, safety denies, evaluator drift, tenant policy disputes, and billing investigations. It is strongest when product teams need to join quality, latency, cost, and release state for the same request.',
+        'A coding assistant example shows the value. The ordinary trace says the request took 1.1 seconds. The GenAI ledger says model v2 was selected by a canary route, the prompt hash missed cache because the tool schema version changed, retrieval returned 18 chunks, the formatter tool retried once, the judge ran twice, and the final answer was accepted. The fix points to prompt-layout and tool-schema rollout, not a vague complaint about model speed.',
+        'A support bot example is similar. A cost spike appears after a policy update. The ledger shows that output tokens did not increase, but safety denials triggered a second generation for a specific customer tier. The relevant owner is the safety policy rollout, not the model-serving team.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The pattern fails when teams dump full prompts and outputs into always-on spans, use raw tenant ids or prompt text as labels, aggregate cost without model and cache context, or let evaluator rationales and tool arguments bypass redaction. Those choices create risk without reliable insight.',
+        'It also fails when the trace schema is not tied to behavior. Recording a model name is not enough if the route id, prompt version, cache-key version, and policy version are missing. Recording token totals is not enough if cached tokens and evaluator spend are invisible. The ledger must match the decisions the system actually makes.',
+        'Finally, it fails when sampling policy drops every rare failure. Random samples are useful for baseline traffic, but expensive GenAI incidents often live in long prompts, canaries, safety denies, tool loops, and high-cost agents. Tail sampling or policy sampling is necessary to keep those traces whole.',
+      ],
+    },
+    {
+      heading: 'Tail sampling and retention',
+      paragraphs: [
+        'Tail sampling waits until the trace has enough shape to decide whether to keep it. A policy can retain traces with high latency, high token count, errors, safety denies, low evaluator scores, canary model versions, or expensive tool loops. Ordinary successful traces can be sampled lightly. This preserves debugging value without storing everything.',
+        'Retention should follow risk and utility. A high-level token-cost row may be kept longer for billing and trend analysis. Redacted spans may be kept for operational debugging. Raw content, if captured at all, should have stricter access and shorter retention. The goal is to keep evidence, not to build an accidental prompt warehouse.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        'Imagine an agentic research product with a sudden cost increase. The old dashboard shows request count is stable and median latency is only slightly higher. Without a ledger, the team argues about whether the model got slower, users submitted longer prompts, or retrieval expanded context.',
+        'The GenAI trace ledger answers the question directly. It shows that a canary route moved 20 percent of traffic to a larger model, prompt cache hit rate dropped because the system prompt version changed, and evaluator retries doubled for one task class. Output tokens stayed mostly flat, but cached input savings disappeared and judge spend rose. The incident is a rollout and cache-key problem, not organic usage growth.',
+        'The fix is also measurable. The team reverts the prompt version for that route, restores cache-key compatibility, and tightens the evaluator retry policy. The next ledger slice shows recovered cache hits, lower judge calls, lower p99, and stable quality scores. That is what the trace token-cost ledger is for: turning a vague AI cost story into a queryable system diagnosis.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary references include the OpenTelemetry GenAI semantic-convention registry at https://github.com/open-telemetry/semantic-conventions/blob/main/docs/registry/attributes/gen-ai.md and the OpenTelemetry GenAI events documentation at https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-events/. Use them as a schema starting point, then adapt field retention and redaction to the product risk model.',
+        'Study distributed tracing, trace context propagation, the OpenTelemetry Collector, tail sampling, metric exemplars, PII redaction pipelines, model rollout ledgers, prompt cache-key canonicalization, response-cache safety, serving admission control, LLM unit economics, and AI audit evidence packets. The larger lesson is that AI observability is not separate from systems observability. It is distributed tracing with model, token, cache, evaluation, safety, and cost fields made first-class.',
       ],
     },
   ],

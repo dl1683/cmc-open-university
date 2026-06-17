@@ -217,41 +217,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'What It Is',
       paragraphs: [
-        'A hash array mapped trie, or HAMT, is a map/set data structure that combines hashing, trie navigation, bitmap compression, and structural sharing. It is a major implementation strategy behind immutable hash maps in functional languages and JavaScript libraries.',
-        'The idea starts like a Hash Table: hash the key. Instead of using the hash to choose one flat bucket, split the hash into small chunks, often 5 bits each. Each chunk selects the next branch in a high-fanout Trie. Because most nodes are sparse, a bitmap records which logical children exist and a compact array stores only those children.',
+        'A hash array mapped trie, usually shortened to HAMT, is an associative-map data structure built from hash bits. It behaves like a hash map at the API level, but internally it is a wide trie over chunks of each key hash.',
+        'The structure is famous because it makes persistent maps practical. Updating a persistent HAMT returns a new root while sharing most of the old structure. The old map still works because the update copies only the nodes on the edited path.',
+        'HAMTs sit between Hash Table and Trie. They hash arbitrary keys like a hash table, descend through prefix chunks like a trie, and use bitmaps to avoid allocating a mostly empty 32-child array at every internal node.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Baseline and the Wall',
       paragraphs: [
-        'Lookup reads the first hash chunk, checks the node bitmap, uses popcount to translate the logical slot into a dense-array index, then descends. The next hash chunk chooses the next level. At the leaf, the implementation checks the real key to handle hash collisions. A 32-way fanout keeps depth low; even large maps usually need only a few levels.',
-        'Persistent updates use path copying. Setting one key copies only the nodes along that key hash path and reuses all untouched branches. The old root still reaches the old version, while the new root reaches the updated path. That is the same structural-sharing lesson as Persistent Segment Tree, but applied to associative maps.',
+        'The obvious mutable baseline is a flat hash table. It hashes a key, indexes a bucket array, resolves collisions, and mutates a bucket in place. That is excellent when there is only one current table and no old version must remain valid.',
+        'The naive immutable baseline copies the whole table on every set or delete. That preserves old versions, but it turns a one-key change into O(n) bucket copying. A second baseline, a plain trie, avoids whole-table copies but wastes memory when the alphabet is large and most branches are empty.',
+        'The wall is snapshot cost. Persistent maps need old roots to stay valid, but a full copy per update is too expensive for UI state, undo, speculative transforms, and functional programming workloads.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight and Invariant',
       paragraphs: [
-        'The theoretical cost is logarithmic in the number of keys with a large base, often described as effectively constant for practical map sizes. The real costs are hashing, bitmap popcount, allocation, pointer chasing, collision handling, and garbage collection of old versions. HAMTs trade the locality of a flat Hash Table for cheap immutable snapshots and updates that do not mutate old maps.',
+        'Use the hash as a path. At level 0, read one chunk of hash bits. At level 1, read the next chunk, and so on until a leaf or collision node is reached. With 5-bit chunks, each internal node has 32 logical slots.',
+        'The invariant is that a hash-prefix chunk sequence selects a unique logical path. If an update changes one key, only the nodes on that path can change. Every sibling branch is independent of that key and can be shared with the old version.',
+        'The bitmap is a compression layer, not a different logical trie. A bit says whether a logical slot exists. Popcount of the bits before that slot gives the index in the compact child array. This preserves 32-way branching without paying for 32 pointers per sparse node.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Phil Bagwell described HAMTs in Ideal Hash Trees. Immutable.js documents its Map as implemented by a hash-array mapped trie, and JavaScript HAMT libraries expose immutable map APIs that resemble ES6 Map while preserving previous versions. Clojure-style persistent maps popularized the structure as a core everyday collection rather than a niche algorithm exercise.',
+        'In the "lookup and bitmap" view, follow the data path from key to hash to 5-bit chunk. The active bitmap node is the compression trick: it tells the lookup whether a logical child exists and where that child lives in the dense array.',
+        'The rank row in the bitmap frame is the key calculation. For logical slot 9, the implementation counts occupied bits before 9. That count becomes the dense-array index. If the bit for 9 is off, lookup can fail without scanning children.',
+        'In the "persistent update" view, compare root v0 with root v1. The copied nodes form only the edited root-to-leaf path. Shared branches remain reachable from both versions, which is the whole reason immutable maps can be cheap.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'A HAMT is not automatically faster than a mutable hash table. For one map that is mutated in place, a flat table often wins. HAMTs shine when old versions matter: undo stacks, app-state snapshots, transactional transforms, and purely functional APIs. Another misconception is that immutability means copying everything. The point is the opposite: copy the edited path and share the rest.',
+        'Lookup computes the key hash, reads the current chunk, checks the bitmap, maps the logical slot to a dense-array index with popcount, and descends. At a leaf, it still checks key equality because hashes are not identities.',
+        'Set follows the same path. In a mutable HAMT it can edit nodes in place. In a persistent HAMT it allocates fresh nodes along the path, installs the changed child pointer, and returns a new root. Delete also path-copies and may collapse sparse nodes when a branch becomes unnecessary.',
+        'Collisions need explicit handling. Implementations may store a small collision list, use a collision node keyed by full hash, or continue with deeper hash material. A correct HAMT never assumes equal hashes imply equal keys.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Is Correct',
       paragraphs: [
-        'Primary sources: Bagwell Ideal Hash Trees at https://lampwww.epfl.ch/papers/idealhashtrees.pdf, Immutable.js Map docs at https://immutable-js.com/docs/v5/Map/, and a JavaScript HAMT implementation at https://github.com/mattbierner/hamt. Study Hash Table, Trie, PATRICIA Trie, Persistent Segment Tree, Git Internals, and MVCC Internals & VACUUM next.',
+        'Correct lookup follows from the path invariant. Every inserted key is placed according to the chunks of its hash, so a future lookup for the same key will visit the same logical slots until it reaches the stored leaf or collision node.',
+        'Correct persistence follows from immutability of shared nodes. A new root points to copied nodes on the changed path, while old roots still point to old nodes. Since untouched branches are not modified, sharing them cannot change any old version.',
+        'Correct bitmap indexing follows from rank. The number of occupied logical slots before a slot is exactly the position where that slot would appear in the compact child array. The bitmap therefore compresses storage without changing the logical child order.',
+      ],
+    },
+    {
+      heading: 'Cost and Tradeoffs',
+      paragraphs: [
+        'The depth is O(log_b n) with branching factor b, and b is commonly 32. That makes ordinary maps shallow: a million keys need only a few chunk levels before leaf or collision checks. The practical cost often feels close to constant.',
+        'The constants matter. Each operation pays for hashing, bit extraction, bitmap checks, popcount, pointer chasing, allocation on persistent updates, and possible collision handling. A flat mutable hash table often wins on raw locality when versioning is not needed.',
+        'Memory use is the central tradeoff. HAMTs avoid full copies and avoid empty 32-pointer nodes, but persistent versions retain old paths as long as old roots are reachable. Batch builders or transient mutation APIs can reduce allocation when many updates are staged before publishing a new immutable map.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'Suppose key "user42" hashes to chunks 00101, then 11010. Lookup at the root tests logical slot 5. If the bitmap has bit 5 set, popcount before bit 5 gives the child-array index, and lookup descends to the next node.',
+        'At the next level, chunk 11010 selects logical slot 26. Again the bitmap decides whether that child exists and rank maps it into the compact array. If a leaf is reached, the stored key is compared with "user42" before returning the value.',
+        'To update "user42" from x=1 to x=2 in a persistent map, the implementation copies the root, copies the node for slot 5, copies the node for slot 26 if needed, and installs a new leaf. All other branches are shared by root v0 and root v1.',
+      ],
+    },
+    {
+      heading: 'Where It Wins and Fails',
+      paragraphs: [
+        'HAMTs win when versioning is a feature: immutable language collections, undo stacks, UI app-state snapshots, speculative compiler passes, transactional transformations, and concurrent readers that should keep using an older map safely.',
+        'They fail when a single private mutable table is enough. In that setting a conventional hash table can have better cache locality, less allocation, and simpler collision handling. HAMTs also suffer when hash functions are poor or adversarial unless the implementation has robust collision strategy.',
+        'They are not ordered maps. Iteration order depends on hash layout unless the library adds a separate ordering layer. For range queries or sorted traversal, Red-Black Tree, AVL Tree, B-tree, or Skip List is usually the better family.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary sources: Bagwell Ideal Hash Trees at https://lampwww.epfl.ch/papers/idealhashtrees.pdf, Immutable.js Map docs at https://immutable-js.com/docs/v5/Map/, and a JavaScript HAMT implementation at https://github.com/mattbierner/hamt.',
+        'Study Hash Table for the mutable baseline, Trie for prefix-path structure, PATRICIA Trie for compressed branching, Persistent Segment Tree for another path-copying persistent structure, Git Internals for structural sharing in content-addressed data, and MVCC Internals & VACUUM for versioned storage at database scale.',
       ],
     },
   ],

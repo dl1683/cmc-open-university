@@ -59,43 +59,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Big-O describes how an algorithm's work grows as the input size n grows. It does not try to predict exact milliseconds. Instead, it keeps the dominant shape: constant, logarithmic, linear, n log n, quadratic, cubic, exponential. That shape tells you whether an approach survives when n moves from 100 to 1,000,000.`,
-        `The usual ladder is O(1), O(log n), O(n), O(n log n), O(n^2), O(n^3), and O(2^n). Hash Table lookup is O(1) on average. Binary Search is O(log n). Linear Search is O(n). Merge Sort is O(n log n). Bubble Sort is O(n^2). Naive branching Recursion can become O(2^n). The notation is a map of danger zones: some curves stay tame, some explode.`,
+        'Big-O exists because timing one run is a weak way to understand an algorithm. Hardware, language runtime, caches, network calls, constants, and test data all move the stopwatch. Growth shape is more portable: what happens to the amount of work when n doubles, grows by 100x, or reaches production scale?',
+        'The notation is a warning system. Hash table lookup is O(1) on average. Binary search is O(log n). Linear search is O(n). Merge sort is O(n log n). Bubble sort is O(n^2). Naive branching recursion can become O(2^n). The label is not the whole performance story, but it tells you which approaches are living on borrowed time.',
+        'This matters because many programs fail only after success. The demo input has 50 items and the feature is fine. The production table has 50 million rows and the same nested loop is now an incident.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Start by counting how many times work repeats as n changes. One loop over all items is O(n). A loop inside a loop over the same data is usually O(n^2). Cutting the remaining search space in half each step is O(log n), because log2(1,000,000) is about 20. Splitting into halves and doing linear merging at each level is O(n log n), the shape behind Merge Sort.`,
-        `Then simplify. Drop constants: 5n becomes O(n). Drop lower-order terms: n^2 + n + 100 becomes O(n^2). This is not because constants are fake; it is because the highest-growth term eventually dominates. The simplification lets you compare algorithms across machines, languages, and implementations without pretending you know the exact hardware timing.`,
+        'The obvious approach is to benchmark both programs on today\'s input and ship the faster one. That is often the right final check, but it is a bad first theory. A nested-loop solution may beat a tree or hash table on 20 items and then fall apart at 20 million.',
+        'Another tempting shortcut is to memorize labels. That also fails. Derive the label by counting repeated work: one full pass is O(n), a pass inside a pass is usually O(n^2), repeatedly halving the remaining search is O(log n), and splitting into levels that each touch all n items is O(n log n).',
+        'A third mistake is treating Big-O as a moral ranking. O(n) is not always better than O(n log n) in the product range, and O(1) can hide huge constants or memory cost. Big-O rules out bad growth shapes; it does not replace measurement.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core insight',
       paragraphs: [
-        `The numbers get brutal quickly. At n = 1,000,000, an O(n) pass does about one million units of work. O(n log n) with base-2 logs is about 20 million. O(n^2) is one trillion. At one billion operations per second, that is milliseconds versus seconds versus roughly 17 minutes, before real-world memory costs. Space complexity uses the same idea: O(n) space stores one thing per item, while O(n^2) space stores a grid that becomes impossible at large n.`,
+        'The core insight is asymptotic dominance. Big-O keeps the term that dominates as n grows. Drop constants: 5n becomes O(n). Drop lower-order terms: n^2 + n + 100 becomes O(n^2). This does not mean constants are fake; it means the highest-growth term eventually owns the bill.',
+        'That simplification lets you compare algorithms before you know exact hardware timing. It also explains why better data structures matter: an index, tree, heap, cache, or hash table is usually a way to replace one growth curve with a lower one on the operation that happens most often.',
+        'Big-O is usually an upper-bound language. When people say an algorithm is O(n log n), they usually mean its work grows no faster than a constant times n log n after some point. For everyday engineering, the important habit is recognizing the dominant repeated work.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'How it works',
       paragraphs: [
-        `Performance incidents often reduce to growth curves. A page that scans every user for every request works in a demo and collapses at production size. Replacing a repeated scan with Hash Table lookup can change a hot path from O(n) to average O(1). Database indexes use tree-shaped structures so lookups are logarithmic instead of full-table scans. Binary Heap (Priority Queue) lets schedulers pull the next urgent item in O(log n) instead of sorting everything after every insert.`,
-        `Algorithm choice shows up in product latency. Bubble Sort is fine for a classroom animation and wrong for a million records. Merge Sort and quicksort exist because comparison sorting needs about n log n work in the general case. Memoization (Dynamic Programming) can turn repeated recursive subproblems from exponential time into linear or polynomial time by storing answers the first time they are computed.`,
+        'To estimate complexity, choose the input size n, identify the operation being counted, and count how many times that operation repeats as n changes. A single loop over n items is linear. A nested comparison of every pair is quadratic. Repeatedly cutting the search space in half is logarithmic.',
+        'Recursive algorithms need special care. Merge sort splits the input into levels and touches all n elements at each level, giving O(n log n). A naive Fibonacci recursion recomputes subproblems repeatedly and can grow exponentially. Memoization changes the shape by storing answers.',
+        'Data structures change the repeated operation. A hash table turns repeated membership scans into average O(1) lookups. A balanced tree gives O(log n) ordered lookup. A heap gives O(log n) insert and pop-min without sorting the whole queue each time.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the visual is proving',
       paragraphs: [
-        `The first misconception is that Big-O is the only thing that matters. Constants, memory layout, branch prediction, and I/O can dominate at small and medium sizes. An O(n) algorithm with a huge constant can lose to an O(n log n) algorithm for realistic n. But asymptotically, O(n) grows slower than O(n log n); the linear algorithm eventually wins if the model keeps applying.`,
-        `The second pitfall is mixing best, average, and worst cases. Binary Search has O(1) best case if the target is the first midpoint, but O(log n) worst case. Hash Table has O(1) average lookup but O(n) worst-case collisions. The third pitfall is memorizing labels without deriving them. Count loops, count branching, count how the input shrinks, and the label usually falls out.`,
+        'Read the plot by watching the gaps, not the exact y-values. O(log n) hugs the floor because doubling the input adds about one more step. O(n) rises steadily. O(n log n) is a little worse than linear but still controlled. O(n^2) curves away fast enough that small demos lie.',
+        'The max-n control is intentionally modest. Even by n = 48 the curves are separating. At real sizes the separation is not cosmetic; it is the difference between instant, slow, and impossible.',
+        'The animation also shows why scale changes judgment. On tiny inputs, constant overhead can dominate. As n grows, curve shape takes over. That is why an algorithm that feels fine during development can become the slowest line in production.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Why it works',
       paragraphs: [
-        `Study Binary Search for logarithmic shrinking, Linear Search for the baseline, and Hash Table for average constant-time lookup. Compare Bubble Sort with Merge Sort to feel the quadratic versus n log n gap. Recursion and Memoization (Dynamic Programming) show why repeated subproblems can be catastrophic or cheap depending on whether you cache them.`,
+        'Big-O works because many performance disasters are not about one slow instruction. They are about repeated structure. If one request scans one thousand items, that may be fine. If one request scans one thousand items for each of one thousand other items, the structure is now a million comparisons.',
+        'It also works as design communication. Saying a lookup path is O(n) tells another engineer where the system will bend. Saying an index changes the path to O(log n) explains why the index exists even before any benchmark numbers arrive.',
+        'The notation is intentionally coarse. It throws away details to expose the shape. After that, lower-level performance work can return to constants, memory layout, caches, vectorization, allocation, and I/O.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Lower Big-O is not always cheaper. A hash table may use more memory than a list. A balanced tree may have pointer overhead and worse cache locality. A complex algorithm may be harder to implement correctly than a simple scan over small data.',
+        'The right question is the operating range. If n never exceeds 20, a simple O(n^2) routine may be clearer and faster than a sophisticated alternative. If n can reach millions, the same routine becomes a liability.',
+        'Complexity analysis also needs a chosen variable. A graph algorithm may be O(V + E), not just O(n). A text algorithm may depend on document length, alphabet size, and pattern length. Naming the input dimensions is part of the analysis.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Big-O is most useful when input size is variable, a path is hot, or a design choice changes the shape of work. Replacing repeated scans with a hash table, using a database index instead of a full-table scan, or using a binary heap so scheduling does not sort the whole queue are all growth-curve decisions.',
+        'It is also the shared language behind the rest of this repo. Binary search buys logarithmic shrinking. Merge sort buys n log n sorting. Memoization can turn repeated branching into polynomial work by storing subproblem answers.',
+        'It is less useful for fixed-size work, one-off scripts, mostly I/O-bound code, or tiny loops where constants dominate. Even then, it helps rule out designs that would fail if requirements grow.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Big-O is dangerous when it becomes performance theater. Constants, memory layout, branch prediction, allocation, I/O, and cache behavior can dominate at small and medium sizes. An O(n) algorithm with a huge constant can lose to an O(n log n) algorithm on the actual product range.',
+        'Also keep the case straight. Binary search has O(1) best case if the target is the first midpoint, but O(log n) worst case. Hash table lookup is O(1) average, not magic; pathological collisions can degrade it. Use Big-O to rule out bad shapes, then benchmark the serious candidates.',
+        'A final failure is analyzing the wrong path. The average request may be fine while one admin export, migration job, batch task, or p99 query hits the quadratic path. Complexity should be checked where the product actually scales.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Binary Search for logarithmic shrinking, Linear Search for the baseline, and Hash Table for average constant-time lookup. Compare Bubble Sort with Merge Sort to feel the quadratic versus n log n gap. Recursion and Memoization show why repeated subproblems can be catastrophic or cheap depending on whether you cache them. Then study Binary Heap, Graph BFS, Topological Sort, and Union-Find to see how complexity guides data-structure choice.',
       ],
     },
   ],

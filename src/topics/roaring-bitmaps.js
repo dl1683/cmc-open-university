@@ -237,42 +237,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A Roaring bitmap is a compressed set of integers optimized for fast set operations. Instead of storing every integer in a list or every possible integer in one giant bitset, it splits integers into 16-bit chunks. Each chunk stores low bits in the most efficient local container: sorted array, dense bitmap, or run-length container.',
-        'The result is a structure that often stays compact like a sorted list and fast like a bitset. It is especially useful when IDs are large, sparse in some regions, dense in others, and queried repeatedly with AND, OR, and difference operations.',
+        `Many production queries reduce to set algebra over integer ids: users in a cohort, documents matching a term, rows with a flag, accounts eligible for an experiment. The query engine needs to intersect, union, and subtract these sets many times before it touches the full records.`,
+        `A plain sorted list stores sparse sets well. A plain bitset answers AND and OR with machine-word operations. Real id sets are rarely all sparse or all dense. Roaring bitmaps exist for that mixed case: keep exact sets compressed, but still run set operations close to bitset speed when local density justifies it.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The first reasonable choice is a sorted array of ids. Membership is a binary search, and intersection is a merge. That works when the set is small and every stored integer matters.`,
+        `The second reasonable choice is a bitset. Bit i says whether id i is present, so intersection is a word-level AND. That works when ids live in a tight dense range. It fails when the maximum id is large and most ids are absent.`,
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        `One global representation loses because density is local. A set can have a few ids near zero, a dense block around one shard, and long consecutive runs from an imported range. A sorted array wastes CPU on dense regions. A global bitset wastes memory on empty gaps.`,
+        `The wall is exact set algebra over a large universe where each region has a different shape. The data structure has to preserve fast operations without committing the whole set to one storage format.`,
+      ],
+    },
+    {
+      heading: 'Core layout',
+      paragraphs: [
+        `Split each 32-bit integer into a high 16-bit key and a low 16-bit value. The high key chooses a chunk. The chunk stores only low values from 0 to 65,535.`,
+        `Each occupied chunk chooses its own container. Sparse chunks use sorted arrays of 16-bit lows. Dense chunks use a fixed 65,536-bit bitmap. Run-like chunks use intervals. The invariant is simple: the directory maps each high key to one exact representation of the lows present in that chunk.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For a 32-bit integer, the high 16 bits choose a chunk key and the low 16 bits become the value inside that chunk. A directory maps chunk keys to containers. If a chunk contains only a few values, an array container stores the sorted low values. If it contains many values, a bitmap container stores 65,536 bits and uses word-level CPU operations. If it contains long consecutive spans, a run container stores intervals.',
-        'Set operations align chunks by high key. If both sets have chunk 17, intersect the two containers for chunk 17. If one side lacks the chunk, the intersection is empty. Different container pairs use different kernels: array merge, bitmap AND, interval overlap, or mixed conversions. The output is compressed again.',
+        `To insert id 131075, compute high = 2 and low = 3 because 131075 = 2 * 65,536 + 3. The directory finds chunk 2, then the chunk container records low value 3. Decoding reverses the operation: high * 65,536 + low.`,
+        `Set operations first align chunks by high key. If one side has no chunk for a key, intersection for that key is empty. If both sides have the key, the operation dispatches by container pair: array-array uses a sorted merge, bitmap-bitmap uses word AND, run-run uses interval overlap, and mixed pairs use specialized kernels or temporary conversion.`,
+        `After an operation, each output chunk can choose a new container. A bitmap intersection may become sparse enough to store as an array. An array union may become dense enough to store as a bitmap. This closure property lets analytics engines chain filters without decompressing everything into integer lists.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Concrete example',
       paragraphs: [
-        'Membership is close to O(1): find the chunk, then search or test inside its container. Intersections scale with the number and type of matched containers, not the maximum possible ID. Bitmap containers use a fixed 1024 machine words for a 16-bit chunk, so dense intersections can be extremely fast. Sparse chunks stay proportional to cardinality through arrays. Run containers are proportional to number of intervals.',
+        `Suppose one bitmap stores users in the United States and another stores users who paid in the last 30 days. Querying paid US users is an intersection. Chunks whose high keys appear in only one set are skipped. Chunks present in both sets are intersected locally.`,
+        `A sparse city-level chunk may merge two tiny arrays. A dense active-user chunk may AND 1024 64-bit words. A chunk from a sequential import may intersect two runs. The query gets one exact result while each region uses the representation that matches its local data.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it is correct',
       paragraphs: [
-        'Roaring bitmaps appear in analytics engines, search systems, column indexes, feature stores, and experimentation platforms. Apache Pinot, Druid-style analytics systems, Lucene-adjacent indexing patterns, and many JVM/Go/Rust libraries use Roaring or Roaring-like formats for compressed posting lists and cohort filters. The reason is simple: many production questions are set algebra over user IDs, document IDs, event IDs, or row IDs.',
+        `The high bits partition the integer universe into disjoint chunks. No integer belongs to two chunks, and no operation on one chunk can affect another chunk. That makes set algebra decomposable by high key.`,
+        `Inside a chunk, every container represents the same mathematical object: a set of low 16-bit values. Array merge, bitmap word operations, and run interval operations are exact implementations of set algebra on that low-value universe. Combining the exact per-chunk results gives the exact global result.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Roaring is not always smaller than every alternative. Tiny sets may be cheaper as plain arrays. Perfectly dense low-range sets may be cheapest as a plain bitset. Highly dynamic workloads pay update overhead because containers may need to switch representation. The win comes from mixed real-world distributions and repeated set operations.',
-        'Another trap is confusing compression with slowness. The compression is chosen to preserve fast operations. Bitmap containers run word-level SIMD-friendly operations; array containers merge sorted integers; run containers intersect intervals. The format is compressed because the operations know how to stay compressed.',
+        `Cost depends on occupied chunks and container types, not on the largest possible id. Sparse array containers scale with their cardinality. Bitmap containers use 65,536 bits, or 8 KiB, and process a full chunk in 1024 64-bit word operations. Run containers scale with the number of intervals.`,
+        `Membership is a directory lookup plus a container lookup. Array membership is usually binary search or a small scan. Bitmap membership is a bit test. Run membership searches intervals. Intersections scale with matching chunk keys; doubling the maximum id does little if the number of occupied chunks stays the same, but doubling occupied chunks roughly doubles directory and container work.`,
+        `Roaring implementations usually switch an array container to a bitmap around the point where 16-bit values take about the same space as a 65,536-bit bitmap. The exact threshold and run-container policy are engineering choices, but the reason is fixed: each chunk should pay for the shape it actually has.`,
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        `Keep the chunk directory sorted by high key so operations can merge directories the same way sorted lists merge. Inside each chunk, keep the container canonical for its type: arrays sorted and unique, bitmaps with accurate cardinality if cached, and runs normalized so adjacent intervals do not remain split unnecessarily.`,
+        `Define conversion thresholds in one place. Array-to-bitmap, bitmap-to-array, run optimization, and lazy operation policies should be measurable decisions, not scattered magic numbers. A library that converts too eagerly can waste CPU; a library that never converts can keep the wrong container after the data shape changes.`,
+        `Track cardinality carefully. Many operations depend on fast size estimates, and analytics users often ask for counts before materializing ids. A stale cardinality cache is a correctness bug, not just a performance bug.`,
+      ],
+    },
+    {
+      heading: 'Testing it',
+      paragraphs: [
+        `Use an exact set as the reference. Generate random integer sets, encode them as Roaring bitmaps, and compare membership, cardinality, AND, OR, XOR, AND-NOT, iteration order, and serialization round trips against the reference. Include values around 65,535 and 65,536 because chunk-boundary mistakes are common.`,
+        `Test mixed-container operations directly: array with bitmap, bitmap with run, run with array, empty chunks, full chunks, and containers that convert after the operation. The whole point of Roaring is that different local shapes compose correctly.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Roaring fits column indexes, search posting lists, feature-store cohorts, fraud rules, eligibility filters, and experiment platforms. These systems often run the same pattern: build many candidate id sets, combine them with AND, OR, and AND-NOT, then fetch only the surviving records.`,
+        `It is strongest when ids are clustered enough for compression but irregular enough that a single bitset would waste memory. It also works well in distributed analytics because intermediate sets can stay compressed while moving between stages.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Tiny sets can be cheaper as plain arrays. Fully dense low-range universes can be cheaper as plain bitsets. Random sparse ids spread across many chunks can create directory overhead without giving bitmap speed.`,
+        `Heavy mutation can pay for allocation, container conversion, and run optimization. Roaring is also exact, not probabilistic; if all you need is maybe-present membership with tiny memory, a Bloom filter may be a better first choice. Compression isn't the goal by itself. The format wins when compressed operations are still fast.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Bloom Filter to compare probabilistic membership with exact compressed sets. Read Database Indexing for bitmap index use cases, Hash Table for lookup intuition, and A/B Testing & p-values for cohort-style product analytics. Then connect Roaring to Cache Invalidation & Versioning: many caches store and combine sets of IDs before touching full records.',
+        `Study Bloom Filter to contrast exact compressed sets with probabilistic membership. Study Hash Table for exact lookup without sorted set algebra. Study Database Indexing for bitmap-index query plans, Inverted Index for posting-list intersections, and A/B Testing & p-values for cohort analytics where these id sets often appear.`,
       ],
     },
   ],

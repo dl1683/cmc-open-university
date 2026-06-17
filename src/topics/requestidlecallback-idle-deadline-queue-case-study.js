@@ -344,45 +344,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'requestIdleCallback queues low-priority callbacks for browser idle periods. The callback receives an IdleDeadline object with timeRemaining(), an estimate of remaining idle time, and didTimeout, which tells whether a timeout forced the callback to run.',
-        'It is best understood as a deadline queue for optional main-thread maintenance. Unlike requestAnimationFrame, it is not a visual frame slot. Unlike scheduler.postTask, it does not give the app a named priority lane. It says: if the browser has spare time, here is a small background job that can run without blocking visible work.',
+        'Pages often have useful work that should happen eventually but should not compete with input or paint: warming a search index, pruning caches, rolling up analytics, precomputing suggestions, or preparing optional data. requestIdleCallback gives that work a chance to run when the browser sees spare main-thread time.',
+        'The API is a deadline queue for optional maintenance. The callback receives an IdleDeadline with timeRemaining() and didTimeout, so application code can spend a small budget and then get out of the way.',
+        'The topic matters because background work often becomes accidental foreground work. A page can load quickly and then jank as "non-urgent" work runs in long chunks. Idle scheduling forces that work to become resumable, bounded, and cancelable.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The common mistake is treating idle time as free time. A busy page, a hidden tab, continuous input, or heavy animation may leave little or no idle budget, so idle work can be delayed for a long time.',
+        'Timeout is not a hidden priority boost. If a timeout forces the callback to run, didTimeout may be true while timeRemaining() is near zero. The callback should do only the deadline-required minimum and reschedule the rest.',
+        'Another shortcut is to use setTimeout as a universal yielding tool. Timers can break work into chunks, but they do not tell you how much frame budget remains. requestAnimationFrame is for visual work, not background maintenance. Workers are better for sustained CPU.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The application invariant is a FIFO job queue plus resumable cursors. Each idle callback checks timeRemaining(), runs only bounded units, saves progress, and requests another idle callback when work remains.',
+        'Correct idle work is restartable and disposable. Route changes, document version changes, auth changes, and BFCache restores can make old work stale, so each slice must check whether its cursor still belongs to the current page state.',
+        'The deeper rule is that optional work should never assume prompt execution. If the job must run before the user sees a result, it is not idle work. If the job can be delayed, abandoned, or resumed, it belongs in the idle queue.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'MDN describes requestIdleCallback as a way to run background and low-priority work during idle periods. It also notes that callbacks are generally called in FIFO order, but callbacks with timeouts may run out of order so they can execute before the timeout elapses.',
-        'The W3C requestIdleCallback draft defines the budget shape: timeRemaining() returns the current deadline minus now, clamped at zero, while didTimeout reflects whether the callback is running because its timeout expired. A callback should return when the budget is gone and request another idle callback if work remains.',
+        'The browser runs ordinary tasks, drains microtasks, handles animation callbacks, performs rendering work, and responds to input. If it sees enough slack before the next important work, it may run idle callbacks.',
+        'Inside the callback, the application repeatedly checks timeRemaining(). It processes one small unit, updates a cursor, checks the deadline again, and stops when the budget is low. If work remains, it requests another idle callback.',
+        'A timeout changes liveness, not budget. It can force a delayed callback to run eventually, but it does not grant a full frame of safe time. When didTimeout is true, the callback should do the smallest required progress and yield quickly.',
       ],
     },
     {
-      heading: 'Data structures behind it',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The usual application structure is a FIFO queue of background jobs plus a resumable cursor for any job larger than one idle slice. Each callback peeks the queue, checks timeRemaining(), runs a bounded unit, saves progress, and reschedules if the queue is not empty.',
-        'That connects directly to Queue, Backpressure & Flow Control, Browser Scheduler postTask Priority Queue, requestAnimationFrame Frame Budget, PerformanceObserver Long Task Attribution, and Web Workers: A Second Thread. Idle callbacks are the low-urgency branch of the same scheduling tree.',
+        'The idle-window view proves that idle budget is the main character. Tasks, microtasks, animation callbacks, rendering, and input-sensitive work are protected first. Idle jobs run only in the leftover space.',
+        'The queue scenes prove why the cursor matters. A large job is not allowed to assume it owns the main thread. It advances a few units, records where it stopped, and lets the browser decide when another idle period exists.',
+        'The timeout audit proves the common bug: treating timeout as permission to do all pending background work. Timeout only means the job waited too long, not that the user can tolerate jank now.',
+        'The fallback ladder proves that scheduling APIs are tools with different promises. rAF is aligned to visual frames, timers are coarse yields, postTask can express priority where supported, workers move CPU off-thread, and idle callbacks use leftover main-thread gaps.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Consider a documentation app that wants instant search after the first page load. It can render the page normally, then use idle callbacks to scan documents, tokenize text, merge postings into an in-memory index, and flush checkpoints to IndexedDB. The index warms opportunistically without delaying input or first paint.',
-        'The robust version stores a document cursor, checks timeRemaining() before each batch, cancels stale work when the route or corpus version changes, and uses a timeout only for tiny must-finish bookkeeping. If tokenization becomes CPU-heavy, it moves to a worker instead of pretending idle time is infinite.',
+        'It works because the browser has better visibility into frame timing than application code. The browser knows about pending input, rendering pressure, throttling, and hidden-tab behavior. requestIdleCallback lets optional work cooperate with that scheduling view.',
+        'It also works because cursorized jobs turn one long task into many small decisions. Each slice can stop before it hurts interaction. Progress is stored outside the call stack, so delayed or interrupted work can resume later.',
+        'Freshness checks make delayed work safe. If a route changed or a document version advanced, old idle work can be dropped instead of mutating the wrong state after a long delay.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Do not put urgent work in requestIdleCallback. The browser may delay it for a long time, especially under continuous input, animation, hidden-tab throttling, or heavy main-thread load. Use a timeout only when delayed execution is worse than a small amount of main-thread work.',
-        'Do not treat didTimeout as a full budget. When didTimeout is true, timeRemaining() may be about zero. Do not assume universal support either; MDN marks related IdleDeadline/requestIdleCallback surfaces as limited availability, so production code needs feature detection and fallbacks.',
+        'The cost is complexity. A single loop becomes a queue, cursor, scheduler, cancellation check, fallback strategy, and instrumentation point. That is worthwhile only for optional work that would otherwise hurt interaction.',
+        'Idle scheduling can also increase total completion time. Work that could finish in one long task is now spread across uncertain gaps. That is the correct trade when responsiveness matters more than finishing background work immediately.',
+        'Support and behavior differ across browsers and page states, so production code needs feature detection. Fallbacks may include scheduler.postTask with background priority, timers for coarse chunking, requestAnimationFrame for visual work, or workers for sustained CPU.',
+        'A subtle tradeoff is persistence. If an idle job may be delayed by navigation, hidden-tab throttling, or BFCache, the cursor may need to be stored in memory only, session state, or IndexedDB depending on whether the work is disposable.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: MDN requestIdleCallback at https://developer.mozilla.org/en-US/docs/Web/API/Window/requestIdleCallback, MDN Background Tasks API at https://developer.mozilla.org/en-US/docs/Web/API/Background_Tasks_API, MDN IdleDeadline.timeRemaining at https://developer.mozilla.org/en-US/docs/Web/API/IdleDeadline/timeRemaining, MDN IdleDeadline.didTimeout at https://developer.mozilla.org/en-US/docs/Web/API/IdleDeadline/didTimeout, and the W3C requestIdleCallback draft at https://www.w3.org/TR/requestidlecallback/.',
-        'Study next: The Event Loop, Promise Microtask Queue, Browser Scheduler postTask Priority Queue, PerformanceObserver Long Task Attribution, requestAnimationFrame Frame Budget, Web Workers: A Second Thread, BFCache Page Lifecycle, Queue, Backpressure & Flow Control, IndexedDB Object Store Case Study, and Cache Storage Versioned Precache.',
+        'Idle callbacks fit optional, latency-insensitive work: search-index warmup, cache cleanup, speculative precomputation, analytics aggregation, small IndexedDB checkpoints, and cleanup after visible work has finished.',
+        'A documentation app can render the page first, then scan documents, tokenize text, merge postings, and flush checkpoints during idle periods. Users get first paint and input before the index is fully warm.',
+        'The pattern is also useful for progressive enhancement. The page can become usable quickly, then idle work can improve search, suggestions, previews, or local caches without becoming part of the critical path.',
+        'It is strongest when partial progress is valuable. A warmed cache, partially built index, or cleaned subset of stale records can still improve the session, and the system can abandon the rest if the user leaves. That makes idle work different from required initialization.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'requestIdleCallback fails for urgent UI, visible animation, or CPU-heavy loops. Urgent work belongs in user-blocking tasks, frame work belongs in requestAnimationFrame, and sustained CPU work belongs in a worker or an explicitly chunked scheduler.',
+        'Production code also needs feature detection and fallbacks. Idle callbacks may be delayed, throttled, or unavailable, so correctness cannot depend on them running promptly or at all.',
+        'Another failure is stale work. Idle callbacks are often delayed, so route changes, auth changes, document version changes, and BFCache restores can make old jobs invalid. Each slice should check freshness before mutating state.',
+        'A final failure is invisible jank. If idle jobs create long tasks, the release gate should catch them with PerformanceObserver traces, not user complaints.',
+        'Do not enqueue unbounded work. A queue that grows faster than idle time drains becomes a memory leak with polite scheduling syntax.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: MDN requestIdleCallback at https://developer.mozilla.org/en-US/docs/Web/API/Window/requestIdleCallback, MDN Background Tasks API at https://developer.mozilla.org/en-US/docs/Web/API/Background_Tasks_API, MDN IdleDeadline.timeRemaining at https://developer.mozilla.org/en-US/docs/Web/API/IdleDeadline/timeRemaining, MDN IdleDeadline.didTimeout at https://developer.mozilla.org/en-US/docs/Web/API/IdleDeadline/didTimeout, and the W3C requestIdleCallback draft at https://www.w3.org/TR/requestidlecallback/. Study The Event Loop, Promise Microtask Queue, Browser Scheduler postTask Priority Queue, PerformanceObserver Long Task Attribution, requestAnimationFrame Frame Budget, Web Workers: A Second Thread, BFCache Page Lifecycle, Queue, Backpressure & Flow Control, IndexedDB Object Store Case Study, and Cache Storage Versioned Precache next.',
+        'When reviewing code, ask one simple question first: would the page still be correct if this callback never ran? If the answer is no, the work is not truly idle work.',
       ],
     },
   ],

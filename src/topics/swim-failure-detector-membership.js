@@ -185,35 +185,85 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'SWIM is a scalable membership protocol. Each node maintains a local view of which peers are alive, suspect, failed, joined, or left. It does this without a central heartbeat service and without every node pinging every other node.',
-        'The design has two pieces: a failure detector that periodically probes one peer, and a dissemination layer that spreads membership updates in infection-style gossip. The result is stable per-node message load, bounded expected detection time, and eventual convergence of membership views.',
+        'Distributed systems need to know which peers are probably alive. Storage replicas need to route around failed nodes. Service discovery needs to remove dead instances. Actor runtimes and cluster managers need a shared enough view of who is in the group.',
+        'That sounds simple until the cluster grows. Machines pause for garbage collection, links drop packets, queues fill, and partitions make healthy nodes unreachable from only part of the network. There is no perfect failure detector in an asynchronous distributed system, so membership protocols have to trade certainty, speed, cost, and false positives.',
+        'SWIM exists for large, changing clusters where every node should do roughly constant work instead of sending heartbeats to every other node.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and Its Wall',
       paragraphs: [
-        'In each protocol period, node A pings one target D. If D ACKs, A moves on. If not, A asks a few helpers to ping D. If a helper reaches D, the suspicion clears; the problem may have been only the A-to-D path. If nobody gets an ACK before the timeout, A marks D suspect or failed, depending on the implementation stage.',
-        'Suspicion reduces false positives. A suspected node can refute the suspicion by gossiping an alive record with a newer incarnation number. Membership records therefore need both a status and an ordering field. Stale gossip should not overwrite newer evidence.',
+        'The obvious design is all-to-all heartbeats: every node periodically pings every other node. That gives direct evidence, but message load grows with cluster size. A hundred nodes is manageable. Thousands of nodes turn heartbeat traffic into background noise that competes with the real workload.',
+        'A central monitor reduces the message count, but it creates a hot spot and a single authority for failure decisions. If the monitor is slow, isolated, or wrong, the cluster inherits that mistake.',
+        'SWIM takes a different bargain. Each node probes only a small number of peers per period, uses indirect probes to reduce false positives, and spreads membership updates through gossip. The result is not instant global truth. It is scalable, probabilistic convergence.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'SWIM keeps per-node probe work roughly constant: one direct target plus a small number of indirect helpers. Dissemination can piggyback on ordinary probe messages, so membership updates do not require a separate full-cluster broadcast.',
-        'The complexity moves into timeouts, suspicion windows, incarnation numbers, and deployment tuning. Too aggressive a timeout creates false failures during GC pauses or network jitter. Too slow a timeout delays failover. The protocol gives a scalable shape, not magic failure truth.',
+        'Separate failure detection from dissemination. Failure detection asks a small local question: can I or a few helpers reach this target during this protocol period? Dissemination asks a different question: how do membership records spread until most live nodes learn them?',
+        'That split lets SWIM keep probe traffic small while still spreading updates cluster-wide. Direct probes discover local evidence. Indirect probes add path diversity. Suspicion and incarnation numbers prevent stale gossip from turning temporary slowness into permanent failure.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'A cluster of storage nodes uses SWIM-style membership. A probes D and gets no response. A asks B and C to probe D. B also times out, but C receives an ACK from D. A keeps D alive and avoids triggering replica movement from one bad network path. Later, D actually crashes; direct and indirect probes fail, D becomes suspect, the suspicion is gossiped, no refutation arrives, and the failed membership record spreads through the cluster.',
-        'That case study links Gossip Protocol to real membership. Gossip by itself spreads a fact. SWIM decides which membership facts to spread and how to keep the detector scalable.',
+        'In the probe protocol view, read A as the current prober and D as the target for this period. A first tries a direct ping. If that fails, A asks helpers B and C to ping D. A helper response does not prove D is healthy forever; it only shows that D was reachable through at least one alternate path.',
+        'In the suspicion gossip view, focus on the membership record, not just the messages. D suspect@7 and D alive@8 are ordered facts about the same member. The newer incarnation lets D refute stale suspicion. Without that ordering, old gossip could overwrite newer evidence.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How It Works',
+      paragraphs: [
+        'Each node keeps a membership list with records such as alive, suspect, failed, joined, or left. In each protocol period, the node selects one target from the list and sends a ping. If the target replies before the timeout, the detector records it as alive for this period.',
+        'If the direct ping times out, the node sends ping-request messages to a small set of helpers. Each helper pings the target and reports back if it receives an acknowledgement. This reduces false positives caused by one bad route, one congested queue, or one unlucky packet loss between the prober and the target.',
+        'If direct and indirect probes fail, many implementations mark the target suspect before declaring it failed. Suspicion is gossiped so the rest of the cluster can observe and react, but the suspected node can refute the claim by advertising an alive record with a higher incarnation number.',
+        'Membership updates ride on ordinary protocol traffic. Probe messages carry a small batch of recent updates, and repeated random contact spreads those updates in infection-style gossip.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The probe cost is bounded by configuration rather than cluster size: one direct target and a small helper set per period. As the cluster grows, each node still performs a small amount of work, and random target selection spreads observation across the group over time.',
+        'Indirect probes work because network failure is often partial. A failed A-to-D ping could mean D is dead, but it could also mean A is congested, the path from A to D dropped packets, or D was slow for one interval. Asking helpers samples other paths before turning one timeout into a failure record.',
+        'Suspicion works because membership records are ordered. A live node can increment its incarnation and publish a newer alive record. Receivers can reject older suspect records instead of letting stale gossip win.',
+        'Gossip works because repeated random exchanges make records fan out without a coordinator. The tradeoff is eventual convergence rather than one atomic cluster-wide decision.',
+      ],
+    },
+    {
+      heading: 'Worked Case Study',
+      paragraphs: [
+        'A storage cluster has nodes A through F. A probes D and receives no ACK. Rather than immediately declaring D failed, A asks B and C to probe D. B times out, but C receives an ACK. A treats D as alive for now and avoids moving replicas because one direct path was bad.',
+        'Later, D actually crashes. A future prober gets no direct ACK and no helper sees D either. D becomes suspect@7 and that record is gossiped. If D was merely slow, it could return with alive@8 and receivers would prefer the newer incarnation. Because D is gone, no refutation arrives. After the suspicion timeout, failed@7 spreads through the cluster and higher-level systems can rebalance.',
+        'The case shows the point of SWIM: do not spend all-to-all traffic to get perfect certainty that the network cannot provide anyway. Spend small, repeated probes to get useful evidence and spread that evidence efficiently.',
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        'SWIM trades immediate certainty for low steady-state cost. Detection delay depends on probe period, target selection, timeout settings, helper count, packet loss, and suspicion window. Dissemination delay depends on how many updates are piggybacked and how quickly random contact spreads them.',
+        'Tuning is the hard part. Timeouts that are too aggressive create false failures during garbage collection pauses, overloaded event loops, or short network stalls. Timeouts that are too slow delay failover and leave dead nodes in routing tables.',
+        'Security is also outside the basic protocol. A hostile member can lie about membership records unless messages are authenticated and authorization rules decide who may join, leave, or claim failure.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'SWIM wins for service discovery, distributed caches, storage clusters, actor systems, peer groups, and runtime schedulers where membership is large, changing, and already uncertain under packet loss.',
+        'It is a good fit when the system can tolerate brief disagreement and when higher-level components can treat membership as a hint that becomes stronger as gossip converges.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'SWIM fails as a consensus substitute. It does not give a linearizable membership view, a globally ordered log, or a single authoritative decision about who owns a resource. If a decision needs fencing, leader election, or exactly-once ownership transfer, use a stronger protocol above membership.',
+        'It also struggles under long partitions and correlated pauses. Two sides of a partition may each mark the other failed. A group of nodes paused by the same runtime or overloaded host can look dead even though they later resume. Suspicion helps, but it does not repeal the limits of distributed failure detection.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary source: Das, Gupta, and Motivala, "SWIM: Scalable Weakly-consistent Infection-style Process Group Membership Protocol": https://www.cs.cornell.edu/projects/Quicksilver/public_pdfs/SWIM.pdf. ACM entry: https://dl.acm.org/doi/10.5555/647883.738420. Study Gossip Protocol, Consistent Hashing, Dynamo Case Study, Cassandra Repair Case Study, Raft Leader Election, and Read/Write Quorums next.',
       ],

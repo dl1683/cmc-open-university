@@ -187,40 +187,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A futex is a fast user-space synchronization building block. The shared state lives in a normal user-space integer. The kernel only appears when a thread must block or when another thread wakes blocked waiters.',
-        'The key data structure is an address-keyed wait queue. User code owns the meaning of the integer: free, locked, waiter-present, sequence number, permit count, or epoch. The kernel only maps the futex word address to sleepers.',
+        'Most lock operations are uncontended. Paying for a syscall, scheduler decision, and kernel lock queue on every successful acquire would make ordinary synchronization far too expensive.',
+        'At the same time, pure spinning is not enough. If the owner is descheduled, blocked on I/O, or running a long critical section, waiters can burn whole CPU cores doing nothing useful. A real mutex needs a cheap user-space fast path and a way to sleep under contention.',
+        'A futex is the narrow primitive that makes that split possible. User space owns the synchronization state. The kernel only provides an address-keyed place to park and wake threads when user-space atomics are no longer enough.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'A mutex built on a futex first tries a user-space atomic operation. If the word says free, the thread acquires without a syscall. If the word says locked, the thread calls FUTEX_WAIT with the address and the locked value it observed.',
-        'FUTEX_WAIT is the crucial operation: compare the current word with the expected value and block only if they still match. That closes the lost-wake race between checking the predicate and sleeping. FUTEX_WAKE later wakes one or more waiters by the same address key.',
+        'The obvious first design is a spin lock: repeatedly load a shared word until it says free, then use compare-and-swap to take it. That keeps the uncontended path in user space, but it wastes CPU when the wait is long.',
+        'The obvious second design is to check the word and then sleep if it is still locked. That creates the lost-wake race. A waiter can observe locked, get delayed before actually sleeping, and then miss the owner changing the word to free and sending a wake. The waiter can sleep forever after the event it needed has already happened.',
+        'The wall is the gap between check and sleep. A correct blocking primitive needs one atomic operation that means: put this thread to sleep only if the futex word still equals the value I just observed.',
       ],
     },
     {
-      heading: 'Case study: parking without missing the unlock',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Suppose thread B observes a lock word equal to 1 and is about to sleep. Thread A unlocks by storing 0 and waking waiters. In a naive design, B might miss the wake and go to sleep after the unlock. In the futex design, the kernel rechecks the word before sleeping; because it is now 0, B does not enqueue.',
-        'This is why futex-based primitives loop around their predicate. Waking is not ownership. The awakened thread must reread the word, retry the CAS, and go back to sleep if a different thread won the race.',
+        'A futex splits the abstraction in two. The shared integer in user memory is the predicate: free or locked, count zero or nonzero, sequence number unchanged, barrier epoch not complete. The kernel wait queue is only the parking lot for threads waiting on that address.',
+        'The kernel does not need to understand the whole mutex, semaphore, condition variable, or barrier. It only needs to compare the integer with an expected value before blocking, remember sleepers by the futex address, and wake some number of them later.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'The uncontended path is as cheap as user-space atomics. The contended path pays a syscall, a hash-bucket lookup, scheduler work, and later wakeup. Good primitives therefore avoid kernel transitions when possible and avoid waking too many waiters at once.',
+        'In the wait/wake handshake view, follow the futex word first. If the word says free, the CAS path succeeds without the kernel. If it says locked, the waiter enters FUTEX_WAIT with the address and the locked value it observed.',
+        'In the lost wake case study view, focus on the moment between checking the word and sleeping. The bad waiter sleeps after the wake already happened. The futex waiter gives the expected value to the kernel, so the kernel can refuse to enqueue it if the word has already changed.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How It Works',
       paragraphs: [
-        'A futex is not automatically fair, recursive, priority-inheriting, or a complete condition variable. Those rules live in the higher-level primitive. The futex gives the primitive one narrow power: sleep only if a word still has the expected value, and wake sleepers waiting on that word.',
+        'A futex-backed mutex starts with a user-space atomic operation. A thread tries to change the word from free to locked. If that succeeds, there is no syscall and no scheduler involvement.',
+        'If the word is already locked, the thread may mark that waiters exist and then call FUTEX_WAIT with two important pieces of data: the address of the futex word and the value that should still be present if sleeping is safe. The kernel checks the current value. If it differs, the call returns instead of blocking.',
+        'If the value still matches, the kernel queues the thread in a wait bucket derived from the futex address and parks it. Later, the owner publishes the unlocked state in user space and calls FUTEX_WAKE on the same address. The kernel moves one or more waiters back to the run queue.',
+        'The awakened thread does not own the lock yet. It returns to user space, reloads the word, and tries the atomic acquire again. Correct futex users wait in a loop around the predicate.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
+      paragraphs: [
+        'The compare-and-block step closes the lost-wake gap. If unlock already changed the word, the expected value no longer matches and the waiter does not sleep. If the word is still locked, the kernel queues the waiter before it sleeps, so a later wake can find it.',
+        'The retry loop handles everything futex wake deliberately does not promise. A wake may be racing with another acquire. More than one waiter may wake. A signal may interrupt the wait. A timeout may expire. The only safe rule is to recheck the user-space predicate after every return from the kernel.',
+        'Memory ordering is part of the higher-level primitive. The futex syscall parks and wakes threads; it does not automatically publish protected data. The lock implementation still needs acquire and release ordering around the user-space word.',
+      ],
+    },
+    {
+      heading: 'Worked Case Study',
+      paragraphs: [
+        'Thread A owns a lock, so the futex word is 1. Thread B reads 1 and plans to sleep. Before B reaches the kernel, A stores 0 and calls wake. In a naive design, wake sees no sleepers, B sleeps afterward, and the program can hang.',
+        'With FUTEX_WAIT, B passes expected value 1 to the kernel. The kernel rereads the word as part of the wait operation. Because A already changed the word to 0, the value does not match and B is not queued. B returns to user space, sees the lock is free, and competes to acquire it.',
+        'If A had not unlocked yet, the word would still be 1. In that case the kernel would queue B before sleeping it, and A later waking the futex address would make B runnable again. Both sides of the race are covered by the same expected-value check.',
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        'The uncontended path is extremely cheap: a few user-space atomic instructions. The contended path is much more expensive: syscall entry, futex hash-bucket lookup, queue manipulation, scheduler work, and a later wakeup.',
+        'Futexes are intentionally weak. They do not guarantee fairness by themselves. They do not transfer ownership. They do not prevent priority inversion unless the higher-level primitive uses priority-inheritance variants. They do not decide whether to wake one waiter, many waiters, or all waiters.',
+        'The address-keyed design also has sharp edges. Shared mappings, process-private versus process-shared futexes, timeouts, signals, cancellation, robust mutex cleanup, and spurious wakeups all have to be handled by the code that builds the real synchronization primitive.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Futexes win under mutexes, condition variables, semaphores, barriers, and runtime parking lots where the common case should never enter the kernel but the contended case must stop burning CPU.',
+        'They are especially strong when contention is occasional and wait duration is unpredictable. Short waits can spin briefly; longer waits can park; uncontended operations remain cheap.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'A futex fails as an abstraction if the programmer treats it as a complete lock. It is only a wait queue tied to a memory word. Fairness, recursion, ownership tracking, condition-variable semantics, and priority behavior must be designed above it.',
+        'It also fails when code waits without a loop, ignores interrupted waits, uses the wrong expected value, or forgets the atomic memory-ordering rules around the protected data. Those bugs are hard because the fast path may work for a long time before one unlucky interleaving exposes the race.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: Linux futex man page at https://man7.org/linux/man-pages/man2/futex.2.html, futex overview at https://man7.org/linux/man-pages/man7/futex.7.html, and Ulrich Drepper futex notes at https://akkadia.org/drepper/futex.pdf. Study Semaphore Permit Counter, MCS Queue Lock, Lock-Free Queue, Backpressure & Flow Control, and Logical Clocks next.',
       ],

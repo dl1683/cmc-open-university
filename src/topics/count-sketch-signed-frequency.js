@@ -246,42 +246,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Count Sketch is a streaming frequency sketch for estimating how often a key appears when the key universe is too large for an exact map. It resembles Count-Min Sketch, but each row has two hash functions: one chooses a bucket, and the other chooses a sign, +1 or -1. The update adds the signed delta to the chosen counter. The query multiplies each row counter by the same sign and returns the median row estimate.',
-        'The signed hash is the point. Count-Min collisions only increase estimates, so it has one-sided overcount bias. Count Sketch collisions can increase or decrease a row estimate, making the noise centered around zero in expectation. That makes it useful for turnstile streams, approximate inner products, sparse recovery, and frequency estimation where negative updates can occur.',
+        `Streaming systems often need approximate frequencies without storing every key. Page views, telemetry events, graph edges, inventory changes, and feature updates can arrive faster than an exact map can be kept for every distinct item.`,
+        `Some streams also subtract. A reservation is released, a refund corrects revenue, an edge is deleted, or a delayed event cancels an earlier event. Count Sketch exists for these turnstile streams: counts can go up or down, and the memory budget stays fixed.`,
+        `The deeper reason to study it is that it shows how randomized signs can change a data structure's error contract. Count-Min Sketch says "I may overcount." Count Sketch says "my noise is centered, so combine independent rows and treat the answer as an estimate with variance." That difference matters when estimates feed math rather than a human top-k list.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The exact approach is a hash map from key to count. It gives correct answers and supports negative updates, but memory grows with the number of distinct keys. That is the wrong shape for a high-cardinality stream with a fixed memory budget.`,
+        `The approximate approach many learners meet first is Count-Min Sketch. It uses several hash rows and keeps positive counters. Count-Min is useful for nonnegative streams because collisions only overestimate. That one-sided guarantee stops being the right tool when deletions, corrections, or signed weights are normal.`,
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        `Fixed memory means collisions are unavoidable. A sketch can't keep a private counter for every key. The useful distinction is the error shape those collisions create.`,
+        `For signed streams, always-positive collision noise is hard to use. A key with a true count near zero can look large because unrelated keys hit the same buckets. Count Sketch changes the error shape. Collisions can add or subtract, so each row estimate is centered on the true count in expectation.`,
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        `Each row uses two hash functions. One chooses a bucket. The other chooses a sign, either +1 or -1. Updating key x by delta adds sign(x) * delta to that row's bucket.`,
+        `A query reverses the sign for the key being asked about. Row j returns sign_j(x) * counter[j][h_j(x)]. The sketch takes the median of those row estimates. The invariant is that the queried key flips back to its true direction, while unrelated colliding keys have random signs.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Allocate d rows by w columns. For update (key, delta), row j computes bucket h_j(key) and sign s_j(key) in {-1, +1}, then adds s_j(key) * delta to that bucket. For query(key), row j reads the same bucket and returns s_j(key) * counter[j][h_j(key)]. The final answer is the median of those d row estimates.',
-        'The median matters because collisions create outliers. One row may be badly polluted by another heavy key; another row may be nearly clean. The median keeps the center of the signed estimates instead of trusting the minimum. With enough rows and width, most rows are not catastrophically polluted, so the median becomes stable.',
+        `Allocate d rows and w buckets per row. For update (key, delta), every row computes bucket h_j(key) and sign s_j(key) in {-1, +1}. It adds s_j(key) * delta to that one bucket.`,
+        `For query(key), read the same bucket in every row and multiply by the same sign used for that key. If the true key contributed -5 to a cell because its sign was -1, multiplying by -1 returns +5 for that key. Other keys in the cell may also flip, but their signs are independent of the queried key.`,
+        `The median is the robust aggregator. A few rows may be badly polluted by collisions. If most rows are only lightly polluted, the middle estimate stays close to the true frequency.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Concrete example',
       paragraphs: [
-        'Update cost is O(d), query cost is O(d), and memory is O(d * w). Like Count-Min, those dimensions are fixed by the desired error contract, so runtime per event is effectively constant. Merge is cell-wise addition when sketches share dimensions and hash seeds. The tradeoff is variance: estimates can be too high or too low, so the result is not safe as exact truth.',
+        `Suppose login has true count 2. In a row where sign(login) is -1, two login events store -2. Querying login multiplies that cell by -1 and gets +2 before collision noise is considered.`,
+        `If bot also lands in that cell, bot's contribution may appear as positive or negative noise after the login sign is applied. Across rows, those unrelated contributions are centered around zero. The median chooses a typical row instead of trusting the worst collision.`,
+        `This example also explains why the sketch can support deletions without a separate tombstone structure. A refund correction of -1 simply applies the same signed update with a negative delta. If the original event and correction reach different machines, the sketches can still be merged later because every cell stores a linear sum.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why the estimate is trustworthy',
       paragraphs: [
-        'A fraud platform tracks account actions as a turnstile stream: login attempts add signal, successful identity checks subtract risk, refunds adjust earlier purchases, and delayed corrections arrive out of order. A Count-Min Sketch would not handle the negative corrections cleanly because its counters are designed for nonnegative increments and one-sided estimates. Count Sketch lets each event carry a signed delta, merges summaries across shards, and gives an approximate frequency signal that can feed an exact verifier for the small set of suspicious accounts.',
+        `For a fixed key x, one row's estimate equals the true frequency of x plus signed contributions from other keys that collided with x in that row. Because those other signs are random, the expected collision contribution is zero.`,
+        `Width controls how much collision mass a row is likely to see. More buckets mean fewer unrelated keys share the queried bucket. Depth controls failure probability. More independent rows make it less likely that the median is dominated by bad collisions.`,
+        `The error scale is tied to the remaining L2 mass of the stream, not just total event count. A stream with a few heavy keys and many tiny keys is easier than a stream where many medium keys collide with each other. Count Sketch gives an estimate, not a certificate.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Do not read signed counters as human counts. A negative cell can be completely normal because several signed keys collided there. The only meaningful query is the signed row estimate followed by a median. Also do not choose Count Sketch just because it sounds more advanced than Count-Min. If your updates are positive and one-sided overestimates are useful for candidate generation, Count-Min can be simpler and easier to reason about.',
-        'As with every sketch, adversarial inputs can attack weak hash functions. Use keyed hashes or carefully chosen independent hash families when keys come from users. For billing, permissions, legal decisions, or deletion, treat the sketch as a filter and verify candidates exactly.',
+        `Update time is O(d) because one bucket changes in each row. Query time is O(d) because one bucket is read in each row. Memory is O(d * w) counters. If counters are 64-bit integers, memory is predictable and independent of distinct key count.`,
+        `The sketch is linear. Two workers using the same dimensions and hash seeds can merge by adding matching counters. The merged sketch is the same as sketching the combined stream. This is why Count Sketch fits distributed telemetry and streaming aggregation.`,
+        `The tax is variance. Estimates can be high or low. They are useful for ranking candidates, detecting drift, approximating inner products, or deciding what to verify exactly. They shouldn't be used as final truth for billing, deletion, access control, or legal decisions without an exact check.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary source: Charikar, Chen, and Farach-Colton, "Finding Frequent Items in Data Streams", which introduces Count Sketch: https://www.cs.princeton.edu/courses/archive/spr04/cos598B/bib/CharikarCF.pdf. For comparison, read Count-Min Sketch for one-sided positive counters, Feature Hashing Signed Projection Primer for signed hashed feature vectors, Conservative Count-Min Sketch for lower positive-stream bias, Heavy Hitters: Space-Saving Summaries for retaining candidate keys, and Hierarchical Heavy Hitters: Prefix Sketch for network rollups over IP prefixes.',
+        `Count Sketch fits turnstile frequency estimation, telemetry correction, inventory adjustment, graph streams with edge deletes, approximate inner products, sparse recovery, and distributed heavy-hitter pipelines. It is also useful when overcount bias would distort downstream math.`,
+        `A fraud system can sketch events by user, subtract corrections, merge sketches from shards, and use the estimates to pick suspicious candidates. The final investigation can then query exact logs for those candidates. The sketch narrows the search; it doesn't replace the source of truth.`,
+        `It is also a good teaching bridge into feature hashing and compressed sensing. The same pattern appears when high-dimensional vectors are projected into smaller signed buckets. The data structure is not only a counter table; it is a compact randomized linear map with a query procedure on top.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Individual cells aren't human-readable counts. Negative counters are normal. A single row estimate can be badly wrong when a heavy unrelated key collides with the queried key.`,
+        `If all updates are nonnegative and one-sided overestimates are acceptable, Count-Min is simpler to explain and sometimes easier to reason about operationally. If the application needs the actual list of top keys, Count Sketch must be paired with a candidate-generation method; the sketch itself doesn't remember key names.`,
+        `Hash quality matters. Hostile keys, poor seeds, counter overflow, and inconsistent hash configuration across workers can destroy the guarantee. Any decision with real consequences should verify exact counts after the sketch flags a candidate.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Count-Min Sketch for one-sided positive counters, Conservative Count-Min Sketch for lower bias on positive streams, and Heavy Hitters: Space-Saving Summaries for candidate retention. Study Feature Hashing Signed Projection Primer to see the same sign trick in vector form, and Hierarchical Heavy Hitters: Prefix Sketch for rollups over structured keys.`,
+        `Primary source: Charikar, Chen, and Farach-Colton, Finding Frequent Items in Data Streams: https://www.cs.princeton.edu/courses/archive/spr04/cos598B/bib/CharikarCF.pdf.`,
       ],
     },
   ],

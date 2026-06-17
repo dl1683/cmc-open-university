@@ -176,43 +176,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An interval tree is a balanced search tree for ranges. It stores intervals ordered by low endpoint and augments every node with the maximum high endpoint in that node\'s subtree. That one extra field lets overlap queries skip whole branches.',
-        'The structure is a classic augmentation pattern: start with Binary Search Tree or Red-Black Tree behavior, then add a summary value that makes a new query efficient. The key invariant is local: a node\'s max endpoint is the maximum of its own high endpoint, its left child max, and its right child max. Because the field depends only on nearby tree state, rotations can preserve it with a few recomputations.',
+        'Interval overlap questions show up in calendars, genome features, compiler live ranges, trace spans, text annotations, and one-dimensional collision windows.',
+        'An interval tree exists because ordered point keys are not enough. The query is about ranges that can overlap even when their start points are far away.',
+        'The data model is simple but easy to underestimate. An event has a start and an end. A query may ask whether a proposed meeting conflicts, which genes cover a coordinate, which spans were active at a timestamp, or which live ranges interfere in a compiler. In each case, the answer depends on both endpoints, not just on where the interval begins.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to scan every interval and test overlap. That is simple, correct, and too slow when the set is large or overlap checks are frequent.',
+        'A normal binary search tree ordered by start point helps find nearby starts, but it cannot safely ignore intervals with earlier starts that extend far to the right.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is pruning. To skip a subtree, you need proof that no interval inside it can reach the query. Start order alone does not provide that proof.',
+        'The second wall is mutation. If the tree rotates or deletes nodes, the pruning metadata must remain correct or the structure can silently miss overlaps.',
+        'This is why interval trees are more than a convenience wrapper around binary search. They encode a certificate for absence. When the search skips a branch, it is not guessing that the branch looks unlikely. It is using a stored maximum endpoint to prove that the branch cannot contain an overlapping interval.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Order intervals by low endpoint, but augment every node with the maximum high endpoint in its subtree. That one scalar says whether a subtree can possibly overlap a query starting at qLow.',
+        'The invariant is local: node.max = max(node.high, left.max, right.max). Because it is local, balanced-tree rotations can preserve it with a few recomputations.',
+        'That is the whole trick. The tree order answers "which intervals start before or after this point?" The max endpoint answers "can anything in this branch reach far enough to matter?" Together they turn overlap search from a scan into a directed walk.',
+      ],
+    },
+    {
+      heading: 'Animation notes',
+      paragraphs: [
+        `In the overlap-query view, each max endpoint is a pruning certificate. If the left subtree's max endpoint is less than the query start, no interval in that subtree can reach the query, so it is safe to skip. If the max endpoint reaches the query start, the subtree remains possible even when the current node does not overlap.`,
+        `In the maintain-max-endpoint view, insertion follows ordinary BST ordering by low endpoint, but the path back to the root recomputes max endpoints. Rotations are allowed only if they also repair the augmented values; stale max data can turn a correct tree shape into wrong search answers.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'To find an interval overlapping a query [qLow, qHigh], compare the current node interval with the query. If it overlaps, return it. Otherwise, inspect the left child only if left.max is at least qLow; if the left subtree cannot reach the query, go right. To find all overlaps, continue exploring every subtree that could contain a match.',
-        'Insertion and deletion follow the underlying balanced tree. After structural changes or rotations, recompute max endpoints from children. The augmentation is local, so operations stay logarithmic for ordinary balanced-tree workloads. This is exactly the same design habit behind Order-Statistics Tree: keep the search-tree order, add one carefully maintained summary field, and make a new query cheap.',
-        'There are several names in the wild. Some computational-geometry courses use "interval tree" for a median-split structure over elementary intervals, while the CLRS-style data structure is a red-black tree augmented with max endpoints. This page teaches the CLRS-style dynamic overlap tree because it is the version most directly useful for calendars, live ranges, and timestamp spans.',
+        'To find one overlap, compare the current interval with the query. If it overlaps, return it. Otherwise, go left only if left.max is at least qLow; if the left subtree cannot reach the query, go right.',
+        'To find all overlaps, continue exploring every subtree that could contain a match. Insert and delete follow the underlying balanced tree, then recompute max endpoints on the affected path and rotated nodes.',
+        'The overlap predicate depends on endpoint convention. For closed intervals, [a,b] overlaps [c,d] when a <= d and c <= b. For half-open intervals, [a,b) overlaps [c,d) when a < d and c < b. Production systems should make that convention explicit because meeting schedulers, genomic ranges, and compiler live ranges often choose different boundary rules.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Finding one overlap is O(log n) on a balanced tree. Reporting all overlaps costs O(log n + k), where k is the number of intervals reported, when the implementation prunes correctly. The structure stores O(n) intervals and one max endpoint per node. Degenerate or incorrectly maintained balance destroys the guarantee.',
-        'The constant factors are friendly because each node stores only one extra scalar. The fragile part is correctness under mutation. Insert, delete, rotate, or bulk-load code that forgets to update max endpoints can return false negatives: the query prunes a branch that actually contains an overlapping interval. That failure is worse than a slow query because it is silent.',
+        'It works because max endpoint converts a negative search decision into proof. If every interval in a subtree ends before qLow, no interval in that subtree can overlap [qLow, qHigh].',
+        'It also works because the augmentation is cheap to maintain. The tree order stays about low endpoints; the max field adds just enough range knowledge for overlap pruning.',
+        'The overlap predicate itself is simple: intervals [a,b] and [c,d] overlap when a <= d and c <= b, assuming closed intervals. The tree is useful because it avoids applying that predicate to every stored interval.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Worked example',
       paragraphs: [
-        'Interval trees fit calendars, room scheduling, genome annotation, compiler live ranges, trace-span lookup, time-window indexing, subtitle ranges, and collision broad phases in one dimension. They are often the simplest answer when the question is "which ranges overlap this range?" Priority Search Tree Range Reporting shows a computational-geometry reduction that maps interval intersection into a three-sided point query.',
-        'They also connect to rich-text and observability systems. A collaborative editor may need to know which comments, links, or formatting marks overlap the visible text span, while a tracing UI may need all spans active at a timestamp. Peritext Rich-Text CRDT Case Study and Distributed Tracing are higher-level systems that need this kind of range thinking even if their production indexes use specialized variants.',
+        'Search for an interval overlapping [22,25]. The root [16,21] does not overlap. Its left child has max 23, so the left subtree could still contain an interval that reaches 22. Descending left eventually finds [15,23], which overlaps.',
+        'If a subtree had max 21, the search could skip it entirely because every interval inside ends before 22. That is the exact proof the augmentation provides.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'An interval tree is not the same as a Segment Tree & Lazy Propagation. Segment trees are usually coordinate-decomposition structures for aggregate queries. Interval trees are dynamic sets of intervals optimized for overlap search. Another common bug is forgetting to update max endpoints after rotations or deletion.',
-        'A second trap is forcing multidimensional geometry into this one-dimensional structure. Rectangles, bounding boxes, and spatial joins usually need R-Tree Spatial Index, k-d Tree, range trees, sweep-line algorithms, or domain-specific indexes. Interval trees are excellent when every item is one continuous interval on one ordered axis.',
+        'Finding one overlap is O(log n) on a balanced tree. Reporting all overlaps costs O(log n + k), where k is the number of intervals reported, when pruning is implemented correctly. Space is O(n).',
+        'The constant factor is small, but correctness is fragile under updates. A stale max endpoint can cause false negatives, which are worse than slow queries because they look like valid "no overlap" answers.',
+        'The structure also inherits the quality of its balancing scheme. A plain unbalanced BST can degrade to a chain. Most real implementations use a red-black tree, AVL tree, treap, or another balanced map and attach the max endpoint as augmentation data.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins for dynamic one-dimensional overlap search: calendars, scheduling, genome annotation, compiler live ranges, trace spans, text annotations, subtitles, and timestamp windows.',
+        'It is also a clean example of augmentation: keep a familiar balanced tree and add one summary field that unlocks a new query.',
+        'It is especially useful when the set changes over time. If all intervals are known offline, a sweep-line algorithm or sorted endpoint arrays may be faster and simpler. If intervals arrive and leave while queries continue, the interval tree gives a strong online default.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the task is aggregate range queries over coordinates. That is Segment Tree territory. It also fails for multidimensional rectangles, where R-trees, range trees, k-d trees, sweep-line algorithms, or BVHs may fit better.',
+        'Terminology can also confuse readers. This page teaches the CLRS-style dynamic max-endpoint tree, not every computational-geometry structure that has been called an interval tree.',
+        'It is also not automatically the best structure for dense integer coordinates. If the universe is small and fixed, bitsets, Fenwick trees, segment trees, or prefix counts can answer related questions with simpler memory access. The interval tree earns its place when intervals are sparse, dynamic, and endpoint values are drawn from a large ordered domain.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Store low, high, and max separately, and update max in one helper used by insert, delete, and rotation code. Bugs often appear when rotation logic changes child pointers but forgets to recompute the rotated nodes in bottom-up order.',
+        'Test with adversarial layouts: nested intervals, touching endpoints, duplicates, empty intervals if your domain permits them, deletions of nodes with two children, and queries that should return no overlap. A slow scan oracle is excellent for tests because the interval predicate is easy to implement directly.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Study sources: MIT OpenCourseWare lecture on augmenting data structures and interval trees at https://ocw.mit.edu/courses/6-046j-introduction-to-algorithms-sma-5503-fall-2005/resources/lecture-11-augmenting-data-structures-dynamic-order-statistics-interval-trees/, MIT augmentation lecture notes at https://ocw.mit.edu/courses/6-046j-design-and-analysis-of-algorithms-spring-2015/fc870caae0e6812787bb5d50ea4d5e24_MIT6_046JS15_lec09.pdf, and USFCA interval-tree lecture notes at https://www.cs.usfca.edu/galles/cs673/lecture/lecture8.pdf. Study Red-Black Tree, AVL Tree Rotations, Order-Statistics Tree, Segment Tree & Lazy Propagation, Priority Search Tree Range Reporting, R-Tree Spatial Index, Distributed Tracing, and Peritext Rich-Text CRDT Case Study next.',
       ],

@@ -211,43 +211,105 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A binary fuse filter is a static approximate-membership filter. It answers whether a key is definitely absent or maybe present, with no false negatives for the set used to build it. It belongs to the same family as Xor Filter: construction solves xor equations over small fingerprints so lookup can be just a few table reads and xor operations.',
-        'The paper Binary Fuse Filters: Fast and Smaller Than Xor Filters reports filters closer to the storage lower bound than xor filters while preserving fast queries and improving construction speed in experiments: https://arxiv.org/abs/2201.01174. The ACM version is at https://dl.acm.org/doi/10.1145/3510449.',
+        'A membership filter answers a narrow question: can this key be absent without checking the expensive source of truth? Bloom filters made that idea practical. Xor filters made static filters smaller and faster. Binary fuse filters push the static-filter branch further.',
+        'The setting is usually huge and immutable: SSTables, object manifests, published asset sets, genomic k-mer snapshots, or read-only indexes. At that scale, one extra bit per key can mean gigabytes of memory and worse cache behavior.',
+        'Binary fuse filters exist to keep the xor-filter query shape, a few table reads and xor operations, while improving space and construction behavior for static sets.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the pressure on it',
+      paragraphs: [
+        'The obvious answer is a Bloom filter. It is simple, supports incremental insertion, and has no false negatives when used correctly. But it usually needs more bits per key than the best static filters for the same false-positive rate.',
+        'The next obvious answer is an xor filter. It maps each key to a small number of cells, peels the resulting hypergraph, assigns fingerprints in reverse, and queries with a few reads. That is already excellent for immutable sets.',
+        'The remaining pressure is scale. Static filters are judged by false-positive rate, bits per key, build time, query locality, and failure handling. A constant-factor improvement is meaningful when the filter is always resident and guards billions of lookups.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Keep the xor equation, but choose positions through fused segmented ranges. The builder arranges key-cell incidences so the graph can be peeled and the final table can be compact.',
+        'For every stored key, the xor of the filter cells selected by that key equals the key fingerprint. The query recomputes the same positions, xors the stored values, and compares the result to the query fingerprint.',
+        'The filter does not store the keys. It stores a solved system of short fingerprints. That is why it can be small, and why it is static.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the fuse-construction view, watch how the static key set is assigned into nearby segments rather than into arbitrary independent positions. The point of segmentation is to make construction compact and peelable while preserving fast queries.',
+        'The peeling queue is the proof that construction is succeeding. A degree-one cell means one remaining key can be solved later. The builder records that order and assigns fingerprints in reverse so each stored key will satisfy its xor equation.',
+        'In the query-path view, notice how little work remains at lookup time. The expensive graph-solving work is done once during build. A query only hashes the key, reads a few small table entries, xors them, and compares a fingerprint.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Conceptually, each key chooses a few fingerprint cells. The builder peels the dependency graph by repeatedly finding cells that are currently used by one remaining key. It records a stack of peeled keys. Then it processes the stack backwards, filling one cell at a time so that the xor of a key chosen cells equals that key fingerprint. Binary fuse filters refine the placement and segmentation strategy compared with basic xor filters, improving space and construction behavior.',
-        'At query time, hash the key, derive the cell positions, load the small fingerprint values, xor them, and compare against the key fingerprint. If the fingerprints differ, the key is definitely absent. If they match, the key is maybe present and the source of truth should be consulted when an actual value is needed.',
+        'During construction, each key hashes to a fingerprint and to a small set of positions. The positions are chosen with the binary fuse layout so keys spread through overlapping local ranges.',
+        'The builder counts how many keys touch each cell. Cells touched by exactly one remaining key go into a peeling queue. Removing that key can create new degree-one cells. If all keys are peeled, the builder has an order in which the equations can be solved.',
+        'Assignment runs backward through the peel stack. For a given key, most of its cells may already have values. The builder chooses the remaining cell value so the xor equals the key fingerprint. Construction can fail for a seed if an unpeelable core remains, so builders retry with a different seed or size.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Parameter choices',
       paragraphs: [
-        'The query cost is O(1) with a small constant. Space is near the information-theoretic lower bound for a target false-positive probability. Construction is expected linear but probabilistic: some hash seeds leave an unpeelable core, so builders retry. That is acceptable for immutable snapshots because build cost is paid once and amortized over many queries.',
-        'The static nature is the main constraint. You cannot cheaply insert or delete arbitrary keys after construction because the solved equations depend on the whole set. If updates are frequent, Bloom Filter, Cuckoo Hashing, or another mutable structure may be a better engineering choice.',
+        'The key knobs are fingerprint width, segment length, table slack, and seed choice. Fingerprint width controls false positives. Segment and sizing parameters control how often construction peels successfully and how compact the final table is.',
+        'These knobs are connected. A table that is too tight may look good in bits per key on paper and then waste time on retries. A table with too much slack builds easily but gives up the reason to use a binary fuse filter. A production implementation should report both final bits per key and build retry counts.',
+        'The serialized filter must include the seed and layout parameters. Query code is deterministic only if it recomputes exactly the same segment and offsets the builder used. This is a data-format rule, not an optimization detail.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'Binary fuse filters are a fit for immutable storage files, object manifests, build artifacts, CDN publication sets, genomic k-mer snapshots, and any read-heavy membership guard in front of a slower lookup. In an LSM tree, for example, a filter can avoid opening an SSTable that definitely lacks a key. In object storage, it can avoid probing a shard or manifest segment that cannot contain the requested object.',
+        'For every stored key, construction solved the exact equation that query will recompute. That gives no false negatives for the static set used to build the filter.',
+        'For a nonmember, the query still reads cells and xors them, but those cells were not solved for that key. The result matches the nonmember fingerprint only by chance. Those chance matches are false positives.',
+        'The false-positive rate is controlled by fingerprint width and construction parameters. More bits reduce false positives at the cost of space.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'The first trap is using it for a mutable set. Binary fuse filters are built for static sets. The second is treating maybe present as proof. False positives remain possible. The third is ignoring build failure paths. A good implementation expects occasional construction retries and makes them boring.',
-        'Do not compare filters on lookup speed alone. The right comparison includes false-positive rate, bits per key, build time, cache behavior, update requirements, and source-of-truth cost.',
+        'Imagine an immutable SSTable containing one million keys. Before probing the table on disk, the database asks the filter whether the key might be present. If the filter says absent, the database skips the SSTable entirely. If the filter says maybe, the database does the real lookup.',
+        'A binary fuse filter is built when the SSTable is flushed or compacted. Because the file is immutable, the filter can be solved once and stored beside the table. Query speed then matters far more than update speed.',
+        'A false positive costs an unnecessary SSTable probe. A false negative would be correctness failure, so the construction invariant is designed to avoid false negatives for the built set.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Build binary fuse filters at snapshot boundaries. For an LSM engine, that means flush and compaction. For a CDN or package registry, it means publish time. The filter should describe exactly one immutable set, and readers should load it with the version of the data it protects.',
+        'Expose build failures as ordinary retries. A clean builder returns the seed, size, retry count, and final table. Operators should be able to see whether failures are rare random events or a sign that sizing assumptions no longer match the key distribution.',
+        'Keep the source of truth in the control flow. A negative answer can skip the slower lookup. A maybe-present answer only grants permission to check the real data. Removing that second check turns a false-positive accelerator into a correctness bug.',
+        'Benchmark with cache behavior included. Three table reads are cheap when the filter fits in cache and much less cheap when the table is large enough to miss. Compare filters under the same false-positive target, key distribution, serialization path, and source-lookup cost.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Lookup is O(1) with a small constant: hash, compute positions, load a few fingerprint values, xor, and compare. Space is designed to sit close to the lower bound for the chosen false-positive probability.',
+        'Construction is expected linear but probabilistic. Failed builds are not exceptional; they are part of the algorithmic contract. Production code should retry with a new seed or slightly different sizing.',
+        'Arbitrary insertions and deletions are not cheap because the table values are a solved system for one exact set. Changing the set can require rebuilding the filter.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Binary fuse filters fit immutable storage files, object manifests, build artifacts, CDN publication sets, genomic k-mer snapshots, and read-heavy guards in front of slower lookups.',
+        'In an LSM tree, a filter can avoid opening an SSTable that definitely lacks a key. In object storage, it can avoid probing a shard or manifest segment that cannot contain the object.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The main failure is using it for a mutable set. If keys change continuously, a Bloom filter, counting Bloom filter, cuckoo filter, or ordinary hash table is usually easier to operate.',
+        'It also fails when the source-of-truth lookup is already cheap. A sophisticated static filter is not worth much if false positives are harmless and memory is abundant.',
+        'Do not compare filters only on lookup speed. The right comparison includes false-positive rate, bits per key, build time, cache behavior, update requirements, build-failure handling, serialization format, and source-of-truth cost.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Binary Fuse Filters at https://arxiv.org/abs/2201.01174 and ACM JEA DOI https://dl.acm.org/doi/10.1145/3510449. Study Xor Filter, Bloom Filter, Quotient Filter, Cuckoo Hashing, RocksDB LSM Case Study, and Learned Bloom Filter next.',
+        'Primary sources: Binary Fuse Filters at https://arxiv.org/abs/2201.01174 and ACM JEA DOI https://dl.acm.org/doi/10.1145/3510449. Study Xor Filter, Ribbon Filter, Bloom Filter, Quotient Filter, Cuckoo Filter, Cuckoo Hashing, RocksDB LSM Case Study, and Learned Bloom Filter next.',
       ],
     },
   ],

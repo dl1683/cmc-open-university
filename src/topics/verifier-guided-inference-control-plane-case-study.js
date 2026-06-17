@@ -100,7 +100,7 @@ function* routeDecisions() {
   yield {
     state: decisionGraph('A verifier control plane wraps generation'),
     highlight: { active: ['request', 'gen', 'trace', 'verify', 'policy', 'e-request-gen', 'e-gen-trace', 'e-trace-verify', 'e-verify-policy'], compare: ['answer'], found: ['ledger'] },
-    explanation: 'The generator is no longer the whole product. Each candidate answer is packaged as a trace, scored by one or more verifiers, then routed by a policy that can ship, branch, repair, or escalate.',
+    explanation: 'The naive baseline is to sample more answers and hope one is good. A verifier control plane packages each candidate as a trace, scores it, and routes it to ship, branch, repair, terminate, or escalate.',
     invariant: 'The production object is the route decision, not just the model output.',
   };
 
@@ -153,7 +153,7 @@ function* routeDecisions() {
       ],
     }),
     highlight: { active: ['budget', 'repair'], compare: ['human'], found: ['stop'] },
-    explanation: 'The clean version is a threshold policy: spend more when confidence is low or risk is high, spend less when the verifier is strong, and make the thresholds visible enough to tune.',
+    explanation: 'The clean version is a threshold policy: spend more when confidence is low or risk is high, spend less when the verifier is strong, and keep thresholds visible enough to tune from failures.',
   };
 
   yield {
@@ -256,7 +256,7 @@ function* costFrontier() {
       ],
     }),
     highlight: { active: ['weak', 'flaw'], compare: ['repeat'], found: ['strong'] },
-    explanation: 'A weak verifier can beat repeated sampling at small budgets and lose at large budgets by pruning valid paths. This is why verifier-guided search needs calibration, diversity, and held-out stress tests.',
+    explanation: 'A weak verifier can beat repeated sampling at small budgets and lose at large budgets by pruning valid paths. Verifier-guided search therefore needs calibration, diversity, and held-out stress tests before it earns more fanout.',
     invariant: 'Search amplifies the verifier, including its mistakes.',
   };
 
@@ -310,10 +310,45 @@ export const article = {
       ],
     },
     {
+      heading: 'The obvious attempt',
+      paragraphs: [
+        'The obvious way to improve a hard generation task is to sample more answers and keep the one that looks best. This is useful when the model has latent capability but one greedy path often misses it. It is also expensive and uncontrolled. More samples can mean more token cost, more latency, more duplicated errors, and more opportunities for a weak scorer to choose a polished wrong answer.',
+        'Another tempting answer is to put all checking in the final prompt: ask the model to verify itself. That can catch surface mistakes, but it has the same failure modes as generation. A production system needs verifiers with explicit inputs, versions, calibration, thresholds, allowed actions, and audit records. The verifier loop should be service logic, not a vague instruction.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is to separate proposal from control. The generator explores candidate answers, traces, tool calls, citations, or plans. The verifier evaluates them against narrower criteria. The route policy decides what to do with the score: accept a candidate, branch search, repair a missing citation, terminate early, fall back to a safer mode, or escalate to a human.',
+        'This turns test-time compute into an allocation problem. Spend more only while the expected gain is worth the token cost, latency, and risk. Stop when marginal value falls below the threshold. Keep enough diversity alive that an imperfect verifier does not prune the only valid path too early.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The route-decisions view is proving that a candidate answer is not the unit of production control; the decision packet is. A useful packet says which candidate was scored, which verifier produced which score, which threshold fired, which evidence was checked, what action was taken, and how much budget remains. That record is what lets the team debug a bad accept or an expensive repair loop.',
+        'The cost-frontier view asks whether extra inference calls are buying accepted quality, lower risk, or only more expense. The knee and cap markers are practical. Once search has diminishing returns, the next dollar should improve the verifier, data, calibration, retrieval, or prompt contract instead of generating more candidates into the same weak scoring function.',
+      ],
+    },
+    {
       heading: 'Core data structures',
       paragraphs: [
-        'A robust verifier loop needs more than a final score. The decision packet should include candidate id, trace spans, score vector, score source, calibration band, threshold policy, domain risk, evidence refs, allowed actions, remaining budget, route reason, verifier version, and audit id. Those fields let the system replay why one answer shipped and another branch was pruned.',
+        'A robust verifier loop needs more than a final score. The decision packet should include candidate id, trace spans, score vector, score source, calibration band, threshold policy, domain risk, evidence refs, allowed actions, remaining budget, route reason, verifier version, and audit id. Those fields let the system replay why one answer shipped and another branch was pruned, which is the only way to debug false stops and expensive repairs.',
         'The search ledger is the companion structure. Each candidate is live, pruned, repaired, accepted, or escalated. Each transition records token cost, latency cost, verifier scores, evidence pointers, and the policy rule that fired. Without that ledger, test-time scaling becomes expensive folklore.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A verifier-guided loop starts by generating one or more candidates. The system captures enough trace information to score them: final answer, intermediate reasoning if available, tool outputs, citations, constraints, schema validity, or domain-specific checks. Verifiers produce a score vector rather than one vague grade. For example: citation support, mathematical consistency, policy compliance, tool-call validity, uncertainty, and expected user value.',
+        'The policy layer turns those scores into actions. Low-risk supported answers can be accepted. A candidate with missing evidence can be repaired. Conflicting candidates can trigger branching or retrieval. A high-risk answer with uncertain verification can escalate. A route that has spent its budget can terminate with a conservative answer or a refusal. The key is that each transition is logged and reversible in analysis.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Verifier guidance works when the verifier is cheaper, narrower, or more reliable than asking the generator to solve the whole problem again. A citation checker can be narrower than a legal memo generator. A unit test can be narrower than a code agent. A schema validator can be deterministic. A process reward model can score partial reasoning steps before the final answer hides the mistake.',
+        'It also works because hard tasks often have a search structure. There may be several plausible proof paths, plans, citations, or patches. A verifier can prune some branches and concentrate compute on candidates that pass early checks. The danger is that a flawed verifier can concentrate compute in the wrong place, so calibration and audits are part of the algorithm.',
       ],
     },
     {
@@ -341,7 +376,7 @@ export const article = {
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Process Reward Models & Verifier Search, Self-Consistency Reasoning Vote, Chain of Draft Reasoning Token Budget Case Study, Tree of Thoughts Search Case Study, Monte Carlo Tree Search & UCT Primer, LLM Inference Scaling Playbook, Early-Exit Transformer Layer Skipping, Speculative Decoding, Constrained Decoding, Calibration Curves, Picking a Threshold with Real Costs, Uncertainty Quantification, LLM Evaluation Harnesses, Agentic AI Patterns, Deep Research Agent Architecture, Deep Research Evaluation Harness Case Study, Execution-as-a-Service Verifier Economy, Claim Graph & Source Ledger, and Distributed Tracing next.',
+        'Study Process Reward Models & Verifier Search, Self-Consistency Reasoning Vote, Chain of Draft Reasoning Token Budget Case Study, Tree of Thoughts Search Case Study, Monte Carlo Tree Search & UCT Primer, LLM Inference Scaling Playbook, Early-Exit Transformer Layer Skipping, Speculative Decoding, Constrained Decoding, Calibration Curves, Picking a Threshold with Real Costs, Uncertainty Quantification, LLM Evaluation Golden Sets, Agentic AI Patterns, Deep Research Agent Architecture, Deep Research Evaluation System Case Study, Execution-as-a-Service Verifier Economy, Claim Graph & Source Ledger, and Distributed Tracing next.',
       ],
     },
   ],

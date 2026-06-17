@@ -211,35 +211,75 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The monitoring-data problem',
       paragraphs: [
-        'Monarch is Google\'s planet-scale in-memory time-series database for monitoring. It uses regional ingestion and storage with global query and configuration planes, giving teams a unified view without forcing all metric traffic through one global bottleneck.',
-        'The case study matters because monitoring data has special requirements: huge ingest, high cardinality pressure, interactive queries, alerting, reliability during incidents, and clear metric semantics.',
+        'Monarch is Google\'s planet-scale in-memory time-series database for monitoring. It is built for data that arrives constantly, must be queried interactively, and becomes most important when the rest of the system is under stress. Monitoring is not ordinary analytics. During an incident, engineers need fresh data, meaningful labels, correct aggregation, and reliable alerts even while parts of the fleet are failing.',
+        'The case study matters because time-series monitoring has its own data-structure pressures: huge ingest, high cardinality, query fanout, retention, alert correctness, and schema discipline. A monitoring database is not just append-only storage with timestamps. It is a system for turning labeled measurements into operational evidence.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approaches and their limits',
       paragraphs: [
-        'Tasks export metrics to collectors. Regional Monarch components ingest and store time series in memory. A global query plane federates queries across regions and merges results. A configuration plane manages schemas, collection rules, retention, and alerting behavior.',
-        'Metrics are schematized. Value types, fields, labels, and aggregation semantics are part of the contract. That lets users ask relational-style monitoring questions instead of treating metrics as anonymous key-value samples.',
+        'The first naive approach is one global metrics database. Every task sends every sample to one logical place, and every query reads from that place. That sounds simple, but it creates a global ingestion bottleneck and a global failure boundary. Monitoring data is too high-volume and too operationally important for one central pipe to be the only path.',
+        'The second naive approach is fully regional monitoring with no global query model. That keeps ingestion local, but it makes fleet-wide debugging hard. If an incident spans regions, engineers need a way to ask one question across the system without manually stitching dashboards together.',
+        'The third naive approach is schemaless labels everywhere. Let every team attach arbitrary labels and sort it out later. That feels flexible until a high-cardinality label explodes the number of time series. One accidental user ID, request ID, or raw URL label can create millions of series and make queries, storage, and alerting expensive or unusable.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core architecture',
       paragraphs: [
-        'The main pressures are ingestion rate, memory footprint, label cardinality, query fanout, retention, regional failures, and alert correctness. A single accidental high-cardinality label can create millions of series. Global queries must merge partial regional answers without hiding outages or stale data.',
+        'Monarch uses regional ingestion and storage with global query and configuration planes. Tasks export metrics to collectors. Regional Monarch components ingest and store time series, keeping high-volume traffic near where it is produced. A global query plane federates queries across regions and merges partial answers. A configuration plane manages schemas, collection rules, retention, and alerting behavior.',
+        'Metrics are schematized. Value types, fields, labels, and aggregation semantics are part of the contract. This matters because a metric is not just a name and a number. A counter, gauge, distribution, and cumulative value have different meanings. Labels define dimensions such as region, service, job, or status code. Aggregations must respect those meanings.',
+        'The real data structure is the labeled time series: metric name plus label set plus time-ordered samples. The label index is what makes debugging possible. It is also what can destroy the system when uncontrolled cardinality creates too many unique series.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'Monarch-style systems support dashboards, alerting, SLOs, capacity planning, release monitoring, incident response, and fleet-wide operational analytics. The design connects metrics storage to tracing, tail-latency sketches, backpressure, and streaming windows.',
+        'Monarch works because ingestion is regional and queries are global. Samples do not need to cross the planet before they become durable enough to query locally. Engineers still get a unified query surface when they need fleet-wide answers. This separates write-path scale from read-path federation.',
+        'It also works because schema and configuration are treated as first-class systems. A monitoring platform cannot rely on every team inventing labels independently. The schema tells users which dimensions exist and what they mean. The configuration plane helps enforce retention, collection, and alerting rules so monitoring remains usable as the fleet grows.',
+        'The architecture matches incident response. During a regional problem, local ingestion should continue where possible. During a global investigation, engineers need queries that merge regions without hiding missing data. A good monitoring database must tell users not only the values it sees, but also when part of the observation system is stale or unavailable.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it matters',
       paragraphs: [
-        'A time-series database is not just append-only storage with timestamps. Metric schema, label cardinality, aggregation, query federation, and alert semantics are core data-structure decisions. Another misconception is that global views require global ingestion; Monarch keeps ingestion regional and queries global.',
+        'Monarch-style systems support dashboards, alerting, SLOs, capacity planning, release monitoring, incident response, fleet-wide operational analytics, and automated remediation. The same core questions appear in Prometheus, M3, OpenTelemetry metrics, cloud monitoring products, and internal telemetry platforms.',
+        'The design connects directly to tracing and logs. Metrics tell you rates, levels, and distributions. Traces show paths through a system. Logs preserve local events. During an incident, metrics often provide the first signal: error rate rose, p99 latency changed, queue depth is climbing, or a region stopped reporting. Monarch is about making those signals queryable at fleet scale.',
+        'It also connects to quantile sketches and histograms. Latency monitoring is not just storing averages. Users need p95, p99, bucketed distributions, burn rates, and SLO windows. The time-series database has to preserve enough structure to answer operational questions without exploding cost.',
+      ],
+    },
+    {
+      heading: 'Costs and failure modes',
+      paragraphs: [
+        'The main pressures are ingestion rate, memory footprint, label cardinality, query fanout, retention, regional failures, and alert correctness. A single accidental high-cardinality label can create millions of series. A query that fans out across too many labels or regions can become expensive exactly when engineers need it most.',
+        'Alerting adds another failure mode. An alert based on stale data can page people incorrectly or miss a real incident. A global alert must distinguish zero errors from no samples. It must handle delayed samples, missing regions, rollouts, and label changes. Alert semantics are part of the database contract.',
+        'Another misconception is that global views require global ingestion. Monarch keeps ingestion regional and makes query federation global. That is a useful general pattern: put high-volume writes close to producers, and give users a coordinated read path when they need a larger view.',
+      ],
+    },
+    {
+      heading: 'A worked cardinality example',
+      paragraphs: [
+        'Suppose a service exports request_latency_ms with labels service, region, endpoint, status, and build. That might create a manageable number of series. If a developer adds user_id as a label, the same metric can explode into millions of unique series. The measurements may be technically valid, but the monitoring system becomes slower, more expensive, and harder to query.',
+        'The right design treats label choice as schema design. High-cardinality identifiers may belong in traces or logs, not metrics. Metrics should preserve the dimensions needed for aggregation and alerting. This is the central educational point: labels are not comments on the data; they are the index.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'A Monarch-like platform should track samples per second, active series, new series creation rate, label cardinality by dimension, query fanout, query latency, alert evaluation lag, missing-sample rates, memory pressure, and retention cost. These metrics show whether the observability system itself is healthy.',
+        'The platform also needs governance signals. Which teams create the most series? Which labels drive cardinality? Which dashboards run the most expensive queries? Monitoring systems are often treated as background plumbing, but they need product management and schema review because their misuse can create real production risk.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Monarch is a monitoring database built around regional ingestion, global query, schema discipline, and label-indexed time series. The architecture exists because monitoring data must be fresh, queryable, and reliable during failure.',
+        'The deep lesson is that observability systems have data structures too. Metric names, label sets, time windows, histograms, query fanout, and alert state are design choices. If those choices are weak, the dashboard may be pretty but the evidence will be poor.',
+        'The useful comparison is tracing. A trace follows one request path with rich context. A metric aggregates many events into time series. Monarch is about making the aggregate layer reliable and queryable; Dapper is about preserving causality for individual paths.',
+        'In a course sequence, teach Monarch after time-series sketches and before incident-response automation. Students should understand that alerts are queries over structured telemetry, not magic notifications attached to charts.',
+        'The practical test is whether a metric can be aggregated safely. If a label is useful for grouping and alerting, it belongs in the metric schema. If it identifies one request or one user, it likely belongs in a trace or log instead.',
+        'Monarch is the wrong mental model for forensic detail. Metrics intentionally collapse many events into time series. When an engineer needs the exact payload, stack trace, or request path, logs and traces carry that evidence. The art is choosing the right observability data type before the incident.',
       ],
     },
     {

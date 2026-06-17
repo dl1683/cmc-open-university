@@ -208,41 +208,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A sequence lock, often called a seqlock, is a read-mostly consistency mechanism for small pieces of shared state. A writer owns the write side and bumps a sequence counter before and after mutation. Readers do not take a read lock; they copy the data and check whether the sequence counter stayed even and unchanged.',
-        'The idea is simple but sharp: a reader may see a racing write, but it can detect that race afterward. If the version changed or was odd, the reader discards the snapshot and retries. This makes seqlocks a close cousin of Read-Copy-Update (RCU), MVCC Internals & VACUUM, and optimistic database validation.',
+        'Some shared state is read constantly and written rarely: clock values, compact statistics, routing metadata, configuration generation numbers, and small tuples that must be read as a coherent group. A reader-writer lock can protect that state, but every reader still participates in synchronization. On a hot read path, even cheap read-side locking can matter.',
+        'The tempting alternative is to read the fields without coordination. That fails when a writer updates multiple fields and a reader observes a torn mix. For example, a reader might see seconds from before a time update and nanoseconds from after it. Each field is individually plausible, but the pair never existed as one coherent version.',
+        'A sequence lock, or seqlock, exists for this narrow but important gap. It gives readers a very cheap optimistic path: copy the fields, then validate that no writer overlapped the copy. Readers do not block writers. They either accept a coherent snapshot or retry.',
+      ],
+    },
+    {
+      heading: 'The naive baselines and their wall',
+      paragraphs: [
+        'The first baseline is a mutex. It is simple and correct, but it serializes readers with writers and often with other readers. If the data is read millions of times per second and written rarely, that can waste the shape of the workload.',
+        'The second baseline is a reader-writer lock. It allows concurrent readers, but readers still enter and leave a synchronization protocol. Writers must wait for active readers. That is often right, but it is heavier than necessary for a tiny copyable snapshot.',
+        'The third baseline is an unchecked lock-free read. It is fast but not safe for multi-field consistency. The wall is proving that all copied fields came from one version without making the common reader path take a real lock.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A seqlock uses a sequence counter as a version certificate. Writers make the counter odd while data is unstable and even when a coherent version is available. Readers accept a copy only if the counter was even and unchanged before and after the copy.',
+        'The reader may race a writer, but it can detect the race afterward. Same even sequence means the copied fields belong to one coherent version. Odd or changed sequence means discard the copy and retry.',
+        'The important constraint is that readers must only copy data that remains safe to touch during the read attempt. A seqlock can detect a torn value; it cannot undo a use-after-free. If the protected data includes pointers whose targets can disappear, pair the design with RCU, hazard pointers, epochs, or another lifetime scheme instead.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The writer path is serialized. At the start of a write, the sequence becomes odd, marking the protected fields unstable. The writer changes the fields, then increments the sequence again to an even value. Readers sample the sequence, copy the fields, then sample the sequence again. Same even number means the copied fields belong to one coherent version.',
-        'This differs from RCU. RCU lets an old reader continue on an old published version and uses a grace period before reclamation. A seqlock usually has one current copy. Readers racing a writer do not keep using an old version; they retry until the counter proves the copy was not torn.',
+        'The writer side is serialized. A writer takes the writer-side lock or otherwise excludes other writers. It increments the sequence counter to an odd value, mutates the protected fields, then increments the sequence counter again to the next even value. Odd means a write is in progress. Even means a stable version may be available.',
+        'The reader samples the sequence counter, checks that it is even, copies the protected fields into local variables, and samples the counter again. If the two samples match and are even, the reader accepts the local copy. If the first value was odd or the two values differ, the reader throws away the copy and repeats.',
+        'The sequence counter is not just an integer convention. Correct implementations use memory ordering so the reader cannot move the data copy outside the validation window and the writer cannot publish the even value before the data writes are visible. In low-level code, this is the difference between a useful seqlock and a decorative counter.',
+        'There are related forms. A bare sequence counter can be used when external writer serialization already exists. A seqlock packages the sequence counter with a writer lock. Latch sequence counters use double buffering in some kernel designs so readers can switch between copies while a writer updates the other one.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual shows',
       paragraphs: [
-        'The common read path is tiny: read a counter, copy a bounded amount of data, read the counter again. The cost appears when writers are frequent or the copied state is large, because readers may spin and retry. Seqlocks are therefore best for small, read-mostly values such as timekeeping pairs, counters, and compact statistics, not pointer-rich structures with tricky lifetime rules.',
+        'The reader-retry view shows the optimistic loop. The reader reads the sequence, copies fields, reads the sequence again, and accepts only when the counter stayed the same even value. The retry path is not an error path; it is the ordinary cost paid when a writer overlaps a read.',
+        'The writer-discipline view shows the contract writers must uphold. Writers serialize with one another, bracket mutation with odd and even sequence values, and leave readers to validate. If the writer does not keep that ordering, readers can accept impossible snapshots.',
+        'The comparison view shows why seqlocks sit beside RCU and reader-writer locks rather than replacing them. RCU solves lifetime for old versions. Reader-writer locks block or coordinate readers. Seqlocks are for small copied state where retry is cheaper than read-side locking.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Why it works',
       paragraphs: [
-        'The Linux kernel documentation describes sequence counters and seqlocks as mechanisms for data rarely written to, such as system time, where readers want a consistent set of information and are willing to retry. Kernel source exposes seqcount and seqlock variants, including latch sequence counters for double-buffered cases.',
+        'The sequence counter brackets the mutation. A writer changes the counter before and after changing data. A reader that overlaps the write should observe either the odd in-progress value or a different ending value. In both cases it rejects the copy. A reader that sees the same even value on both sides has evidence that no writer bracket crossed its copy window.',
+        'This is a validation argument, not a magic atomic snapshot of every memory location. It relies on the writer making data writes between the odd and even publications, and it relies on the reader keeping the copied loads between its two sequence reads. That is why kernel documentation emphasizes the required read and write primitives around sequence counters.',
+        'The design differs from RCU. RCU lets a reader continue on an old published version while writers publish a new version and delay reclamation. A seqlock usually exposes one current copy. Readers that collide with a writer retry until they copy a stable version.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'A seqlock does not make arbitrary pointer traversal safe. If a writer can free or repurpose an object while a reader is following it, use a lifetime discipline such as Hazard Pointers & Epoch Reclamation or RCU. A seqlock also does not eliminate writer synchronization: writers still need to serialize with one another and preserve memory-ordering around the sequence increments.',
+        'The happy path is extremely small: two counter reads and a bounded data copy. That makes seqlocks attractive for read-mostly values where readers must be fast and writers are rare and short.',
+        'The cost is retry work. If writers are frequent, long, preempted, or delayed while holding the write side, readers can spin and waste CPU. In real-time or latency-sensitive paths, unbounded retry loops need careful limits, fallback behavior, or a different synchronization primitive.',
+        'Writers also pay discipline costs. They must serialize with one another, bracket updates correctly, and avoid sleeping or doing long work while the sequence is odd. The protected data must be small enough that repeated copying is acceptable.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Failure modes',
       paragraphs: [
-        'Primary sources: Linux kernel sequence counter documentation at https://docs.kernel.org/locking/seqlock.html, kernel seqlock source at https://github.com/torvalds/linux/blob/master/include/linux/seqlock.h, and Rust seqlock documentation at https://docs.rs/seqlock. Study Linearizability History Checker, Nonblocking Progress Guarantees, Read-Copy-Update (RCU), Hazard Pointers & Epoch Reclamation, MCS Queue Lock, Futex Wait Queue, and MVCC Internals & VACUUM next.',
+        'Pointer lifetime is the most important failure mode. A seqlock can tell a reader that a copied pointer value was part of a coherent version, but it cannot guarantee that the object behind the pointer remains allocated while the reader dereferences it. Do not use seqlocks alone for pointer graphs that writers can free.',
+        'Large data is another failure. If the protected structure is expensive to copy, retries become expensive and the read path can lose its advantage. A reader-writer lock, RCU, copy-on-write map, or snapshot structure may be better.',
+        'Write-heavy workloads defeat the purpose. Frequent odd intervals force repeated retries. A seqlock chooses cheap readers by assuming writers are rare and short. When that assumption breaks, the retry curve can become worse than ordinary blocking.',
+        'Counter wraparound and memory ordering are subtle low-level concerns. A very small counter can wrap between the two reader samples and make a changed version appear unchanged. Weak memory ordering can allow fields and counter reads to be observed out of the intended order. Production implementations use appropriate counter width and primitives.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Use a seqlock only for small, copyable state with rare, bounded writes. Good examples include a pair of time fields, a small statistics tuple, or a compact configuration snapshot. Bad examples include linked structures, resizable arrays, objects with independent lifetimes, and anything that requires blocking operations during write.',
+        'Keep the write section tight. Compute expensive values before entering the writer critical section when possible. Once the sequence is odd, mutate the protected fields and publish the even value quickly.',
+        'Make retry behavior explicit. Readers should copy into local variables, validate, and then use the local copy. They should not perform side effects inside the retry window. If a reader may loop for too long, add a fallback such as taking a real lock, yielding, or returning a stale cached value if the domain allows it.',
+        'Document the memory-ordering primitive rather than the high-level idea only. In C, C++, Rust, or kernel code, the exact acquire, release, volatile, barrier, or helper API choices are part of correctness. Copying a seqlock sketch from pseudocode without those constraints is a common way to get a fast but wrong implementation.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A kernel exposes a time value split into seconds and nanoseconds. A writer updates both fields. Without validation, a reader could copy seconds before the update and nanoseconds after the update. The resulting pair could move time backward or produce a value that never existed.',
+        'With a seqlock, the quiet read is straightforward. The reader sees sequence 42, copies seconds and nanoseconds, then sees sequence 42 again. Because 42 is even and unchanged, the pair is accepted.',
+        'During a write, the writer changes the sequence to 43, updates the fields, and then changes the sequence to 44. A reader that sees 43 knows a write is active and retries. A reader that starts at 42 and ends at 44 also retries. Only a read entirely outside the write window accepts.',
+      ],
+    },
+    {
+      heading: 'Where it fits in the concurrency map',
+      paragraphs: [
+        'Use seqlocks when the core problem is torn reads of small data. Use RCU when readers need to traverse versions whose lifetime must be protected. Use hazard pointers or epochs when individual node reclamation is the central problem. Use reader-writer locks when readers cannot retry cheaply or when writes need to block readers for semantic reasons.',
+        'The common theme is separating visibility, consistency, and lifetime. A seqlock proves that one copied value was not torn. It does not by itself prove that a referenced object will live, that an update is linearizable in the business sense, or that writers can ignore serialization.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Linux kernel sequence counter documentation at https://docs.kernel.org/locking/seqlock.html, kernel seqlock source at https://github.com/torvalds/linux/blob/master/include/linux/seqlock.h, and Rust seqlock documentation at https://docs.rs/seqlock.',
+        'Study Linearizability History Checker, Nonblocking Progress Guarantees, Read-Copy-Update (RCU), Hazard Pointers & Epoch Reclamation, MCS Queue Lock, Futex Wait Queue, Atomic Compare-And-Swap, MVCC Internals & VACUUM, and Snapshot Isolation next. Seqlocks are one point in a broader design space of validation, versioning, blocking, and reclamation.',
       ],
     },
   ],

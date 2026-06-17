@@ -200,41 +200,71 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'Product Quantization is a compression method for approximate nearest-neighbor search. It splits a high-dimensional vector into subspaces, quantizes each subspace with a small codebook, and stores the codebook indices instead of the full vector.',
-        'The case study matters because vector databases are memory-bound systems. A billion 768-dimensional float32 vectors would require terabytes of memory before metadata. PQ makes compressed-domain search possible by trading exact coordinates for short codes and approximate distances.',
+        'Product Quantization is a vector-compression method for approximate nearest-neighbor search. It takes a high-dimensional embedding, splits it into smaller subvectors, and replaces each subvector with the id of a learned centroid. The stored representation is no longer a list of floating-point coordinates. It is a short code made of several codebook ids. Search estimates distance by looking up the query-to-centroid distances for those ids and summing them.',
+        'The reason this matters is memory. A single 768-dimensional float32 embedding uses 3,072 bytes before metadata, ids, graph links, or index overhead. A billion such vectors require terabytes. Many retrieval systems are limited less by arithmetic than by memory bandwidth and resident set size. PQ trades exact coordinates for compact codes, making it possible to keep much larger vector indexes hot, scan more candidates per second, or fit a billion-scale search system onto realistic hardware.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and its wall',
       paragraphs: [
-        'Train a codebook for each subspace, commonly with K-Means Clustering. To encode a database vector, split it into subvectors and replace each subvector with the id of its nearest centroid. To search, keep the query exact, precompute distances from each query subvector to each centroid, and score a compressed vector by summing table lookups.',
-        'In an IVF-PQ index, a coarse quantizer first assigns vectors to inverted lists. Search probes only the nearest lists, then uses PQ codes to score compressed candidates. Exact reranking can recover quality by reading full vectors for a small top-k candidate set.',
+        'The obvious approach is flat search over full vectors. Store every embedding as float32 or float16, compute exact distances or inner products, and sort the results. This is simple and high quality. It also becomes expensive as the corpus grows because every candidate comparison reads hundreds or thousands of dimensions. Approximate indexes such as HNSW reduce the number of candidates, but the vectors themselves still consume memory and the graph adds additional overhead.',
+        'Another obvious approach is scalar quantization, where each coordinate is compressed independently. That helps, but it ignores correlations between dimensions. Embedding dimensions often work together. PQ attacks the problem at the subvector level. Instead of rounding each coordinate separately, it learns a small vocabulary of representative subvectors for each slice of the embedding. The wall it breaks is the memory wall: enough compression to make large-scale approximate search practical while preserving enough geometry for useful recall.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'PQ reduces memory dramatically, but it introduces quantization error. More subquantizers or more bits per code reduce error but increase memory and lookup cost. More IVF probes improve recall but scan more vectors. The right configuration depends on the embedding distribution, latency target, recall target, hardware, and reranking budget.',
-        'The most useful mental model is a budget ledger. Full vectors buy exact distances but spend memory bandwidth on every candidate. PQ spends training time and accuracy margin to buy much smaller resident indexes. IVF spends recall by skipping whole coarse lists, then buys it back with more probes. Exact reranking spends a little full-vector work on the final shortlist. A good system records these costs separately instead of reporting one vague "vector database speedup."',
+        'The core insight is to approximate a large vector as the Cartesian product of several smaller codebooks. Split a vector into m subspaces. For each subspace, learn k centroids from training vectors, often with k-means. A database vector is encoded by choosing the nearest centroid in each subspace. If k is 256, each centroid id fits in one byte. A vector with 96 subspaces can be stored as 96 bytes plus shared codebooks, rather than thousands of bytes of coordinates.',
+        'The word product comes from the combination of choices. Each subspace has its own codebook, and the final approximate vector is formed by the product of those independent choices. This creates an enormous implicit codebook without storing every full-dimensional centroid. With 96 subspaces and 256 choices per subspace, the number of possible reconstructed vectors is astronomically large, but storage for one database item is only 96 one-byte codes. That is the compression advantage.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'PQ appears in FAISS, image retrieval, video search, recommender retrieval, semantic search, RAG Pipeline systems, and vector databases that need to hold large corpora cheaply. It is especially useful when full-precision vectors are too expensive to keep hot in memory.',
+        'Training builds the codebooks. Take a sample of embeddings, split each embedding into the same subspaces, and run k-means inside each subspace. The result is a table of centroids for subspace 1, another for subspace 2, and so on. Encoding a database vector means splitting it and storing the nearest centroid id for each subspace. The index stores item ids, compressed PQ codes, optional coarse-list assignments, and sometimes residual information if the system uses residual or optimized variants.',
+        'Search usually uses asymmetric distance computation. The query remains exact. For each query subvector, compute its distance to every centroid in the corresponding subspace. This creates a small lookup table per subspace. To score a compressed database vector, read its centroid id for each subspace, fetch the precomputed distance from the table, and sum the values. The database vector is never fully decompressed for the approximate scoring pass. A top-k heap tracks the best candidates, and exact reranking can read full vectors for the final shortlist if they are available.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'IVF plus PQ',
       paragraphs: [
-        'PQ is not the same as scalar Quantization. It learns codebooks over vector subspaces. It is also not a replacement for evaluation: compressed search can silently drop recall for minority clusters, rare queries, or distribution shifts. Production systems should measure recall@k and reranking quality on representative traffic.',
-        'A second pitfall is assuming the codebooks stay healthy forever. If the embedding model changes, if the corpus shifts, or if one tenant contributes vectors with a very different geometry, old centroids can become poor summaries. Production pipelines usually need rebuild plans, canary recall checks, and enough metadata to compare compressed candidates against exact Flat search samples.',
+        'PQ is often paired with an inverted file index. A coarse quantizer clusters the full vector space into large cells, also called lists. Each database vector is assigned to a coarse list and then stored inside that list as PQ codes, often for the residual between the vector and the coarse centroid. At query time, the system finds the nearest coarse centroids, probes only those lists, and uses PQ lookup tables to score compressed candidates inside them. This is the familiar IVF-PQ pattern in FAISS-style systems.',
+        'The two-stage structure exposes important knobs. More coarse lists can reduce list length but increase training and assignment sensitivity. More probes increase recall but scan more compressed vectors. More subquantizers or more bits per subquantizer reduce distortion but use more memory. Exact reranking improves final precision but requires access to full vectors or a better stored representation. A production IVF-PQ system is therefore not one algorithm setting; it is a tuned memory, latency, and recall frontier.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: "Product Quantization for Nearest Neighbor Search" at https://inria.hal.science/inria-00514462v2/document, "Billion-scale similarity search with GPUs" at https://arxiv.org/abs/1702.08734, and Meta FAISS overview at https://engineering.fb.com/2017/03/29/data-infrastructure/faiss-a-library-for-efficient-similarity-search/. Study Embeddings & Similarity, HNSW (Vector Search at Scale), Quantization, K-Means Clustering, MinHash & Locality-Sensitive Hashing, ScaNN Vector Search Case Study, Faiss IVF-PQ Case Study, and RAG Pipeline next.',
+        'It works when local subspace centroids approximate the embedding distribution well enough for nearest-neighbor ranking. Search rarely needs perfect distance for every item. It needs a good enough ordering of candidates so that likely neighbors survive into the final top-k or exact rerank. PQ preserves coarse geometry while dramatically reducing memory traffic. The lookup-table scoring path is especially attractive because it replaces many floating-point coordinate reads with compact code reads and table additions.',
+        'The method also composes with the rest of a vector stack. HNSW can use compressed vectors for memory savings in some configurations. IVF can narrow the candidate region before PQ scoring. A cross-encoder or full-vector reranker can restore precision after approximate retrieval. In RAG systems, PQ may be the difference between keeping the whole corpus in a fast vector service and pushing older embeddings to slow storage. The quality loss is real, but the system can spend the savings on wider candidate generation or deeper reranking.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'PQ is useful in image retrieval, video search, semantic search, recommendation, duplicate detection, and large RAG corpora where vector count is the dominant cost. It is especially useful when the application can tolerate approximate recall at the first stage because a later stage reranks the shortlist. It also helps multi-tenant systems where each tenant wants a private or filtered search space but hardware budgets do not allow full-precision copies of every embedding.',
+        'It is less about making one query mathematically elegant and more about making the system fit. A billion-vector index that does not fit in memory is not merely slower; it may be operationally impossible. PQ lets engineers choose a smaller resident index, more replicas, faster warmup, cheaper disaster recovery, or larger candidate pools. Those are product decisions as much as algorithm decisions.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'PQ fails when quantization error changes the neighbor ordering in important slices. Rare classes, minority languages, new content types, and dense clusters can be damaged even if average recall looks acceptable. If the embedding model changes but the codebooks are not retrained, the old centroids may no longer describe the new vector geometry. If one tenant or domain has a very different distribution, global codebooks can underfit that slice. Compression can hide these problems until users ask long-tail queries.',
+        'It also fails when people confuse compressed search with exact search. PQ distance is an estimate. It should not be presented as the same score as full-vector distance. More aggressive compression can improve latency while silently hurting downstream answer quality. IVF probing can skip the correct coarse list. Small training samples can build poor codebooks. Bad chunking or poor embeddings cannot be repaired by PQ. The method compresses geometry; it does not create relevance.',
+      ],
+    },
+    {
+      heading: 'Evaluation and operational signals',
+      paragraphs: [
+        'Evaluate PQ against an exact or higher-quality baseline. Measure recall@k for compressed search versus flat full-vector search on representative queries. Slice the measurement by language, tenant, document source, topic, age, entity rarity, and query type. Track nDCG or MRR after reranking, not only raw recall, because the final user experience depends on the whole cascade. Compare several settings for m, bits per code, coarse-list count, probe count, and rerank depth.',
+        'Operational dashboards should report index size, bytes per vector, codebook version, build time, training sample size, quantization distortion, list-size skew, probes per query, scanned codes per query, p95 latency, and exact-rerank hit rate. Canary jobs should run exact flat search on a small traffic sample and compare the production compressed result. Rebuild plans matter. A healthy system knows when embedding drift, corpus growth, or tenant skew requires retraining codebooks instead of just adding more hardware.',
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        'Study the original Product Quantization for Nearest Neighbor Search paper, then FAISS and billion-scale similarity search with GPUs to see how PQ becomes an engine. In this curriculum, connect PQ to Embeddings and Similarity, K-Means Clustering, Quantization, HNSW, ScaNN, Faiss IVF-PQ, Multi-Index RAG, and Cross-Encoder Reranker. Those topics show how vectors are produced, compressed, searched, and corrected by later precision stages.',
+        'The practical takeaway is that PQ is a memory design for retrieval systems. It replaces full vectors with short codes, replaces coordinate scans with lookup-table sums, and accepts controlled distortion so a much larger search problem can fit. Use it when the memory savings change what the system can serve. Tune it with recall curves, not intuition. Keep exact checks and rerankers in the loop so compression remains an engineering tradeoff rather than an invisible source of lost evidence.',
       ],
     },
   ],

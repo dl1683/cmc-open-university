@@ -213,35 +213,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why rendezvous hashing exists',
       paragraphs: [
-        'Rendezvous hashing, also called highest-random-weight or HRW hashing, is a distributed placement rule. For a key and a set of nodes, compute score = hash(key, node) for each node and choose the node with the highest score. Every client that knows the same node list and hash function reaches the same answer independently.',
-        'This solves the same broad problem as Consistent Hashing: place keys across changing servers while minimizing disruption. The design is often simpler because there is no token ring or virtual-node table. The full score ranking also naturally gives replica order and failover order.',
+        'A distributed cache, shard map, or load balancer often needs every client to choose the same owner for a key without consulting a central table. The owner should change only when the winning node leaves or a stronger candidate joins.',
+        'Rendezvous hashing, also called highest-random-weight hashing, solves that placement problem with scoring instead of a ring. It is especially useful when the full ranked list of owners matters for replication or failover.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is `hash(key) mod N`. It is simple and stateless, but when N changes most keys move. That is unacceptable for caches and storage systems because membership churn causes large migrations and cache misses.',
+        'Consistent hashing rings improve churn by placing nodes on a token circle, but rings need token metadata, virtual nodes, and extra care around replica choice and capacity weighting.',
+        'Rendezvous hashing attacks the problem from another angle: rank every candidate for the key. The top rank owns it. The next ranks are deterministic backups. There is no ring to walk and no per-key table to store.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'For each key, compute score = hash(key, node) for every candidate node. The highest score owns the key. The next highest scores are already the deterministic replica and failover order.',
+        'The invariant is score stability. Removing one node does not change the scores of surviving nodes, so a key whose winner survives keeps the same owner. Only keys that chose the removed node have to move.',
+        'Adding a node is similarly local. Existing keys move only if the new node scores higher than their current winner. That gives the minimum-disruption behavior people want from consistent placement.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'The winner-selection view turns placement into a ranked election. The key is combined with each node identity, each combination receives a deterministic score, and the maximum score wins. There is no token circle, no probe sequence, and no stored owner row for the key.',
+        'The score table is also a replica table. Rank one is primary. Rank two and rank three are backups. This is why HRW is useful when the system needs a stable top-k order, not just one bucket.',
+        'The churn view isolates the important movement rule. Scores for surviving nodes do not change when one node disappears, so only keys that had the missing node at rank one need a new primary. The same ranking immediately gives the failover target.',
+        'The lookup-work plot shows the main tradeoff. Basic HRW spends almost no memory on metadata, but it pays by scoring the candidate set during lookup. That is acceptable for many storage and cache systems and too expensive for some packet-level paths.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For one owner, rank all candidate nodes by hash(key, node) and pick rank one. For replication factor k, pick the top k. If a node leaves, only keys that had that node in their selected set need to move. A key owned by a surviving highest-scoring node remains mapped to the same node because the relative scores of surviving nodes do not change.',
-        'Weighted HRW variants adjust the scoring rule so high-capacity nodes win more often. That matters when servers have different CPU, memory, disk, or network capacity. The algorithm still depends on all participants having the same membership and weight view; split-brain membership creates split-brain placement.',
+        'Each participant must know the same node set, weights, and hash function. For one owner, score all candidates and take rank one. For replication factor k, take the top k distinct nodes. If the highest-ranked node is down, the next rank is the agreed failover target.',
+        'Weighted HRW variants change the score calculation so larger nodes win proportionally more keys. The placement rule is still local and deterministic, but membership and weights must come from a trustworthy source.',
+        'The node identity used in the hash must be stable. A node should not change identity because it restarts, changes IP address, or receives a new connection count. If identity churn is too frequent, HRW will move keys even when the underlying capacity did not really change.',
+        'The hash output should be wide and uniform enough that ties are effectively impossible. If ties still matter, use a deterministic tie-breaker such as node id order. Never let two clients break ties differently, because that turns a rare hash event into split ownership.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Membership and weights',
       paragraphs: [
-        'Basic HRW scores every node on every lookup, so lookup cost is O(n) in the number of candidates. That is acceptable for many cache and shard sets, but not for every large fleet. Ring hashing does a binary search over tokens, and Maglev uses a precomputed lookup table for very fast packet balancing. HRW spends per-lookup CPU to avoid ring metadata and make top-k agreement simple.',
+        'Rendezvous hashing is deterministic only after membership is agreed. If client A thinks nodes are A, B, C and client B thinks nodes are A, C, D, they can make different placement decisions for the same key. The membership source is therefore part of the algorithm, not an external detail.',
+        'Weights express capacity. A node with twice the memory or bandwidth should receive roughly twice as many keys, but the exact method matters. Some weighted HRW formulas transform the random score by weight; others create multiple logical identities per physical node. Both need tests for skew, movement, and failure behavior.',
+        'Health should usually be layered carefully. Removing an unhealthy node from the candidate set gives immediate failover, but flapping health checks can cause needless movement. Many systems distinguish hard removal, temporary avoidance, and background rebalancing so that placement does not oscillate during partial outages.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Thaler and Ravishankar introduced highest-random-weight mapping as a name-based mapping method for increasing cache hit rates. HRW-style algorithms appear in distributed caches, load balancers, pub/sub systems, databases, and storage placement designs. IETF work on weighted HRW describes its use in load balancing and designated-forwarder election contexts where uniformity, weights, and minimal disruption matter.',
+        'The proof is direct. A key is assigned to the maximum score among the current candidates. If a non-winning node disappears, the maximum is unchanged. If the winning node disappears, the maximum among survivors becomes the next highest score. No surviving pair changed relative order.',
+        'That same ranking explains replica order. The top k scores are deterministic, so independent clients agree on primary, backup, and fallback without storing a ring or per-key table.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'HRW is not always cheaper than consistent hashing. Its simplicity can become expensive when the candidate set is huge or when lookups sit on a very hot packet path. It also does not solve membership consensus. If two clients disagree about which nodes are alive, they may assign the same key differently. Treat the membership source as part of the data structure contract.',
+        'For key `photo42`, suppose nodes score A=72, B=91, C=37, D=69. B owns the key. If replication factor is three, the replica order is B, A, D. If B disappears, A becomes primary and D stays a replica. C does not suddenly receive the key because its score was already lower than A and D.',
+        'Now add node E. Only keys where E scores higher than their current winner move to E. The rest of the keyspace remains stable because their old winner still has the highest score among old and new candidates.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Basic HRW is O(n) per lookup because it scores every candidate node. Memory is small because there is no token table. This is a good trade when n is modest and deterministic top-k placement is valuable.',
+        'For very large fleets or very hot packet paths, O(n) scoring can be too expensive. Ring hashing uses O(log T) token lookup, Jump uses little metadata for numbered buckets, and Maglev spends memory on a precomputed table to make lookup extremely cheap.',
+        'The movement cost is the reason HRW is attractive. Removing one node moves only the keys that ranked that node first. Adding one node moves only the keys for which the newcomer outranks the previous winner. That is the same practical promise as consistent hashing: capacity changes should not reshuffle the whole keyspace.',
+        'Replica selection has a cost benefit too. A ring often needs extra rules to avoid placing replicas on the same failure domain. HRW can rank eligible candidates after filtering by rack, zone, tenant, or shard group. The ranking remains deterministic as long as every participant applies the same filter.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'HRW fits distributed caches, storage placement, pub/sub partition ownership, and designated-forwarder election where every participant must independently reach the same ranked answer. It is easier to explain and operate than a token ring when the candidate set is not huge.',
+        'It is especially clean for replication factor k: take the top k scores. The algorithm gives primary and backup order in one pass.',
+        'It also fits systems that need auditable placement decisions. Given the key, membership list, weights, hash function, and policy filters, an operator can recompute the ranking and explain exactly why a node was chosen.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Version the placement inputs. A useful debug record includes the key or key hash, membership version, node ids, weights, exclusion policy, hash function version, and winning rank. Without those fields, a placement dispute becomes guesswork.',
+        'Test churn directly. For a sample keyspace, remove each node, add a new node, change weights, and measure how many keys move. The movement should match the expected capacity change. Large unexpected movement usually means identity, membership, tie-breaking, or weight handling is unstable.',
+        'Separate ownership from live load balancing. HRW chooses where a key belongs. It does not know queue depth, CPU saturation, or tail latency unless those signals are deliberately folded into eligibility. For request routing, many systems combine stable affinity from HRW with a second-stage load-balancing rule inside the eligible set.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'HRW does not solve membership consensus. If two clients disagree about which nodes are alive, they may assign the same key differently. Treat the membership source as part of the data structure contract.',
+        'It also does not make heterogeneous capacity automatic. Weighting must be designed into the score rule, and bad weights can create skew even when the hash function is uniform.',
+        'It can also be the wrong choice when lookup must be constant-time across thousands of candidates on a very hot path. In that setting, a precomputed table, a ring with many tokens, or Jump-style bucket assignment may fit the latency budget better.',
       ],
     },
     {

@@ -358,54 +358,114 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why the Cost Crossover Matters',
       paragraphs: [
-        'On-device LLM inference changes the economics of a product. Cloud inference prices every request against shared compute, shared memory, queueing, and provider margin. Device inference moves part of the bill into model packaging, distribution, capability detection, battery, and app engineering. The result is a crossover: low-volume or high-capability work may stay cloud-first, while private, repetitive, offline, or ambient work can become better on the device.',
-        'The key data structure is a hybrid routing ledger. It records the signals that determine where a prompt should run: privacy level, offline status, device class, model version, context length, cacheability, latency budget, quality requirement, and rollback state. Without that ledger, edge inference becomes a scattered pile of feature-specific branches.',
+        "On-device LLM inference changes the unit economics of an AI product. Cloud inference prices each request against shared GPUs, shared KV-cache memory, queueing, networking, operations, and provider margin. Device inference moves part of that cost into model packaging, app size, update delivery, hardware capability detection, battery, thermal budget, and local runtime engineering. The result is a crossover: some workloads are cheaper or better in the cloud, while others become better on the user device.",
+        "The crossover is not simply 'cloud expensive, device free.' Device inference is not free. It uses user-owned hardware, drains power, occupies storage, and forces the product team to support fragmented CPUs, GPUs, NPUs, operating systems, and model-package versions. But its marginal cost for repeated local use can be close to zero from the service operator perspective, which changes the economics of high-frequency, private, offline, or ambient features.",
+        "The practical system is therefore hybrid. A product needs a router that can choose cache, device, or cloud for each request. It also needs ledgers for device capability, model manifests, route reasons, privacy boundaries, eval slices, and rollback state. Without those data structures, on-device inference becomes a pile of hidden special cases.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Naive Product Plans',
       paragraphs: [
-        'The request first passes through a policy router. A semantic cache can answer stable repeated intents. A local model can handle bounded private tasks such as rewriting, summarization, extraction, classification, and lightweight tool payload construction. A cloud model handles unsupported devices, hard reasoning, long context, high-risk answers, and workloads that need richer observability.',
-        'A production edge path also needs a model-update control plane. The app downloads a signed manifest, checks hardware and OS capabilities, stages model bits through a CDN or platform service, verifies the model hash, loads the right adapter for the base version, runs a small slice first, and keeps a kill switch. This is closer to progressive delivery than ordinary library linking.',
-        'The serving primitives still matter. Quantization makes the model fit. KV Cache Concurrency Capacity Model explains why cloud has a shared memory ceiling while each device gets its own local cache budget. Sliding-Window Attention Context Policy and RAG Context Packing Token Budget keep local prompts inside practical memory and latency limits. Semantic Cache for LLMs reduces calls for repetitive work whether the final answer path is local or cloud.',
+        "The first naive plan is all cloud. It is operationally clean: one model fleet, one monitoring plane, fast rollback, strong models, centralized abuse controls, and easier evaluation. It also means every prompt consumes shared serving capacity. As usage grows, the product pays repeatedly for small tasks that may not need frontier capability.",
+        "The second naive plan is all device. It sounds attractive because prompts stay local and the cloud bill falls. In practice, it fails whenever a device lacks memory or accelerator support, the task needs a larger model, the context is too long, policy requires server-side monitoring, or a model update has not reached the user yet.",
+        "The real plan is a policy router with boring rules. Repeated stable intents can hit a cache. Small private tasks can stay local. Hard reasoning, long context, unsupported hardware, or regulated decisions can route to cloud. The router must produce a reason, not just a hidden branch.",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Cost Model',
       paragraphs: [
-        'Cloud costs are variable: each prompt consumes prefill, decode, KV-cache residency, queue capacity, and tail-latency budget. On-device costs are more fixed: model licensing or packaging, CDN distribution, app size, update cadence, hardware fragmentation, power draw, and loss of server-side telemetry. The local Cost of Transformers notes in this repo emphasize the same core lesson: the device path is not just cheaper cloud; it removes shared concurrency pressure and adds a deployment-control problem.',
-        'The trade is especially sharp for always-on features. Continuous summarization, real-time translation, ambient assistants, keyboard rewriting, and private extraction can be too expensive or too privacy-sensitive to meter through a cloud model for every user interaction. But smaller on-device models are not frontier chatbots. They need scoped UX, task-specific evals, retrieval or tool help, and cloud fallback when quality or policy demands it.',
+        "A cloud path has a variable cost surface. Prefill cost grows with input tokens. Decode cost grows with output tokens. KV-cache residency consumes scarce memory while users are active. Tail latency rises under load. The service operator pays for fleet capacity, failover, observability, security, and model updates. The cost is easy to meter but scales with usage.",
+        "A device path has more fixed and lumpy costs. The product ships a model package, keeps runtime compatibility tables, stages updates, supports quantized weights and KV cache, tests hardware backends, and maintains fallback routes. Once the model is present and the task fits, repeated local calls do not consume the cloud GPU pool. That is where always-on and high-frequency features become interesting.",
+        "The crossover point depends on prompts per user, task difficulty, model size, context length, cache hit rate, device mix, network conditions, and quality floor. A rough ledger row should include cloud tokens avoided, local latency, power budget, model update cost, storage footprint, fallback rate, and quality delta. The decision is not global. It is per workload and per device class.",
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'What the Animation Teaches',
       paragraphs: [
-        'Android Gemini Nano is the system-level example. The Android developer docs describe on-device generative AI as useful when low cost and privacy safeguards matter, with AICore managing Gemini Nano access, updates, safety features, and device hardware use: https://developer.android.com/ai/gemini-nano. The same docs state that local execution removes server calls, keeps sensitive data on device, supports offline use, and reduces inference costs.',
-        'Apple exposes a compact on-device foundation model through its Foundation Models framework. Apple reports an approximately 3B-parameter on-device model, KV-cache memory reductions, quantized weights and KV cache, guided generation, tool calling, adapters, and a complementary server model for more complex tasks: https://machinelearning.apple.com/research/apple-foundation-models-2025-updates.',
-        'Google LiteRT is the runtime side of the same pattern: an on-device framework for ML and GenAI deployment, conversion, optimization, quantization, accelerator selection, and deployment across mobile, desktop, web, and constrained devices: https://developers.google.com/edge/litert. Google\'s LiteRT-LM announcement adds a concrete edge-LLM stack: cross-platform CPU/GPU/NPU backends, session management, shared KV-cache locality, constrained decoding, function calling, and WebGPU browser inference: https://developers.googleblog.com/blazing-fast-on-device-genai-with-litert-lm/.',
-        'The browser standardization path matters too. The W3C Web Neural Network API defines a hardware-agnostic abstraction layer for using operating-system and hardware ML capabilities from the web, while calling out privacy and fingerprinting concerns: https://www.w3.org/TR/webnn/.',
+        "The cost-crossover view shows why the same prompt can belong on different routes at different usage levels. The cloud line rises with use because every request consumes shared serving capacity. The device line is flatter because much of the cost has already been paid through model distribution and local execution. The hybrid line is not a compromise for its own sake; it is the shape you get when easy local work, repeated cacheable work, and hard cloud work are separated.",
+        "The hybrid-router view shows that routing is also a state-boundary problem. Prompts, KV state, cache keys, traces, adapters, and route reasons have different owners and privacy constraints. A local path that uploads raw prompts for debugging has quietly destroyed the privacy value of local inference. A cloud fallback hidden inside the router has quietly changed the product promise.",
       ],
     },
     {
-      heading: 'Data structure model',
+      heading: 'Hybrid Router Data Structures',
       paragraphs: [
-        'A practical hybrid system keeps several ledgers. The route ledger stores route, reason, model version, cache key, device class, and policy version. The capability table maps device and OS versions to supported runtimes, accelerators, memory budgets, and max context. The manifest pins model hashes, adapter compatibility, rollback flags, and staged rollout cohorts. The eval ledger slices quality by device, route, language, task type, and context length. The privacy ledger defines which signals can leave the device.',
-        'These ledgers connect otherwise separate topics. Feature Flag Control Plane provides rollout and kill switches. Quantization and KV Cache Quantization & Compression make local and cloud memory budgets tractable. RAG Context Packing Token Budget and Lost in the Middle reduce context waste. Semantic Cache for LLMs and exact caches lower repeated work. Tail Latency & p99 Thinking keeps the user-facing experience honest.',
+        "The route ledger stores one row per decision: request class, privacy level, offline state, device class, model version, context length, cacheability, latency budget, quality requirement, chosen route, and reason. This ledger lets engineers debug why two similar prompts took different paths.",
+        "The capability table maps devices and operating systems to supported runtimes, accelerators, memory budgets, max context, quantization formats, and known failure modes. The manifest pins model hashes, base-model versions, adapter compatibility, staged rollout cohorts, expiration rules, and kill switches. The privacy ledger states which counters, samples, crash reports, and route reasons may leave the device.",
+        "The eval ledger closes the loop. It records local quality by device class, language, task type, model package, and route. A small local model can be excellent for extraction and rewriting while weak for open-ended reasoning. The router should know that instead of pretending the local model is a smaller version of the cloud model.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism: Request Flow',
       paragraphs: [
-        'Do not assume on-device means no safety work. The app still owns guardrails, scoped UX, tool permissions, abuse handling, and quality checks. Do not assume local inference means all telemetry is forbidden; aggregate counters, opt-in samples, crash signals, and route reasons can preserve debugging without uploading raw prompts by default. Do not hide cloud fallback from product policy. Users, auditors, and developers need to know when data leaves the device.',
-        'Do not ship a model update without rollback. A bad cloud model can be switched server-side. A bad local model may sit on millions of devices until the next update channel works. Versioned manifests, signed hashes, adapter compatibility, staged cohorts, and feature flags are part of the inference system, not deployment afterthoughts.',
+        "A request first passes through cheap classification. Is the user offline? Does the prompt contain local-only data? Is the task in a known bounded category such as rewrite, classify, summarize, extract, translate, or draft a tool payload? Is the expected context too long for the local window? Is the answer high risk? Is there a stable cache hit?",
+        "The router then chooses a route. Cache wins when the intent and freshness rules are safe. Device wins when privacy, offline state, low latency, or high repetition matter and the task fits the local model. Cloud wins when the device lacks capability, the context is too long, the answer needs stronger quality, or policy requires server-side controls. The route result should include a reason code and the model or cache version used.",
+        "After generation, safety and observability run within the route boundaries. Local generation can still use local guardrails and scoped UI. Cloud generation can use richer moderation and logging. Telemetry from the device should prefer aggregate counters, opt-in samples, crash reports, route reasons, and eval slices over raw prompt upload.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked Example: Ambient Writing Help',
       paragraphs: [
-        'Primary sources: Android Gemini Nano docs at https://developer.android.com/ai/gemini-nano, Apple Foundation Models update at https://machinelearning.apple.com/research/apple-foundation-models-2025-updates, Google LiteRT docs at https://developers.google.com/edge/litert, Google LiteRT-LM announcement at https://developers.googleblog.com/blazing-fast-on-device-genai-with-litert-lm/, and W3C WebNN at https://www.w3.org/TR/webnn/. Study AI Engineering Stack: Five Parts Primer, LLM Inference Cost Stack Case Study, LLM Unit Economics Ledger Case Study, LLM Inference Scaling Playbook, KV Cache Concurrency Capacity Model, Quantization, Sliding-Window Attention Context Policy, Semantic Cache for LLMs, RAG Context Packing Token Budget, Feature Flag Control Plane, and Tail Latency & p99 Thinking next.',
+        "Consider a writing assistant inside a mobile keyboard. Users ask for tiny rewrites, tone changes, grammar fixes, and summaries many times per day. Sending every keystroke-adjacent request to a cloud model creates privacy concern, network dependence, and a per-token bill for a task that often has narrow quality requirements.",
+        "The local route can handle bounded transformations with a compact quantized model. It keeps draft text on device, works offline, and avoids cloud metering for high-frequency interactions. The cloud route remains available for long documents, complex reasoning, unsupported devices, or explicit user requests for a stronger model. A semantic cache may answer repeated template-like requests.",
+        "The crossover is visible in the ledger. Low-use users on unsupported devices may remain cloud-first. Heavy users with capable devices shift much of the volume local. Enterprise tenants with strict logging requirements may prefer cloud despite higher token cost. The right answer is not a slogan; it is a routed policy with measurable costs.",
+      ],
+    },
+    {
+      heading: 'Model Packages and Rollout',
+      paragraphs: [
+        "On-device inference turns model serving into software distribution. A server-side model swap can be reversed centrally. A local model package may be downloaded to millions of devices, cached across app versions, paired with adapters, and loaded under different thermal and memory conditions. That requires a control plane.",
+        "A safe rollout starts with a signed manifest. The manifest states model hash, compatible app versions, base-model version, adapter versions, hardware requirements, context limits, staged rollout cohort, expiry, and rollback flag. Devices check capability before download, verify the hash, install atomically, and keep a known-good fallback. Canary cohorts run eval slices and crash monitoring before broad release.",
+        "This is where Feature Flag Control Plane connects directly to inference. Kill switches, staged rollout, manifest TTLs, and capability gates are not deployment extras. They are the difference between a recoverable local model bug and a long-lived client-side incident.",
+      ],
+    },
+    {
+      heading: 'Why the Hybrid Approach Works',
+      paragraphs: [
+        "The hybrid design works because different workloads stress different bottlenecks. Cloud is strong where capability, long context, centralized monitoring, and fast model iteration matter. Device is strong where privacy, offline use, low marginal cost, and immediate local interaction matter. Cache is strong where intent repeats and freshness is manageable.",
+        "It also works because it turns routing into explicit state. The system can log that a request used device route because it was private and short, or cloud route because context exceeded the local budget. Those reasons make cost reviews, privacy reviews, incident response, and eval failures tractable.",
+        "The important invariant is that each route has a quality floor. The device route should not silently answer tasks it is known to fail. The cloud route should not silently receive private local data that product policy promised to keep on the device. The cache route should not return stale or mismatched answers just to save tokens.",
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        "Cloud costs are easier to observe and control centrally. Device costs are partly paid by the user experience: storage, battery, heat, slower answers on weak hardware, and larger downloads. Moving work local can lower cloud spend while making product quality more variable across devices.",
+        "Observability is a real tradeoff. Cloud systems can capture traces, sample prompts under policy, monitor failures, and patch quickly. Local systems need privacy-preserving telemetry. Aggregate counters and route reasons may show that something is wrong, but they often provide less detail than server logs. That makes pre-release evals and opt-in diagnostics more important.",
+        "Quality is the other tradeoff. Small local models need scoped tasks, guided generation, tool constraints, retrieval help, or cloud fallback. Treating a compact device model as a frontier assistant is how local inference becomes visibly worse while still being expensive to maintain.",
+      ],
+    },
+    {
+      heading: 'Where It Wins and Fails',
+      paragraphs: [
+        "On-device inference wins for private rewriting, extraction from local text, offline translation, accessibility features, summarization of local notifications, lightweight classification, local tool argument drafting, and ambient assistants that would be too expensive to meter constantly through cloud GPUs.",
+        "It fails when the task needs a model too large for the device, a context window too long for local memory, strong centralized audit, immediate revocation, or uniform behavior across a fragmented hardware base. It also fails when the organization does not have the release engineering discipline to ship, monitor, and roll back model packages.",
+        "A hybrid system is usually the durable answer. It lets the product exploit local strengths without pretending every user has the same device or every task needs the same model.",
+      ],
+    },
+    {
+      heading: 'Case Studies and Sources',
+      paragraphs: [
+        "Android Gemini Nano is a system-level example. The Android developer docs describe on-device generative AI as useful when low cost and privacy safeguards matter, with AICore managing Gemini Nano access, updates, safety features, and device hardware use: https://developer.android.com/ai/gemini-nano.",
+        "Apple exposes a compact on-device foundation model through its Foundation Models framework. Apple reports an approximately 3B-parameter on-device model, KV-cache memory reductions, quantized weights and KV cache, guided generation, tool calling, adapters, and a complementary server model for more complex tasks: https://machinelearning.apple.com/research/apple-foundation-models-2025-updates.",
+        "Google LiteRT is the runtime side of the same pattern: an on-device framework for ML and GenAI deployment, conversion, optimization, quantization, accelerator selection, and deployment across mobile, desktop, web, and constrained devices: https://developers.google.com/edge/litert. Google's LiteRT-LM announcement adds cross-platform CPU, GPU, and NPU backends, session management, shared KV-cache locality, constrained decoding, function calling, and WebGPU browser inference: https://developers.googleblog.com/blazing-fast-on-device-genai-with-litert-lm/.",
+        "The browser standardization path matters too. The W3C Web Neural Network API defines a hardware-agnostic abstraction layer for using operating-system and hardware ML capabilities from the web, while calling out privacy and fingerprinting concerns: https://www.w3.org/TR/webnn/.",
+      ],
+    },
+    {
+      heading: 'Misconceptions to Avoid',
+      paragraphs: [
+        "Do not assume on-device means no safety work. The app still owns guardrails, scoped UX, tool permissions, abuse handling, and quality checks. Local generation can still produce bad output or unsafe tool arguments.",
+        "Do not assume local means no telemetry. The question is which telemetry is allowed. Aggregate counters, opt-in samples, crash signals, route reasons, and slice-level evals can preserve debugging without uploading raw prompts by default.",
+        "Do not hide fallback. Users, auditors, and developers need to know when data leaves the device. A hybrid system that silently sends private local prompts to cloud has broken its own boundary. A hybrid system that never falls back can leave users with a weak answer when the local model is out of depth.",
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        "Primary sources: Android Gemini Nano docs at https://developer.android.com/ai/gemini-nano, Apple Foundation Models update at https://machinelearning.apple.com/research/apple-foundation-models-2025-updates, Google LiteRT docs at https://developers.google.com/edge/litert, Google LiteRT-LM announcement at https://developers.googleblog.com/blazing-fast-on-device-genai-with-litert-lm/, and W3C WebNN at https://www.w3.org/TR/webnn/.",
+        "Study AI Engineering Stack: Five Parts Primer, LLM Inference Cost Stack Case Study, LLM Unit Economics Ledger Case Study, LLM Inference Scaling Playbook, KV Cache Concurrency Capacity Model, Quantization, KV Cache Quantization and Compression, Sliding-Window Attention Context Policy, Semantic Cache for LLMs, RAG Context Packing Token Budget, Feature Flag Control Plane, and Tail Latency and p99 Thinking next.",
       ],
     },
   ],

@@ -217,39 +217,85 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Ethereum uses a modified Merkle-Patricia trie as an authenticated key-value map. The trie stores account state, contract storage, transactions, and receipts in forms whose roots are committed in block headers or account fields. It combines the path-sharing of PATRICIA Trie with the cryptographic commitment of Merkle Tree.',
-        'The structure is deterministic and verifiable. If two tries contain the same key-value pairs, they produce the same root. If a value, path, or encoded node changes, hashes on the path change and the root changes. That root is the compact fingerprint other participants can compare or verify against.',
+        'Ethereum needs every block to commit to a huge changing key-value database. Full nodes can store the database. A block header cannot. The header needs one compact value that says, in effect, this is the exact account state after this block.',
+        'That value is the state root. It must change when any committed account or storage value changes. It must let a verifier check one account or one storage slot without downloading the whole database. Ethereum uses a modified Merkle-Patricia trie because it combines key-directed lookup, prefix compression, and cryptographic commitments.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'Keys are transformed into nibble paths. Branch nodes provide 16-way fanout plus an optional value slot. Extension nodes compress shared path segments. Leaf nodes store the remaining suffix and value. Nodes are encoded and hashed, so a parent can refer to a child by digest. This gives the map both trie lookup and Merkle proof behavior.',
-        'A proof carries the encoded nodes needed for one key path. A verifier starts from a trusted root, decodes a node, checks that the requested path matches the branch or extension, hashes the node, and compares the result to the parent reference. If the path reaches the claimed leaf and every digest matches, the value is proven relative to the root.',
+        'A normal hash table is good at finding account records, but it does not produce a small proof that a remote answer is honest. A flat Merkle tree is good at committing to a list, but Ethereum state is not just a list. It is a sparse map keyed by account addresses and contract storage slots.',
+        'A plain trie gives key paths and prefix sharing, but by itself it is just a data structure, not a cryptographic commitment. The wall is needing all three properties at once: map lookup by key, compact paths for a sparse space, and a root hash that commits to every reachable node.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Merkle-Patricia tries are not simple in-memory maps. They pay for cryptographic verification with hashing, encoding, node database reads, path compression rules, and update write amplification. Updating one key rewrites hashes along its path. The payoff is that clients can verify small proofs instead of trusting a remote database or downloading all state.',
+        'Turn each key into a path of nibbles, where a nibble is half a byte and has 16 possible values. Use branch nodes when paths split. Use extension nodes to compress long shared stretches. Use leaf nodes to hold the final suffix and value. Then encode each node and hash upward until one root digest remains.',
+        'The root is deterministic under the same key-value contents and encoding rules. If a value changes, the leaf changes. If the leaf changes, its parent reference changes. That change propagates up the path until the state root changes. A small local update becomes visible in one global commitment.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Reading the Views',
       paragraphs: [
-        'Ethereum block headers include roots for state, transactions, and receipts. Account records can include storage roots for contract storage. EthereumJS describes the modified Merkle Patricia tree as a persistent data structure mapping arbitrary-length binary data, with the protocol requirement of producing a single 32-byte value identifying the key-value set.',
+        'In the state root view, read left to right: key, secure hash, nibble path, branch or compressed path nodes, leaf value, and root hash. The point is that Ethereum is not hashing a whole state file every time. It is rewriting and rehashing the paths touched by changed keys.',
+        'In the proof path view, start from the trusted root and walk downward through encoded nodes supplied by the proof. Each step consumes part of the requested key path and recomputes a hash. The verifier accepts only if the path, value, and digest chain line up with the root it already trusts.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How It Works',
       paragraphs: [
-        'The root hash proves a state relative to a trusted header; it does not by itself prove that the header is canonical. Bridges, light clients, and indexers must still decide which headers to trust. Another misconception is that the trie is chosen mainly for speed. It is chosen for authenticated state and proofs, while performance work happens around caching, batching, pruning, snapshotting, and alternative trees.',
+        'Ethereum first uses hashed keys for secure tries, then reads the hash as a sequence of nibbles. A branch node has 16 child positions plus an optional value slot. An extension node stores a shared path segment and points to the next node. A leaf node stores the remaining path suffix and the value. Short embedded nodes and hash references are implementation details, but the idea is the same: parent nodes commit to child nodes.',
+        'Accounts live under the global state trie. Contract storage has its own trie, and the account record carries that storage root. Blocks also carry roots for transactions and receipts. These roots let a block header commit to several structured datasets without carrying the datasets themselves.',
+        'A proof is a package of encoded nodes along one path. The verifier starts from a trusted root, decodes the first node, checks the relevant path piece, hashes the node, and compares that hash to the expected reference. It repeats until it reaches the claimed value or proves the path is absent.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
+      paragraphs: [
+        'Verification is local, but trust is anchored by the root. The verifier does not need the entire state database. It only needs the nodes that sit on the requested path and the root hash from a block header it trusts. If any encoded node, child reference, path segment, or value is tampered with, the recomputed digest chain will not match.',
+        'Path compression keeps sparse keys from producing enormous one-child chains. Hashing keeps compressed paths honest. The trie can skip over boring stretches, but it cannot hide what those stretches are because the encoded node is part of the hash commitment.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'Suppose a light client wants to check an account balance at a particular block. It obtains the block header through whatever trust path it uses, then asks a full node for a proof for that account key. The full node returns the encoded trie nodes on the hashed key path, ending in the account record or in a proof of absence.',
+        'The light client does not trust the full node. It decodes the proof, consumes the account-key nibbles, hashes each node, and compares the final reconstructed root with the state root in the header. If they match, the account value belongs to that state root. If they do not, the proof is wrong or targets a different root.',
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        'The Merkle-Patricia trie is a correctness structure first and a performance structure second. It pays for hashing, node encoding, database reads, path decoding, cache pressure, and write amplification. Updating one key rewrites the nodes and hashes along that key path, and real clients spend a lot of engineering effort making that affordable.',
+        'Proofs are also not free. They can be large compared with newer authenticated-tree designs, and state growth makes node storage and pruning hard. These costs are why Ethereum research and roadmap work has explored Verkle trees and other commitment schemes for smaller proofs and better state access.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'It wins when a protocol needs a compact commitment to a large mutable map. Block headers can carry roots. Light clients can verify selected accounts or storage slots. Bridges and auditors can check inclusion or absence relative to a trusted header. Indexers can spot-check remote data instead of blindly trusting it.',
+        'It also gives the protocol a clean mental model: the root is the fingerprint of the committed state. If two nodes agree on the state root for a block, they agree on the authenticated state contents behind that root, assuming the same trie rules and database availability.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'A proof is only as good as the root. If the verifier accepts a fake or non-canonical header, a perfectly valid proof can still prove the wrong world. Bridges, light clients, and indexers need a separate answer for header trust and consensus finality.',
+        'The trie also fails as a simple performance story. It is complex to implement, easy to get wrong at encoding boundaries, and expensive under heavy state growth. It solves authenticated state, not every storage problem.',
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        'Use a mature client library for production proofs. The details that look small are consensus details: RLP encoding, hex-prefix path encoding, the leaf terminator flag, branch value slots, embedded short nodes, empty values, and proof of absence. A verifier that accepts one malformed path can accept a false state claim.',
+        'Keep header trust separate from trie verification. The proof checker can say that a value belongs under a given state root. It cannot say that the state root is canonical, finalized, or safe for a bridge by itself. Test inclusion and absence proofs against known client vectors before trusting remote full nodes.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: ethereum.org Merkle Patricia Trie docs at https://ethereum.org/developers/docs/data-structures-and-encoding/patricia-merkle-trie/, Ethereum yellow paper at https://ethereum.github.io/yellowpaper/paper.pdf, and EthereumJS trie repository at https://github.com/ethereumjs/merkle-patricia-tree. Study Merkle Tree, PATRICIA Trie, Hash Array Mapped Trie (HAMT), Git Internals, and Byzantine Generals next.',
       ],

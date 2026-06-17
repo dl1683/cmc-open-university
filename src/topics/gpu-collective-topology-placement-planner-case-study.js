@@ -84,7 +84,7 @@ function* rankMap() {
       ],
     ),
     highlight: { active: ['r0:nvl', 'r1:nvl', 'r2:nic', 'r3:nic'], found: ['r0:numa', 'r3:numa'] },
-    explanation: 'The rank map joins several data structures: rank ID, GPU, NVLink island, nearest NIC, NUMA node, and rail. A collective-heavy job should not discover this accidentally at runtime.',
+    explanation: 'Read each row as one rank placement decision. The map joins rank ID, GPU, NVLink island, nearest NIC, NUMA node, and rail so a collective-heavy job does not discover locality by accident at runtime.',
     invariant: 'Rank placement is part of the communication algorithm, not an afterthought after the model is launched.',
   };
 
@@ -129,7 +129,7 @@ function* railPlan() {
   yield {
     state: topologyGraph('Rail striping spreads traffic across NICs'),
     highlight: { active: ['nic0', 'nic1', 'sw0', 'sw1', 'e-n0-sw0', 'e-n1-sw1'], found: ['g0', 'g2'], compare: ['job'] },
-    explanation: 'Multi-rail systems can stripe traffic across multiple NICs or fabrics. The planner must know which GPUs are close to which NICs, or striping can create cross-NUMA or cross-PCIe penalties.',
+    explanation: 'Read the two NIC paths as separate rails that can carry chunks in parallel. The planner must know which GPUs are close to which NICs, or striping can accidentally create cross-NUMA or cross-PCIe penalties.',
   };
 
   yield {
@@ -212,11 +212,69 @@ export const article = {
     { title: 'NVIDIA NVLink overview', url: 'https://www.nvidia.com/en-us/data-center/nvlink/' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['A GPU collective topology planner maps distributed ranks onto physical GPUs, NICs, NVLink domains, NUMA nodes, and rails before launching a collective-heavy job.', 'This topic connects GPU All-Reduce, NCCL Selector, NVLink/NVSwitch, RDMA, Tensor Parallelism, Pipeline Parallelism, and MoE routing. It treats placement as a first-class data structure rather than a side effect of device enumeration.'] },
-    { heading: 'Data structures', paragraphs: ['The core records are rank ID, GPU ID, local bus ID, NVLink domain, nearest NIC, NUMA node, rail, process group, collective shape, expected bandwidth, observed counters, and validation status.', 'NCCL documentation emphasizes topology-aware communication and exposes environment controls for network interfaces, algorithms, protocols, and topology/debug behavior. Those controls are most useful when paired with an explicit placement ledger.'] },
-    { heading: 'How it works', paragraphs: ['Tensor-parallel ranks should usually sit inside the fastest local domain because they communicate inside each layer. Data-parallel replicas may prefer bandwidth across rails. Pipeline stages prefer neighbor locality. MoE expert parallelism wants bisection because all-to-all token traffic can spread across many peers.', 'A planner builds candidate rank maps, estimates collective cost, checks hardware visibility, launches a benchmark or warmup, records actual traces, and blocks the placement if the observed topology differs from the expected one.'] },
-    { heading: 'Complete case study', paragraphs: ['A model serves with tensor parallelism inside each node and data parallelism across nodes. After a driver update, GPU enumeration changes and two tensor-parallel ranks land across a slower path. The planner catches the mismatch because the rank map no longer matches the expected NVLink island.', 'The team rolls back the placement, pins the rank map, validates NCCL traces, and adds rail-balance counters to the launch gate so the same class of slowdown fails before production traffic.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not assume rank 0 through rank N correspond to the physical order you want. Device ordering, container visibility, MIG, NUMA, NIC binding, and scheduler packing can all change the actual map.', 'Another trap is optimizing one collective shape and harming another. A placement that helps all-reduce may hurt MoE all-to-all or pipeline activation transfer. The planner should know which communication pattern dominates the workload.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: NCCL overview at https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/overview.html, NCCL environment variables at https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/env.html, and NVIDIA NVLink overview at https://www.nvidia.com/en-us/data-center/nvlink/. Study NCCL Selector, RoCE PFC ECN DCQCN, Torch NCCL Flight Recorder, NVLink/NVSwitch GPU Fabric, Tensor Parallelism, and MoE Expert Capacity next.'] },
+    {
+      heading: 'Why this planner exists',
+      paragraphs: [
+        'A collective algorithm is only as good as the rank placement it receives. The program may create ranks 0 through 7 and ask for an all-reduce, but the hardware sees GPUs, PCIe roots, NVLink domains, NUMA nodes, NICs, switch ports, and network rails. If logical neighbors land on distant devices, a good collective can still take a bad path. If scale-out flows all choose one rail, average GPU utilization can hide a tail-latency problem.',
+        'The placement planner exists to make rank mapping an explicit part of distributed training and serving. It decides where ranks should run before NCCL, the framework, and the scheduler turn device visibility into execution. The planner is not a replacement for NCCL topology awareness. It is the layer that states the intent: these ranks are tensor-parallel neighbors, these replicas should be spread, these buckets should stripe across rails, and this launch must fail if the actual topology does not match.',
+      ],
+    },
+    {
+      heading: 'The naive approach',
+      paragraphs: [
+        'The naive approach is to launch ranks in numeric order and hope that CUDA device order matches the physical topology. That can work in a lab node that never changes. It breaks when a driver update changes enumeration, a container exposes devices in a different order, a MIG layout changes, a scheduler packs jobs across sockets, a NIC binding changes, or one GPU is drained and the remaining visible devices shift.',
+        'A second naive approach is to optimize for one communication pattern. A placement that is excellent for data-parallel all-reduce may be poor for tensor-parallel in-layer collectives. Packing tensor-parallel ranks into the fastest local island can overload the nearest NIC for data-parallel traffic. Spreading ranks across rails can help cross-node bandwidth while hurting pipeline stage locality. The planner has to know which communication dominates and which costs are acceptable.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is that rank placement is a constrained graph problem. The input graph contains GPUs, links, switches, NICs, PCIe roots, sockets, rails, racks, and failure domains. The workload graph contains ranks, process groups, parallelism dimensions, expected collectives, tensor sizes, and priority. A good placement maps the workload graph onto the hardware graph so the expensive edges in the workload land on cheap edges in the hardware.',
+        'This is why the planner keeps a locality ledger. For each rank it records rank ID, GPU ID, PCI bus ID, NVLink or NVSwitch island, nearest NIC, NUMA node, rail membership, process group, dominant collective shape, expected bandwidth, observed counters, and validation status. The ledger makes placement debuggable. When performance changes, the team can compare current placement to the last known good placement instead of guessing from hostnames.',
+      ],
+    },
+    {
+      heading: 'How the planner works',
+      paragraphs: [
+        'First, the planner discovers hardware. It reads visible GPUs, bus IDs, peer access, NVLink or NVSwitch connectivity, PCIe hierarchy, CPU socket locality, NIC affinity, and rail membership. In a cluster, it also reads rack and network placement. This discovery must use stable identifiers. Logical device index is not stable enough because containers and launchers can reorder what the process sees.',
+        'Second, it classifies workload traffic. Tensor-parallel groups usually want the fastest local GPU fabric because every layer can exchange partial results. Pipeline-parallel stages prefer nearby producer-consumer pairs for activation movement, while still needing enough separation for memory and scheduling. Data-parallel replicas care about large all-reduce or reduce-scatter across nodes, so rail balance and NIC locality matter. MoE expert parallelism cares about bisection and all-to-all token movement.',
+        'Third, it builds candidate rank maps. A map is scored against locality, bandwidth, rail balance, failure-domain rules, and scheduler constraints. The planner can reserve local islands for tensor groups, assign replicas across racks, bind ranks to NICs, and split buckets across rails. After launch, it validates the actual state: visible device order, bus IDs, process-to-GPU mapping, NCCL selected paths, per-rail counters, and warmup collective times.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The rank-map view is proving that the matrix is the source of truth. Each rank is not merely a number. It is attached to a GPU, a bus ID, a local fabric domain, a NUMA node, a nearest NIC, and a rail plan. Natural groups appear when several ranks share fast links or balanced access to the right NICs. Bad groups appear when logical neighbors cross a slow path that the framework never named.',
+        'The rail-plan view is proving that a bucket schedule is also a placement decision. Each chunk has a source group, a rail, a locality expectation, and a capacity check. If all chunks pick the same rail, aggregate device count is misleading. If chunks cross the wrong NUMA path, rail striping can cost more than it saves. The plot target is not only high throughput; it is balanced per-rail work and stable p99 collective time.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The planner works by aligning the largest communication edges with the cheapest physical paths. Tensor-parallel traffic stays inside strong local connectivity where possible. Data-parallel traffic spreads across scale-out rails instead of hot-spotting one NIC. Pipeline traffic keeps adjacent stages close when activation movement matters. Expert traffic avoids placements that collapse all-to-all exchange onto a narrow path. This is ordinary graph mapping applied to GPU communication.',
+        'It also works because it validates reality. Many failures come from drift between intended placement and actual placement. A warmup gate can run representative collectives, check NCCL debug evidence, compare bus IDs, and read counters before the job enters a long run. If the actual map differs from the planned map, the launcher can fail loudly. That is cheaper than burning hours on a slow job or changing model code to compensate for a hardware mapping mistake.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Placement is not a free win. Tighter placement can reduce scheduling flexibility and increase queue time. Keeping tensor groups inside perfect local islands can fragment the cluster. Spreading replicas across failure domains can increase network distance. Rail striping can improve bandwidth but add complexity and make debugging harder. A placement that is optimal for one model shape can be wrong after batch size, sequence length, parallelism degree, or bucketization changes.',
+        'There is also a measurement cost. The planner needs fresh topology discovery, stable inventory, warmup tests, and counters. It must distinguish hard constraints from preferences. If every recommendation becomes mandatory, utilization can fall. If every constraint is soft, the scheduler can silently violate locality. The practical design is to gate the requirements that protect correctness or huge performance cliffs, then score the rest as preferences that can be traded against fleet efficiency.',
+      ],
+    },
+    {
+      heading: 'Real uses and failure modes',
+      paragraphs: [
+        'A common real use is a model with tensor parallelism inside each node and data parallelism across nodes. After a platform update, GPU enumeration changes. Two tensor-parallel ranks that used to share a fast local domain now cross a slower PCIe path, while the nearest NIC binding also changes. Step time rises even though the model code and NCCL version look unchanged. A saved rank map exposes the drift immediately.',
+        'Another use is inference serving with mixed prefill, decode, and batch pools. Prefill groups may need strong local bandwidth and higher power headroom. Decode replicas may need failure spread and stable tail latency. Batch embedding work can use leftover capacity with looser topology requirements. The planner lets the serving layer ask for different placements instead of treating all GPUs as identical slots.',
+        'The main failure modes are silent remap, wrong NIC affinity, single-rail saturation, stale topology inventory, container-visible order drift, MIG or partition changes, assuming average bandwidth is enough, and ignoring the communication pattern. The planner cannot overcome a fabric that lacks capacity, a scheduler that ignores hard constraints, or an application that changes bucketization without updating the placement model. It can only make the mismatch visible and prevent avoidable launches.',
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        'Study NCCL collectives, rank ordering, NVLink and NVSwitch topology, PCIe hierarchy, NUMA locality, RDMA NIC affinity, GPUDirect RDMA, rail striping, process groups, tensor parallelism, pipeline parallelism, expert parallelism, and scheduler placement plugins. Then connect this topic to the NCCL Algorithm Protocol Selector, RoCE PFC ECN DCQCN, AI Rack Topology Power Thermal Ledger, Torch NCCL Flight Recorder, and LLM inference cost modeling. The practical skill is to explain a collective result by showing the rank map that made it possible or impossible.',
+      ],
+    },
   ],
 };

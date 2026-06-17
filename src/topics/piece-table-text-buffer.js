@@ -209,46 +209,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'What It Is',
       paragraphs: [
-        'A piece table is a text-buffer data structure used by editors. It keeps the original file in one immutable buffer, appends every insertion to an add buffer, and represents the visible document as ordered descriptors called pieces.',
-        'Each piece says which buffer to read from, the start offset, and the length. Editing changes the piece descriptors. The old bytes remain available, which makes undo, redo, and incremental editing natural.',
-        'A production editor usually turns the table into a piece tree: a balanced tree of pieces augmented with character counts and line-break counts for fast offset and line lookup.',
+        'A piece table is a text-buffer representation for editors. It stores the file as two immutable byte sources: the original buffer loaded from disk and an append-only add buffer containing inserted text.',
+        'The visible document is not stored as one mutable string. It is stored as an ordered list of piece descriptors. Each descriptor names a source buffer, a start offset, and a length. Rendering the document means reading those slices in descriptor order.',
+        'Production editors often use a piece tree rather than a plain list. The tree keeps pieces ordered while storing subtree lengths and line-break counts, so the editor can jump from offset to line and from line to viewport without scanning the whole file.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Baseline and the Wall',
       paragraphs: [
-        'On open, the table has one piece covering the whole original buffer. On insert, append the new text to the add buffer, split the piece at the insertion point, and splice in a descriptor for the inserted text. On delete, shorten or remove descriptors without touching source buffers.',
-        'Rendering walks pieces in order and reads slices from original or add buffer. Saving streams those visible slices into a new file. Undo can record inverse descriptor changes rather than reconstructing deleted bytes.',
+        'The simplest editor buffer is one mutable character array or string. Insert in the middle, shift the suffix. Delete a range, shift again. This is easy to explain but expensive for large files, and it makes undo fight the same storage that holds the current text.',
+        'A gap buffer improves local typing by keeping free space near the cursor. It is good when edits cluster near one point, but moving the gap across a large file can be costly. A rope improves split and concatenate, but it does not automatically preserve the original file and every inserted span as stable sources.',
+        'The wall is that an editor needs more than a current string. It needs startup to be cheap, undo to be reliable, line lookup to be fast, deleted text to remain recoverable, and saving to write the current view without rewriting source buffers after every keystroke.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight and Invariant',
       paragraphs: [
-        'The main cost is descriptor management. Many tiny edits can fragment the piece list, so balanced indexing and coalescing adjacent pieces matter. A piece tree adds implementation complexity but keeps lookup and viewport rendering efficient.',
-        'The data structure is excellent for preserving edit history, but it does not make full-document operations free. Search, save, formatting, and tokenization still need to walk visible text, though they can often do so incrementally.',
-        'Line ending normalization is another practical detail. Editors often need to preserve original line endings, map offsets to line and column positions, and handle edits that introduce new line breaks across piece boundaries.',
+        'Never move old bytes. Keep the original file immutable, append every insertion to the add buffer, and describe the current document with pieces. Editing becomes descriptor surgery instead of bulk text movement.',
+        'The main invariant is that rendered text equals the concatenation of all pieces in order. A piece is valid only if its source buffer, start offset, and length name a real slice. The source-buffer order is irrelevant; descriptor order is the document order.',
+        'Undo is natural because old bytes are still present. Deleting text can remove or shorten descriptors without erasing the referenced bytes. Inserting text appends new bytes once and adds a descriptor that can later be removed, restored, or reused by redo.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Piece tables and piece trees are used in text editors, IDEs, document systems, diff tools, and collaborative editing engines that need efficient insertion, deletion, undo, and file preservation. In collaborative editors, this local buffer layer can sit underneath Sequence CRDTs and Peritext-style rich-text merge logic.',
-        'A complete case study is opening a large source file in an IDE. The original file becomes one buffer. Typing appends to the add buffer. Edits update pieces. The viewport renders only visible lines, and undo restores previous descriptors. In a collaborative editor, Operational Transformation Collaborative Editing Case Study or Sequence CRDTs for Collaborative Text can sit above this local buffer and decide how remote edits are rebased into the visible document.',
-        'Implicit Treap Sequence Editor is the nearby structure when the editable sequence is made of generic items, spans, clips, cards, or chunks rather than original/add text buffers. Both use ordered descriptors; the piece table optimizes text preservation, while the implicit treap optimizes split/merge range surgery by position.',
+        'In the "insert pieces" view, focus on the split. Inserting "brave " into "hello world" does not rewrite "hello world". The original piece is split into "hello " and "world", the inserted text is appended to the add buffer, and a new piece points at that add-buffer slice.',
+        'The piece tree frame shows why a real editor does not stop at a linked list. A long editing session can create many pieces. A balanced tree with lengths and line counts keeps random access, line navigation, and viewport rendering from degrading into full-list scans.',
+        'In the "undo and indexing" view, notice that undo restores descriptor state, not erased bytes. The bytes are retained in the original and add buffers, so undo and redo mostly change which slices are visible.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'A piece table is not just a linked list if line lookup must be fast. Without an index, jumping to line 100000 can require scanning many pieces. A piece tree solves that by storing lengths and line counts in balanced-tree nodes.',
+        'Opening a file creates one original buffer and one initial piece covering that buffer. The add buffer starts empty. The document may already be usable before the editor has copied or normalized the whole file into a separate mutable string.',
+        'Insertion finds the piece containing the edit offset. If the edit is in the middle of a piece, that piece is split into left and right pieces. The inserted text is appended to the add buffer, and a new add-buffer piece is spliced between the left and right pieces.',
+        'Deletion finds the covered range and removes, shortens, or splits the affected descriptors. Replacement is deletion plus insertion. Rendering, saving, tokenization, and search read the visible slices in descriptor order.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Is Correct',
       paragraphs: [
-        'Sources: Visual Studio Code text buffer reimplementation at https://code.visualstudio.com/blogs/2018/03/23/text-buffer-reimplementation and Charles Crowley, Data Structures for Text Sequences, linked from https://www.cs.unm.edu/~crowley/papers/sds.pdf. Study Implicit Treap Sequence Editor, Gap Buffer Text Editor, Text Rope Data Structure, Red-Black Tree, Splay Tree, Persistent Segment Tree, Sequence CRDTs, Operational Transformation Collaborative Editing Case Study, and Peritext Rich-Text CRDT Case Study next.',
+        'Correctness follows from slice preservation. Source buffers are append-only or read-only, so a descriptor that was valid remains valid until the editor deliberately removes it from the visible order. Splitting a descriptor into two adjacent descriptors preserves the same rendered text.',
+        'Insertion is correct because it preserves the left slice, inserts a descriptor for exactly the new bytes, and preserves the right slice. Deletion is correct because it removes the descriptors or descriptor subranges that correspond to the deleted visible interval.',
+        'Indexing is correct when subtree metadata is maintained after every tree edit. The stored character counts and line counts must equal the rendered content under each subtree; then offset and line lookup can descend by comparing the target with left-subtree totals.',
+      ],
+    },
+    {
+      heading: 'Cost and Tradeoffs',
+      paragraphs: [
+        'A plain piece list makes local descriptor edits cheap but can make random offset lookup O(number of pieces). A piece tree adds balancing overhead, but it gives logarithmic search by offset or line when metadata is maintained correctly.',
+        'The main practical cost is fragmentation. Many small edits can create many tiny pieces, especially around repeated insert/delete activity. Editors often coalesce adjacent compatible pieces and tune tree nodes to reduce pointer overhead and improve cache behavior.',
+        'A piece table does not make whole-document operations free. Full save, full search, formatting, and full re-tokenization still walk visible text. The win is that many common edits, undo operations, and viewport reads can avoid copying or scanning the entire document.',
+        'Line endings, Unicode indexing, and CRLF boundaries are real engineering details. The buffer may count bytes, UTF-16 code units, Unicode scalar values, grapheme clusters, and lines differently depending on editor APIs.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'Start with original buffer "hello world" and one piece orig[0..11]. To insert "brave " after "hello ", append "brave " to the add buffer at add[0..6].',
+        'Split the original piece at offset 6. The visible descriptor order becomes orig[0..6], add[0..6], orig[6..11]. Rendering those slices gives "hello brave world". The original buffer still contains exactly "hello world".',
+        'If the user undoes the insertion, the editor can restore the old descriptor list with one original piece. The add buffer still contains "brave ", so redo can reinsert the same descriptor without recovering text from a deleted region.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'Piece tables win in text editors and IDEs that open large files, preserve original bytes, support undo and redo, and render small viewports repeatedly. They also fit diff tools and document systems where stable references to original and inserted text are useful.',
+        'They fail when a simpler representation is enough. A tiny text field may not need descriptor trees. A gap buffer can be simpler and faster for strongly cursor-local editing. A rope may be a better fit when the main operation is split and concatenate of large independently owned chunks.',
+        'They are also not a full collaborative editing algorithm. A Sequence CRDT or Operational Transformation layer can decide how remote operations merge; the piece table is the local storage layer that makes the resulting visible sequence efficient to edit and render.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Sources: Visual Studio Code text buffer reimplementation at https://code.visualstudio.com/blogs/2018/03/23/text-buffer-reimplementation and Charles Crowley, Data Structures for Text Sequences, linked from https://www.cs.unm.edu/~crowley/papers/sds.pdf.',
+        'Study Gap Buffer Text Editor for the cursor-local baseline, Text Rope Data Structure for tree-based string chunks, Implicit Treap Sequence Editor for positional split/merge on generic sequences, Red-Black Tree or Splay Tree for balanced indexing, and Sequence CRDTs or Operational Transformation Collaborative Editing Case Study for remote edit ordering above the buffer.',
       ],
     },
   ],

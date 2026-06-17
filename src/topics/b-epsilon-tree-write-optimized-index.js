@@ -45,7 +45,7 @@ function* bufferedWrites() {
       ],
     }, { title: 'A B-Epsilon tree buffers updates inside the search tree' }),
     highlight: { active: ['rootBuf', 'childBuf'], found: ['leaf', 'range'] },
-    explanation: 'A B-Epsilon tree keeps the ordered-tree skeleton of a B-tree, but inserts, deletes, and upserts enter as messages buffered in internal nodes. Full buffers flush many messages downward at once.',
+    explanation: 'The first graph shows the whole idea: keep the ordered search-tree skeleton, but let writes stop in internal buffers as messages. When a buffer fills, many messages flush downward together instead of forcing one leaf write per update.',
     invariant: 'The tree remains ordered; writes are delayed and batched along the path to the leaf.',
   };
 
@@ -70,7 +70,7 @@ function* bufferedWrites() {
       ],
     ),
     highlight: { active: ['insert:storedAs', 'delete:storedAs', 'upsert:storedAs'], found: ['flush:effect'] },
-    explanation: 'The buffer does not have to store only final values. It can store operations. That is why upserts are natural: the tree can postpone read-modify-write work and apply messages when they reach lower levels.',
+    explanation: 'The message table is the key mental shift. Buffers can hold operations, not just final values. Inserts, deletes, and upserts can be delayed, combined, and applied when they reach lower levels.',
   };
 
   yield {
@@ -94,7 +94,7 @@ function* bufferedWrites() {
       ],
     ),
     highlight: { active: ['root:messages', 'mid:messages', 'leaf:treeKeys'], found: ['answer:messages'] },
-    explanation: 'A point lookup descends like a B-tree, but it must also account for buffered messages along the path. The visible value is the leaf value plus any newer operations that have not flushed all the way down.',
+    explanation: 'The lookup table shows the cost of delayed writes. A search still follows separator keys like a B-tree, but the visible value must include newer messages sitting in buffers along the path.',
   };
 
   yield {
@@ -106,7 +106,7 @@ function* bufferedWrites() {
       ],
     }),
     highlight: { active: ['bepsilon'], compare: ['btree'] },
-    explanation: 'The graph is conceptual: bigger buffers mean each disk write carries more useful messages. That lowers amortized write cost, at the price of more buffered state to consider during reads and recovery.',
+    explanation: 'The plot is conceptual but useful. Bigger buffers make each flush carry more updates, lowering amortized write cost. The price is more buffered state for lookups, range scans, memory management, and recovery.',
   };
 }
 
@@ -131,7 +131,7 @@ function* btreeVsLsm() {
       ],
     ),
     highlight: { found: ['beps:writes', 'beps:range'], compare: ['btree:writes', 'lsm:reads'] },
-    explanation: 'B-Epsilon trees deliberately sit between the familiar shapes. They keep an ordered tree with range scans, but they batch small writes by delaying messages through internal buffers.',
+    explanation: 'The comparison table places B-Epsilon trees between B-trees and LSMs. They preserve an ordered tree for range access while batching small writes through internal buffers.',
     invariant: 'The design is not "faster B-tree"; it is a different point in the external-memory tradeoff space.',
   };
 
@@ -156,7 +156,7 @@ function* btreeVsLsm() {
       ],
     ),
     highlight: { active: ['insert:realIssue', 'lookup:realIssue', 'crash:realIssue'], found: ['space:simpleStory'] },
-    explanation: 'The idea is simple; the implementation is not. Correctness has to cover buffered deletes, upserts, searches that see unflushed messages, node splits, compression, and crash recovery.',
+    explanation: 'The complexity table is the warning. The simple story is "buffer writes"; the real system must define message order, delete visibility, upsert application, splits, compression, and crash recovery.',
   };
 
   yield {
@@ -176,7 +176,7 @@ function* btreeVsLsm() {
       ],
     }, { title: 'Case studies: database engine and file-system storage' }),
     highlight: { active: ['fractal', 'betrfs'], found: ['lesson'] },
-    explanation: 'Tokutek commercialized fractal-tree indexing in TokuDB; BetrFS explored B-Epsilon trees inside a file system. Both show the same principle: schedule small random changes into larger useful I/O.',
+    explanation: 'The case-study graph links theory to systems. TokuDB used fractal-tree indexing in a database engine, and BetrFS explored the same write-optimized idea inside a file system: convert small random changes into larger useful I/O.',
   };
 
   yield {
@@ -200,7 +200,7 @@ function* btreeVsLsm() {
       ],
     ),
     highlight: { found: ['randomWrites:fit', 'rangeQueries:fit'], compare: ['simpleEngine:reason', 'hotPointReads:reason'] },
-    explanation: 'The structure is most compelling when small random writes and range locality both matter. It is less compelling when implementation simplicity or ultra-lean point lookups dominate.',
+    explanation: 'The final table is the fit test. B-Epsilon trees are attractive when random writes and ordered range locality both matter. They are less attractive when simple implementation or the leanest possible point lookups matter more.',
   };
 }
 
@@ -214,43 +214,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A B-Epsilon tree is a write-optimized external-memory dictionary. It keeps the ordered, high-fanout search-tree shape of a B-tree, but each internal node has a buffer. Inserts, deletes, and upserts enter as messages. When a buffer fills, the tree flushes a batch of messages down to children.',
-        'This makes the structure a bridge between B-trees and LSM trees. A B-tree updates the target leaf path immediately. An LSM accepts writes into memory and later compacts immutable runs. A B-Epsilon tree keeps a navigable tree but delays work inside the tree itself, turning many small writes into fewer larger flushes.',
+        'A B-Epsilon tree exists because ordinary B-trees have a painful weakness: many small random updates. A B-tree is excellent when searches and range scans dominate. Its high fanout makes the tree shallow, and sorted leaves give clean ordered traversal. But an insert, delete, or update usually has to travel to the target leaf and modify a page near the bottom of the tree. On disk or flash, many independent leaf changes can become many small writes.',
+        'The write-optimized question is direct: can an index keep the ordered search shape of a B-tree while batching random updates like a log-structured system? A B-Epsilon tree answers by putting buffers inside internal tree nodes. A user update becomes a message. The message may stop in an upper node, wait with other messages, and later flush downward in a batch.',
+        'This is not just a faster implementation trick. It changes the contract of the tree. The logical state is no longer only the values stored at leaves. It includes pending messages stored along the search path. The tree remains ordered, but update application is delayed.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach and its wall',
       paragraphs: [
-        'The tree stores separator keys in internal nodes so searches can choose child ranges. The difference is that internal nodes also hold operation messages destined for lower nodes. A write can stop at an upper buffer. Later, when enough messages accumulate, a flush pushes all messages for one or more child ranges downward in a batch.',
-        'A lookup descends through the tree and must account for buffered messages along the path. If the leaf says one value but an ancestor buffer contains a newer delete or upsert for the same key, the visible answer must include that pending operation. Range scans benefit from sorted leaves, but they also need the system to reconcile or flush relevant buffered messages correctly.',
+        'The naive B-tree update path is eager. Find the leaf, insert or modify the key, split if needed, and propagate separator changes upward. This is simple and gives clean reads, but it has weak amortization. If one million inserts hit one million scattered leaves, the engine touches and writes many pages even if the writes are tiny.',
+        'A second naive fix is to keep a separate log of updates and periodically rebuild the tree. That improves ingest but gives up the clean point-lookup and range-scan behavior of the tree until the log is reconciled. It starts to look like an LSM tree with sorted runs and compaction, which is a valid design, but not the same point in the design space.',
+        'The B-Epsilon tree tries to avoid both walls. It keeps a real search tree online, but it refuses to pay leaf-update cost for every individual operation. The cost is moved into buffered flushes, lookup reconciliation, and more complex recovery.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'The win is amortization. A B-tree page write may update only one record. A B-Epsilon flush can move many messages with one I/O. That improves random-write throughput while preserving ordered access. The cost is implementation complexity: message ordering, node splitting, buffer eviction, compression, crash recovery, and read visibility all need careful engineering.',
-        'The epsilon parameter describes how node space is divided between fanout and buffers in the theoretical model. More fanout helps searches; more buffer space helps writes. The practical lesson is simpler: pick a buffer and fanout design that matches the storage device and workload.',
+        'The visual model separates the search skeleton from the buffered write path. The graph starts with a user write, stops it in an internal buffer, then flushes a batch toward the leaf. That is the whole design pressure: the tree still has separator keys and ordered leaves, but update messages are allowed to wait above their final location.',
+        'The lookup table is the part many short explanations skip. A search cannot just descend to a leaf and return what it sees there. It must merge the leaf state with newer messages found on the path. The visual model therefore teaches both halves of the data structure: batched movement for writes and path reconciliation for reads.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Core insight and mechanism',
       paragraphs: [
-        'Percona documents TokuDB fractal-tree indexes as tree structures with node buffers where insertions, deletions, and updates are stored as messages. BetrFS is an in-kernel file system that used B-Epsilon trees to organize on-disk storage and reported the value of write-optimized indexing for small random writes and large scans. The USENIX ;login: introduction by Bender and collaborators explains the structure as a practical write-optimized data structure between B-trees and buffered repository trees.',
+        'The core insight is to make internal nodes carry deferred operations, not only routing keys. The invariant is that the key space remains partitioned by the tree, while each buffered message is stored at a node whose subtree contains that message key. The message has not reached the leaf yet, but it is still part of the visible logical database.',
+        'Each internal node has two jobs. The first job is the familiar B-tree job: separator keys route a search to the correct child range. The second job is buffering: the node can store messages whose keys belong somewhere below that node. A message might mean insert key 52, delete key 17, increment a counter, replace a value, or apply an upsert function.',
+        'A write begins at the root. Instead of immediately descending to the leaf, the tree can append the operation to the root buffer. When that buffer becomes large enough, the implementation chooses a child range and flushes all relevant messages for that child downward together. The child may store them in its own buffer or, if the child is a leaf, apply them to leaf entries. One I/O can move many logical updates.',
+        'The parameter epsilon describes how node space is divided between pivots and buffers in the theoretical model. More buffer space gives larger batches and lower amortized write cost. More pivot space gives higher fanout and shorter search paths. The name B-Epsilon tree points at that tunable balance, not at one fixed layout.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Lookup and scan semantics',
       paragraphs: [
-        'Do not treat a B-Epsilon tree as a drop-in B-tree with one extra array. The read path, recovery protocol, split logic, and range scan semantics all change because pending messages are part of the logical state. A crash-safe implementation still needs a Write-Ahead Log or equivalent persistence discipline.',
-        'It is also not simply an LSM tree. LSM compaction merges sorted runs outside the tree. B-Epsilon trees keep messages inside a tree and flush them downward. Both batch writes, but their read paths, range locality, and cleanup mechanisms are different.',
+        'A lookup still follows separator keys from root to leaf, but it cannot trust the leaf alone. A newer message may be sitting in an ancestor buffer. The lookup must combine the base leaf value with messages encountered along the path in the correct order. If the leaf says k=31 has value A and an ancestor buffer contains delete k=31, the visible answer is absent. If a newer upsert is buffered, the answer must apply it.',
+        'Range scans are also more subtle than in a plain B+ tree. The leaves can still be sorted and linked, which is valuable. But a scan over key range 20 through 80 must account for buffered messages above the leaves that affect keys in that range. Real systems use buffering rules, message ordering, and sometimes flush-before-scan choices to keep range results correct without destroying the write benefit.',
+        'This is the central tradeoff: writes get cheaper because work is delayed and batched, but reads now include pending work. A B-Epsilon tree is powerful only if the workload and implementation can afford that reconciliation cost.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: USENIX B-Epsilon tree introduction at https://www.usenix.org/publications/login/oct15/bender, PDF at https://www3.cs.stonybrook.edu/~bender/newpub/2015-BenderFaJa-login-wods.pdf, Percona TokuDB fractal-tree indexing docs at https://docs.percona.com/percona-server/8.0/tokudb-fractal-tree-indexing.html, BetrFS project page at https://www.betrfs.org/, and FAST 2015 BetrFS paper page at https://www.usenix.org/conference/fast15/technical-sessions/presentation/jannen. Study B-Trees, B+ Tree Leaf Sibling Scan Case Study, LSM Tree, LSM Compaction Strategies Primer, SSTable Block Index & Filter, Write-Ahead Log, Database Indexing, and RocksDB LSM Case Study next.',
+        'The performance idea is amortization. Suppose a disk page write is expensive and a node buffer can hold thousands of update messages. Flushing one message to a child would be wasteful. Flushing a large batch spreads the page I/O cost across many logical operations. If many messages target nearby key ranges, the structure turns scattered user writes into larger organized movement through the tree.',
+        'The ordered tree skeleton matters because it keeps locality. An LSM tree also batches writes, but it places data into immutable runs and later compacts those runs. A B-Epsilon tree keeps update messages attached to the tree path that already partitions the key space. That can preserve range locality better for some workloads, especially when scans over ordered keys remain important.',
+        'The design does not remove work. It changes when and where work happens. Leaf pages still eventually change. Deleted keys still need cleanup. Splits still happen. The difference is that the system can schedule many updates together instead of letting each user operation force immediate bottom-level work.',
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        'Imagine a file system metadata index keyed by path or inode. A build job creates, renames, edits, and deletes thousands of small files spread across many directories. A traditional B-tree can spend much of its time rewriting metadata pages for tiny changes. A B-Epsilon tree can accept those operations as messages in upper buffers, then flush groups of updates toward the affected directory ranges.',
+        'Now consider the read side. A command listing one directory needs a correct ordered range scan. The scan must include files that already reached leaves, hide files deleted by buffered messages, and include newly created entries that are still waiting in an internal buffer. If the implementation gets message visibility wrong, users see missing files, resurrected names, or duplicate entries.',
+        'This example explains both the promise and the difficulty. The structure can make metadata-heavy workloads much faster, but only if the system treats messages as durable, ordered, query-visible state.',
+      ],
+    },
+    {
+      heading: 'How it compares',
+      paragraphs: [
+        'Compared with a B-tree, a B-Epsilon tree sacrifices immediate leaf cleanliness for better write batching. Point reads may be more expensive because they must check buffers on the path. Range scans may need reconciliation. The implementation is harder. In exchange, random write workloads can become dramatically more sequential and batched.',
+        'Compared with an LSM tree, a B-Epsilon tree keeps a tree-shaped routing structure with buffered messages inside it. LSMs usually buffer in memory, flush sorted files, and compact runs across levels. Both are write optimized, but they put deferred work in different places. LSM read cost comes from searching multiple components. B-Epsilon read cost comes from applying pending path messages and maintaining tree invariants.',
+        'Compared with a log-only design, the B-Epsilon tree gives more organized search and range access. Compared with a pure append-only rebuild system, it keeps the index continuously navigable. That is why it is best understood as its own external-memory data structure rather than as a small variant of another tree.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Implementation starts with message semantics. Define whether messages commute, how repeated updates to the same key coalesce, how deletes interact with older inserts, and how sequence numbers determine visibility. An insert-only benchmark can hide this hard part. Real indexes need replacement, deletion, range scans, snapshots, and recovery to agree on the same order.',
+        'Flush scheduling is the control loop. A simple policy flushes the fullest buffer child, but production systems must also consider hot ranges, background bandwidth, node splits, memory pressure, compression, and foreground read latency. Large buffers lower amortized write cost, yet they can make point reads and scans pay more reconciliation cost.',
+        'Crash recovery must treat buffered messages as first-class data. A write accepted into an internal buffer is durable logical state even if it has not reached a leaf. The WAL or equivalent recovery log has to restore message order, replay partially flushed batches safely, and avoid applying the same message twice.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'The first failure mode is treating buffered messages as an in-memory convenience. In a storage engine, buffers must be durable or reconstructable. A crash between accepting a message and applying it to a leaf cannot lose the operation. The WAL, message sequence numbers, flush ordering, and recovery process are part of the data structure contract.',
+        'The second failure mode is weak read semantics. Deletes, upserts, and repeated updates to the same key must compose in the right order. A range scan cannot ignore messages because they are inconvenient. If the system flushes aggressively before reads to simplify correctness, it may give back the write benefit that justified the structure.',
+        'The third failure mode is uncontrolled buffer growth or poor flush scheduling. If the tree keeps delaying work without enough background capacity, it can build its own version of compaction debt. The system needs policies for choosing which child to flush, splitting nodes, compressing or coalescing messages, and protecting foreground latency.',
+      ],
+    },
+    {
+      heading: 'Where it wins and where it is used',
+      paragraphs: [
+        'TokuDB popularized fractal-tree indexes in a database engine. Percona documentation describes insertions, deletions, and updates as messages stored in node buffers, then propagated down the tree. BetrFS explored B-Epsilon trees in a file system, where write-optimized indexing is valuable because file-system metadata workloads often contain many small random changes mixed with directory scans.',
+        'The design family is relevant when random writes and ordered access both matter: metadata-heavy file systems, update-heavy secondary indexes, storage engines with large range scans, and systems that need better write batching than a B-tree but do not want the exact read path of an LSM.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources include the USENIX ;login: article introducing B-Epsilon trees, the Bender et al. write-optimized data structure papers, Percona TokuDB fractal-tree indexing documentation, the BetrFS project material, and the FAST 2015 BetrFS paper. The important ideas to track are node buffers, operation messages, flush scheduling, amortized I/O, and query visibility.',
+        'Next topics in this curriculum: B-Trees, B+ Tree Leaf Sibling Scan Case Study, Database Indexing, LSM Tree, LSM Compaction Strategies Primer, RocksDB LSM Case Study, SSTable Block Index & Filter, Write-Ahead Log, Bw-Tree Delta Chain & Mapping Table, and Filesystem Extent Tree & Delayed Allocation.',
       ],
     },
   ],

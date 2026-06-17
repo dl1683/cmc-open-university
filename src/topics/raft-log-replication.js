@@ -125,42 +125,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `Raft log replication is how a leader turns client commands into the same ordered history on several machines. Raft Leader Election chooses who may assign positions; replication proves which positions survive crashes. Each command becomes a log entry with an index and term. Followers append the leader's entries, and once a majority stores an entry, the leader can commit it and apply it to the state machine.`,
-        `The safety promise is subtle: a committed entry will appear in the logs of all future leaders. Majority overlap is the reason. If entry 57 is stored on 3 of 5 servers, any later leader also needs 3 votes, and those two sets overlap. Raft's voting rules require the new leader's log to be at least as up to date as voters' logs, so committed entries cannot be silently lost.`,
+        `Leader election chooses who may accept writes, but it does not by itself protect the writes. If the leader appends a client command locally and crashes before anyone else stores it, the command can disappear. A replicated system must decide when a command is durable enough to tell the client "done."`,
+        `Raft log replication solves that problem by turning client commands into an ordered log copied across a majority of servers. The log is the input to a deterministic state machine. If every server applies the same committed log entries in the same order, they end in the same state.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `Context`,
       paragraphs: [
-        `When a client sends a command, the leader appends it locally, then sends AppendEntries RPCs to followers in parallel. Each RPC includes the previous log index and term. A follower accepts the new entry only if its own previous slot matches; otherwise it rejects, and the leader decrements nextIndex for that follower until it finds the matching prefix. Some implementations optimize this catch-up, but the idea is simple: find the common prefix, delete the follower's conflicting suffix, then copy the leader's entries forward.`,
-        `The leader tracks matchIndex for every follower. When a log entry from the leader's current term is stored on a majority, the leader marks it committed and tells followers the commit index in later heartbeats. Older entries become committed as a consequence, but Raft deliberately avoids committing old-term entries by counting replicas alone. That rule prevents a newly elected leader from making unsafe assumptions about entries from previous terms.`,
+        `Raft is a consensus protocol for replicated state machines. One server is leader for a term. Followers accept log entries from that leader. Elections use majorities, and replication commits entries with majorities. The repeated majority intersection is the safety backbone of the protocol.`,
+        `The topic builds on Raft Leader Election and Write-Ahead Logs. Election explains who gets authority. The log explains what gets copied. Replication explains when copied commands become permanent enough to apply and acknowledge.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The obvious approach and the wall`,
       paragraphs: [
-        `After a client reaches the leader, commit latency is roughly one leader-to-majority round trip plus local disk durability if the implementation fsyncs before acknowledging. A three-node group tolerates one failure; a five-node group tolerates two, but every commit must wait for three replicas instead of two. Logs grow forever unless compacted. Snapshotting writes the current state machine image, records the last included index and term, then discards earlier log entries. Lagging followers may need a snapshot instead of millions of old entries.`,
+        `Acknowledging after the leader's local append is fast and unsafe. The only copy might be on a machine that dies. The next leader may never see it, so the system would have promised durability it did not have.`,
+        `Waiting for every follower is safe but too brittle. A three-node cluster would stop if one follower is slow. A five-node cluster would stop if any one of five is unreachable. Raft chooses the middle rule: wait for a majority, because a majority is enough to overlap with every future majority election.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Core insight`,
       paragraphs: [
-        `etcd uses Raft logs to replicate Kubernetes configuration. Consul replicates service catalog and key-value metadata. CockroachDB and TiKV run many Raft groups over ranges, combining consensus with Sharding & Partitioning so one database can scale across machines. The storage beneath a Raft log is still a Write-Ahead Log (WAL) or durable append path; consensus decides order, while the local engine ensures crash recovery.`,
+        `A log entry becomes committed when the leader knows a majority stores it. Majority is the threshold that makes the entry unavoidable for future leaders. In a three-node cluster, two copies are enough. In a five-node cluster, three copies are enough.`,
+        `Each entry has an index and a term. AppendEntries carries the previous log index and previous log term. A follower accepts the append only if that previous entry matches its own log. This small consistency check is what lets Raft repair divergent followers one suffix at a time.`,
+        `The invariant is that committed log prefixes never move backward. Followers may delete uncommitted suffixes, but once an entry is committed, future leaders must preserve it and state machines apply it in order.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Mechanism`,
       paragraphs: [
-        `Appended is not committed. A leader can crash after appending locally but before majority replication; the next leader may overwrite that entry, and the client must retry. Slow followers do not stop progress unless they are needed for a majority, but they do create operational debt: snapshots grow, catch-up traffic competes with live writes, and disk-full followers can fall permanently behind. Raft also does not use wall-clock time to order commands. The leader's log index is the order, so Distributed Tracing timestamps can disagree with commit order during retries.`,
-        `Raft is consensus, not a transaction protocol by itself. Two-Phase Commit (2PC) may still coordinate a distributed SQL transaction across many Raft groups. Message Queues may use replicated logs too, but they often expose at-least-once delivery rather than a single strongly consistent state machine.`,
+        `A client sends a command to the leader. The leader appends the command to its local log, sends AppendEntries RPCs to followers, and tracks each follower's matchIndex. When an entry from the leader's current term is stored on a majority, the leader advances commitIndex and applies committed entries to the state machine in order.`,
+        `If a follower rejects AppendEntries because the previous index and term do not match, the leader decreases that follower's nextIndex and tries an earlier prefix. Once the leader finds a shared prefix, the follower deletes its conflicting suffix and copies the leader's entries forward.`,
+      ],
+    },
+    {
+      heading: `Worked example`,
+      paragraphs: [
+        `In the steady scenario, S1 leads in term 2. It appends SET x=3 in slot 1, sends it to S2 and S3, and commits when a majority has it. Then S3 drops out. S1 can still commit SET y=7 with S2 because two out of three is a majority. When S3 returns, the previous-index and previous-term check lets it catch up from the last matching slot.`,
+        `In the crash scenario, S1 appends a slot 3 entry but crashes before a majority stores it. S2 becomes leader in term 3 and writes a different slot 3 entry. When S1 returns, its old uncommitted suffix is overwritten. That is safe because the client was never told the old slot 3 entry had committed.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `The majority argument is the main proof idea. A committed entry sits on some majority. A future leader must win votes from some majority. Those two majorities overlap in at least one server. Raft's voting rules require a candidate's log to be at least as up to date as the voter, so a leader missing committed history should not be elected.`,
+        `The log-matching property is the repair idea. If two logs contain the same term at the same index, Raft treats the prefix before that entry as the same history. The leader only extends followers from a matching prefix. Everything after a mismatch is uncommitted or stale follower history and can be replaced by the leader's log.`,
+      ],
+    },
+    {
+      heading: `Animation notes`,
+      paragraphs: [
+        `In the steady replication scenario, read each row as one server's log and each column as a log index. The highlight on slot 1 shows the moment a client command changes from "stored on the leader" to "committed by a majority." The later S3 catch-up frame teaches that a missing follower is debt, not permanent divergence.`,
+        `In the leader crash scenario, focus on slot 3. The t2 entry on S1 is only local, so it can be replaced. The t3 entry from S2 is the new leader's truth once it reaches a majority. The contrast is the main Raft lesson: committed entries survive leadership changes; uncommitted suffixes are allowed to vanish.`,
+      ],
+    },
+    {
+      heading: `Cost and tradeoffs`,
+      paragraphs: [
+        `After a client reaches the leader, commit latency is roughly one leader-to-majority round trip plus local durability work if the implementation persists before acknowledging. A three-node group waits for two copies and tolerates one failure. A five-node group waits for three copies and tolerates two failures.`,
+        `Slow followers do not stop progress unless they are needed for a majority, but they create catch-up debt. The leader must retain log history or snapshots long enough to repair them. Replication traffic, snapshot transfer, and disk pressure can become the real operating limits.`,
+      ],
+    },
+    {
+      heading: `Limits and failure modes`,
+      paragraphs: [
+        `Raft log replication gives one ordered state machine per consensus group. It does not automatically give multi-object SQL transactions across many groups. A database may still need Two-Phase Commit, transaction coordinators, timestamp ordering, or another layer above Raft when one user transaction spans several replicated ranges.`,
+        `Raft also assumes crash failures, not Byzantine behavior. If a server lies, signs conflicting messages, or corrupts state in adversarial ways, ordinary Raft is not the right protocol. Byzantine consensus protocols handle a different threat model at higher cost.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `The most common misunderstanding is confusing appended with committed. A leader can append an entry locally and lose it. Correct clients treat missing acknowledgements as uncertain and retry through the current leader. Correct systems make operations idempotent or attach client request IDs so retries do not double-apply work.`,
+        `Operational failures also matter. A follower can fall so far behind that log replay is too expensive and a snapshot is required. A disk-full server can stop accepting entries. A network partition without a majority must stop committing writes. Those behaviors are not bugs; they are the price of preserving safety.`,
+      ],
+    },
+    {
+      heading: `Practical use`,
+      paragraphs: [
+        `Raft log replication is a good fit for control-plane databases, metadata stores, configuration systems, lease records, and sharded storage ranges that need a clear ordered history. etcd uses Raft for Kubernetes state. Consul, TiKV, CockroachDB-style ranges, and many embedded systems use the same replicated-log pattern.`,
+        `When reading a production Raft incident, look for commitIndex, appliedIndex, matchIndex, nextIndex, currentTerm, leader changes, and snapshot progress. Those fields tell you whether the cluster is failing to elect, failing to replicate, failing to apply, or only paying catch-up debt.`,
+      ],
+    },
+    {
+      heading: `Implementation guidance`,
+      paragraphs: [
+        `Persist term, vote, and log entries before depending on them for safety. A follower that acknowledges an entry before durable storage can create a false majority if it crashes and loses the entry.`,
+        `Expose replication state directly: commitIndex, appliedIndex, matchIndex, nextIndex, snapshot index, and leader term. These fields let operators distinguish a leader election problem from a slow follower, an apply backlog, or snapshot catch-up.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Read Raft Leader Election first if the voting rules feel mysterious. Then connect Write-Ahead Log (WAL), CAP Theorem, and Sharding & Partitioning to understand durability, majority availability, and scale-out. LSM Trees (How Cassandra Writes) shows the local storage path many Raft-backed databases use, while Two-Phase Commit (2PC) explains how transactions can span multiple replicated groups.`,
+        `Primary source: Ongaro and Ousterhout, "In Search of an Understandable Consensus Algorithm" at https://raft.github.io/raft.pdf. Study Raft Leader Election first if voting rules feel mysterious. Then connect Write-Ahead Log, CAP Theorem, Sharding and Partitioning, Two-Phase Commit, Log Compaction, LSM Trees, and etcd-style membership changes next.`,
       ],
     },
   ],

@@ -214,44 +214,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why This Exists`,
       paragraphs: [
-        'A wavelet matrix is a compact index over an integer sequence. Like a Wavelet Tree, it represents values by walking bit decisions and supports access, rank, select, range quantile, range counting, predecessor, and successor-style queries. Unlike the tree layout, it stores flat bitvectors level by level and records where the zero bucket ends at each level.',
-        'The structure is especially useful when the alphabet is a large integer universe. A pointer-heavy tree is awkward there. The matrix layout uses stable partitions by bit, so the query logic remains rank arithmetic over arrays.',
+        `A wavelet matrix is for static sequences where queries care about both position and value order. Given an array of numbers, the system may need the kth smallest value in a subrange, the count of a value before an index, the predecessor inside a window, or an exact percentile over a time slice.`,
+        `The structure exists because these are not simple prefix-sum questions. The query range is positional, but the answer is ordered by value. A wavelet matrix keeps enough information about both dimensions to answer exact range-order queries without sorting the requested window.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `Naive Baseline`,
       paragraphs: [
-        'Build from the most significant bit to the least significant bit. At a level, write one bit per value. Then stably partition the current order so all values with bit 0 come first and values with bit 1 come after them. Store the number of zeroes for that level. Continue on the new order at the next bit.',
-        'To remap an interval [l, r) into the next level, use rank on the level bitvector. The zero child interval is [rank0(l), rank0(r)). The one child interval is [zeroCount + rank1(l), zeroCount + rank1(r)). A query chooses which interval to keep based on the operation.',
+        `The baseline for a range quantile query is to copy A[l..r), sort it, and read the kth item. That is easy and exact, but it costs O(m log m) for a window of length m. Repeated percentile-style queries over large static arrays become too expensive.`,
+        `A Fenwick tree or segment tree solves different problems, such as sums or counts over positions. A merge-sort tree can answer some range-order questions by storing sorted lists at nodes, but it uses heavier nested arrays and usually has worse locality than a flat bit-level representation.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `The Wall`,
       paragraphs: [
-        'For sigma possible values, most operations take O(log sigma) rank steps, or O(w) for w-bit integers. Space is n times the number of levels, plus rank/select support over each bitvector. In practice, the flat layout often has better locality than recursive node structures.',
-        'Compared with Merge-Sort Tree Range Counting, a wavelet matrix is more specialized but can answer range quantile and rank-like questions directly. The merge-sort tree is often easier to explain; the wavelet matrix is usually the cleaner static sequence index once rank/select machinery is available.',
+        `The wall is that the query has two coordinates. The interval [l, r) is about original positions. The kth smallest decision is about value order. A sorted copy of the whole array loses the original range. The original array keeps the range but gives no fast way to count how many values in that range fall below a candidate value.`,
+        `A good structure needs to narrow the position interval and the value interval together, one decision at a time, while keeping the data compact enough for large static arrays.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: `Core Insight`,
       paragraphs: [
-        'Imagine a static time-ordered array of request latencies. A dashboard asks for p50, p95, and p99 over arbitrary windows. Sorting each window is too slow, and a Fenwick Tree only aggregates sums. A wavelet matrix treats the latency array as an indexed sequence and answers kth-value queries by deciding one answer bit per level.',
-        'The same pattern works for event severities, product prices, compressed IDs, and any numeric sequence where the data is mostly static and queries are value-rank questions inside index ranges. For high-update workloads, use a dynamic structure or batch rebuilds instead.',
+        `Represent values by bits from most significant to least significant. At each level, write a bitvector for the current bit of every value in the current order, then stably partition the values so all 0-bit values come before all 1-bit values. Store zeroCount, the boundary where the 1 bucket begins.`,
+        `The invariant is stable interval remapping. rank0 and rank1 on the level bitvector tell how many items from [l, r) go to the zero bucket and one bucket. Because the partition is stable, the mapped interval at the next level represents exactly the same original elements, filtered by the bit choices made so far.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'A wavelet matrix is not a sketch. It gives exact answers for the indexed sequence. It also does not remove the need for rank/select bitvectors; those are the engine. Another trap is assuming it is always better than a Wavelet Tree. For small alphabets or teaching recursive decomposition, the tree can be clearer.',
-        'Coordinate compression is often used before building the matrix, but compression must preserve value order if range quantile, predecessor, and successor queries matter. Hashing values destroys the ordering that the bit-level walk is trying to exploit.',
+        `In the "bit levels" view, the graph shows the build rule: input values go through bit 2, zeros are placed before ones, then the next bit level repeats the process. The table for 3 1 4 1 5 0 2 6 is the concrete artifact: three bitvectors plus zero counts 5, 5, and 4.`,
+        `In the "range quantile" view, watch the interval rather than individual values. The frame for "3rd smallest in range [1,7)" chooses one answer bit per level. At each level, the zero-count inside the current interval decides whether k stays in the zero bucket or moves into the one bucket with k reduced by the number of zeros skipped.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Mechanics`,
       paragraphs: [
-        'Primary sources: Claude and Navarro, The Wavelet Matrix, at https://users.dcc.uchile.cl/~gnavarro/ps/spire12.4.pdf, Navarro, Wavelet Trees for All, at https://users.dcc.uchile.cl/~gnavarro/ps/cpm12.pdf, and Grossi, Gupta, and Vitter text indexing experiments at https://www.ittc.ku.edu/~jsv/Papers/FGGV06.TextindexingExperimentsJournal.pdf. Study Wavelet Tree, Rank/Select Bitvector, Merge-Sort Tree Range Counting, Elias-Fano Encoding, and FM-Index & Burrows-Wheeler Transform next.',
+        `Construction starts with the original array order. For each bit level, write the bit for every value in the current order. Then produce the next order by appending all values with bit 0, followed by all values with bit 1, preserving relative order inside each group. Store the count of zero-bit values for that level.`,
+        `To remap [l, r) through a level, the zero side becomes [rank0(l), rank0(r)). The one side becomes [zeroCount + rank1(l), zeroCount + rank1(r)). These formulas are the matrix replacement for following left and right child pointers in a wavelet tree.`,
+        `For quantile, compute zeros = rank0(r) - rank0(l). If k is at most zeros, the next answer bit is 0 and the interval remaps to the zero side. Otherwise the next answer bit is 1, k decreases by zeros, and the interval remaps to the one side.`,
+      ],
+    },
+    {
+      heading: `Correctness`,
+      paragraphs: [
+        `At the most significant bit, every value with bit 0 is smaller than every value with bit 1 among values that share the same higher prefix. Therefore the kth smallest value must be in the zero bucket if the current interval contains at least k zero-bit values; otherwise it must be in the one bucket.`,
+        `After choosing a bucket, stable partitioning keeps exactly the candidate elements in a contiguous interval at the next level. The same argument repeats for the next bit. After all levels, the chosen bits form the unique value whose order position was requested.`,
+      ],
+    },
+    {
+      heading: `Cost and Tradeoffs`,
+      paragraphs: [
+        `For a value universe of size sigma, operations take O(log sigma) rank steps. For fixed-width integers, this is O(w), where w is the number of bits used after coordinate compression or normalization. Space is one bitvector per level plus rank support and zero counts.`,
+        `The matrix layout avoids explicit recursive nodes and is often cache-friendly because each level is a flat bitvector. The tradeoff is static construction, rank/select dependency, and a cost proportional to bit width. If values are huge but few distinct values appear, coordinate compression can reduce levels, but it must preserve order.`,
+      ],
+    },
+    {
+      heading: `Worked Example`,
+      paragraphs: [
+        `Use the animation's sequence 3 1 4 1 5 0 2 6 and ask for the 3rd smallest value in range [1,7). The raw window is 1, 4, 1, 5, 0, 2. Sorted, it is 0, 1, 1, 2, 4, 5, so the answer is 1 when k is 3 using one-based k.`,
+        `The wavelet matrix reaches that answer without extracting and sorting the window. At bit 2, the current interval has enough zero-bit values, so the answer's high bit is 0. At bit 1, the interval again has enough zero-bit values, so the next bit is 0. At bit 0, the kth item falls in the one bucket, so the low bit is 1. The chosen bits 001 give value 1.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `Wavelet matrices win for static numeric arrays with many range-order queries: latency percentiles, event severity windows, document metadata, product prices, compressed ids, spatial grids, and text-index internals. They are exact, compact, and especially useful when rank/select machinery is already available.`,
+        `They also support more than quantile. Access, rank of a value, range count, predecessor, successor, and top-k style routines can be built from the same level walks, although each operation has its own edge cases.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `A wavelet matrix is not a streaming sketch and not a cheap mutable array. Updates can affect every lower level's order, so frequent edits usually call for batching, rebuilding, or a dynamic variant.`,
+        `It is also not always the simplest choice. Small alphabets may be easier to teach or implement with a wavelet tree. Approximate percentile systems may prefer sketches. If coordinate compression does not preserve value order, quantile and predecessor queries become wrong. Hashing values before indexing destroys the ordering the bit walk depends on.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Study Rank/Select Bitvector first, because every level walk relies on rank. Study Wavelet Tree to understand the recursive version of the same idea. Then compare Merge-Sort Tree Range Counting, Elias-Fano Encoding, and FM-Index with Burrows-Wheeler Transform to see where range-order and rank/select ideas reappear.`,
+        `Useful references include Claude and Navarro, The Wavelet Matrix, at https://users.dcc.uchile.cl/~gnavarro/ps/spire12.4.pdf, Navarro, Wavelet Trees for All, at https://users.dcc.uchile.cl/~gnavarro/ps/cpm12.pdf, and Grossi, Gupta, and Vitter text indexing experiments at https://www.ittc.ku.edu/~jsv/Papers/FGGV06.TextindexingExperimentsJournal.pdf.`,
       ],
     },
   ],

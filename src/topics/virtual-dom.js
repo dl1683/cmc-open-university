@@ -32,7 +32,7 @@ function* rerender() {
   yield {
     state: tree(OLD_TREE),
     highlight: {},
-    explanation: 'The framework idea that conquered frontend: UI = f(state). Instead of hand-editing the page when state changes, you re-describe the WHOLE interface as a tree of cheap JavaScript objects — a virtual DOM — and let the library figure out what changed. Here is the current virtual tree of a todo app: a header, a two-item list, an Add button. Real DOM nodes are heavyweight (each mutation can trigger the layout and paint work from How a Browser Paints a Page); these JS objects cost nanoseconds. The state is about to change: a third todo arrives, and the button becomes a link.',
+    explanation: 'The core bargain is UI = f(state). On a state change, the framework rebuilds a cheap JavaScript description of the whole UI, then compares it with the previous description before touching the real DOM. The todo tree starts with a header, two rows, and an Add button; the next state will add a row and change the button type.',
   };
 
   const NEW_TREE = [
@@ -48,7 +48,7 @@ function* rerender() {
   yield {
     state: tree(NEW_TREE, { app: 'active' }),
     highlight: { active: ['app'] },
-    explanation: 'Render runs again and produces a brand-new tree — note it describes the ENTIRE UI, not a delta. Reconciliation now walks both trees together from the root. First comparison: old <App> vs new <App>. Same type → KEEP the real DOM node, update its props if needed, and descend into the children. Reuse is the default; the algorithm only does real work where the trees disagree.',
+    explanation: 'Render produces a fresh tree, not a patch. Reconciliation starts at the root: old <App> and new <App> have the same type, so the real node can be reused while props and children are checked.',
   };
 
   yield {
@@ -66,14 +66,14 @@ function* rerender() {
   yield {
     state: tree(NEW_TREE, { btnNew: 'active' }),
     highlight: { removed: ['btnNew'] },
-    explanation: 'Old <button> vs new <a>: DIFFERENT type. Here reconciliation refuses to be clever: it does not check whether the children look similar — it unmounts the button (destroying its subtree and any component state inside) and builds the <a> from scratch. This is the famous React heuristic: different type ⇒ different subtree, full stop. It is occasionally wasteful, but it turns the O(n³) optimal tree-diff problem (a cousin of Edit Distance) into a single linear pass — the bet is that real UIs almost never morph one tag into another while keeping the same children.',
+    explanation: 'Old <button> and new <a> have different types, so the heuristic replaces the subtree instead of trying a costly optimal tree edit. That can be wasteful, but it keeps common UI diffs linear rather than solving an expensive general problem on every update.',
     invariant: 'Same type → diff in place; different type → replace the whole subtree. One pass, O(n).',
   };
 
   yield {
     state: arrayState(['setText(h1, "Todos (3)")', 'createElement(li) + append', 'replace(button → a)']),
     highlight: { found: ['i0', 'i1', 'i2'] },
-    explanation: 'The diff is done and this is its entire output: THREE real-DOM operations, for a tree of seven nodes, batched and flushed together (so layout runs once, not three times — the batching discipline from the layout-thrash lesson). That is the whole trade: spend cheap JS rebuilding the description, save expensive DOM by editing only the difference. The virtual DOM is not faster than careful hand-written mutations — it is faster than the naive rebuild, while letting you WRITE code as if you rebuilt everything.',
+    explanation: 'The diff emits only three real-DOM operations: update the header text, append one row, and replace the button with a link. The lesson is not that virtual DOM beats perfect manual DOM; it beats naive full rebuilds while preserving a declarative programming model.',
   };
 }
 
@@ -87,7 +87,7 @@ function* keyedList() {
   yield {
     state: tree(OLD),
     highlight: { visited: ['r1'] },
-    explanation: 'The stress test for any diff: a LIST. Three todos, and notice "Walk dog" is checked — that checkmark lives in the real DOM row. Now the user adds "Pay rent" at the TOP of the list. A human sees one insertion. What does the index-based diff see?',
+    explanation: 'Lists are where identity matters. "Walk dog" is checked, and that checkmark lives in the existing DOM row. When a new item is inserted at the top, the animation asks whether the diff tracks rows by position or by stable identity.',
   };
 
   const NEW_UNKEYED = [
@@ -100,7 +100,7 @@ function* keyedList() {
   yield {
     state: tree(NEW_UNKEYED, { r0: 'active' }),
     highlight: { compare: ['r0', 'r1', 'r2'], active: ['r3'] },
-    explanation: 'Without keys, children are matched BY POSITION: row 0 vs row 0, row 1 vs row 1… So the diff concludes: row 0 changed "Buy milk"→"Pay rent" (patch), row 1 changed "Walk dog"→"Buy milk" (patch), row 2 changed "Ship code"→"Walk dog" (patch), and one new row appended. FOUR mutations for one insertion — every row rewritten. Worse: the CHECKMARK did not move! It belongs to the real DOM row at index 1, which now displays "Buy milk". The user checked off walking the dog and the UI just checked off buying milk. This index-matching bug corrupts checkboxes, input text, focus, and scroll positions in every framework.',
+    explanation: 'Without keys, rows are matched by position. One front insertion looks like several text changes plus an append, and DOM state such as checkbox value, focus, or input text can stay on the wrong row.',
   };
 
   const NEW_KEYED = [
@@ -113,7 +113,7 @@ function* keyedList() {
   yield {
     state: tree(NEW_KEYED, { kRent: 'active' }),
     highlight: { found: ['kRent'], visited: ['kMilk', 'kDog', 'kShip'] },
-    explanation: 'Now give each row a KEY — a stable identity like the todo\'s database id. The diff matches children by key instead of position: milk, dog, and ship all find their old selves and are MOVED (or left alone), checkmark and all; only key=rent has no match → one createElement, one insert. One mutation instead of four, and state stays glued to the right row. A key converts "the third <li>" into "THE walk-the-dog row" — position into identity.',
+    explanation: 'Stable keys turn positions into identities. The diff can match milk, dog, and ship to their previous rows wherever they move, then create only the new rent row. DOM state stays attached to the item, not the index.',
     invariant: 'Keys give list items identity across renders: matched by key, not by index.',
   };
 
@@ -126,7 +126,7 @@ function* keyedList() {
       format: (v) => (v === 0 ? 'NO' : v === 2 ? 'YES' : String(v)),
     }),
     highlight: { found: ['keyed:ops', 'keyed:state'], removed: ['indexkey:state'] },
-    explanation: 'The scorecard — and one last trap in the bottom row: key={index} feels like a fix but is EXACTLY the no-key behavior with extra steps, since the index IS the position. Keys must be stable across renders (database ids, slugs), never array positions, never Math.random(). This whole machine — render, diff, batched patch — runs inside one event-loop task (see The Event Loop), which is why a slow diff blocks clicks: the virtual DOM saves DOM work, not CPU work. Svelte and SolidJS skip the diff entirely by compiling state changes into direct mutations — the pendulum swings, but the identity lesson keys taught remains in every framework.',
+    explanation: 'The scorecard shows why key={index} is not a fix for reorderable lists: the key still changes with position. Random keys are worse because they force remounts. Reconciliation runs inside an event-loop task, so a slow diff can still block input; keys fix identity, not all CPU cost.',
   };
 }
 
@@ -140,41 +140,85 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Virtual DOM Reconciliation is a bargain: describe the whole UI as cheap JavaScript objects, compare the old and new trees, then mutate the real DOM only where needed. The visualization starts with a todo app. State changes from two items to three, and a button becomes a link. The virtual tree is rebuilt completely, but the browser receives only three real mutations. That matters because How a Browser Paints a Page makes real DOM changes expensive once they trigger style, layout, paint, and composite.`,
+        'Virtual DOM reconciliation exists because application state changes often, but direct DOM work is expensive and hard to reason about at scale. A framework wants developers to describe what the UI should look like after each state change, then compute the smallest practical set of browser mutations.',
+        'The bargain is simple: rebuild a cheap JavaScript tree, compare it to the previous tree, and patch the real DOM only where needed. This preserves a declarative programming model without naively replacing the whole page on every click.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The naive approach',
       paragraphs: [
-        `The algorithm has three passes: render, diff, patch. Render produces a new tree. Diff walks old and new side by side, a Tree Traversals problem with a practical heuristic: same type means reuse the node and compare props; different type means replace the subtree. That heuristic avoids the general tree-edit problem behind Edit Distance (DP Table), which is too expensive for every click.`,
-        `Lists need identity. Without keys, children are matched by position, so inserting "Pay rent" at the top looks like every row changed. Worse, real DOM state such as a checked box can stay attached to the wrong row. With stable keys, usually looked up through a Hash Table, the diff matches "dog" to the old dog row wherever it moved. One insertion becomes one insertion, and state stays with the correct item.`,
+        'The most obvious approach is to imperatively update DOM nodes by hand. That can be fast for a small widget, but it spreads UI logic across event handlers. As the app grows, state transitions, conditional views, and partial updates become difficult to keep consistent.',
+        'The other naive approach is to re-render the real DOM from scratch. That is simple, but it throws away nodes, focus, scroll positions, input state, media state, and component-local state. It also forces the browser through style, layout, paint, and composite work that may not have been necessary.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The core idea',
       paragraphs: [
-        `Rendering the virtual tree is O(n), diffing with the usual heuristics is O(n), and patching is O(p), where p is the number of real DOM changes. The important cost is not just asymptotic. Render, diff, and patch run inside one task on The Event Loop, so a 40 ms diff can block input and miss frames. Big-O Growth Rates explains the curve; frame budgets explain why constants still hurt.`,
+        'The virtual tree is a value representation of the UI. It can be created, compared, discarded, and recreated much more cheaply than real DOM nodes. On each state change, render produces a complete new description. Reconciliation turns old description plus new description into a patch list.',
+        'That patch list is the real output of the algorithm. It might say to set header text, append one list item, replace a button with a link, or update props. The framework still renders conceptually from scratch, but it commits only the necessary real DOM changes.',
+        'This separation also improves reasoning. Components can describe the next screen from state, while the reconciler owns the messy question of which old nodes can survive. That does not remove all complexity, but it moves mutation logic into one consistent system.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'The diff heuristic',
       paragraphs: [
-        `React and Preact popularized this model, and Vue uses a related virtual-node system. The appeal is declarative UI: write a render function of state, let reconciliation choose the mutations. Frameworks that compile fine-grained updates, such as Svelte or Solid, avoid much of the runtime diff, but they keep the same lesson about identity, batching, and minimal real DOM work.`,
-        `The identity part is not cosmetic. Inputs, focus, media playback, scroll position, animation state, and component-local state all live outside the text you render. Stable keys tell the framework which old real node should survive under a new description. Without them, a list can look visually close while silently moving state to the wrong row.`,
+        'General tree edit distance is too expensive to solve for every UI update. Frameworks use practical heuristics instead. The most important rule is type identity: if the old node and new node have the same type, reuse the real node and compare props and children. If the type changes, replace the subtree.',
+        'This makes common UI updates linear in the number of visited nodes. It is not mathematically optimal, and it does not try to understand semantic intent. It is a fast rule that matches how UI trees usually change: most nodes keep their type, and only a few props or children differ.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Lists need identity',
       paragraphs: [
-        `Virtual DOM is not automatically faster than hand-written DOM code. It is faster than naive full rebuilds while making code easier to reason about. Large virtual trees still cost CPU. key={index} is not a stable key when items can move; it preserves position, not identity. Random keys are worse because they force remounts every render. Memoization (Dynamic Programming) can help cache derived view data, but it does not remove the cost of reconciling nodes that really changed. The right fix depends on the measured bottleneck.`,
+        'Lists are the hardest everyday case because position is not identity. If a new row is inserted at the front and children are matched only by index, the diff may treat every old row as changed text. Worse, the real DOM state for a checkbox or input can stay attached to the wrong logical item.',
+        'Stable keys solve that identity problem. A key tells the diff that the dog row is still the dog row even if it moved from index one to index two. A database id, immutable slug, or durable client-generated id is a useful key. An array index is not stable when items can move.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'What the visual proves',
       paragraphs: [
-        `Study Tree Traversals for the dual walk, Edit Distance (DP Table) for the harder general diff problem, and The Event Loop for why slow reconciliation blocks clicks. React Fiber Scheduler Case Study shows how React turns reconciliation into schedulable units of work. React Suspense Resource Cache shows the loading boundary and resource-cache layer around the tree. Signals Reactivity Dependency Graph shows the fine-grained alternative to whole-subtree diffing, and UI State Machine Workflow shows how eventful screens avoid boolean soup. How a Browser Paints a Page shows why batched patches are valuable. Dirty Rectangle Damage Tracking shows how committed DOM changes become bounded repaint work. Hash Table, Memoization (Dynamic Programming), and LRU Cache round out the identity and caching patterns that make large interfaces tractable.`,
+        'The re-render view shows a full new tree after the todo state changes. The framework does not ask the developer for an update command. It derives the command by comparing the old and new descriptions. Same h1 type with different text becomes a setText patch. A new li with no old partner becomes an append patch.',
+        'The keyed-list view proves why identity must survive movement. Without stable keys, a front insertion looks like several row rewrites plus an append. With stable keys, existing rows can be matched to their old real nodes. The visual checkbox is a reminder that real DOM state is more than rendered text.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Virtual DOM works because most UI changes are small relative to the whole tree. A render can be declarative and broad, while the commit can be narrow. The diff bridges those two facts by using structural similarity between consecutive trees.',
+        'Keys add the missing information that tree position cannot provide. They turn a child array from pure order into a set of identities plus order. A hash table or similar lookup can match old keyed children to new keyed children, then move, insert, or remove the real nodes with less confusion.',
+        'Without that identity layer, the algorithm can be fast and still preserve the wrong real node.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Render, diff, and patch are still work. A large tree can cost CPU even if the final DOM patch is small. The work often runs inside an event-loop task, so a slow reconciliation can block input, delay paint, and make an app feel sticky.',
+        'Virtual DOM is also not automatically faster than careful manual DOM code or fine-grained compiled reactivity. Its advantage is the combination of reasonable performance and a simple mental model. Frameworks such as Svelte and Solid reduce runtime diffing, but they still depend on identity, batching, and minimal DOM commitment.',
+        'Modern frameworks add scheduling and memoization to control these costs. React Fiber can split work into units, memoized components can skip rendering when inputs are unchanged, and list virtualization can avoid building thousands of offscreen rows. These are optimizations around the reconciliation model, not replacements for correct identity.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Virtual DOM wins in applications with many state transitions, conditional views, component composition, and teams that need predictable UI code. React and Preact popularized the model, and Vue uses related virtual-node machinery. The pattern lets developers write UI as a function of state instead of hand-maintaining every mutation path.',
+        'It is especially useful when the same state change affects several parts of the UI. The framework can batch work, run render functions, compare the resulting tree, and commit updates together. That reduces intermediate inconsistent states and makes user interfaces easier to test.',
+        'The model also gives tooling a stable shape to inspect. Devtools, profilers, component boundaries, and hydration diagnostics all benefit from an explicit tree that represents the intended UI.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Bad keys are the classic failure. key={index} preserves position, not identity, so it breaks when rows reorder, filter, or insert near the front. Random keys are worse because they force remounts on every render, destroying state and throwing away useful DOM nodes.',
+        'Performance failures also happen when components re-render too often, derived data is recomputed unnecessarily, huge lists are not virtualized, layout thrashing happens during commit, or effects mutate DOM outside the framework. The right fix starts with measurement, not with assuming reconciliation is the only bottleneck.',
+        'Correctness failures can be subtle. A form may keep the wrong typed value after a reorder, focus may jump to another row, or an animation may restart because a component remounted. These are identity bugs first and rendering bugs second. The UI can look close while the user state is wrong.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Tree Traversals for the paired walk, Edit Distance (DP Table) for the harder general diff problem, Hash Table for keyed child matching, and The Event Loop for why long render or commit work blocks interaction.',
+        'Then study React Fiber Scheduler Case Study for interruptible work, Signals Reactivity Dependency Graph for fine-grained alternatives, UI State Machine Workflow for state clarity, How a Browser Paints a Page for DOM costs, and Dirty Rectangle Damage Tracking for bounded repaint thinking.',
       ],
     },
   ],

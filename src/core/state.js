@@ -1,5 +1,5 @@
 // Shared input parsing, state snapshots, and the step contract.
-// Pure module — no DOM access — so Node tests can import everything here.
+// Pure module: no DOM access, so visualizations can share validation logic.
 //
 // Every topic is a generator that yields step objects:
 //   { state, highlight, explanation, invariant? }

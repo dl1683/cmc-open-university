@@ -76,7 +76,7 @@ function* horizonRollout() {
   yield {
     state: mpcGraph('MPC solves a short future, then repeats'),
     highlight: { active: ['estimate', 'ref', 'model', 'horizon', 'qp', 'u0', 'plant', 'e-est-horizon', 'e-ref-horizon', 'e-model-horizon', 'e-horizon-qp', 'e-qp-u0', 'e-u0-plant'], found: ['warm'] },
-    explanation: 'Model predictive control uses the current state and a vehicle model to predict a finite future horizon, solve for the best control sequence, apply only the first command, then repeat on the next cycle.',
+    explanation: 'MPC turns one control tick into a short optimization problem. The solver predicts a finite future with the current state and vehicle model, chooses a command sequence, executes only u0, then throws the rest back into the next cycle as context.',
     invariant: 'The optimized sequence is a plan; only the first control is executed before replanning.',
   };
 
@@ -103,19 +103,19 @@ function* horizonRollout() {
       ],
     ),
     highlight: { active: ['k0:ctrl', 'k0:bound'], found: ['k1:state', 'k2:state'] },
-    explanation: 'The horizon is a structured buffer: predicted states, reference points, control variables, and constraints at each time step.',
+    explanation: 'The horizon table is the controller memory for one solve. Each column binds predicted state, reference point, control variable, and constraint so the optimizer can trade tracking, smoothness, and limits at the same time step.',
   };
 
   yield {
     state: mpcGraph('Warm starts shift the previous solution'),
     highlight: { active: ['qp', 'warm', 'e-qp-warm', 'e-warm-qp'], found: ['constraints'], compare: ['plant'] },
-    explanation: 'The next optimization can start from the previous control sequence shifted forward. Warm starts reduce solve time and smooth commands when the world changes gradually.',
+    explanation: 'The warm-start edge reuses yesterday\'s plan for today\'s solve. Shifting the previous sequence gives the optimizer a good first guess, which reduces latency and avoids command jumps when the world changes gradually.',
   };
 
   yield {
     state: controlPlot(),
     highlight: { active: ['new', 'apply'], compare: ['prev'] },
-    explanation: 'The first control is applied now; the rest is only a forecast. On the next cycle, new state, path, and obstacle information can change the whole planned sequence.',
+    explanation: 'The marker at step zero is the only control that reaches the robot. Every later point is provisional, so the next state estimate, path update, or obstacle can reshape the whole remaining sequence.',
   };
 }
 
@@ -141,13 +141,13 @@ function* qpLedger() {
       ],
     ),
     highlight: { active: ['obj:stores', 'dyn:stores', 'bounds:stores'], found: ['status:debug'] },
-    explanation: 'A controller should log the optimization problem, not just the output command. Objectives, dynamics, constraints, status, iterations, and solve time explain behavior.',
+    explanation: 'The ledger logs the problem, not just the answer. Objectives, dynamics, constraints, status, iterations, and solve time are the evidence needed to tell a good control choice from a lucky fallback.',
   };
 
   yield {
     state: mpcGraph('Constraints turn control into safe optimization'),
     highlight: { active: ['constraints', 'qp', 'u0', 'e-constraints-qp', 'e-qp-u0'], compare: ['ref'] },
-    explanation: 'MPC can encode steering limits, acceleration limits, jerk penalties, lateral error bounds, velocity limits, and obstacle-related constraints in the same horizon.',
+    explanation: 'Constraints are the reason MPC exists here. Steering limits, acceleration limits, jerk penalties, lateral error bounds, velocity limits, and obstacle margins can all shape the same planned sequence before u0 is chosen.',
   };
 
   yield {
@@ -171,7 +171,7 @@ function* qpLedger() {
       ],
     ),
     highlight: { active: ['solve:result', 'cmd:result'], found: ['path:result'] },
-    explanation: 'On a lane bend, the MPC sees curvature ahead and begins steering smoothly before pure cross-track error becomes large. The command is proactive because the horizon contains future reference points.',
+    explanation: 'The lane-bend case shows foresight. Because the horizon already contains future curvature, MPC can begin a smooth turn before cross-track error becomes large.',
   };
 
   yield {
@@ -195,7 +195,7 @@ function* qpLedger() {
       ],
     ),
     highlight: { active: ['late:symptom', 'infeas:symptom'], found: ['late:fix', 'jerk:fix'] },
-    explanation: 'MPC failures are often solver and model failures: too slow, infeasible, badly weighted, or built on a model that no longer matches the vehicle.',
+    explanation: 'The failure rows name the usual tax. MPC can be too slow, infeasible, badly weighted, or built on a vehicle model that no longer matches the real plant.',
   };
 }
 
@@ -213,11 +213,94 @@ export const article = {
     { title: 'do-mpc Theory', url: 'https://www.do-mpc.com/en/latest/theory_mpc.html' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['Model predictive control, or MPC, is a receding-horizon controller. It predicts future states with a model, solves a constrained optimization problem, applies the first control, then repeats with fresh state.', 'For robot and vehicle path tracking, MPC is useful because it can reason about future curvature, steering limits, acceleration limits, smoothness, and tracking error in one horizon.'] },
-    { heading: 'How it works', paragraphs: ['At each control cycle, estimate the current state, select reference path points across the horizon, linearize or apply a vehicle model, build objectives and constraints, solve a QP or nonlinear program, apply the first command, and shift the solution as the next warm start.', 'Autoware documents a linear MPC lateral controller whose optimization is formulated as a Quadratic Program: https://autowarefoundation.github.io/autoware_universe/main/control/autoware_mpc_lateral_controller/. Its MPC algorithm note describes solving an optimization problem during each control cycle and using the resulting command sequence to control the system: https://autowarefoundation.github.io/autoware.universe_planning/pr-5583/control/mpc_lateral_controller/model_predictive_control_algorithm/.'] },
-    { heading: 'Complete case study', paragraphs: ['An autonomous vehicle approaches a lane bend. Pure pursuit reacts to a lookahead point. MPC sees several path points ahead, predicts where the vehicle will be after each steering command, penalizes large steering changes, respects steering bounds, and begins a smooth turn before cross-track error grows.', 'If the QP is solved in 8 ms and the control cycle is 30 ms, the controller has budget. If it sometimes takes 45 ms, the command arrives late and the car tracks stale state. Solver latency belongs in the control ledger.'] },
-    { heading: 'Data structures', paragraphs: ['The controller stores state vector, covariance or state quality, reference horizon, vehicle-model matrices, objective weights, constraint bounds, previous solution, solver status, iteration count, solve time, selected command, and fallback command.', 'The QP ledger is the debugging object. It tells whether the car turned because the path demanded it, because weights favored smoothness, because constraints bound the solution, or because the solver failed and fallback took over. The do-mpc theory guide gives the general receding-horizon framing: https://www.do-mpc.com/en/latest/theory_mpc.html.'] },
-    { heading: 'Pitfalls', paragraphs: ['A longer horizon can improve foresight but increase solve time and model error. Hard constraints can make the problem infeasible. Soft constraints improve robustness but must be penalized clearly. Bad vehicle parameters turn a mathematically clean QP into wrong motion.', 'Do not hide solver failures. Log infeasible status, max-iteration exits, stale state, warm-start resets, and fallback commands.'] },
-    { heading: 'Study next', paragraphs: ['Study Pure Pursuit Lookahead Path Tracking, DWB Velocity Lattice Trajectory Critic, Kalman Filter Sensor Fusion, RRT* Motion Planning Tree, Nav2 Costmap Inflation Layer, and Value Iteration next.'] },
+    {
+      heading: 'What it is',
+      paragraphs: [
+        'Model predictive control, or MPC, is a receding-horizon controller. It predicts future states with a model, solves a constrained optimization problem over a short horizon, applies only the first control, then repeats with fresh state at the next control tick.',
+        'For robot and vehicle path tracking, MPC is useful because it can reason about future curvature, steering limits, acceleration limits, smoothness, tracking error, and actuator bounds in one problem. Pure pursuit chooses a target point. MPC chooses a feasible sequence and then trusts only the first command.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious path tracker reacts to the current error: steer toward the path when lateral error grows, slow down when the turn looks sharp, and clamp commands when limits are exceeded. That can work at low speed, but it is always reacting after the state has already changed.',
+        'The wall is foresight. A vehicle entering a bend needs to start turning before cross-track error becomes large. It must also avoid commands that would violate steering rate, acceleration, comfort, or tire limits a few steps later. MPC turns those future consequences into the current optimization problem.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is to solve a temporary proof of feasibility. The solver proposes a sequence of future controls and states that track the reference while respecting dynamics and constraints. The controller executes only the first command because the world will be measured again before the next command is chosen.',
+        'That receding-horizon structure is the algorithm. MPC is not a precomputed route. It is repeated model-based replanning under time budget. The horizon gives foresight; feedback keeps the plan from becoming stale.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'Inspect MPC as three ledgers: state, optimization, and command. The state ledger says what the controller believes now. The optimization ledger says which model, weights, constraints, status, solve time, and active bounds produced the solution. The command ledger says what was applied and whether it came from the solver or fallback.',
+        'Solver status is as important as the command value. A smooth steering command is useful only if it came from a feasible, timely solve over fresh state. If the solve missed the control deadline, hit max iterations, or used stale localization, the command belongs to a fallback story, not an optimal-control story.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'At each control cycle, estimate the current state, select reference path points across the horizon, linearize or apply a vehicle model, build objectives and constraints, solve a quadratic program or nonlinear program, apply the first command, and shift the solution as the next warm start.',
+        'Autoware documents a linear MPC lateral controller whose optimization is formulated as a Quadratic Program: https://autowarefoundation.github.io/autoware_universe/main/control/autoware_mpc_lateral_controller/. Its MPC algorithm note describes solving an optimization problem during each control cycle and using the resulting command sequence to control the system: https://autowarefoundation.github.io/autoware.universe_planning/pr-5583/control/mpc_lateral_controller/model_predictive_control_algorithm/.',
+        'The do-mpc theory guide gives the general receding-horizon framing: https://www.do-mpc.com/en/latest/theory_mpc.html. The practical lesson is that the model, objective, constraints, horizon length, and solver budget are all part of the controller, not implementation details.',
+      ],
+    },
+    {
+      heading: 'Data structures',
+      paragraphs: [
+        'The controller stores state vector, state quality, reference horizon, vehicle-model matrices, objective weights, constraint bounds, previous solution, solver status, iteration count, solve time, selected command, and fallback command. Those fields are the control-plane equivalent of a trace.',
+        'The QP ledger is the debugging object. It tells whether the car turned because the path demanded it, because weights favored smoothness, because constraints bound the solution, or because the solver failed and fallback took over. Without that ledger, MPC becomes an opaque box that emits steering numbers.',
+        'The reference horizon is itself a data structure. It aligns future path poses, speeds, curvature, and time offsets with predicted vehicle states. If the horizon points are sparse, stale, or expressed in the wrong frame, the optimization may solve the wrong problem perfectly. The controller should log the reference slice it solved against, not only the final command.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        'An autonomous vehicle approaches a lane bend. Pure pursuit reacts to a lookahead point. MPC sees several path points ahead, predicts where the vehicle will be after each steering command, penalizes large steering changes, respects steering bounds, and begins a smooth turn before cross-track error grows.',
+        'If the QP is solved in 8 ms and the control cycle is 30 ms, the controller has budget. If it sometimes takes 45 ms, the command arrives late and the car tracks stale state. Solver latency belongs in the control ledger because timing is part of correctness for a real controller.',
+        'Suppose the optimization chooses steering commands u0 through u9. The controller applies u0 only, then discards most of the plan after the next localization update. That can look wasteful, but it is the point. The remaining planned controls proved that u0 was part of a feasible near future; feedback decides whether that proof still applies on the next tick.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'MPC works because it combines prediction with feedback. Prediction lets the controller account for future path curvature and constraints. Feedback prevents the plan from drifting too far from reality because the next cycle starts from a new measured state.',
+        'The method also makes tradeoffs explicit. Tracking error, steering smoothness, acceleration, jerk, and constraint violations appear as weights or bounds. That does not make tuning easy, but it makes the control philosophy inspectable.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'MPC wins when future constraints matter: vehicle path tracking, robotics, process control, drone trajectory tracking, energy systems, and systems where actuator limits and smoothness cannot be bolted on after a reactive command.',
+        'It is especially valuable when the same controller needs to explain why it chose a conservative command. Active constraints and objective terms can show that the command was limited by steering rate, lateral acceleration, obstacle envelope, comfort, or model confidence.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A longer horizon can improve foresight but increase solve time and model error. Hard constraints can make the problem infeasible. Soft constraints improve robustness but must be penalized clearly. Bad vehicle parameters turn a mathematically clean QP into wrong motion.',
+        'MPC is also vulnerable to stale state and hidden fallbacks. Do not hide infeasible status, max-iteration exits, missed deadlines, warm-start resets, model mismatch, or fallback commands. If the controller is late, the optimal solution may already be irrelevant.',
+        'The subtle failure is bad objective design. If the controller penalizes lateral error heavily but underweights steering rate, the vehicle may track the centerline with harsh commands. If it overweights comfort, it may drift wide in tight curves. Weights are product decisions encoded as math, so they need road tests and review, not blind tuning.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track solve time, deadline misses, solver status, active constraints, warm-start reuse, fallback rate, model residual, cross-track error, heading error, steering saturation, jerk, and command age. Those signals tell whether the controller is operating as MPC or merely pretending after frequent fallbacks.',
+        'For course design, teach MPC after pure pursuit and before full autonomy stacks. Students should see why the added complexity exists: not to be mathematically fancy, but to put future constraints into the present command.',
+        'A useful classroom exercise is to change one weight at a time. Increase smoothness and the vehicle cuts less aggressively but may lag the path. Tighten steering bounds and the solver may become infeasible on sharp turns. Extend the horizon and foresight improves until solve time or model error becomes the limiting factor.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Pure Pursuit Lookahead Path Tracking, DWB Velocity Lattice Trajectory Critic, Kalman Filter Sensor Fusion, RRT* Motion Planning Tree, Nav2 Costmap Inflation Layer, Value Iteration, Quadratic Programming, and Constraint Satisfaction next.',
+        'A good learning sequence is geometric tracking first, constrained optimization second, and full planning third. Pure pursuit shows the value of one lookahead point. MPC shows why a horizon and constraints matter. Motion planning shows where the reference itself comes from.',
+      ],
+    },
   ],
 };

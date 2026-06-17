@@ -41,7 +41,7 @@ export function* run(input) {
       values: rotated,
     }),
     highlight: {},
-    explanation: `Positional Encoding ADDED a position signal to each embedding — workable, but it perturbs the content itself. RoPE's alternative: leave the vector's contents alone and ROTATE it — position p gets rotated by p × ${deg}. Here is one query vector [1, 0] at positions 0 through 5: same length every time, different direction. Position lives in the ANGLE, content in the magnitude — cleanly separated.`,
+    explanation: `RoPE leaves the vector length alone and changes only its angle. Position ${deg} per step becomes rotation, so the same content vector has a different direction at each row while its strength stays unchanged.`,
     invariant: 'Rotation never changes a vector\'s length — the content\'s strength is untouched by position.',
   };
 
@@ -55,7 +55,7 @@ export function* run(input) {
       values: dots,
     }),
     highlight: { active: ['pair2_0:qk', 'pair5_3:qk', 'pair4_2:qk'], compare: ['pair3_0:qk'] },
-    explanation: `Now the magic. Rotate a query at position m and a key at position n, take their attention dot product (see Attention Mechanism), and look: (m=2,n=0), (m=5,n=3), (m=4,n=2) — all offset 2 — give EXACTLY the same score, ${dots[0][2].toFixed(4)}. The pair at offset 3 differs. The geometry does it: rotations compose, so the dot product depends only on the angle DIFFERENCE, (m−n)×${deg}. "Three tokens apart" means the same thing at the start of a document and at token 100,000 — relative position by construction, not by training.`,
+    explanation: `Pairs with the same offset share the same positional rotation difference. The three offset-2 pairs therefore land on the same score, ${dots[0][2].toFixed(4)}, while offset 3 differs. The invariant is relative position: attention sees distance through angle difference, not a separate absolute-position label.`,
   };
 
   yield {
@@ -66,7 +66,7 @@ export function* run(input) {
       values: positions.map((p) => [Math.sin(p * theta), Math.sin(p * theta * 0.1)]),
     }),
     highlight: {},
-    explanation: 'A real head\'s vector has many dimension PAIRS, each rotating at its own speed (the same geometric frequency ladder as sinusoidal Positional Encoding: θᵢ = 10000^(−2i/d)). Fast pairs resolve fine-grained nearby offsets; slow pairs distinguish "500 tokens back" from "5,000". Together they give attention a full ruler of relative distances.',
+    explanation: 'A real head uses many dimension pairs at different rotation speeds. Fast pairs separate nearby positions; slow pairs keep longer offsets distinguishable. The visual is a ruler made from several clocks, not one clock stretched across the whole context.',
   };
 
   yield {
@@ -77,7 +77,7 @@ export function* run(input) {
       values: [[1, 1, 1]],
     }),
     highlight: {},
-    explanation: 'Three properties made RoPE the modern default (Llama, Mistral, Qwen, and most frontier models): relative offsets are EXACT, not learned approximations; vector norms are preserved, so position never drowns content; and the rotation is applied to Q and K at attention time — the rotated keys sit happily in the KV Cache. Long-context engineering builds directly on it: stretching the rotation frequencies (position interpolation, NTK scaling, YaRN) is how 4K-token models were extended toward million-token contexts without retraining from scratch.',
+    explanation: 'RoPE became common because it gives attention relative offsets, preserves vector norms, and works with cached keys during decoding. Long-context methods then change the rotation schedule, which can extend range but can also damage local precision or retrieval.',
   };
 }
 
@@ -88,6 +88,19 @@ export const article = {
       paragraphs: [
         `RoPE, short for rotary position embedding, encodes position by rotating query and key vectors instead of adding a separate position vector to token embeddings. Su et al. introduced it in the 2021 RoFormer paper, and it became common in Llama, Mistral, Qwen, and many other decoder models because it gives attention a natural notion of relative distance while preserving vector norms.`,
         `The contrast with Positional Encoding is the key. A sinusoidal input encoding adds numbers to the embedding before the model starts. Rotary encoding waits until Attention Mechanism forms Q and K, then rotates each 2D dimension pair by an angle proportional to token position. Content stays in the vector components; position enters as phase. The dot product between a rotated query and rotated key then depends on their relative offset in a mathematically clean way.`,
+      ],
+    },
+    {
+      heading: `The obvious wall`,
+      paragraphs: [
+        `Absolute position tables can work inside the context length they were trained on, but they do not make relative distance natural to attention. A decoder often needs to know that one token is nearby, another is 200 tokens back, and another is thousands of tokens back.`,
+        `Adding position once at the input also separates order from the query-key comparison where attention actually decides relevance. RoPE moves position into that comparison directly by rotating Q and K.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `Each row is the same content vector seen at a different position. The length should stay fixed; only the angle changes. In the dot-product table, pairs with the same offset share the same positional geometry, which is the invariant RoPE gives attention. The frequency-pair frame is the long-context warning: fast pairs preserve local order, slow pairs carry longer offsets, and scaling these pairs changes what the model can distinguish.`,
       ],
     },
     {
@@ -115,6 +128,30 @@ export const article = {
       paragraphs: [
         `Do not say RoPE makes a model length-infinite. Frequencies can wrap, training may never teach the model to use far-away evidence, and attention kernels still pay for long contexts. Do not say it erases absolute position either; the model can still infer absolute-ish cues through boundaries, prompts, and layer interactions. And do not describe it as simple addition. Rotary encoding is an operator applied to Q and K, so it changes attention code, cache contents, and long-context scaling knobs.`,
         `Another misconception is that all RoPE scaling recipes are interchangeable. Position interpolation, NTK-aware scaling, and YaRN move different parts of the frequency ladder and can trade local precision for long-range stability. A model can pass short benchmarks after scaling while losing retrieval accuracy at 64K tokens, so evaluation must include long-context tasks, not just perplexity near the training length. Lost in the Middle: Long-Context Failure Modes is the evaluation companion to the rotation math.`,
+      ],
+    },
+    {
+      heading: `Implementation checklist`,
+      paragraphs: [
+        `Apply RoPE to query and key dimensions consistently in every attention layer that expects it. Do not rotate values unless the architecture explicitly does so. Store cached keys with the correct position rotation during decoding.`,
+        `Keep position offsets correct under batching, packed prompts, prefix caching, sliding windows, and resumed generation. A shape-correct KV cache can still be semantically wrong if the rotations were computed with shifted positions.`,
+        `When changing context length, evaluate local tasks and long retrieval tasks separately. A scaling recipe can preserve short-range behavior while damaging evidence use far from the beginning or end of the prompt.`,
+      ],
+    },
+    {
+      heading: `Worked example`,
+      paragraphs: [
+        `Suppose a query at position 100 attends to a key at position 92. RoPE rotates the query by the phase for 100 and the key by the phase for 92. Their dot product carries a relative offset of eight positions, while content still decides whether the key is relevant.`,
+        `During decoding, the key for position 92 may be stored in the KV cache. A later query at position 1000 can still compare against it because the cached key already contains its original positional phase. That is why cache position bookkeeping is part of correctness.`,
+      ],
+    },
+    {
+      heading: `Rule of thumb`,
+      paragraphs: [
+        `Use RoPE when relative position inside attention matters and the architecture is decoder-style attention with KV caching. It is a strong default for modern LLMs, but it still needs long-context evaluation.`,
+        `Do not confuse accepting longer tensors with understanding longer contexts. RoPE gives the model positional geometry; training, retrieval behavior, and attention implementation decide how well that geometry is used.`,
+        `When debugging long-context degradation, inspect position handling alongside retrieval, truncation, cache reuse, and prompt layout. RoPE bugs often look like vague reasoning failures rather than clean crashes.`,
+        `A good implementation test compares same-offset query-key pairs across different absolute positions. If those scores drift unexpectedly, the rotation or cache position bookkeeping is probably wrong.`,
       ],
     },
     {

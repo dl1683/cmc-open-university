@@ -156,38 +156,109 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A Pratt parser is a compact expression parser built around token-specific parse functions and binding powers. It is especially good for expression grammars with many precedence levels, unary and binary operators, calls, indexing, and user-extensible operators.',
-        'Instead of writing one recursive-descent function for every precedence level, a Pratt parser stores prefix behavior, infix behavior, and precedence in a table. The parser reads tokens left to right and recursively parses the right side only when the next operator binds tightly enough.',
+        'Expression syntax looks simple until a language has precedence, associativity, unary operators, calls, indexing, grouping, and good error messages. The flat token stream a + b * c does not say which operation owns b and c. The parser must recover that structure.',
+        'A Pratt parser solves the expression part with a small loop and token-specific parse functions. It turns a token stream into an AST or bytecode while keeping precedence and associativity in data tables rather than in a tall stack of grammar functions.',
       ],
     },
     {
-      heading: 'Data structure model',
+      heading: 'The reasonable first attempt',
       paragraphs: [
-        'The parser state has a token stream, a current token, a previous token, a parselet table, and a minimum binding power. Prefix parselets create the initial left expression. Infix parselets receive the left expression and build a larger expression node. Associativity is encoded by how the right binding power is chosen.',
-        'The output can be an Abstract Syntax Tree, bytecode, or compiler IR. Building an AST pairs naturally with Zipper Focused Tree for structured editing and refactoring. Emitting bytecode directly pairs naturally with stack-machine interpreters.',
+        'The common recursive-descent approach writes one function per precedence level: equality calls comparison, comparison calls term, term calls factor, and so on. This is clear for a tiny language, and many production parsers use a version of it.',
+        'The cost appears as the expression grammar grows. Adding a new operator may mean adding a new layer or threading behavior through several functions. Tokens such as minus and open parenthesis also have multiple roles: prefix minus versus binary minus, grouping versus function call.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The wall',
       paragraphs: [
-        'For a + b * c, the parser first parses a as the left expression. It sees + with low binding power and consumes it. To parse the right side of +, it parses b, then sees * with higher binding power, so it consumes * and parses c. The final tree is +(a, *(b, c)), not *((a + b), c).',
-        'Add unary minus and function calls and the value of the table becomes obvious. The token - has a prefix parselet for negation and an infix parselet for subtraction. The token ( can be grouping in prefix position and a call operator in infix position. One token table keeps those roles explicit.',
+        'The wall is not that recursive descent cannot parse expressions. It can. The wall is that precedence becomes spread through control flow. The grammar shape, operator table, associativity rules, and error behavior are entangled.',
+        'A parser for a language, DSL, editor, or calculator often wants operators to be easy to add and easy to inspect. A pile of mutually recursive precedence functions hides the table the language designer actually cares about.',
       ],
     },
     {
-      heading: 'Implementation notes',
+      heading: 'The core insight',
       paragraphs: [
-        'A production parser should keep source spans on every AST node, because diagnostics, refactors, formatters, and editor integrations need to point back to the original text. It should also separate lexical errors from parse errors so bad characters do not poison the entire expression parser.',
-        'Error recovery is the part tutorials often underplay. After a missing right operand or unmatched parenthesis, the parser needs synchronization tokens such as semicolon, newline, comma, or closing delimiter. Without recovery, one malformed expression can hide every later error in the file.',
+        'Precedence is a numeric stop condition. parseExpression(minPower) first parses something that can start an expression. Then it keeps consuming infix or postfix operators only while the next operator binds tightly enough for the current caller.',
+        'The token table says what each token can do in prefix position and infix position. Binding power says how far the expression extends. That is why one token can support both unary minus and binary subtraction without duplicating the whole grammar.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'A Pratt parser does not replace a lexer, grammar design, error recovery, or statement-level parsing. Bad binding powers create subtle associativity bugs. Error messages also need care because the parser is compact enough that failures can otherwise point at the wrong token.',
-        'Primary sources: Vaughan Pratt, Top Down Operator Precedence, at https://tdop.github.io/, Crafting Interpreters compiling expressions at https://craftinginterpreters.com/compiling-expressions.html, Crafting Interpreters parsing expressions at https://craftinginterpreters.com/parsing-expressions.html, and LLVM Kaleidoscope parser and AST at https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/LangImpl02.html. Study JSON Parser Stack Case Study, Finite State Machines, Stack, Tree Traversals, Zipper Focused Tree, Bytecode Stack Virtual Machine, Control Flow Graph & Dominator Tree, Static Single Assignment & Phi Nodes, Unification Union-Find Type Constraints, and Hindley-Milner Algorithm W & Let Polymorphism next.',
+        'In the binding-power view, treat the table as the main data structure. Prefix parselets build the first expression, infix parselets extend a left expression, and the binding-power comparison decides whether the loop continues or returns control to the caller.',
+        'In the AST-construction view, watch when the root changes. The token stream stays flat, but the tree records ownership. The important moment is that * binds b and c before + completes, so the right child of + becomes the subtree *(b, c).',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The parser stores a token stream, a cursor, a prefix parselet table, an infix parselet table, and binding powers. A prefix parselet handles literals, names, grouping, unary operators, and anything else that can start an expression.',
+        'After the prefix parselet returns a left expression, the Pratt loop peeks at the next token. If the token has an infix parselet whose left binding power is high enough, the parser consumes it, recursively parses the right side with the operator-specific right binding power, and builds a larger expression node.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The invariant is that parseExpression(minPower) returns the expression that starts at the current position and includes every following operator whose binding power belongs to this caller. When the next operator is too weak, it is left for an outer call.',
+        'Associativity is handled by choosing the right binding power. A left-associative operator parses its right side with a stricter threshold, so another equal-precedence operator stays outside. A right-associative operator allows equal precedence on the right, which is why a = b = c groups as a = (b = c).',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'For a + b * c, the parser first parses a. It sees +, whose binding power is high enough for the top-level call, so + receives a as its left side. To parse the right side of +, the parser starts at b.',
+        'After b, the parser sees *. Because * binds more tightly than +, the recursive call consumes * and c before returning. The final AST is +(a, *(b, c)). The source order did not change; the tree made precedence explicit.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'A Pratt parser is linear in the number of tokens it consumes for ordinary expression grammars: each token is advanced a constant number of times. The table lookup and binding-power comparisons are small constant work.',
+        'The space cost depends on the output. Building an AST stores nodes and source spans. Emitting bytecode directly stores instructions and may use less memory, but it gives up the tree that refactoring tools, type checkers, optimizers, and diagnostics often want.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Write the operator table as data first. For each token, record whether it has prefix behavior, infix behavior, postfix behavior, left binding power, right binding power, associativity, and the AST node it should build. The parser loop should read that table instead of hiding the language design in scattered conditionals.',
+        'Keep source spans on every node. A Pratt parser without spans can build the right tree and still produce poor diagnostics. Error messages need to point at the missing right operand, unexpected operator, or unclosed group, not merely at the end of the file.',
+        'Separate tokenization errors from parse errors. The Pratt parser should receive a clean token stream with positions, not guess whether `--`, `=>`, string literals, or comments are valid tokens.',
+      ],
+    },
+    {
+      heading: 'Testing it',
+      paragraphs: [
+        'Golden AST tests are useful. Parse expressions such as `a + b * c`, `(a + b) * c`, `-a * b`, `a = b = c`, `a - b - c`, calls, indexing, and postfix operators, then compare the produced tree with the expected grouping.',
+        'Also test bad input. Missing operands, unmatched parentheses, two operators in a row, and unexpected end-of-file should produce stable diagnostics with useful spans. A parser that succeeds on happy examples but reports useless errors is not finished.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'Pratt parsing is a strong fit for interpreters, calculators, query languages, expression-heavy DSLs, and compiler front ends where operators are numerous or extensible. It keeps the operator table visible and local.',
+        'It also fits editor tooling when paired with source spans. AST nodes can point back to tokens, which makes formatting, diagnostics, hover information, and structured edits easier to implement.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'Pratt parsing is not a full language parser by itself. Statement syntax, indentation rules, declarations, imports, macros, layout sensitivity, and ambiguous grammar choices still need broader parsing design.',
+        'It is also less helpful when the grammar is tiny and fixed. A simple hand-written precedence ladder may be clearer for five operators that will never change.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Bad binding powers create quiet bugs. The parser still returns a tree, but the tree groups incorrectly. This is worse than a syntax error because later compiler stages may accept the wrong meaning.',
+        'The other common failures are poor diagnostics, missing source spans, no recovery after a bad right operand, and confusing prefix with infix behavior for shared tokens. A compact parser still needs a serious error strategy.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Vaughan Pratt, Top Down Operator Precedence, at https://tdop.github.io/, Crafting Interpreters expression parsing at https://craftinginterpreters.com/parsing-expressions.html, Crafting Interpreters compiling expressions at https://craftinginterpreters.com/compiling-expressions.html, and LLVM Kaleidoscope parser and AST at https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/LangImpl02.html.',
+        'Study Finite State Machine and lexer design before the parser if tokenization is weak. Study Tree Traversals and Zipper Focused Tree for AST manipulation. Study Bytecode Stack Virtual Machine, Control Flow Graph and Dominator Tree, Static Single Assignment and Phi Nodes, Unification Union-Find Type Constraints, and Hindley-Milner Algorithm W for what compilers do after expression parsing.',
       ],
     },
   ],

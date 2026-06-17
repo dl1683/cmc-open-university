@@ -230,6 +230,27 @@ export const article = {
       ],
     },
     {
+      heading: 'The obvious attempt',
+      paragraphs: [
+        'The obvious way to handle long sequences is to keep using attention and make the context window larger. That preserves direct access to old tokens, but it makes memory and compute grow with the length of the sequence. KV cache size becomes a serving constraint, and training long contexts can become dominated by attention cost.',
+        'The older obvious alternative is recurrence: keep a fixed-size state and update it token by token. That gives attractive linear scaling, but ordinary recurrent state is a bottleneck. If the model compresses all history into one state without content-aware control, it may forget the fact the task needs or blend unrelated events. Mamba tries to keep the fixed-state efficiency while making the state update depend on the current content.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is selectivity. A sequence model should not write every token into memory the same way. Some tokens should update long-lived state. Some should be ignored. Some should overwrite stale information. In Mamba, the parameters governing the state update are functions of the input, so the model gets a learned content-dependent memory policy.',
+        'The second insight is implementation. A recurrence that is elegant on paper can be slow on GPUs if it cannot be parallelized. Mamba uses a hardware-aware selective scan so the recurrent computation can be trained efficiently. The algorithmic idea and the kernel design belong together.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The attention-versus-recurrence view is proving a resource tradeoff. Attention keeps a broad address book of previous tokens and pays for pairwise comparisons. The SSM path keeps a compressed state and pays for one update per token. The important question is not which curve is prettier; it is what information survives compression.',
+        'The selective-scan view shows how Mamba makes that compression less blind. Highlighted token-to-state edges mean the input is choosing how strongly to write, keep, or ignore information. The correctness idea is not exact recall of every token. It is a learned update rule that can preserve task-relevant information while keeping state size fixed as the sequence grows.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'A classical state space layer has equations like state update and output projection: the current input changes the state, and the state produces the output. Structured State Space models made this efficient and stable for long sequences. Mamba changes the parameters of the recurrence as a function of the input, so different tokens can have different memory behavior.',
@@ -244,21 +265,34 @@ export const article = {
       ],
     },
     {
+      heading: 'Why it works',
+      paragraphs: [
+        'Mamba works when the task benefits from a compact evolving summary rather than direct retrieval of arbitrary old tokens. Audio, time series, genomics, and many language patterns have strong sequential structure. A well-trained state can carry enough signal forward without materializing every pairwise token interaction.',
+        'The selectivity matters because language is uneven. Delimiters, entities, section boundaries, repeated motifs, and rare tokens should affect memory differently from filler. Input-dependent parameters let the model learn those differences. The scan matters because training still needs accelerator throughput. Without the scan, the model might be theoretically linear but practically unattractive.',
+        'The fixed-state view also explains why these models are appealing for streaming. A server can process the next token or sample with a bounded recurrent state instead of carrying an ever-growing attention cache. That can reduce memory pressure for long streams, but it makes the state a lossy compression of history. The model succeeds only if training has taught it what to keep.',
+      ],
+    },
+    {
       heading: 'Real-world uses',
       paragraphs: [
         'SSMs and Mamba-like models are explored for language modeling, audio, genomics, time series, long-document modeling, streaming inference, and hybrid architectures that mix attention with recurrent blocks. RWKV pursues a related goal from another direction: Transformer-like training with RNN-like inference. RetNet Retention State adds a decay-weighted recurrent summary with parallel, recurrent, and chunkwise execution views. The shared theme is that quadratic attention is not the only possible sequence-model backbone.',
+        'A common production direction is hybridization. Attention layers can preserve direct lookup for parts of the sequence, while SSM or recurrent layers handle long-range streaming efficiently. That makes the design question less ideological: use attention where exact addressability matters, use state where compressed dynamics are enough, and measure the mix on tasks that match the product.',
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
-        'Linear scaling does not automatically mean better. Some tasks need direct retrieval over previous tokens, and compressed state can forget details. Another mistake is comparing only asymptotic complexity while ignoring kernel maturity, hardware utilization, and model quality. A slower asymptotic method with excellent kernels can beat a theoretically nicer method in practice until implementations mature.',
+        'Linear scaling does not automatically mean better. Some tasks need direct retrieval over previous tokens, and compressed state can forget details. Needle-in-a-haystack recall, exact copying, legal citations, and long-range code dependencies can expose the difference between preserved state and addressable memory.',
+        'Another mistake is comparing only asymptotic complexity while ignoring kernel maturity, hardware utilization, and model quality. A slower asymptotic method with excellent kernels can beat a theoretically nicer method in practice until implementations mature. The serious comparison is end-to-end: training throughput, inference memory, latency, accuracy, context behavior, and failure cases.',
+        'Do not read Mamba as a declaration that attention is obsolete. It is evidence that sequence modeling has a larger design space. The right lesson is to ask what kind of memory the task needs: exact token access, compressed dynamics, local convolutional pattern, external retrieval, or some hybrid budget across all of them.',
+        'For students, this is the cleanest takeaway: Mamba is not just an equation family. It is a memory system with an explicit bet that selective compression can replace many, but not all, direct lookups.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: Mamba at https://arxiv.org/abs/2312.00752, S4 at https://arxiv.org/abs/2111.00396, RWKV at https://arxiv.org/abs/2305.13048, and Linear Transformers at https://arxiv.org/abs/2006.16236. Study Attention Mechanism, KV Cache, Transformer Inference Roofline, RetNet Retention State Case Study, FNet Fourier Token Mixing Case Study, Titans Test-Time Neural Memory Case Study, Hybrid Attention State Budget Case Study, Vanishing & Exploding Gradients, and Transformer Block next.',
+        'A useful study exercise is to compare one task that needs exact copying with one task that needs smooth long-range dynamics. The difference makes the memory tradeoff visible in a way asymptotic charts cannot.',
       ],
     },
   ],

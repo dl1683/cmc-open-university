@@ -210,36 +210,78 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'A claim graph is a provenance data structure for research. Nodes represent questions, claims, sources, exact support spans, contradictions, report sections, and final conclusions. Edges explain the relationship: supports, contradicts, dates, defines, weakens, or uses. A source ledger is the appendable table behind that graph. Together they let a research agent produce a report that can be audited instead of merely admired.',
-        'Deep Research Agent Architecture Case Study names the source ledger as the core data structure for serious research agents. This module drills into that object. It matters because modern research systems combine web search, PDFs, local files, code execution, and long context. Without a ledger, the final answer becomes source-flavored memory. With a ledger, every important sentence can trace back to an exact piece of evidence.',
+        'A claim graph is a data structure for research synthesis. Nodes represent questions, atomic claims, sources, contradictions, report sections, and final conclusions. Edges say what kind of relationship exists: a source supports a claim, a source merely mentions a topic, a newer source supersedes an older one, a claim contradicts another claim, or a report section depends on a claim. The source ledger is the durable table behind the graph: source pointer, exact support span, date, authority label, extraction note, and intended use.',
+        'The structure exists because prose can sound cited while being weakly supported. A footnote may point to a real document but not to the exact sentence being written. A benchmark may support one workload but not another. A vendor blog may be useful for product facts but weak for independent performance claims. The claim graph keeps those distinctions available until the final answer is written.',
+      ],
+    },
+    {
+      heading: 'The real problem',
+      paragraphs: [
+        'The naive workflow is link collection followed by summary. Search returns pages, the researcher skims them, notes become paragraphs, and citations get attached near the end. This feels fast because it avoids the bookkeeping, but it collapses four separate questions: what exactly was claimed, what exact evidence supports it, how authoritative that source is, and whether a conflicting or newer source changes the answer.',
+        'The second failure is citation density. A paragraph with six citations can still be unsupported if none of those sources proves the specific sentence. This matters most in market reports, policy analysis, scientific literature reviews, benchmark comparisons, legal research, and technical architecture reports, where a single overbroad claim can mislead the whole conclusion.',
+      ],
+    },
+    {
+      heading: 'Core insight and data model',
+      paragraphs: [
+        'A useful claim record is small and strict. It should store the claim text, source pointer, exact support span or data row, source date, access date, authority label, scope note, contradiction status, confidence or review state, and target report section. The source pointer can be a URL, PDF page, file path, database row, command output artifact, or repository commit. The span is what prevents citation bluffing: the final sentence should be traceable to the exact evidence, not just to the general document.',
+        'The graph adds relationships that a flat bibliography cannot express. A source can support, contradict, define, date, scope, weaken, or supersede a claim. A claim can depend on another claim. A report section can consume a set of claims. A contradiction node can explain whether the conflict is a version change, method difference, population mismatch, metric mismatch, or incentive bias. This lets the synthesis explain disagreement instead of smoothing it into false balance.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the claim-graph view, start at the scoped question and follow the edges into individual claims. The source nodes are not decorative citations. The edge type is the lesson: a paper, official doc, blog, or filing can support different claims with different strength. The conflict node shows where the research becomes valuable, because contradictions force the graph to name scope, method, date, and authority instead of burying the problem in confident prose.',
+        'In the evidence-workflow view, read the pipeline as a control loop. Search finds candidates. Reading extracts evidence into the ledger. Authority ranking decides how much weight a source deserves before synthesis begins. Audit finds stale facts, unsupported claims, and missing sections. The refresh edge is the maintenance feature: a good report can be updated claim by claim instead of rewritten from memory.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The basic record has a claim id, source pointer, exact span, source date, access date, authority label, contradiction notes, and report-section target. The source pointer might be a URL, a file path, a PDF page, a table row, or a code output artifact. The exact span is critical: a source can be real while the citation is still wrong. A model that cites a paper for a sentence the paper does not support has converted evidence into decoration.',
-        'STORM shows why the pre-writing stage matters. The Stanford project describes Synthesis of Topic Outlines through Retrieval and Multi-perspective Question Asking, where the system researches perspectives before writing: https://storm-project.stanford.edu/research/storm/ and https://arxiv.org/abs/2402.14207. WebGPT showed an earlier browsing-and-reference pattern for long-form answers: https://arxiv.org/abs/2112.09332. Both point toward the same structure: collect grounded evidence before prose.',
+        'The practical workflow is search, read, extract, rank, ledger, audit, outline, write. Search and retrieval are only candidate generation. Reading turns passages, tables, and artifacts into atomic claims. Ranking labels source authority before drafting: official docs, primary papers, benchmark repositories, filings, standards, vendor blogs, news stories, and social posts should not enter the synthesis with the same weight. Audit then asks whether every important claim has exact support, whether a newer source exists, and whether contradictions have been classified.',
+        'Writing should be downstream of the surviving graph. A section outline can be generated from claims whose support is strong enough for publication. Unsupported claims are removed or sent back to research. Stale claims are refreshed. Contradictions become explicit explanation. In an agent system, this ledger is the boundary between retrieval and answer generation: embeddings can find nearby text, but the claim ledger decides what evidence the answer is allowed to rely on.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because it separates evidence from fluency. A model, analyst, or writer can produce confident prose from memory, but the graph forces every important sentence to pass through a support check. This changes the failure mode from "the answer sounded right" to "claim C17 lacks a primary source" or "claim C21 is true only for the 2024 benchmark, not the current release."',
+        'It also makes research state reusable. If one source changes, the graph identifies which claims and sections depend on it. If a contradiction appears, the graph identifies the affected conclusion. If a reviewer challenges a sentence, the ledger can show the exact support span or remove the claim. This is the same engineering principle as provenance graphs and distributed tracing: important outputs should have a path back to the inputs that produced them.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost is friction. Extracting exact spans, dates, authority labels, and contradiction notes takes longer than writing from a search result page. The ledger also creates storage and privacy obligations because it may contain excerpts from licensed documents, private files, customer evidence, or internal notes. A serious implementation needs access control, source permissions, redaction rules, and a clear difference between evidence and instructions from untrusted text.',
+        'The payoff is controlled complexity. More sources do not always improve a report. Past a point, crawling adds duplication and confusion. A ledger supports stop rules: if coverage is good but one section lacks primary evidence, search for that gap; if sources conflict on a metric, normalize the metric or narrow the claim; if all new sources repeat the same weak vendor statement, stop counting them as independent support.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'Suppose a user asks for a report on whether long-context models remove the need for RAG. The claim graph starts with several candidate claims: long context improves recall for some workflows; middle-position evidence can still be missed; retrieval can reduce cost and isolate evidence; RAG can introduce retrieval noise; source ledgers remain useful even when the entire document fits. Each claim gets sources, dates, and scope notes. A benchmark paper might support the lost-in-the-middle claim. A vendor blog might support a product capability but receive lower authority for broad empirical claims. A local PDF might add practical observations but should be labeled as local source material.',
-        'The contradiction graph then does the real work. One source may say long context solves document QA; another may show failures under distractors or reversed chunk ordering. The answer should not average those claims. It should explain task conditions, model size, evidence position, retrieval quality, and cost. The final report section links only to claims that survived audit. If the user later asks for an update, the agent refreshes the date-sensitive claims and leaves stable definitions alone.',
+        'A user asks whether long-context models remove the need for RAG. A shallow answer picks a side and cites a few model announcements. A claim graph starts with narrower claims: long context can reduce retrieval plumbing for documents that fit in the window; evidence in the middle of long contexts can still be missed; retrieval can reduce cost and isolate exact support; retrieval can introduce its own ranking errors; source-ledger discipline remains useful even when the full document fits in context.',
+        'Each claim receives sources, dates, scope notes, and authority labels. A benchmark paper may support claims about lost-in-the-middle behavior for a specific setup. Official model documentation may support context-window size but not broad task performance. A vendor blog may support product capabilities while being downgraded for comparative claims. The final answer becomes conditional: for a small stable corpus, long context may simplify the system; for large, changing, permissioned, or citation-critical corpora, retrieval plus a claim ledger remains important.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'Failure modes',
       paragraphs: [
-        'A claim graph pairs naturally with RAG and GraphRAG. RAG retrieves evidence chunks; the ledger decides which chunks became claims. GraphRAG Community Summary Case Study uses graph structure to summarize entities and communities. Claim graphs use graph structure to audit argument support. They also pair with Distributed Tracing: a research report should have a trace from question to source to claim to section to final conclusion.',
-        'Use structured storage when possible. A relational table works for claim records. A property graph works for contradictions, source relationships, and report dependencies. A vector index helps retrieve semantically related claims, but it should not be the source of truth. Search similarity does not know authority, freshness, permission, or exact support.',
+        'The graph fails when claims are too large. "Product X is better than product Y" is not atomic enough to support or contradict. Break it into workload, metric, version, cost, and evidence conditions. It also fails when all edges mean "source says." A source may define a term, report a number, repeat a rumor, cite another source, or contradict a claim. Those relationships need different labels.',
+        'Security failures are just as important. A retrieved web page or PDF can contain instructions that should never control the agent. Private source ledgers can leak across users if authorization is not attached to the evidence. A ledger can also launder low-quality evidence into confident prose if authority labels are ignored during synthesis. The structure is only useful when the writer or agent obeys it.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Useful contexts',
       paragraphs: [
-        'Do not count sources as proof. Do not cite a source unless it supports the exact claim. Do not collapse primary and secondary sources into the same weight. Do not erase contradictions; classify them. Do not let stale claims survive because they were once true. Do not expose private source ledgers across users without authorization. Prompt Injection Threat Model also matters because retrieved sources can contain hostile instructions; the ledger should store content as evidence, not as commands.',
-        'Study Deep Research Agent Architecture, Deep Research Evaluation Harness Case Study, Blackboard Architecture Agent Coordination, Multi-Agent Orchestration Topologies, Agent Memory & Context Engineering, Multi-Index RAG, RAG Citation Span Index Case Study, GraphRAG Community Summary Case Study, LightRAG Dual-Level Retrieval, RAG Evaluation, LLM Evaluation Harnesses, Lost in the Middle, Distributed Tracing, Prompt Injection Threat Model, Zanzibar Authorization Case Study, Content-Addressed Merkle DAG Object Store, Transparency Log Witnessing Case Study, and Software Supply Chain Provenance Graph next. Local source: deep research.txt in the provided document corpus.',
+        'Claim graphs are valuable for deep research agents, market maps, technical due diligence, policy memos, legal research support, literature reviews, model-evaluation reports, incident postmortems, and any writing that will be challenged or refreshed later. They are especially useful when source age, authority, and scope affect the conclusion.',
+        'They also connect several data-structure ideas. The graph gives provenance. The ledger gives an appendable audit log. A citation-span index gives exact support retrieval. A priority queue can triage source authority. A contradiction-resolution graph can turn conflicts into new subquestions. RAG can find candidates, but the claim graph decides which candidates become durable knowledge.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: STORM research page at https://storm-project.stanford.edu/research/storm/, STORM paper at https://arxiv.org/abs/2402.14207, and WebGPT at https://arxiv.org/abs/2112.09332.',
+        'Study Deep Research Agent Architecture, Deep Research Evaluation System Case Study, Multi-Index RAG, RAG Citation Span Index Case Study, GraphRAG Community Summary Case Study, LightRAG Dual-Level Retrieval, RAG Evaluation, Lost in the Middle, Distributed Tracing, Prompt Injection Threat Model, Zanzibar Authorization Case Study, Content-Addressed Merkle DAG Object Store, Transparency Log Witnessing Case Study, and Software Supply Chain Provenance Graph next.',
       ],
     },
   ],

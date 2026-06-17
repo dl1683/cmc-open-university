@@ -202,6 +202,41 @@ export const article = {
       ],
     },
     {
+      heading: `How the visual model teaches it`,
+      paragraphs: [
+        `In the ravine view, watch why one learning rate fails. The steep y-direction forces plain gradient descent to use a cautious global step, so the shallow x-direction barely moves. Momentum cancels alternating wall-to-wall motion and keeps the along-valley component. Adam adds per-coordinate scaling so steep coordinates shrink and quiet coordinates get a usable step.`,
+        `In the inside-Adam view, read m as direction memory and v as scale memory. Bias correction is a startup repair, not a cosmetic formula. AdamW then separates weight decay from adaptive scaling so the regularization knob behaves like a leash instead of being divided away by the variance estimate.`,
+      ],
+    },
+    {
+      heading: `The obvious approach`,
+      paragraphs: [
+        `The obvious optimizer is gradient descent: compute the gradient, multiply by one learning rate, and move downhill. That works on round, well-scaled bowls, but neural-network losses often have ravines where one direction is steep and another is shallow. One global learning rate must be small enough not to explode in the steep direction, so it crawls in the shallow direction.`,
+        `Momentum fixes part of that wall by remembering direction. It cancels oscillation across the ravine and compounds movement along the floor. Adam keeps that benefit and adds a scale estimate for each coordinate, so every parameter gets a step size adjusted to its own gradient history.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `Adam is a diagonal preconditioner with momentum. The first moment says which way the parameter has been pushed. The second moment says how large the squared gradients usually are. Dividing by the square root of the second moment makes loud coordinates quieter and quiet coordinates usable.`,
+        `This is not full Newton optimization. Adam does not know the full curvature matrix or interactions between weights. It uses cheap per-parameter statistics that are good enough to make many deep-learning problems train quickly without hand-scaling every layer.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `Adam works because many training failures are scale failures before they are direction failures. If one parameter sees gradients one hundred times larger than another, a single learning rate either explodes the loud parameter or starves the quiet one. Adam's second moment estimate normalizes those histories so each coordinate can move on a more comparable scale.`,
+        `Momentum adds the other half. Gradients that keep pointing the same way accumulate into a steadier direction, while alternating gradients are damped. The result is not a perfect curvature method, but it is a cheap update rule that handles ravines, noisy mini-batches, and uneven layer scales well enough to be a strong default.`,
+      ],
+    },
+    {
+      heading: `Complete case study`,
+      paragraphs: [
+        `A transformer fine-tuning run starts unstable. Plain SGD needs a tiny learning rate because some layers have large gradients. With AdamW, the large-gradient coordinates are normalized, the small-gradient coordinates still move, and decoupled weight decay keeps weights from drifting without being distorted by the adaptive denominator.`,
+        `The training team still needs warmup, gradient clipping, validation curves, and learning-rate decay. Adam makes the first optimization problem easier, but it does not remove data quality, model capacity, or evaluation discipline. A bad run can still be a data split problem rather than an optimizer problem.`,
+      ],
+    },
+    {
       heading: `Cost and complexity`,
       paragraphs: [
         `Adam is still O(parameters) per step, but it stores two extra numbers per parameter. With 32-bit optimizer state, a billion parameters need about 8 GB just for m and v, before weights, gradients, and activations. The arithmetic is cheap compared with a forward and backward pass; memory is the real bill. Learning-Rate Schedules & Warmup still matters because a large first adaptive step can be based on one noisy variance sample, so transformer recipes ramp up the rate before decaying it.`,
@@ -217,6 +252,28 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `Adam is not a cure for bad data, dead gradients, or a model with the wrong inductive bias. Vanishing & Exploding Gradients can leave early layers without useful signal no matter how clever the optimizer is. Adam can also generalize slightly worse than noisy SGD on some vision tasks because its normalized steps may not filter sharp minima as strongly. Regularization: L1 & L2 and data quality often beat optimizer fiddling. Treat beta values as timescales, not magic constants: beta1 controls direction memory, and beta2 controls how slowly the scale estimate moves.`,
+      ],
+    },
+    {
+      heading: `Operational signals`,
+      paragraphs: [
+        `Track training loss, validation loss, gradient norm, update norm, effective learning rate, AdamW weight decay, clipping rate, beta settings, warmup progress, and optimizer-state memory. These signals tell whether the optimizer is helping or hiding a deeper failure.`,
+        `The most useful diagnostic is the ratio between update size and parameter size. If updates are tiny, the model may be stuck or the learning rate too low. If updates are huge or clipping constantly fires, the run may need warmup, a smaller rate, better initialization, or cleaner batches.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `Adam can fail quietly by making bad objectives train smoothly. If the labels are wrong, the validation split leaks, or the loss rewards the wrong behavior, Adam will optimize the wrong target efficiently. Fast descent is not the same as useful learning.`,
+        `It can also produce different generalization behavior from SGD. Adaptive normalization changes the geometry of the path through parameter space. On some vision problems, carefully tuned SGD with momentum still wins final accuracy, even if Adam reaches low training loss faster. The right optimizer is an empirical choice tied to the task, schedule, and regularization.`,
+      ],
+    },
+    {
+      heading: `What to remember`,
+      paragraphs: [
+        `Adam combines direction memory with per-coordinate scale memory. AdamW adds weight decay in the right place. That combination is why it became the default for transformers and many generative models.`,
+        `For course design, teach Adam after gradient descent, momentum, and loss geometry. Students should see the ravine first, then understand why m, v, bias correction, and decoupled decay are each solving a specific problem.`,
+        `The practical habit is to log optimizer behavior as part of the experiment, not as an afterthought. Learning rate, betas, weight decay, warmup, clipping, and optimizer-state memory are part of the result because changing them can change both training dynamics and final model behavior.`,
       ],
     },
     {

@@ -235,42 +235,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'This primer is a map of recurring design patterns that appear across the repo. Advanced data structures are not a bag of unrelated tricks. They repeatedly use the same moves: improve locality, add indirection, summarize a large set, precompute a frequent query, preserve versions, or accept a bounded error.',
-        'The value of the primer is connective tissue. SwissTable Hash Map, Eytzinger Layout Binary Search, FM-Index, Ribbon Filter, Piece Table Text Buffer, Apache Pinot Star-Tree Index, and Modern Cache Eviction look unrelated until you ask what invariant each one buys and what cost it pays.',
+        `This primer exists because advanced data structures can look like a long shelf of unrelated names. SwissTable, FM-index, wavelet tree, segment tree beats, radix heap, roaring bitmap, piece table, and star-tree index seem separate until you ask what design move each one repeats.`,
+        `The useful question is not "what is this structure called?" The useful question is: what invariant makes the important operation cheap, and what cost does that invariant add? Once you learn that question, the curriculum becomes a map. New structures become variations on locality, summaries, precomputation, indirection, persistence, approximation, and workload shape.`,
       ],
     },
     {
-      heading: 'How to use it',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'Start with the workload. If the problem is dominated by CPU stalls, study layout topics such as SwissTable and Eytzinger. If the problem is dominated by repeated range queries, study Segment Tree, Sparse Table, Fractional Cascading, and Cartesian Tree. If raw data is too large, study filters, sketches, compressed indexes, and pre-aggregated storage.',
-        'Then ask what can be weakened safely. Bloom-style filters allow false positives but no false negatives. Count-Min Sketch allows overestimates. HyperLogLog estimates cardinality. Pinot star-trees restrict themselves to configured query shapes. Piece tables preserve edit history by avoiding destructive mutation of the original buffer. Finger trees preserve versions while weakening the interface into associative measures that can be cached. The same method works when reading papers: translate the novelty into one invariant, one cheap path, and one new cost.',
+        `The obvious approach is to memorize a catalog: arrays are O(1), heaps are O(log n), hash tables are expected O(1), B-trees are for databases, Bloom filters are approximate. That is a decent starting list, but it does not teach design. It does not tell you why one structure fits a workload and another becomes a liability.`,
+        `A second obvious approach is to choose the most advanced structure you know. That usually makes systems worse. A star-tree without stable query shapes wastes storage. A sketch where exactness is required gives wrong answers. A clever cache policy before measuring reuse hides the real bottleneck under complexity.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Wall',
       paragraphs: [
-        'Every invariant has an update cost. A precomputed index can make queries fast and writes slow. A compressed index can save memory and complicate updates. A flat hash table can improve cache locality and weaken pointer stability. Scapegoat trees trade small per-update rotations for occasional large subtree rebuilds. A cache policy can improve hit rate while increasing metadata and tuning complexity. The job is to make the paid cost land on the colder path.',
+        `The wall is workload shape. Two structures with the same asymptotic lookup time can behave differently because one follows cache lines and the other pointer-chases. Two indexes can answer the same query, but one tolerates writes and the other assumes a mostly static table. Two approximate structures can both save memory, but one permits false positives and another overestimates counts.`,
+        `Big-O is necessary, but it is not enough. Real choices depend on distribution skew, update frequency, range scans, memory layout, concurrency, failure recovery, and whether an occasional wrong answer is allowed. A design pattern primer helps because it names those hidden dimensions before a learner reaches for a famous name.`,
       ],
     },
     {
-      heading: 'Case-study routes',
+      heading: 'Core Insight',
       paragraphs: [
-        'For systems, follow Database Indexing into Parquet, Druid, Pinot, DuckDB, Lucene, and RocksDB. For text, follow Suffix Array into Wavelet Tree and FM-Index. For memory-resident performance, follow Hash Table into SwissTable and the approximate-membership filters. For ordered integer search, follow van Emde Boas Tree into X-Fast & Y-Fast Tries and compare that indirection move with Skip List towers. For cache behavior, follow LRU into W-TinyLFU and SIEVE/S3-FIFO.',
-        'For game and editor runtimes, follow Slab Allocator into Generational Arena Slot Map, then Sparse Set Entity Index, then Archetype ECS Column Store. That route shows the same design pattern at three levels: stable handles protect object identity, sparse sets make optional membership cheap, and archetype columns make repeated scans cheap.',
+        `A data structure is a workload-specific invariant with an update cost. The invariant may be sorted order, heap order, hash placement, tree balance, prefix sharing, segment summaries, bitmap compression, reference counts, or probabilistic bit patterns. The update cost is the work required to keep that invariant true as data changes.`,
+        `Design means weakening the right thing. A Bloom filter gives up false-positive-free membership to save memory. A Count-Min Sketch gives up exact counts. A sparse table gives up cheap updates for fast static range queries. A piece table avoids rewriting an edited document by keeping original and add buffers. These are not tricks. They are explicit trades.`,
+        `Each pattern works by preserving information in a form that matches future work. Sorted order lets binary search discard half the candidates. Heap order exposes the minimum without sorting everything. A trie shares prefixes. A segment tree stores enough summaries to combine subranges. A Bloom filter stores enough hashed evidence to prove absence when any required bit is missing.`,
+        `The proof style changes by structure, but the theme is stable. State the invariant, show it is true after construction, show each update preserves it, and show each query reads enough of the invariant to answer correctly or within the promised error. If you cannot state that chain, the structure is not understood yet.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Locality and Layout',
       paragraphs: [
-        'Do not choose by asymptotic notation alone. Constant factors, cache lines, distribution skew, update frequency, concurrency, and operational observability decide many real systems. Also avoid cargo-culting production structures: a star-tree, learned filter, or fancy cache policy is only justified when the workload actually matches its invariant.',
+        `Locality is the design move that asks where the next byte will come from. A linked list has simple pointer updates, but traversal can miss cache on every node. A B-tree stores many keys per node so one disk page or cache line eliminates many possibilities. SwissTable packs control bytes and probes in a way that makes hash lookup friendly to SIMD and cache behavior.`,
+        `The layout pattern wins when memory movement dominates arithmetic. Column stores make analytical scans fast because the query touches only needed columns. Archetype ECS stores components by shape so a game loop scans dense arrays. The tax is rigidity: changing shape, moving objects, or preserving stable references becomes harder.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Summaries and Precomputation',
       paragraphs: [
-        'Representative sources behind the routes include Abseil SwissTable notes at https://abseil.io/about/design/swisstables, TinyLFU at https://arxiv.org/abs/1512.00727, Apache Pinot star-tree documentation at https://docs.pinot.apache.org/build-with-pinot/indexing/star-tree-index, and Unity Entities archetype documentation at https://docs.unity3d.com/Packages/com.unity.entities%401.0/manual/concepts-archetypes.html. Study SwissTable Hash Map, Ribbon Filter, FM-Index & Burrows-Wheeler Transform, Piece Table Text Buffer, Apache Pinot Star-Tree Index Case Study, Generational Arena Slot Map, and Modern Cache Eviction next.',
+        `Summaries make repeated questions cheap by storing partial answers. Segment trees store range summaries. Fenwick trees store prefix summaries. Sparse tables precompute overlapping intervals for static queries. Zone maps, min-max indexes, and block statistics let databases skip data that cannot match a predicate.`,
+        `Precomputation is the same move with a larger bill. Apache Pinot star-trees pre-aggregate configured query shapes, making common analytical queries fast by storing grouped results ahead of time. The wall is freshness and flexibility. If the query shape changes or writes are frequent, the precomputed structure may cost more than it saves.`,
+      ],
+    },
+    {
+      heading: 'Indirection, Versions, and Approximation',
+      paragraphs: [
+        `Indirection adds a level of naming so data can move without breaking users. Handles, page tables, mapping tables, ropes, tries, and LSM manifests all use this idea. The extra lookup is a cost, but the benefit is freedom: move blocks, split nodes, compact files, or keep stable references while storage changes underneath.`,
+        `Versioning is indirection through time. Persistent segment trees copy only the nodes on an update path. MVCC databases keep old versions so readers and writers do not block each other. Piece tables preserve the original file and append new text elsewhere. The tax is garbage collection, memory growth, and more complicated reasoning about which version a reader sees.`,
+        `Approximate structures are useful when the exact answer is too expensive and the product can tolerate a bounded kind of error. Bloom filters answer "definitely absent or maybe present." Count-Min Sketch estimates frequencies with one-sided error. HyperLogLog estimates cardinality. Quantile sketches summarize distributions without storing every value.`,
+        `The important discipline is to name the allowed error before choosing the structure. False positives may be fine for avoiding unnecessary disk reads, but not for authorizing access. Overestimated counts may be fine for telemetry, but not for billing. Approximation is a contract, not a shortcut.`,
+      ],
+    },
+    {
+      heading: 'What the Visual Proves',
+      paragraphs: [
+        `The pattern-map view is a routing diagram. Locality, summary, precompute, version, and approximation are not ranked from basic to advanced. They are questions to ask about the workload. Is the pain bytes? repeated queries? lost history? too much raw data? bounded error?`,
+        `The tradeoff-audit view shows why design starts before implementation. Operation mix, skew, memory layout, error tolerance, and version needs decide whether a structure fits. The plot makes the main engineering point: every move buys speed somewhere and pays in updates, storage, complexity, or risk somewhere else.`,
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        `The costs are not decorative. Locality can require relocation. Precomputation slows writes. Compression complicates random access. Persistence grows memory until old versions are collected. Approximation needs parameter choices and error monitoring. Indirection adds extra lookups and can hide fragmentation.`,
+        `There is also an organizational cost. A plain array or hash map is easy to inspect, profile, serialize, and recover. A custom index needs tests, metrics, rebuild paths, corruption checks, and migration rules. Choose the simplest structure that makes the dominant workload cheap enough and keeps the failure modes visible.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `This primer wins when a learner is moving from individual algorithms to systems design. It helps connect database indexing, compiler tables, text search, graph traversal, caches, column stores, storage engines, editors, and game runtimes. The same few moves recur at different scales.`,
+        `For systems, follow Database Indexing into B-tree, LSM, zone maps, star-trees, and columnar formats. For text, follow Suffix Array into Wavelet Tree and FM-index. For memory-resident performance, follow Hash Table into SwissTable and filters. For editors, follow Rope and Piece Table. For runtime identity, follow Slab Allocator into Generational Arena Slot Map and Sparse Set Entity Index.`,
+      ],
+    },
+    {
+      heading: 'Failure Modes',
+      paragraphs: [
+        `The main failure mode is pattern shopping. If every problem looks like it needs an advanced structure, the primer has been misused. Many workloads are best served by an array, a hash map, a heap, a sorted file, or a database index already maintained by the storage engine.`,
+        `Another failure mode is hiding the workload. Average-case benchmarks can miss skew. Microbenchmarks can miss cache effects under real object sizes. Exactness requirements can rule out sketches. Concurrency can turn a clean invariant into a locking problem. Measure the real access pattern before and after the design change.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        `Study Big-O Growth, Arrays, Hash Tables, Heaps, Binary Search Trees, B-trees, and Tries as the base vocabulary. Then study SwissTable Hash Map for locality, Segment Tree and Sparse Table for summaries, FM-index and Wavelet Tree for compressed text, Bloom Filter and Count-Min Sketch for approximation, and Piece Table Text Buffer for persistence.`,
+        `For production case studies, read Apache Pinot Star-Tree Index, RocksDB LSM, Lucene Inverted Index, DuckDB Vectorized Execution, Archetype ECS Column Store, and Modern Cache Eviction. Keep one question in front: what invariant made the important operation cheap, and what tax did the system accept to keep that invariant true?`,
       ],
     },
   ],

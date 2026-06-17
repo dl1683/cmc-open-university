@@ -142,44 +142,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why contour maps exist`,
       paragraphs: [
-        `A contour map is the same two-basin loss terrain from "The Loss Landscape, in 3D" flattened from above and sliced horizontally into level sets. Every contour is a closed curve of constant loss. Nested ring families show basins; rings crowding together show steep slopes; rings pinching into a figure-eight mark the saddle point between basins. This is the view every published paper, TensorBoard, and textbook uses — contour maps are how you measure the loss landscape directly from the page.`,
+        `A loss landscape is easy to imagine and hard to inspect. In two parameters you can draw a surface, point to a valley, and say that an optimizer rolls downhill. In real models there may be millions or billions of parameters, so the surface is too large to see directly. Even in a two-parameter teaching example, a 3D view hides some facts behind camera angle and perspective. A contour map solves the inspection problem by looking straight down at the surface and drawing the sets of equal loss.`,
+        `The result is the same idea used in topographic maps. A contour labeled 1.3 is the set of parameter values whose loss is exactly 1.3. Cross the line and the loss changes. Stay on the line and the loss stays constant. The map loses height as a literal vertical dimension, but it gains precision: basin count, saddle height, slope, valley shape, and optimizer motion can all be read from a flat page.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The naive view and its limit`,
       paragraphs: [
-        `A contour at level L is the set of all points where loss = L. On this surface, f(x, y) = (x² − 4)² / 22 + x / 4 + 1 + 1.5y², the two basins appear as nested ring families. At loss 0.90, only the left basin is enclosed; at loss 2.20, both families are circled by one ring. The seven exact levels (0.6, 0.9, 1.3, 1.6, barrier ≈ 1.727, 2.2, 3.0) are computed exactly: for level L, the contour is y = ±√((L − g(x)) / 1.5) wherever g(x) ≤ L.`,
-        `Reading the map extracts three things: TOPOLOGY — nested ring families and where they merge (the figure-eight marks the saddle; its level is the exact escape cost 0.24). STEEPNESS — tight rings are cliffs; wide spacing is plains; here, rings crowd vertically (1.5y²) and spread horizontally (the ravine torturing "Gradient Descent"). CONDITIONING — round rings mean one learning rate works everywhere; eccentric rings mean the Hessian's "Eigenvalues & Eigenvectors" are spread out.`,
-        `Optimizer paths interact measurably: gradient descent crosses contours perpendicularly (the gradient IS the steepest direction). Momentum, β = 0.93, cuts at an angle — the angle IS stored velocity — threading through the pinch point while gradient descent bounces off.`,
+        `The naive way to understand optimization geometry is to draw the surface in 3D and watch the height. That works for first intuition. You can see that one point is lower than another, that a valley is narrow, and that a ridge separates two basins. The problem is that the camera changes the story. A steep wall can look gentle from the wrong angle. A saddle can be hidden behind a ridge. A path that appears smooth may actually be zigzagging through tightly packed level sets.`,
+        `A second naive approach is to print losses along an optimizer trajectory. That tells you whether loss went down, but it removes the surrounding geometry. You no longer know whether the optimizer followed the valley floor, bounced across a ravine, or stopped in a shallow basin while a deeper one sat nearby. Contour maps keep the optimizer path and the landscape in the same coordinate system, so each step can be interpreted against the terrain it crossed.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core insight: level sets and rings`,
       paragraphs: [
-        `Computing exact contours is fast: for any level L and x, the y values come immediately from y = ±√((L − g(x)) / 1.5). Rendering is O(resolution), typically hundreds of points per contour, instant on screen. In real deep learning (millions of parameters), computing exact contours is impossible. Papers use heuristics: project onto a 2D plane (via random directions or Hessian eigenvectors), compute loss on a grid, draw contours numerically. Trade-off: lose exactness, gain scalability. This page uses the exact form as ground truth.`,
+        `Formally, a contour at level L is the set of all points w where f(w) = L. In this module the surface is two-dimensional, so those sets are curves. For the displayed function, f(x, y) = (x^2 - 4)^2 / 22 + x / 4 + 1 + 1.5y^2, the y direction is quadratic and the x direction has two wells. At a low level, a contour exists only around the deeper basin. At a higher level, each basin has its own ring family. Raise the level far enough and the families merge into one outer curve.`,
+        `Nested rings mean a basin because moving inward crosses contours of decreasing loss. The center of a ring family is a local minimum. Separate ring families mean separate attraction basins in the displayed slice. A contour that pinches into a figure eight marks the level where two basins connect. In terrain language that pinch is a pass. In optimization language it is a saddle: downhill in one direction, uphill in another, and decisive for whether an optimizer can escape one basin and enter the other.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Steepness and conditioning`,
       paragraphs: [
-        `Li et al. (2018) used contours to show why skip connections flatten the landscape (rings become less eccentric). TensorBoard includes a live loss-landscape plugin. Researchers ask: Where are saddles? How eccentric are the contours (ill-conditioned)? Practitioners use contour shape to decide on optimizers: circular rings accept "Gradient Descent" with fixed learning rate; eccentric rings need "Momentum, RMSProp & Adam" to adapt per direction.`,
+        `Contour spacing is slope information. If two contours with nearby loss values are close together on the page, the surface must change height quickly over a short horizontal distance. That is a steep region. If the same loss gap requires a long walk across the page, the surface is flat in that direction. Tight rings do not mean the map is more detailed there; they mean the loss rises or falls quickly there.`,
+        `Shape matters as much as spacing. Round contours near a minimum mean the curvature is similar in all directions, so one learning rate can make reasonable progress in every direction. Long, thin contours mean the valley is ill-conditioned. The optimizer sees a steep wall in one direction and a shallow floor in another. A learning rate large enough to move along the floor may overshoot across the wall; a learning rate safe for the wall may crawl along the floor. This is the geometric reason ravines are painful for plain gradient descent.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Optimizer paths on contours`,
       paragraphs: [
-        `Tight rings do NOT mean the surface is bumpy — they mean the slope is steep; you are reading a projection from above. Another trap: a 2D contour map on a page is only a slice of the full high-dimensional landscape. Other basins and saddles may exist off-plane. The figure-eight at 1.727 marks the saddle on THIS slice only.`,
-        `Do not use contour geometry alone to predict convergence: learning rate, momentum, and batching effects all matter. Use contours for intuition, not exact prediction.`,
+        `A path drawn on a contour map is more informative than a loss curve alone. Plain gradient descent moves in the negative gradient direction. The gradient is perpendicular to a level set, so gradient descent crosses contours at right angles in the ideal continuous picture. If the path repeatedly cuts back and forth across a narrow valley, the map shows why progress is slow: the method is spending steps correcting motion across steep walls instead of advancing along the flat direction.`,
+        `Momentum changes the geometry of the path. The update is no longer only the current gradient; it includes stored velocity from previous gradients. On a contour map that memory appears as a path that cuts contours at an angle instead of crossing them exactly at right angles. That is not a drawing artifact. The angle records history. In the displayed two-basin landscape, momentum can carry the iterate through the pinched pass that plain gradient descent fails to cross, then overshoot and spiral before settling.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `The exact example`,
       paragraphs: [
-        `Return to "The Loss Landscape, in 3D" for 3D intuition. Study "Loss Landscapes & Optimization Geometry" for saddle points and the Hessian. Read "Momentum, RMSProp & Adam" to understand why paths bend at angles. Explore "Eigenvalues & Eigenvectors" to see why eccentric rings signal conditioning problems. Master "Gradient Descent" for why the gradient is orthogonal to level sets. Together, these let you decode any published loss-landscape figure like a topographer.`,
+        `This topic uses a surface simple enough to compute exactly and rich enough to show real optimization behavior. Write g(x) = (x^2 - 4)^2 / 22 + x / 4 + 1. Then f(x, y) = g(x) + 1.5y^2. For a fixed contour level L, the possible y values satisfy y = plus or minus sqrt((L - g(x)) / 1.5), wherever g(x) <= L. That closed form lets the module draw exact contours instead of sampling a grid and guessing where the lines should be.`,
+        `The two wells are not equal. The x / 4 term tilts the surface, so one basin is deeper than the other. The ridge between them has a specific height, found numerically from the x-axis spine. Just above that height, the contour pinches into the figure-eight shape. That level is not merely pretty; it estimates the escape cost from the shallow basin in this slice. If an optimizer cannot acquire enough energy or update direction to cross that pass, it remains trapped in the local basin even though a lower one exists nearby.`,
+      ],
+    },
+    {
+      heading: `How papers use contour maps`,
+      paragraphs: [
+        `Loss-landscape papers use contour plots because a flat figure can compare many models or optimizers without camera tricks. A common method is to choose two directions in parameter space, evaluate the loss on a grid around a trained model, and draw contours through the resulting values. The directions might be random, chosen from principal directions, or normalized to account for filter scale. The plot is a slice, not the whole landscape, but it can still reveal whether one architecture produces sharper basins, flatter valleys, or more connected low-loss regions than another.`,
+        `Practitioners use the same reading skills when comparing optimizers. If two methods reach similar final loss but one path crosses many tight contours while the other follows the valley more directly, the map explains the difference in stability. If a schedule lowers the learning rate and the path suddenly stops bouncing across rings, the contour plot makes the reason visible. The value is not prediction down to the exact step. The value is diagnosis: what kind of geometry is the optimizer fighting?`,
+      ],
+    },
+    {
+      heading: `Where the map can mislead`,
+      paragraphs: [
+        `The largest trap is forgetting that a two-dimensional plot is a slice through a higher-dimensional object. A saddle visible in the slice may not be the easiest escape route in the full space. A basin that looks isolated in two directions may connect to another basin through a direction not shown. A flat-looking region may be flat only along the chosen plane and sharp along many omitted directions. Contour maps are instruments, not proofs of global geometry.`,
+        `Projection choices also matter. If the plotted directions are poorly chosen, important curvature can disappear. If axes are scaled badly, an ordinary valley can look extreme or an extreme valley can look harmless. If loss is evaluated without matching the training setup, stochastic layers, batch normalization, or data preprocessing can create artifacts. A good contour figure states how the plane was chosen, how the loss was evaluated, and whether the same scale is used across comparisons.`,
+      ],
+    },
+    {
+      heading: `Cost and scale`,
+      paragraphs: [
+        `For this analytic surface, drawing contours is cheap. Each contour level can be computed directly, and rendering hundreds of points per curve is trivial. Real neural networks are different. To draw a contour plot around a model, a researcher usually evaluates the model on a grid of parameter perturbations. A 51 by 51 grid already requires 2,601 forward evaluations of the validation or training loss. If the model or dataset is large, that is a real compute bill.`,
+        `The computational cost is why contour maps are mostly diagnostic rather than routine production tooling. They are valuable when studying an optimizer, explaining a failure, or supporting a research claim. They are less useful for everyday model selection, where scalar validation metrics, calibration checks, and ablation studies usually matter more. The map earns its cost when geometry is the question.`,
+      ],
+    },
+    {
+      heading: `What to study next`,
+      paragraphs: [
+        `Study Gradient Descent for the reason gradients are perpendicular to level sets. Study Momentum, RMSProp & Adam for the update rules that bend paths away from pure perpendicular crossings. Study Eigenvalues & Eigenvectors and the Hessian to connect elongated rings with curvature and conditioning. Study Loss Landscapes & Optimization Geometry for saddles, barriers, and basin connectivity. Return to the 3D loss landscape when you need physical intuition, then use contour maps when you need measurements that survive the camera angle.`,
       ],
     },
   ],
 };
-

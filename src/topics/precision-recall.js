@@ -89,40 +89,72 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why accuracy fails`,
       paragraphs: [
-        `Precision, recall, and the confusion matrix are the evaluation tools that keep accuracy honest. The demo uses 1,000 emails with only 50 spam. A lazy classifier that passes everything gets 950 correct and scores 95% accuracy while catching zero spam. The confusion matrix exposes the four cells: true positives are spam correctly flagged, false negatives are spam passed through, false positives are ham wrongly junked, and true negatives are ham correctly passed. Precision asks, of the emails we flagged, how many were truly spam? Recall asks, of all real spam, how many did we catch?`,
+        `Accuracy answers one question: what fraction of predictions were correct? That is useful only when the classes and mistakes are roughly balanced. Many real classifiers live in the opposite world. Fraud is rare. Cancer is rare. Critical defects are rare. Spam may be a small fraction of mail. In those settings, a classifier can achieve high accuracy by mostly predicting the majority class and ignoring the cases people actually care about.`,
+        `The demo uses 1,000 emails, only 50 of which are spam. A lazy classifier that passes every email as ham gets 950 correct and scores 95 percent accuracy. It catches zero spam. Accuracy did not lie mathematically; it answered the wrong question for an imbalanced task. The model's success was mostly a reflection of the base rate.`,
+        `Precision, recall, and the confusion matrix exist to stop that failure. They force evaluation to name the two kinds of positive-class mistakes: false positives, where harmless items are flagged, and false negatives, where real positives are missed. Once those counts are visible, the team can choose a model and threshold based on cost rather than being impressed by a majority-class score.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The four-cell ledger`,
       paragraphs: [
-        `The threshold 0.5 classifier in the visualization has TP = 40, FN = 10, FP = 30, and TN = 920. Accuracy is 96%, barely better than the lazy 95%, but precision is 40/(40+30) = 57.1% and recall is 40/(40+10) = 80%. The cautious threshold 0.9 classifier flips the trade: TP = 25, FN = 25, FP = 2, TN = 948, so precision jumps to 92.6% while recall falls to 50%. One slider moved; the error profile changed completely. Those four counts are the audit trail.`,
-        `F1 is the harmonic mean of precision and recall. It is useful when you want one balanced number, because it collapses if either side is near zero. The lazy classifier has F1 = 0 despite 95% accuracy. But F1 is not morality. If false negatives are ten times worse than false positives, Picking a Threshold with Real Costs should override a symmetric metric.`,
+        `The confusion matrix has four cells. True positives are positive cases correctly flagged. False negatives are positive cases missed. False positives are negative cases incorrectly flagged. True negatives are negative cases correctly ignored. Every example in a labeled evaluation set lands in exactly one cell, and every metric in this family is arithmetic over those cells.`,
+        `Precision is TP / (TP + FP). It asks: of the things the model flagged, how many were actually positive? High precision means the alert queue is clean. In spam filtering, a false positive may bury a job offer or invoice, so precision matters. In fraud review, low precision means analysts waste time on innocent transactions.`,
+        `Recall is TP / (TP + FN). It asks: of all real positives, how many did the model find? High recall means the system misses fewer target cases. In medical screening, a false negative can be much more serious than a false alarm, so recall often matters more. In security monitoring, recall measures how much of the real threat stream is being caught.`,
+        `The threshold 0.5 classifier in the demo has TP = 40, FN = 10, FP = 30, and TN = 920. Accuracy is 96 percent, barely above the lazy 95 percent, but precision is 40 / (40 + 30), or 57.1 percent, and recall is 40 / (40 + 10), or 80 percent. Those two ratios reveal a model that catches most spam but creates a noisy flagged queue.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Why it works`,
       paragraphs: [
-        `Computing these metrics is O(N): run the model on a labeled test set, count four cells, and divide. The expensive part is not arithmetic; it is collecting labels and deciding which mistake costs more. A spam filter may prefer high precision to avoid junking invoices. A cancer screen may prefer high recall to avoid missing disease. Search systems often report precision at k because users only inspect the first few results. Cross-Validation & Honest Evaluation decides whether the reported counts generalize beyond one lucky split.`,
+        `Precision and recall work because they separate two different promises. Precision asks whether positive predictions are trustworthy. Recall asks whether real positives are being missed. Accuracy merges those promises into one number, so it can hide the exact mistake the system is making.`,
+        `The confusion matrix is the invariant behind the metrics. Every prediction lands in exactly one of four cells: true positive, false positive, true negative, or false negative. Precision uses the positive-prediction column. Recall uses the real-positive row. Once those denominators are visible, the tradeoff stops being a vague model-quality argument and becomes a question about which kind of error the application can afford.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Thresholds move the tradeoff`,
       paragraphs: [
-        `Every binary classifier eventually lands here: Naive Bayes (Spam Filter), Logistic Regression, fraud scoring, moderation, search ranking, medical screening, defect detection, and lead scoring. Imbalanced Data: When 99% Is One Class makes precision and recall central because majority-class accuracy can dominate the report. ROC Curves & AUC studies threshold sweeps from another angle: true-positive rate against false-positive rate. Calibration & Reliability Diagrams matters when the threshold is chosen from probabilities rather than arbitrary scores. In production dashboards, the confusion matrix is often the first place to look when users say the model feels wrong.`,
+        `Most classifiers produce scores, not final decisions. A threshold turns scores into labels. Lower the threshold and the model flags more items. True positives usually rise, false positives usually rise, recall improves, and precision may fall. Raise the threshold and the model becomes cautious. False positives fall, precision often improves, but false negatives rise and recall falls.`,
+        `The cautious threshold 0.9 classifier in the demo shows the trade. It has TP = 25, FN = 25, FP = 2, and TN = 948. Precision is 25 / (25 + 2), or 92.6 percent. Recall is 25 / (25 + 25), or 50 percent. Compared with the threshold 0.5 classifier, the alert queue is much cleaner, but half the spam escapes. Neither model is universally better. The better choice depends on the cost of junking ham versus the cost of letting spam through.`,
+        `This is why the confusion matrix should be read before any one-number metric. The same model family, trained on the same data, can look aggressive or conservative depending on threshold. A product team that says "maximize precision" is choosing fewer false alarms. A team that says "maximize recall" is choosing fewer misses. Good evaluation makes that choice explicit.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `F1 and other summaries`,
       paragraphs: [
-        `Do not say specificity is another name for precision. Recall is sensitivity, but specificity is true-negative rate: TN/(TN+FP). Precision is positive predictive value: TP/(TP+FP). Do not compare precision across datasets with very different base rates without noting prevalence. Do not compute metrics on training data. Do not expect precision and recall to rise together when you move a threshold; usually one buys the other. A/B Testing & p-values can tell whether an observed metric improvement is larger than sampling noise.`,
+        `F1 is the harmonic mean of precision and recall: 2PR / (P + R). It is popular because it punishes collapse on either side. If precision is high but recall is near zero, F1 remains low. If recall is high but precision is awful, F1 remains low. The lazy classifier in the demo has 95 percent accuracy but zero recall and therefore F1 = 0. F1 exposes the trick accuracy missed.`,
+        `But F1 is not a law of nature. It treats precision and recall symmetrically. Many products do not. A cancer screen may accept many false positives to avoid false negatives. A legal hold review system may prefer high recall because missing a relevant document is dangerous. A user-facing spam filter may prefer high precision because hiding legitimate mail is unacceptable. If the costs are asymmetric, use cost-weighted evaluation or choose a threshold against a required operating point, such as recall at 95 percent precision.`,
+        `Other metrics answer adjacent questions. Specificity is TN / (TN + FP), the true-negative rate. It is not another name for precision. Negative predictive value asks, of the items passed, how many were truly negative. ROC curves plot true-positive rate against false-positive rate as thresholds move. Precision-recall curves are often more informative on heavily imbalanced data because they focus on the positive-class queue and detection rate.`,
+      ],
+    },
+    {
+      heading: `Evaluation discipline`,
+      paragraphs: [
+        `Computing these metrics is simple: run the model on labeled examples, count the four cells, divide. The hard part is making the evaluation set honest. It must match the deployment distribution or intentionally report separate distributions. It must avoid training-data leakage. It must preserve base rates or clearly document resampling. It must include enough positives for recall estimates to be stable. A recall estimate from five positive examples is not a product decision; it is a warning that the test set is too small.`,
+        `Report confidence intervals or repeated-split variation when possible. Precision and recall can move sharply when the positive class is rare. Ten additional false positives may be trivial in a million-row system and catastrophic in a small expert-review queue. Slice the confusion matrix by subgroup, geography, device, language, source, or risk band. A model can have acceptable global recall while missing the exact subgroup that motivated the classifier.`,
+        `Calibration matters when thresholds are chosen from probabilities. If a score of 0.9 does not mean about a 90 percent chance of being positive, threshold discussions become brittle. A model can rank examples well but produce poorly calibrated probabilities. Precision-recall curves inspect ranking behavior across thresholds; calibration diagrams inspect whether scores deserve probability interpretation. Production systems usually need both.`,
+      ],
+    },
+    {
+      heading: `Where it is used`,
+      paragraphs: [
+        `Spam filters use precision to avoid hiding legitimate mail and recall to keep inboxes clean. Fraud systems use precision to manage investigator workload and recall to limit missed losses. Medical screening uses recall or sensitivity to reduce missed disease, then precision or positive predictive value to understand how many follow-up tests will be unnecessary. Search and recommendation systems often use precision at k because users inspect only the first page or first few recommendations.`,
+        `Moderation systems use the same ledger but with high stakes on both sides: false positives suppress legitimate speech, while false negatives leave harmful content up. Defect detection balances missed defects against unnecessary inspection. Sales lead scoring balances wasted sales effort against missed opportunities. The vocabulary changes by domain, but the cells remain the same.`,
+        `The confusion matrix also helps debug model changes. If a new loss function improves recall but floods false positives, the business impact is different from a change that improves precision at the same recall. If a data-cleaning change improves true negatives but leaves true positives unchanged, accuracy may rise while the product problem remains unsolved. The four counts keep the discussion grounded.`,
+      ],
+    },
+    {
+      heading: `Common mistakes`,
+      paragraphs: [
+        `Do not compare precision across datasets with different base rates without naming the prevalence. If positives become rarer, precision can fall even when the classifier's ranking skill is unchanged. Do not compute the confusion matrix on training data and call it evaluation. Do not tune the threshold on the test set and then report the same test set as an unbiased result. Use validation data for threshold selection and reserve test data for final measurement.`,
+        `Do not assume precision and recall should both improve when you move only the threshold. Usually the threshold buys one with the other. If both improve, something else changed: the model, features, labels, data split, or calibration. Do not hide the confusion matrix behind F1 alone. A single number is useful for sorting experiments, but deployment needs the underlying counts and costs.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study ROC Curves & AUC for threshold-free ranking skill, Picking a Threshold with Real Costs for the business cost layer, and Imbalanced Data: When 99% Is One Class for the regime where accuracy fails hardest. Then use Calibration & Reliability Diagrams before treating a score as a probability.`,
+        `Study Imbalanced Data to understand why majority-class accuracy is seductive, ROC Curves and AUC for threshold sweeps from the false-positive-rate perspective, Picking a Threshold with Real Costs for cost-sensitive deployment, and Calibration and Reliability Diagrams before treating scores as probabilities. Then practice by writing the confusion matrix for a real product decision. Name the positive class, name both mistakes, attach costs, choose the threshold, and only then decide which metric should lead the dashboard.`,
       ],
     },
   ],

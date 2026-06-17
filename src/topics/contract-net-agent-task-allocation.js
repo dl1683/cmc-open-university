@@ -101,7 +101,7 @@ function* negotiationProtocol() {
   yield {
     state: contractGraph('A manager announces a task'),
     highlight: { active: ['manager', 'cfp', 'a', 'b', 'c', 'e-manager-cfp', 'e-cfp-a', 'e-cfp-b', 'e-cfp-c'], compare: ['heap'] },
-    explanation: 'Contract Net starts when a manager broadcasts a call for proposals. The announcement describes the task, constraints, deadline, reward, required capabilities, and evaluation function.',
+    explanation: 'The manager does not guess who should work. It publishes a task envelope with constraints, deadline, required capability, and scoring rules, then lets workers expose their private load, skill, and cost through bids.',
   };
 
   yield {
@@ -155,7 +155,7 @@ function* agentAllocation() {
   yield {
     state: allocationGraph('A task DAG feeds the market'),
     highlight: { active: ['plan', 'router', 'e-plan-router'], compare: ['code', 'research', 'ops'] },
-    explanation: 'In an agent platform, the manager can be a router over a task DAG. Every ready task becomes a contract opportunity. Specialist agents bid only on work they can do well.',
+    explanation: 'Read the task DAG as the supply of ready work. The router publishes only tasks whose dependencies are satisfied, and specialists bid on the slices where their tools, context, and proof artifacts make them worth choosing.',
   };
 
   yield {
@@ -214,44 +214,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'The Contract Net Protocol is a coordination pattern for allocating tasks among autonomous agents. One agent acts as a manager, announces a task, receives proposals from potential contractors, awards the contract to one or more winners, and receives a result or failure report. It is useful when workers have different skills, load, cost, tools, or private local knowledge.',
-        'Reid G. Smith introduced the protocol for distributed problem solving in 1980. The paper frames the problem as task-sharing among loosely coupled asynchronous nodes with no shared memory, and describes negotiation as the basis for matching tasks to appropriate nodes: https://www.eecs.ucf.edu/~lboloni/Teaching/EEL6788_2008/papers/The_Contract_Net_Protocol_Dec-1980.pdf.',
+        'Contract Net exists because a central planner often cannot know enough to assign every task well. In a multi-agent system, workers have private state: current load, tool access, local context, skill fit, expected cost, and recent failures. A static route table throws away that information.',
+        'The protocol turns allocation into a small market. A manager announces work, capable agents bid, the manager awards the task, and the winner reports success or failure. Reid G. Smith introduced the idea for distributed problem solving in 1980, where loosely coupled nodes needed a way to share tasks without shared memory or perfect global knowledge.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive assignment rule',
       paragraphs: [
-        'The manager sends a call for proposals that describes the task, constraints, deadline, required capability, and scoring function. Each participant evaluates the task locally. A participant can refuse or return a proposal containing cost, estimated time, confidence, required resources, and the evidence it expects to produce. The manager ranks proposals and sends an award to the selected participant. The participant executes and returns an inform or failure message.',
-        'In modern agent systems, the same pattern appears as dynamic task routing. A coding agent may bid high on test repair, a research agent may bid high on source discovery, an operations agent may bid high on deployment checks, and each bid can include expected token cost and verification artifact. The orchestration layer can choose the worker rather than hardcoding the route.',
+        'The obvious rule is to assign work by name: code tasks go to the coding agent, research tasks go to the research agent, deploy tasks go to the operations agent. That is simple, but it fails as soon as the labels are incomplete. A code task may require current web sources. A research task may require running a parser. An operations task may be blocked by missing credentials.',
+        'Round-robin assignment is no better. It balances count, not difficulty or capability. A worker with the right tool and fresh context may be much cheaper than a free worker starting cold. Contract Net asks agents to expose these local facts through proposals instead of pretending the manager already knows them.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is that task allocation is a decision under uncertainty, so the system should collect offers before it commits. A bid is not just a yes. It is a compact promise about capability, cost, risk, schedule, and proof. The manager can rank offers by expected utility instead of relying on a brittle hand-coded route.',
+        'This is useful even when every worker is software. An agent can bid high because it has the right repo loaded, a browser session open, a domain-specific skill, lower queue delay, or a better validation path. The protocol gives the orchestrator a structured way to choose and later audit that choice.',
+      ],
+    },
+    {
+      heading: 'Protocol steps',
+      paragraphs: [
+        'The manager begins with a task envelope. It includes the task id, inputs, required capabilities, deadline, budget, acceptance criteria, allowed tools, and scoring rule. The call for proposals is published to candidate agents or a topic where candidates can discover it.',
+        'Each candidate evaluates the envelope against local state. It can refuse or submit a proposal with estimated cost, time, confidence, dependencies, and evidence plan. The manager ranks proposals, sends an award to the selected worker, sends rejections to the rest, and waits for an inform or failure report. A failed report can close, retry, split, or escalate the task.',
       ],
     },
     {
       heading: 'Data structures',
       paragraphs: [
-        'The minimum data structures are a task record, a call-for-proposals envelope, a mailbox or message queue, a bid table, a Binary Heap for ranking, a contract state machine, and an audit log. The task record includes id, parent task, inputs, required capabilities, deadline, budget, and acceptance criteria. The bid includes agent id, utility features, estimated cost, confidence, and proof plan. The contract state moves through announced, bidding, awarded, running, reported, failed, cancelled, or reannounced.',
-        'The priority queue is the teaching core. Contract Net is often described socially as negotiation, but implementation usually reduces to ranking offers by expected utility. Good utility functions include quality, capability fit, context freshness, latency, token cost, side-effect risk, and verification strength. A low-cost bid with no proof plan should lose to a costlier bid that can return tests, citations, or replayable traces.',
+        'A concrete implementation needs a task record, a call-for-proposals envelope, a mailbox or message queue, a bid table, a priority queue, a contract state machine, and an audit log. The task record describes the work. The bid table stores proposals by agent and version. The priority queue ranks bids by utility. The state machine prevents ambiguous outcomes.',
+        'The contract state usually moves through announced, bidding, awarded, running, reported, failed, cancelled, or reannounced. The audit log records why each bid won or lost. Without that log, the system becomes hard to debug because bad allocation can look like bad execution.',
       ],
     },
     {
-      heading: 'Case studies',
+      heading: 'Bid scoring',
       paragraphs: [
-        'The original paper discusses distributed AI problem solving over asynchronous nodes and notes natural applications such as traffic-light control, distributed sensing, and heuristic search. Its central contribution is high-level communication semantics for deciding what nodes should say to each other, not just how bytes move across a network: https://www.eecs.ucf.edu/~lboloni/Teaching/EEL6788_2008/papers/The_Contract_Net_Protocol_Dec-1980.pdf.',
-        'Agent orchestration is a modern fit. A supervisor can publish tasks such as "find current sources," "repair failing route," "summarize contradictions," or "run browser validation." Agents bid with capability, load, and expected proof. The result integrates naturally with Multi-Agent Orchestration Topologies, Blackboard Architecture Agent Coordination, Distributed Tracing, Message Queue, Binary Heap, Rate Limiter, and LLM Guardrail Policy Engine.',
+        'The priority queue is the teaching core. Contract Net sounds social because it uses words such as proposal and award, but the implementation often becomes a heap keyed by expected value. A useful score can combine skill fit, context freshness, queue delay, token or compute cost, side-effect risk, deadline risk, confidence calibration, and verification strength.',
+        'The cheapest bid should not always win. A low-cost proposal with no proof plan may be worse than a slower proposal that returns tests, citations, replayable traces, or a checked artifact. Historical calibration matters too. If an agent repeatedly bids with high confidence and fails, the manager should discount future bids.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual proves',
       paragraphs: [
-        'The first pitfall is trusting self-reported bids. Agents can overestimate confidence, undercount cost, or hide uncertainty. Bids should be calibrated against historical outcomes, and awards should be followed by verification. The second pitfall is starving long-term work: if the utility function rewards only short latency, every worker will prefer easy tasks. Add fairness, aging, and strategic value when needed.',
-        'The third pitfall is retry storms. A failed contract should not simply be reannounced forever. Failure should update route state: bad capability match, missing context, blocked dependency, unsafe permission, or unrealistic acceptance criteria. Sometimes the right action is to split the task, change the scoring function, or escalate.',
+        'The negotiation view proves that the protocol is a state machine over messages. CFP opens the auction. Agents submit proposals or refuse. The heap ranks proposals. Award creates a commitment. Reject releases the losers. Report closes the contract or triggers failure handling.',
+        'The allocation view proves the same pattern at the level of a task DAG. Only dependency-ready tasks enter the market. Specialists bid on work where their tools and context matter. The winning worker gets a bounded execution envelope, not unlimited autonomy. Retry is a separate path because failure should update routing information instead of looping blindly.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: Smith, The Contract Net Protocol, https://www.eecs.ucf.edu/~lboloni/Teaching/EEL6788_2008/papers/The_Contract_Net_Protocol_Dec-1980.pdf, and the Semantic Scholar record at https://www.semanticscholar.org/paper/The-Contract-Net-Protocol%3A-High-Level-Communication-Smith/d3cdca6dcd3fdf4a19b6553f81665095de28cc8d. Study Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Blackboard Architecture Agent Coordination, Message Queue, Binary Heap, Distributed Tracing, Rate Limiter, Circuit Breakers, Saga Pattern, and Temporal Workflow Case Study next.',
+        'Contract Net works when local knowledge is real and communication is cheaper than bad assignment. Workers can see their own load, cache, tools, permissions, and confidence better than the manager can. The manager can see the global task list, dependencies, budget, and acceptance criteria better than any one worker can. The protocol lets each side contribute the information it actually has.',
+        'It also creates a natural audit boundary. The proposal explains why the worker should get the task. The award explains why the manager accepted. The report explains what happened. That sequence is much easier to test and replay than free-form agent chatter.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Negotiation is not free. It adds messages, latency, state, and failure cases. A tiny task may not deserve an auction. A task with one obvious safe owner may be better handled by a direct queue. The protocol is most useful when tasks are valuable enough, workers differ enough, and bad assignment is expensive enough.',
+        'The manager also becomes a policy point. Bad scoring can starve long-term work, overvalue short tasks, underweight verification, or route risky work to cheap workers. If every bid is self-reported and never checked, the market rewards confident claims. Contract Net needs measurement, calibration, and guardrails.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'The pattern fits distributed sensing, traffic control, search, logistics, cloud workers, and modern agent orchestration. A supervisor can publish tasks such as find current sources, repair a failing route, run browser validation, reduce a benchmark failure, or write a synthesis memo. Agents bid with capability, load, and expected proof.',
+        'It also composes well with other structures. Message Queue carries the announcements and reports. Binary Heap ranks proposals. Distributed Tracing follows contracts across workers. Rate Limiter caps bidding and execution. Saga Pattern helps undo multi-step side effects. Blackboard Architecture can hold shared evidence while Contract Net decides who should act next.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure mode is dishonest or poorly calibrated bidding. Agents can overestimate confidence, undercount cost, or hide uncertainty. The fix is to compare bids with outcomes and feed that history back into ranking. The second failure mode is retry storms. A failed contract should not be reannounced forever with the same envelope.',
+        'The third failure mode is unclear ownership. If two agents both think they won, duplicate side effects can occur. If no one records rejections, agents may hold resources unnecessarily. If the manager cannot explain awards, users cannot tell whether the protocol is improving allocation or just adding ceremony.',
+        'A fourth failure is strategic bidding. If workers are optimized for winning tasks instead of completing valuable work, they may shade estimates, avoid hard tasks, or overclaim expertise. Outcome-based calibration and random audits keep the market tied to delivery rather than salesmanship.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources include Smith, The Contract Net Protocol, at https://www.eecs.ucf.edu/~lboloni/Teaching/EEL6788_2008/papers/The_Contract_Net_Protocol_Dec-1980.pdf, and the Semantic Scholar record at https://www.semanticscholar.org/paper/The-Contract-Net-Protocol%3A-High-Level-Communication-Smith/d3cdca6dcd3fdf4a19b6553f81665095de28cc8d.',
+        'Study Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Blackboard Architecture Agent Coordination, Message Queue, Binary Heap, Distributed Tracing, Rate Limiter, Circuit Breakers, Saga Pattern, Temporal Workflow Case Study, LLM Guardrail Policy Engine, and Queue Backpressure next.',
       ],
     },
   ],

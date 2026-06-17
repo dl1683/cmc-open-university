@@ -212,42 +212,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Fenwick trees are usually introduced as point-update, prefix-sum structures. With a difference-array view, the same compact walk can support range-add point-query. With two Fenwick trees, it can support range-add range-sum. The trick is not a new tree; it is choosing what the tree stores.',
-        'This topic builds on Fenwick Tree, Big-O Growth, Sliding Window, and Binary Search. The basic Fenwick page teaches lowbit walks. This page explains the algebra that lets those walks represent updates over whole intervals without switching immediately to a lazy segment tree.',
+        'The basic Fenwick tree supports point updates and prefix sums. That is enough for many frequency tables and cumulative counters, but real workloads often update intervals: add 5 to every score from l through r, then ask for one score or a range total later.',
+        'A segment tree with lazy propagation can solve this, but it is larger and more general than necessary for additive updates and sum queries. Fenwick trees can handle this narrower problem with less code and a smaller memory footprint.',
+        'The trick is to stop storing the array directly. Store boundary events or linear coefficients so ordinary Fenwick prefix queries recover the value you actually want.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and its limit',
       paragraphs: [
-        'For range-add point-query, store the difference array in one Fenwick tree. To add x to [l, r], do add(l, x) and add(r + 1, -x). A point query at i returns prefixDiff(i), which includes every range update that started at or before i and excludes every update that ended before i.',
-        'For range-add range-sum, the prefix sum is the area under those active differences. Two Fenwick trees store the linear terms. The standard formula is prefix(i) = sum(B1, i) * i - sum(B2, i). Updating [l, r] by x changes B1 at l and r + 1, and changes B2 by x * (l - 1) and -x * r. Then rangeSum(l, r) is prefix(r) - prefix(l - 1).',
+        'The direct approach is to loop from l to r and add x to every element. It is easy to write and correct for rare updates. It becomes O(r - l + 1) per update, which is too slow when ranges are large or updates are frequent.',
+        'The general data-structure answer is a lazy segment tree. It handles many range updates and many aggregate queries. The limit is complexity: if the only operation is addition and the only aggregate is sum, the full generality is unnecessary.',
+        'Fenwick range tricks exploit the algebra of prefix sums. They are specialized, but within that specialization they are compact and fast.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The two walls',
       paragraphs: [
-        'Each add or sum on a Fenwick tree costs O(log n). Range-add point-query uses two Fenwick point updates per range update and one Fenwick prefix query per point query. Range-add range-sum uses four Fenwick point updates per range update and four prefix reads for a range query if you count both B1/B2 at r and l - 1. Space is O(n) for one BIT or O(2n) for two BITs.',
-        'The constants are small, and the memory layout is cache-friendly compared with pointer-heavy trees. But the algebra is narrow. These tricks fit additive groups: addition and subtraction over prefixes. They do not naturally support range minimum, range assignment with overwrites, or arbitrary associative combines.',
+        'The first wall is range-add point-query. A single update affects many elements, but a Fenwick update touches one index and its ancestors. The data structure needs a way to mark where the interval effect starts and where it stops.',
+        'The second wall is range-add range-sum. Once updates are represented as starts and stops, a point value is easy: it is the prefix sum of the difference array. A range sum asks for the accumulated area under those active differences, which needs one more layer of algebra.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'Imagine a leaderboard where promotions add bonus points to every user in rank interval [l, r], and the product asks for either one user score or the total score over a rank range. If only individual scores are queried, a difference Fenwick tree is enough. If range totals are also queried, two Fenwick trees keep both the active bonus and the prefix area of those bonuses.',
-        'This is also a useful way to understand lazy propagation. A lazy segment tree stores pending range actions on tree nodes. A two-BIT solution stores a very specific kind of pending action globally through prefix algebra. It is less general, but for range addition and range sums it is compact and fast.',
+        'For range-add point-query, treat the Fenwick tree as a difference array. To add x on [l, r], add +x at l and -x at r + 1. A point query at i asks for the prefix of the difference tree, so it sees exactly the intervals covering i.',
+        'For range-add range-sum, use two Fenwick trees. B1 stores the active coefficient of i. B2 stores the correction term. The prefix total through i is sum(B1, i) * i - sum(B2, i).',
+        'This formula works because the prefix of a range-added array is piecewise linear. B1 gives the slope of the piece currently active at i, and B2 shifts the line so it starts counting at the correct left boundary.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'The biggest bug is off-by-one indexing. Most Fenwick formulas are written for 1-based arrays. If your implementation is 0-based, translate carefully or wrap the API. The second bug is forgetting the r + 1 boundary update; without it, a range add leaks past its right edge.',
-        'Another misconception is that two BITs make Fenwick trees as general as segment trees. They do not. They solve an additive prefix-polynomial case. If the update or query operation does not decompose through prefix subtraction, use a segment tree or another range-query structure.',
+        'Assume 1-based indices. The one-BIT variant performs add(diff, l, x) and add(diff, r + 1, -x). Then point(i) = prefix(diff, i). If r is n, the r + 1 update is skipped or written to a sentinel outside the queried range.',
+        'The two-BIT variant updates four boundary events: add(B1, l, x), add(B1, r + 1, -x), add(B2, l, x * (l - 1)), and add(B2, r + 1, -x * r). Then prefix(i) = prefix(B1, i) * i - prefix(B2, i).',
+        'A range query is still prefix subtraction: rangeSum(l, r) = prefix(r) - prefix(l - 1). The ordinary Fenwick walk is unchanged; only the meaning of the stored numbers changes.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Invariant and proof sketch',
+      paragraphs: [
+        'For the one-BIT version, the invariant is that diff[k] contains the net change that begins at k. Taking a prefix over diff adds every interval that has started and removes every interval whose r + 1 boundary has passed.',
+        'For the two-BIT version, consider one update [l, r] by x. Its contribution to prefix(i) is 0 when i < l, x * (i - l + 1) when l <= i <= r, and x * (r - l + 1) when i > r.',
+        'The B1 and B2 boundary events reproduce exactly that piecewise function. Between l and r, B1 contributes x * i and B2 subtracts x * (l - 1). After r, the negative events at r + 1 stop the slope and leave the constant completed contribution.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Each Fenwick update or prefix read costs O(log n). Range-add point-query uses two Fenwick updates for each interval update and one prefix read for each point query.',
+        'Range-add range-sum uses four Fenwick updates for each interval update. A range query uses two prefix formulas, and each formula reads both B1 and B2. The asymptotic cost is still O(log n), but the constant factor is higher.',
+        'Space is O(n) for the one-BIT version and O(2n) for the two-BIT version. The arrays are compact and cache-friendly compared with pointer-heavy trees.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Off-by-one errors are the main implementation risk. Most formulas assume 1-based indices. With 0-based public APIs, convert at the boundary and keep the internal Fenwick logic 1-based.',
+        'Forgetting the r + 1 update makes the interval leak past its right edge. Using x * l instead of x * (l - 1), or x * (r + 1) instead of x * r in B2, shifts every prefix after the boundary.',
+        'Integer overflow is easy in the two-BIT formula because values are multiplied by indices. Use a numeric type large enough for maxUpdate * n * numberOfUpdates.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins for additive interval bonuses, score adjustments, batched counters, inventory shifts, event deltas, range-applied weights, and analytics workloads where updates are additive and queries are point values or sums.',
+        'It is a useful teaching bridge to lazy propagation. A lazy segment tree stores pending actions on tree nodes. Two BITs store one specific pending action through prefix algebra.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It is a poor fit for range minimum, range maximum, gcd, arbitrary associative operations, and range assignment overwrite. Those operations do not decompose through prefix subtraction in the same way addition does.',
+        'It is also weaker when queries need rich conditions, custom lazy tags, order statistics, or non-linear updates. A segment tree, interval tree, balanced binary search tree, or offline sweep may be clearer.',
+      ],
+    },
+    {
+      heading: 'What the views show',
+      paragraphs: [
+        'In the range-add point-query view, read l and r + 1 as boundary events. The add node does not touch every item in the interval; it writes a start event and a stop event into the difference BIT.',
+        'The prefix node is the decoder. It walks the Fenwick tree up to i and reconstructs the value at that point by summing every still-active interval update.',
+        'In the two-BIT view, B1 is the slope tree and B2 is the offset tree. The formula node is the whole point of the variant: it turns two ordinary Fenwick prefixes into a prefix sum of the updated array.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Expose whatever public indexing style fits the rest of the codebase, but keep the internal Fenwick arrays 1-based. Convert l, r, and i at the API boundary, then write the update formulas exactly once in private helpers. That reduces the chance that one method uses 0-based math while another uses 1-based math.',
+        'Build tests from small arrays and compare against a naive implementation. Randomly generate range additions and range queries, then assert that the two-BIT result matches the direct array after every operation. Include r = n, l = 1, single-element ranges, negative updates, and large values that exercise overflow limits.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: CP-Algorithms Fenwick range operations at https://cp-algorithms.com/data_structures/fenwick.html, Topcoder Binary Indexed Tree tutorial at https://www.topcoder.com/community/competitive-programming/tutorials/binary-indexed-trees/, USACO point-update range-sum guide at https://usaco.guide/gold/PURS, and USACO range-update query note at https://usaco.guide/problems/cses-1651-range-update-queries/solution. Study Fenwick Tree, Segment Tree & Lazy Propagation, Square-Root Decomposition, Sparse Table, and Big-O Growth next.',
       ],

@@ -106,40 +106,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `ROC Curves & AUC evaluate a classifier's ranking skill across every possible threshold. The model first emits scores: Naive Bayes (Spam Filter), Logistic Regression, and Softmax & Temperature all produce values that can be sorted. A threshold turns those scores into actions. ROC refuses to pick one threshold too early; it sweeps them all and plots true-positive rate against false-positive rate. AUC, the area under that curve, compresses the sweep into one number: the probability that a random positive example receives a higher score than a random negative one.`,
+        `Many classifiers do not begin by making a hard yes-or-no decision. They produce a score. A spam filter may score one email 0.91 and another 0.37. A fraud model may score a transaction 0.08 even though the deployed threshold is 0.02. A medical model may rank patients by suspicion before a hospital chooses who receives a follow-up test. The threshold turns a score into an action, but the score itself contains more information than any one threshold can show.`,
+        `ROC curves exist because threshold choice is a policy decision, not only a modeling decision. One team may want to catch every possible positive case and tolerate many false alarms. Another may have a strict investigation budget and accept lower recall. If both teams use the same model, a single accuracy number at a default threshold hides the real question: what tradeoffs are available as the threshold changes?`,
+        `A ROC curve sweeps all thresholds and plots true-positive rate against false-positive rate. AUC, the area under that curve, compresses the sweep into one ranking score. Its concrete interpretation is useful: draw one random positive example and one random negative example. AUC is the probability that the model scores the positive higher than the negative, with ties counting as half. That makes AUC a threshold-free measure of ranking skill.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The naive approach and its wall`,
       paragraphs: [
-        `The demo scores 10 true spam emails and 10 true ham emails. Spam mostly lands high, from 0.95 down to 0.30, while ham mostly lands lower, from 0.60 down to 0.05. The overlap around 0.30 to 0.60 is where threshold choices become trade-offs. Start with a threshold above every score: flag nothing, so TPR = 0 and FPR = 0. Lower the threshold one score at a time. More spam gets caught, but more ham gets falsely flagged. When every email is flagged, both rates are 1. The curve is the path through those operating points.`,
-        `The real classifier bows toward the top-left, and its AUC is 0.89. The coin-flip view gives identical score distributions to spam and ham, so its curve sits on the diagonal and AUC is 0.50. Below 0.50 usually means the scores are inverted: reversing them would rank better. Precision, Recall & the Confusion Matrix names the cells behind each point; Picking a Threshold with Real Costs chooses which point to deploy.`,
+        `The naive evaluation is to pick a threshold, compute a confusion matrix, and report accuracy. That can be fine when the threshold is fixed by the product and class balance is stable. But it is a poor way to compare rankers. A model can look weak at threshold 0.5 and excellent at threshold 0.1. Another can look strong in accuracy because negatives dominate the data while still missing the positives that matter. The threshold can make model quality and deployment policy look like the same thing.`,
+        `A second naive approach is to compare raw scores as if they were calibrated probabilities. That also fails. A model that gives positives scores around 0.8 and negatives around 0.7 may rank well even if its probabilities are miscalibrated. Another model may be well calibrated but have weak separation. ROC and AUC focus on ordering: do positives tend to appear above negatives? Calibration is a separate question handled by reliability diagrams and probability calibration methods.`,
+        `The wall is overlap. If every positive score is above every negative score, thresholding is easy. Most real models have an overlap region where some negatives score higher than some positives. Every threshold through that region trades additional true positives for additional false positives. ROC makes that menu visible instead of pretending one threshold summarizes the model.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `How the curve is built`,
       paragraphs: [
-        `Building ROC points is cheap. Sort N scores, walk thresholds, and update counts, for O(N log N) dominated by sorting. The pair-counting interpretation of AUC is O(P * Nneg) if done directly: compare every positive-negative pair and count wins, ties as half. Sorted implementations compute the same value faster. In the demo there are 100 spam-ham pairs; the 0.89 AUC means the model wins about 89% of those pairwise rankings.`,
+        `Start with a threshold above every score. The model flags nothing. True-positive rate is zero because it catches no positives. False-positive rate is zero because it falsely flags no negatives. Now lower the threshold to the next score. If that score belongs to a positive example, true-positive rate increases. If it belongs to a negative example, false-positive rate increases. Continue until the threshold is below every score and the model flags everything. The curve moves from (0, 0) to (1, 1).`,
+        `True-positive rate is TP / (TP + FN). It is the same as recall: among actual positives, what fraction did the threshold catch? False-positive rate is FP / (FP + TN): among actual negatives, what fraction did the threshold wrongly flag? The x-axis asks how many negatives you disturb. The y-axis asks how many positives you capture. A useful classifier bends toward the top-left because it catches many positives before it accumulates many false positives.`,
+        `A random ranker lies near the diagonal. If positives and negatives have identical score distributions, then lowering the threshold admits positives and negatives at the same rate. A perfect ranker goes straight up the y-axis and then across the top because every positive scores above every negative. Real curves live between those extremes.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Core insight: ranking, not thresholding`,
       paragraphs: [
-        `Medical tests use ROC to show sensitivity versus false-alarm rate before hospitals choose an operating threshold. Credit, fraud, malware, and moderation teams use AUC to compare models without arguing about a default cutoff. Cross-Validation & Honest Evaluation can report mean AUC across folds. A/B Testing & p-values can test whether an AUC lift survives sampling noise before you ship a new model. Model cards often include ROC because it makes the threshold trade-off inspectable instead of hiding it behind one headline score, not magic.`,
+        `AUC is not accuracy. It is not precision. It is not calibration. It measures pairwise ordering. If AUC is 0.89, then in about 89 percent of positive-negative pairs, the positive receives the higher score. This is why AUC is valuable for comparing models before the organization has settled on an operating threshold. It says how much ranking signal the model has learned across the score range.`,
+        `AUC of 0.50 means no ranking skill under the evaluated distribution. The model may still output varied scores, but positives do not systematically rank above negatives. AUC below 0.50 often means the score direction is inverted, assuming labels are correct. If every negative receives a higher score than every positive, flipping the score would produce a strong ranker.`,
+        `AUC can be computed by sorting scores and integrating the ROC curve, or by counting positive-negative score comparisons. The direct pair interpretation is simple but O(P times N) for P positives and N negatives. Sorting-based implementations compute the same value more efficiently. In either case, ties matter: if a positive and negative receive the same score, that pair contributes half a win.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `ROC works because lowering a threshold produces a monotone sweep through the ranked list. Each time a positive example enters, true-positive rate rises. Each time a negative example enters, false-positive rate rises. The shape of the curve is therefore a picture of how positives and negatives are interleaved by score.`,
+        `AUC works because that same sweep is equivalent to pairwise ranking. If most positives appear above most negatives, the curve bends toward the top-left and the area is high. If the score ordering is random, positives and negatives enter at about the same rate and the curve stays near the diagonal.`,
+      ],
+    },
+    {
+      heading: `Choosing a threshold`,
+      paragraphs: [
+        `ROC does not choose the threshold for you. It shows what thresholds make possible. The operating point should come from costs, constraints, and downstream capacity. In medicine, a screening test may accept more false positives to avoid missed disease. In fraud detection, an investigation team may have a fixed daily review budget. In content moderation, the threshold may depend on how harmful a missed positive is and how costly a false removal is.`,
+        `A threshold should be chosen on validation data that matches deployment as closely as possible. If the business cost of a false negative is high, the chosen point may prioritize recall. If false positives trigger expensive human review, the chosen point may need a lower false-positive count even if AUC is high. A model with a slightly lower AUC can be better for deployment if its curve dominates in the region where the service actually operates.`,
+        `This is why reporting only the best-looking point is misleading. A serious evaluation names the operating region, reports uncertainty, and explains the cost model. The ROC curve is the menu. The deployed threshold is the order.`,
+      ],
+    },
+    {
+      heading: `Where ROC is useful`,
+      paragraphs: [
+        `ROC is useful when teams need to compare rankers independently of one threshold. Medical diagnostics use it to compare sensitivity and specificity across cutoff choices. Credit, malware, search-quality, and moderation teams use AUC to decide whether a new model ranks positives above negatives better than an old model. Cross-validation can report AUC across folds, giving a more stable view than one split. Model cards often include ROC because the tradeoff surface is easier to audit than a single default-threshold metric.`,
+        `ROC is also useful when class prevalence may change but the conditional score distributions remain similar. True-positive rate and false-positive rate are normalized within their actual classes, so they do not directly change when the number of negatives grows. That can make ROC a clean way to study ranking behavior under controlled evaluation. The same property, however, becomes a limitation in rare-event operations.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `AUC is not accuracy, precision, recall, or calibration. It measures ordering, not whether a score of 0.80 means 80%. Calibration & Reliability Diagrams checks that. ROC can also flatter rare-event problems because false-positive rate divides false alarms by all negatives. In Imbalanced Data: When 99% Is One Class, 2% FPR may still be an unmanageable pile of alarms. There, the precision-recall curve is usually the operational plot. Finally, do not use AUC to choose a threshold; use it to compare rankers, then choose the threshold from costs and constraints.`,
+        `The most common misconception is that high AUC means good deployment performance. AUC can be high while the selected threshold is bad, while probabilities are uncalibrated, or while the alert queue is unusable. AUC says the ordering is strong on average across all thresholds. It does not say that score 0.8 means 80 percent risk, and it does not say the threshold 0.5 is meaningful.`,
+        `ROC can flatter rare-event models. Suppose fraud is extremely rare. A false-positive rate of 1 percent may sound excellent because it divides false positives by all legitimate transactions. But if there are millions of legitimate transactions, 1 percent can be an enormous investigation queue. Precision answers a different operational question: when the alarm fires, how often is it correct? For imbalanced classification, precision-recall curves often expose the burden that ROC hides.`,
+        `Another mistake is to compare AUC across mismatched datasets or time periods without checking distribution shift. If the negative population becomes easier, AUC may improve even though the model did not become better on hard cases. If positives are sampled differently from deployment, the curve may describe the benchmark rather than the service. Evaluation should include slices, confidence intervals, and the threshold region that matters.`,
+      ],
+    },
+    {
+      heading: `Case study: spam filtering`,
+      paragraphs: [
+        `Consider a spam classifier that scores ten spam emails and ten ham emails. Most spam scores are high, but a few legitimate emails also score in the middle. If the threshold is strict, the filter catches only the most obvious spam and creates few false alarms. If the threshold is permissive, it catches more spam but starts hiding legitimate mail. Neither point alone tells you whether the model is a good ranker.`,
+        `The ROC sweep walks through every possible cutoff. When the curve bends toward the top-left, it shows that many spam emails score above most ham emails. The AUC summarizes that separation. But deployment still requires a policy decision. A personal inbox may prefer fewer false positives because losing legitimate mail is painful. A corporate quarantine system may accept more false positives if messages can be reviewed safely. Same model, different threshold, different product behavior.`,
+        `The evaluation should not stop at AUC. Check precision at the intended quarantine rate, recall for high-risk spam categories, calibration if scores are shown to users, and performance on slices such as newsletters, receipts, phishing attempts, and non-English mail. ROC is a starting point for threshold analysis, not the whole evaluation story.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study Precision, Recall & the Confusion Matrix to read each threshold's counts, Calibration & Reliability Diagrams to check probability meaning, and Picking a Threshold with Real Costs to choose the deployed cutoff. Then revisit Naive Bayes (Spam Filter) and Logistic Regression as score factories that live on these curves.`,
+        `Study Precision, Recall and the Confusion Matrix to connect each ROC point to counts. Study imbalanced classification to see why ROC can hide false-alarm volume in rare-event problems. Study calibration and reliability diagrams to separate ranking from probability meaning. Study threshold selection with real costs to turn a score distribution into a deployed policy.`,
+        `Then revisit logistic regression, Naive Bayes, and softmax temperature as score-producing models. Their outputs are useful only after you ask three separate questions: do the scores rank examples well, are the scores calibrated, and what threshold or decision rule matches the cost of action? ROC and AUC answer the first question.`,
       ],
     },
   ],

@@ -222,41 +222,105 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A minimal perfect hash function, or MPHF, maps a fixed set of n keys to the integers 0 through n-1 with no collisions. Perfect means no two stored keys collide. Minimal means there are no unused member slots in the target range. The result is ideal for static dictionaries: compute id = f(key), then read values[id].',
-        'This differs from an ordinary Hash Table. A normal table works for changing sets and handles collisions with probing or chaining. An MPHF is usually built offline for a known set. It spends construction time and auxiliary bits so lookups for member keys become compact dense-array indexing.',
+        'Some dictionaries are frozen before they ship: compiler keywords, generated protocol names, static URL tables, genomic k-mer sets, feature vocabularies, and lookup tables inside data files. They need exact lookup, but they do not need runtime insertion.',
+        'Minimal perfect hashing exists for that case. If the keys are known in advance, the builder can search for a function that maps every stored key to a dense unique id, so payloads live in a compact array.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The normal answer is an ordinary hash table. It handles changing sets and resolves collisions with chaining or probing. That flexibility is valuable when keys arrive over time.',
+        'For a fixed set, the ordinary table keeps paying for flexibility it does not use. It needs spare capacity, collision handling, and sometimes pointers or control metadata. A dense array would be smaller, but only if each key could be assigned a unique array index.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is collisions. A normal hash can map two stored keys to the same bucket, so the table needs a collision policy and extra room. If the target range is exactly 0..n-1, even one collision means another stored key has no slot.',
+        'Minimal perfect hashing solves that wall offline. It spends build time and auxiliary bits to make collisions disappear for the one set that matters.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Perfect means no two stored keys collide. Minimal means the range has exactly n slots for n stored keys. Together they turn dictionary lookup for member keys into direct indexing: id = f(key), then values[id].',
+        'The function is not magic for every possible key. It is constructed to be collision-free on the known set. An absent key may still produce an in-range id, so membership semantics require verification unless all queries are known members.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the build-perfect-ids view, watch the cost move to build time. The builder tries auxiliary seeds, graph structure, or bucket partitions until every known key receives a distinct id in the dense range 0 through n-1.",
+        "In the lookup-and-caveats view, distinguish addressing from membership. For a stored key, the id points directly into the payload array. For an arbitrary nonmember, the function can still return an in-range id, so the caller needs verification unless all queries are known members.",
+        "The useful mental model is a compiled dictionary. The runtime path is tiny because the set was frozen and the hard collision work happened earlier.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A compiler has 64 reserved words. A normal hash table can recognize them, but it still carries collision handling and spare capacity. A minimal perfect hash builder can assign each keyword a unique id from 0 to 63. The compiler then stores token metadata in a 64-entry array and looks up candidate identifiers through the generated function.',
+        'If the lexer only calls the function after confirming the input is one of those 64 words, direct indexing is enough. If arbitrary identifiers go through the MPHF, the lexer must verify the key or fingerprint before returning a keyword token. Otherwise a non-keyword identifier could map to the id for `while` or `return`.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Construction algorithms vary. Some use random graphs and peeling. Some split keys into buckets, then search for a seed that makes each bucket collision-free. RecSplit recursively partitions hard buckets until small subproblems can be solved compactly. BBHash focuses on fast scalable construction for massive key sets. PTHash revisits front-coded hashing and compressed auxiliary tables.',
-        'The lookup path is short: hash the key through the stored auxiliary data, compute a dense id, and index an array. But the function is defined to be collision-free only for the original set. A non-key can still produce an in-range id, so applications that receive arbitrary queries store fingerprints, original keys, or pair the MPHF with a membership filter.',
+        'Construction algorithms differ. Some use random graphs and peeling. Some split keys into buckets and search for seeds. RecSplit recursively partitions hard buckets until compact subproblems can be solved. BBHash focuses on fast scalable construction for massive key sets. PTHash explores compressed auxiliary data and fast lookup.',
+        'The finished structure stores the auxiliary data needed by the hash function, a dense payload array, and sometimes verification data. Lookup hashes the key through the auxiliary data, computes an id, and indexes the payload array.',
+        'If the API can receive nonmembers, the lookup must verify. It can store original keys, short fingerprints, or pair the MPHF with an approximate-membership filter.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Lookup is expected constant time in practical MPHFs. Space is usually measured in bits per key for the function, plus payload storage and any verification data. Construction can be expensive compared with ordinary hashing because the builder searches for a collision-free representation. That is acceptable when the structure is read many times after being built once.',
+        'For stored keys, correctness comes from the construction certificate: the chosen auxiliary data maps each key in the fixed set to a distinct id. The dense array can then put each payload at the id assigned to its key.',
+        'For absent keys, the guarantee does not apply. The function still returns some number in the range. That is why an MPHF is an addressing function, not a membership proof.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'CMPH was created as a portable C library for efficient minimal perfect hashing over large key sets. RecSplit showed that practical MPHFs could get close to the information-theoretic lower bound while keeping expected linear construction and constant lookup. BBHash demonstrated fast construction for very large sets. In production, these ideas appear in static dictionaries, compact key-value files, compiler keyword tables, genomic k-mer indexes, and compressed search infrastructure.',
+        'Lookup is expected constant time in practical MPHFs. Space is measured in bits per key for the function, plus payload storage and any verification data. The payload array is dense because the ids cover 0..n-1.',
+        'Construction is the expensive part. The builder searches for a collision-free representation, may retry seeds, and may partition difficult buckets. That cost is acceptable when the dictionary is built once and queried many times.',
+        'Build failures are normal engineering events, not theory failures. Builders may retry seeds, adjust bucket sizes, or choose a different construction when the current random choices create a hard subproblem. The shipped artifact should include enough metadata to reproduce the function for the exact key set.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Design choices',
       paragraphs: [
-        'The main misconception is that an MPHF proves membership. It does not. It maps stored keys uniquely, but absent keys may map to any slot. If an API receives untrusted or arbitrary keys, verify the slot before returning the value. Another trap is using MPHFs for mutable data. Adding one key can require rebuilding the function, so use Cuckoo Hashing or ordinary hash tables when updates dominate.',
+        'Choose verification based on the API. If every query is guaranteed to be a member, the MPHF can return an id directly. If queries are arbitrary, store full keys, compact fingerprints, or pair the MPHF with a filter. The smaller the verification data, the more carefully collision probability and error behavior must be documented.',
+        'Choose construction based on scale. A tiny keyword table values simplicity. A billion-key genomic index values bits per key and build throughput. A latency-sensitive embedded dictionary values predictable lookup and compact memory layout. Minimal perfect hashing is a family of tradeoffs, not one algorithm.',
+      ],
+    },
+    {
+      heading: 'Generated artifact governance',
+      paragraphs: [
+        'Treat the generated hash function like compiled data. Store the source key set, builder version, random seed or construction metadata, payload ordering, and verification format together. A future build should be able to reproduce the ids or deliberately record why ids changed.',
+        'This matters because downstream arrays often assume stable ids. If a generated dictionary is rebuilt and ids move, payload files, serialized indexes, or model feature maps can silently point at the wrong entries. The MPHF may still be perfect while the product is wrong.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'MPHFs are strong for static dictionaries, compiler keyword tables, generated API names, compact key-value files, genomic k-mer indexes, frozen feature maps, URL dictionaries, and compressed search infrastructure.',
+        'CMPH, RecSplit, BBHash, Sux, and related systems show the range of engineering choices: construction throughput, bits per key, lookup speed, and implementation complexity.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'MPHFs are poor for mutable sets. Adding one key can require rebuilding the function, so ordinary hash tables or cuckoo hashing are better when updates dominate.',
+        'They also fail when callers treat an id as proof. If queries are untrusted or arbitrary, verify the slot before returning a value. Otherwise a nonmember can read the payload of some real member.',
+        'They are also a poor fit when the build pipeline cannot be trusted or reproduced. A generated function is part of the data artifact. If the key list, hash seeds, build version, and payload ordering drift apart, the dictionary can return fast wrong answers.',
+        'A safe release process treats id changes as schema changes. Either preserve ids across builds or version every dependent artifact that stores those ids.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: CMPH library at https://cmph.sourceforge.net/, RecSplit paper at https://arxiv.org/abs/1910.06416, BBHash paper PDF at https://drops.dagstuhl.de/storage/00lipics/lipics-vol075-sea2017/LIPIcs.SEA.2017.25/LIPIcs.SEA.2017.25.pdf, BBHash repository at https://github.com/rizkg/BBHash, Sux minimal perfect hashing implementation at https://github.com/vigna/sux/, and a modern survey at https://arxiv.org/abs/2506.06536. Study Hash Table, Cuckoo Hashing, Bloom Filter, LOUDS Succinct Trie, Elias-Fano Encoding, and Binary Fuse Filter next.',
+        'Primary sources: CMPH library at https://cmph.sourceforge.net/, RecSplit paper at https://arxiv.org/abs/1910.06416, BBHash paper PDF at https://drops.dagstuhl.de/storage/00lipics/lipics-vol075-sea2017/LIPIcs.SEA.2017.25/LIPIcs.SEA.2017.25.pdf, BBHash repository at https://github.com/rizkg/BBHash, Sux minimal perfect hashing implementation at https://github.com/vigna/sux/, and a modern survey at https://arxiv.org/abs/2506.06536. Study Hash Table, Cuckoo Hashing, Bloom Filter, Binary Fuse Filter, Ribbon Filter, LOUDS Succinct Trie, and Elias-Fano Encoding next.',
       ],
     },
   ],

@@ -65,7 +65,7 @@ function* arrayBuffers() {
   yield {
     state: arrowGraph('Arrow arrays are typed views over buffers'),
     highlight: { active: ['schema', 'batch', 'arrayA', 'valid', 'values'], compare: ['arrayB', 'offsets', 'bytes'], found: ['kernel'] },
-    explanation: 'Apache Arrow stores table-like data as record batches. Each column is an Arrow array, and each array is backed by typed buffers such as validity bitmaps, offsets, and values.',
+    explanation: 'Read this as schema plus buffers. A RecordBatch says these arrays have the same row count; each array says which typed buffers give meaning to its logical slots.',
     invariant: 'Array metadata names length, null count, type, and buffer meaning; buffers hold the bytes.',
   };
 
@@ -90,7 +90,7 @@ function* arrayBuffers() {
       ],
     ),
     highlight: { active: ['slot0:validity', 'slot1:validity', 'slot2:validity'], found: ['slot1:value'], compare: ['slot3:value'] },
-    explanation: 'A primitive nullable array uses a validity bitmap plus a fixed-width value buffer. A null slot can leave arbitrary bytes in the values buffer because the validity bit controls semantics.',
+    explanation: 'The validity bit is the authority. Row 1 is null even though the value buffer still contains bytes. Arrow separates logical meaning from raw storage so kernels can scan compact buffers.',
   };
 
   yield {
@@ -115,7 +115,7 @@ function* arrayBuffers() {
       ],
     ),
     highlight: { active: ['ann:offsets', 'bo:offsets', 'cy:offsets'], found: ['null:validity'], compare: ['null:bytes'] },
-    explanation: 'Variable-size arrays add an offsets buffer. offsets[i] and offsets[i+1] slice the data buffer. The same pattern generalizes to binary values and list-like nested arrays.',
+    explanation: 'For strings, offsets are the index structure. offsets[i] and offsets[i + 1] cut a slice out of one contiguous byte buffer, avoiding one object allocation per string.',
   };
 
   yield {
@@ -147,7 +147,7 @@ function* zeroCopyInterchange() {
   yield {
     state: arrowGraph('Many engines can share the same column buffers'),
     highlight: { active: ['schema', 'batch', 'values', 'bytes', 'kernel'], found: ['arrayA', 'arrayB'] },
-    explanation: 'Arrow is also an interoperability contract. If two systems agree on schema and buffer layout, they can exchange columns without converting every value into a private row representation.',
+    explanation: 'In this view Arrow is a treaty between systems. If producer and consumer agree on schema, buffer order, offsets, and lifetimes, the handoff can be a pointer-level handoff instead of a row-by-row conversion.',
     invariant: 'Zero-copy sharing still requires lifetime, alignment, and validity guarantees.',
   };
 
@@ -220,7 +220,7 @@ function* zeroCopyInterchange() {
       ],
     ),
     highlight: { active: ['lifetime:discipline', 'invalid:discipline'], compare: ['mutation:issue'], found: ['nested:discipline'] },
-    explanation: 'A binary memory format moves trust boundaries closer to raw bytes. Correct lengths, offsets, alignment, and lifetime management are part of the data-structure contract.',
+    explanation: 'The caveat is that raw buffers are powerful and unforgiving. Bad lengths, offsets, alignment, or ownership can turn a fast interchange format into corrupted results or unsafe memory access.',
   };
 }
 
@@ -234,44 +234,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Apache Arrow is a standardized in-memory columnar format. Its basic unit is an Array: a typed logical column backed by one or more buffers. A RecordBatch groups arrays of equal length under a schema. The format is designed so analytical kernels can scan typed buffers directly and systems can exchange data without per-cell serialization.',
-        'This case study connects Rank/Select Bitvector, Roaring Bitmaps, Delta Bit-Packing Integer Compression, Dremel Query Engine Case Study, Parquet Columnar Format Case Study, and DuckDB Vectorized Execution Case Study. It turns abstract bitmap and buffer ideas into a concrete memory contract used by real analytics tools.',
+        'Apache Arrow exists because analytics systems used to waste huge amounts of time translating data between incompatible in-memory representations. A database engine, dataframe library, machine-learning runtime, and RPC service might all understand columns, but each might store strings, nulls, timestamps, and nested values differently. Every boundary became a conversion tax.',
+        'Arrow turns the memory layout itself into a shared contract. A logical column is represented by typed buffers, validity bitmaps, offsets, and schema metadata. A RecordBatch groups arrays of the same length so vectorized operators can process a table-shaped chunk without reconstructing row objects.',
+        'The key idea is not just columnar storage. It is standardized columnar memory. If two systems agree on the Arrow specification, one can hand the other buffers plus schema instead of serializing every cell into JSON, Python objects, or engine-specific rows.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is row objects. Each row is a record, each field is a language object, and every engine converts those objects into its own internal representation. That is easy to program against, but bad for scans. A CPU looking for one column has to step over every other field and chase pointers through memory.',
+        'Another common approach is file serialization. Put the data in CSV, JSON, or even Parquet, then let every system read it. That solves durability or interchange on disk, but it does not solve in-memory execution. A query engine still wants contiguous typed buffers for fast kernels, not a pile of decoded row objects.',
+        'Arrow’s answer is to make the in-memory batch the interchange artifact. It is not a database and not a storage format like Parquet. It is a physical memory format designed for analytical execution and cross-system handoff.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that logical values can be described by a small number of buffer patterns. A nullable primitive array stores a validity bitmap and a fixed-width values buffer. The bitmap decides which slots are meaningful. Bytes may exist for a null slot, but the validity bit says they should be ignored.',
+        'Variable-size binary and string arrays add an offsets buffer. offsets[i] and offsets[i + 1] identify the byte range for slot i inside one contiguous data buffer. That avoids one heap allocation per string and lets kernels scan offsets and bytes predictably.',
+        'Nested arrays reuse the same vocabulary. Lists use offsets into a child array. Structs carry child arrays with their own validity. Parent validity can mask child values. The format stays regular enough for kernels to loop over typed buffers rather than chase arbitrary object graphs.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For a nullable primitive array, Arrow stores a validity bitmap and a values buffer. The bitmap says which logical slots are valid. The value buffer stores fixed-width values in a contiguous typed region. For variable-size binary or string arrays, Arrow adds an offsets buffer: offsets[i] and offsets[i + 1] locate the byte slice for slot i.',
-        'Nested arrays reuse the same idea recursively. Lists use offsets into a child array. Structs carry child arrays with their own validity, and the parent validity can mask child values. The result is a small vocabulary of buffers that can represent flat and nested tabular data without row objects.',
+        'A producer creates a schema and arrays. The schema names fields and logical types. Each array records length, null count, offset when sliced, and the buffers that define its physical layout. A RecordBatch says these arrays share a row count and can be treated together as a table chunk.',
+        'A vectorized kernel then works over buffers. For an Int32 sum, it can walk a values buffer and a validity bitmap. For a string filter, it can walk offsets and byte slices. For a selection, it can produce a new array, bitmap, or indices without materializing full row objects.',
+        'Interchange works because the consumer does not need to know the producer’s classes. It needs the Arrow schema, buffer addresses or IPC payload, and ownership rules. If the handoff preserves the buffers, the consumer can avoid row-by-row conversion.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Arrow improves scan locality and vectorized execution because values of the same type sit together. Validity bitmaps make null handling compact. Offsets make variable-size data addressable without object pointers. The tradeoff is mutation: appending or changing individual values is usually more expensive than in row-oriented mutable structures.',
-        'The format also shifts correctness responsibility to buffer metadata. Lengths, offsets, null counts, alignment, and child-array boundaries must be valid. When a consumer maps Arrow buffers into process memory, malformed data can become a safety problem, so validation matters at trust boundaries.',
+        'The array-buffer view proves that one logical column is not one opaque object. The int column is validity plus values. The string column is validity plus offsets plus bytes. The schema and array metadata explain how to interpret those buffers. The kernel can process the buffers directly because the layout is regular.',
+        'The zero-copy view proves why Arrow is an interchange format. Python, a query engine, and a client can agree on schema and buffers instead of converting through per-cell objects. The handoff is cheap only if lifetime, alignment, validity, and ownership are correct.',
+        'The Arrow-versus-Parquet table proves an important boundary. Parquet is for durable compressed storage. Arrow is for in-memory arrays and interchange. DuckDB or DataFusion are execution engines that can consume or produce Arrow batches, but Arrow itself is not the query optimizer.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A realistic pipeline reads Parquet files into Arrow record batches, filters or aggregates them in a vectorized engine, and returns Arrow batches to a Python or JavaScript client. Without Arrow, each handoff might serialize rows into a private representation. With Arrow, the handoff can preserve schema and buffer layout, so the next engine can scan the same column buffers.',
-        'This is why Arrow sits between Parquet and DuckDB conceptually. Parquet is a durable compressed file format. DuckDB is an execution engine that moves chunks through operators. Arrow is the in-memory interchange structure that lets systems meet on a common representation.',
+        'It works because analytical workloads usually touch columns, not whole objects. Filtering by one column, summing one numeric field, projecting a subset of fields, and sending a batch to another process all benefit from contiguous typed buffers. The CPU gets predictable memory access, and the system avoids per-row allocation overhead.',
+        'It also works because nulls and variable-size values have explicit side structures. A validity bitmap compresses null state to one bit per slot. Offsets make strings and lists indexable without pointer chasing. Those structures are small but powerful: they turn messy logical values into regular memory scans.',
+        'Finally, it works because the format is shared. Standardization lets an ecosystem form: Arrow IPC, Flight, dataframe interchange, query engines, language bindings, and analytics services can all meet at the same memory contract.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Arrow is not a database and not a compression format by itself. It is a memory layout and interchange specification. It can be serialized through IPC, but its main idea is still typed column buffers. Another trap is assuming zero-copy always means zero cost. Ownership, lifetime, device memory, dictionary encoding, and alignment can force copies or validation work.',
-        'Arrow also does not make every workload faster. Row-at-a-time transactional updates usually prefer row-oriented mutable structures. Arrow is strongest for analytical scans, vectorized kernels, inter-process transfer, and language boundaries where repeated conversion costs dominate.',
+        'Arrow reduces conversion and scan cost, but it is not free. Sliced arrays carry offsets that kernels must respect. Dictionary encoding, nested arrays, string data, device memory, and extension types can complicate zero-copy assumptions. Some boundaries still copy because ownership, alignment, or lifetime cannot be guaranteed.',
+        'Mutation is another tradeoff. Arrow arrays are best treated as immutable batches. Appending or updating individual rows usually means building new arrays or using a separate mutable representation before finalizing an Arrow batch. Row-at-a-time transactional workloads usually want a different structure.',
+        'Validation matters. Bad offsets, wrong lengths, inconsistent null counts, or invalid UTF-8 where UTF-8 is promised can corrupt results or create unsafe memory access in native code. A memory layout is a contract, and contracts need enforcement at trust boundaries.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
+      paragraphs: [
+        'Arrow wins at analytics boundaries: dataframe to query engine, query engine to client, Python to Rust, JVM to native engine, Flight RPC service to consumer, and Parquet reader to vectorized execution. It is especially useful when the data is already columnar and the next step can preserve that shape.',
+        'A realistic pipeline reads Parquet into Arrow batches, filters or aggregates them in a vectorized engine, and returns Arrow batches to a Python, JavaScript, or Flight client. Each boundary can preserve columnar structure instead of rebuilding rows.',
+        'It also wins as an educational data structure because the pieces are concrete. Validity bitmaps, offset buffers, value buffers, schemas, and record batches are visible. They explain why columnar execution is fast without hiding behind vague claims about big data.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Do not call Arrow a database. It does not provide transactions, indexes, query planning, durability, or storage management by itself. It is a memory format and interchange specification. IPC can serialize it, but the main idea remains typed column buffers with explicit metadata.',
+        'Do not assume zero-copy automatically happens. Crossing a process, language, device, or trust boundary may require copies or validation. If a system has to materialize Python objects, decode strings, or rebuild rows, the Arrow advantage may disappear.',
+        'Do not ignore workload shape. Arrow is strongest for batched analytical processing. If the workload is one tiny row mutation at a time, a row-store, object model, or database page layout may be more appropriate.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Official sources: Arrow Columnar Format specification at https://arrow.apache.org/docs/format/Columnar.html, Arrow format overview at https://arrow.apache.org/overview/, Arrow introduction to physical layouts at https://arrow.apache.org/docs/format/Intro.html, Arrow security considerations at https://arrow.apache.org/docs/format/Security.html, and Arrow R developer layout notes at https://arrow.apache.org/docs/r/articles/developers/data_object_layout.html. Study Rank/Select Bitvector, Roaring Bitmaps, Archetype ECS Column Store, Parquet Columnar Format Case Study, DuckDB Vectorized Execution Case Study, and Dremel Query Engine Case Study next.',
+        'Then inspect one Arrow string array by hand: validity bits, offsets, and data bytes. That exercise makes the whole format less abstract and gives you the right mental model for debugging copies and kernel behavior.',
       ],
     },
   ],

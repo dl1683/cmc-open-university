@@ -350,44 +350,105 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A parallel prefix scan computes all running totals of an array. For flags, an exclusive scan answers a more concrete systems question: how many kept items appear before this item? That number is a unique output slot, which makes scan the foundation of stream compaction, radix sort, sparse row-pointer construction, and graph frontier building.',
-        'On WebGPU, scan is a compute pipeline over storage buffers. JavaScript creates buffers and command passes; WGSL shaders run invocations grouped into workgroups; workgroup memory and barriers coordinate tile-local scan; later passes combine block totals.',
+        `Many parallel programs begin with independent per-item decisions and then need a dense result. A particle is visible or invisible. A graph edge enters the next frontier or does not. A row contributes some number of nonzero values. A token, triangle, byte range, or document either survives a filter or gets dropped. The first phase is embarrassingly parallel. The second phase is harder because every surviving item needs a unique output position.`,
+        `A prefix scan computes running totals across an array. For ordinary numbers, it returns cumulative sums. For 0/1 flags, an exclusive scan answers a placement question: how many kept items came before this one? If the current item is kept, that answer is exactly the dense output slot where it should write. This turns unordered independent decisions into ordered, collision-free scatter positions.`,
+        `WebGPU makes this pattern available in the browser and in portable GPU applications. The work is expressed as compute passes over storage buffers. The payoff is not only speed; it is a clean way to keep filtering, culling, binning, sorting, and sparse data preparation on the GPU without pulling intermediate arrays back to JavaScript after every phase.`,
       ],
     },
     {
-      heading: 'Workgroup scan',
+      heading: 'Why the obvious approach fails',
       paragraphs: [
-        'The classic work-efficient GPU scan is the Blelloch upsweep/downsweep pattern. GPU Gems 3 describes the goal as a work-efficient scan that avoids the extra log factor of a naive algorithm and bases the implementation on Blelloch scan: https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda.',
-        'A single workgroup scans one tile. It loads values into workgroup memory, upsweeps to build partial sums, sets the root for exclusive scan, downsweeps to distribute prefixes, and writes local positions. Workgroup barriers are what make the tree levels visible to every invocation before the next level reads them. WGSL is the language reference for WebGPU shaders: https://www.w3.org/TR/WGSL/.',
+        `The simple CPU solution is a loop with a counter. Read each flag, write kept records to output[count], and increment count. That is easy to reason about and perfectly fine for small arrays, but it is a dependency chain. Each output position depends on all earlier flags. If you put that exact loop into a GPU-shaped problem, thousands of lanes wait on one serial count.`,
+        `The tempting GPU workaround is a single atomic counter. Every kept item atomically increments the counter and uses the returned value as its slot. That avoids duplicate writes, but it concentrates contention on the hottest memory location in the pass. It can also destroy stable order, make results harder to reproduce, and hide a performance cliff behind a deceptively short shader.`,
+        `Prefix scan pays for structured parallel work so each lane can compute its rank without fighting over one counter. Instead of asking every item to update a shared variable, it builds a tree of partial counts and then distributes the prefix totals back down. The work is predictable, testable, and composable with later GPU passes.`,
       ],
     },
     {
-      heading: 'Large buffers',
+      heading: 'Scan as rank assignment',
       paragraphs: [
-        'A large input buffer needs multiple passes. Pass 1 scans each tile and writes a block sum. Pass 2 scans the block sums. Pass 3 adds the scanned block offset to each local position and scatters kept records. This is a tiny render-graph-like dataflow pipeline, but for compute buffers rather than textures.',
-        'MDN documents dispatchWorkgroups as dispatching a grid of workgroups for the current compute pipeline: https://developer.mozilla.org/en-US/docs/Web/API/GPUComputePassEncoder/dispatchWorkgroups. WebGPU Fundamentals gives a practical compute-shader introduction with storage buffers and workgroups: https://webgpufundamentals.org/webgpu/lessons/webgpu-compute-shaders.html.',
+        `For compaction, the input is usually a flag array. A 1 means keep this element and a 0 means drop it. An exclusive prefix scan of those flags gives the number of ones before each index. With flags [1, 0, 1, 1, 0, 1], the exclusive scan is [0, 1, 1, 2, 3, 3]. Items at indexes 0, 2, 3, and 5 write to output slots 0, 1, 2, and 3.`,
+        `The invariant is simple: if flag[i] is 1, then scan[i] is the stable rank of item i among kept items. No two kept items have the same rank because the count increases exactly at kept positions. Dropped items may have scan values too, but they do not write. The last flag plus the last scan value gives the compacted length.`,
+        `This rank-assignment view explains why scan appears in so many GPU algorithms. Radix sort uses scans to place keys by digit buckets. Graph traversal uses scans to build the next frontier. Sparse matrix code uses scans to turn row counts into row pointers. Histograms, binning pipelines, broad-phase collision systems, and draw-list builders all need the same conversion from local counts to global offsets.`,
       ],
     },
     {
-      heading: 'Complete case study: GPU particle compaction',
+      heading: 'Workgroup mechanism',
       paragraphs: [
-        'A browser particle system simulates one million particles. A compute shader marks particles visible to the camera. Prefix scan converts those 0/1 flags into dense positions. A scatter pass writes only visible particles into a draw-list buffer. A later render pass draws the dense list instead of carrying dead slots through the frame.',
-        'The CPU should not read the full compacted list every frame. It may read a small count for debugging or indirect draw setup, but the winning path keeps the compacted output on the GPU. The moment every frame copies megabytes back to JavaScript, the queue timeline advantage collapses into readback latency.',
+        `A practical GPU scan starts inside one workgroup. The shader loads a tile of values from a storage buffer into workgroup memory. Workgroup memory is much faster than global memory and can be shared by invocations in the same group. The tile size is usually a fixed power of two or a carefully guarded non-power-of-two size chosen to fit device limits.`,
+        `The classic Blelloch scan has two tree phases. In the upsweep phase, pairs of values are combined into larger partial sums until the root contains the total for the tile. For an exclusive scan, the root is then set to zero. In the downsweep phase, prefix values are propagated back down the tree so every leaf receives the sum of values that came before it.`,
+        `Workgroup barriers are the correctness boundary. Every level of the tree must finish before the next level reads the shared memory values it produced. A missing barrier can produce prefixes that are only occasionally wrong, because the race depends on scheduling. Those bugs are hard to diagnose from final output alone because many incorrect scans still look sorted and mostly reasonable.`,
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Large buffers need block offsets',
       paragraphs: [
-        'The common mistakes are missing tail guards when N is not a multiple of tile size, missing barriers between tree levels, mismatched WGSL and JavaScript buffer layout, dispatching many tiny scans where CPU overhead dominates, and validating only power-of-two toy sizes.',
-        'Do not confuse Fenwick Tree with parallel scan. Fenwick is excellent for interleaved point updates and prefix queries on the CPU. GPU scan is usually a batch primitive: transform a whole buffer into offsets, then feed another GPU pass.',
+        `One workgroup can only scan one tile. A million elements need many workgroups, and workgroups do not implicitly synchronize with each other inside a single dispatch. That means a large scan is a pipeline, not just a local tree. The first pass scans each tile independently and writes one total per tile. Those totals are called block sums.`,
+        `The second pass scans the block sums. If there are many blocks, this may recursively use the same scan machinery on a smaller buffer. The result is one offset per block: how many kept items appeared in all previous blocks. The final pass adds the block offset to each local prefix value. Now every element has a global rank, not just a rank inside its workgroup tile.`,
+        `This is why the storage buffers in a WebGPU implementation are explicit. A typical compaction pipeline has input flags, optional source records, local positions or per-element prefixes, block sums, scanned block offsets, a compacted output buffer, and sometimes a one-element count buffer. Each pass binds the subset it needs and command order supplies the pass-level sequencing.`,
+      ],
+    },
+    {
+      heading: 'Worked compaction example',
+      paragraphs: [
+        `Suppose a renderer has six particles and visibility flags [1, 0, 1, 1, 0, 1]. The exclusive scan is [0, 1, 1, 2, 3, 3]. Particle 0 writes to compacted[0]. Particle 1 is invisible and writes nowhere. Particle 2 writes to compacted[1]. Particle 3 writes to compacted[2]. Particle 4 writes nowhere. Particle 5 writes to compacted[3]. The draw list is dense and stable.`,
+        `If the array spans several workgroups, each group first produces local positions. Imagine the first tile has two visible particles and the second tile has five. The block-sum scan gives the second tile an offset of two. Every kept element in the second tile adds two to its local rank. This is the entire jump from local correctness to global correctness.`,
+        `The final count is needed by later code. A renderer might use it for an indirect draw call. A debugging UI might copy it back to JavaScript. A physics pipeline might keep it on the GPU and feed it to another dispatch. The best design avoids readback unless the CPU truly needs the value.`,
+      ],
+    },
+    {
+      heading: 'WebGPU implementation shape',
+      paragraphs: [
+        `In WebGPU, compute work is recorded into command buffers. A compute pass binds a pipeline and bind groups, then dispatches workgroups with dispatchWorkgroups. WGSL shaders read and write storage buffers. JavaScript prepares buffer sizes, usage flags, bind group layouts, pipeline objects, and dispatch dimensions. The API is explicit enough that many scan bugs are layout or binding bugs rather than algorithm bugs.`,
+        `WGSL struct layout has to match the JavaScript side. If a shader expects u32 flags and the JavaScript code fills a packed byte array, the algorithm can be perfect and still read nonsense. Buffer usage flags must allow the intended roles: STORAGE for compute access, COPY_SRC or COPY_DST for copies, and MAP_READ only on staging buffers that the CPU maps.`,
+        `Readback is a boundary, not part of scan. A storage buffer used by compute is usually copied into a staging buffer before mapAsync. That mapping is asynchronous and can stall frame pacing if done frequently. The strongest scan pipelines keep intermediate offsets, compacted records, and counts on the GPU and only read back for debugging, rare metrics, or explicit user-visible data export.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The proof comes from associativity and order. Addition is associative, so a tree can combine partial sums in parallel and still produce the same totals as a serial left-to-right pass. The downsweep distributes exactly the sum of all values to the left of each position. For 0/1 flags, that sum is the number of kept items before the current item.`,
+        `Stable compaction follows directly. If i and j are kept and i is less than j, then scan[i] is less than scan[j] because at least the kept item i contributes to the count before j. Therefore kept items write to distinct increasing slots. Dropped items do not write, so their ranks cannot cause collisions.`,
+        `The multi-block version keeps the same invariant at two scales. The local scan gives the rank within a tile. The block-offset scan gives the number of kept items in all earlier tiles. Adding them gives the number of kept items before the element in the whole input. That is exactly the global exclusive prefix sum.`,
+      ],
+    },
+    {
+      heading: 'Performance model',
+      paragraphs: [
+        `Scan has overhead. It launches compute passes, uses barriers, writes intermediate buffers, and may perform more total arithmetic than a serial CPU loop. For tiny arrays, that overhead can dominate. A JavaScript loop or a small CPU-side typed-array pass may be faster if the data already lives on the CPU and the result is immediately needed on the CPU.`,
+        `Scan wins when data is large enough, when many lanes can be occupied, and when the compacted result feeds later GPU work. Particle culling, tile binning, visibility lists, GPU sorting, and graph frontiers benefit because the output stays in GPU memory. The cost of scan is then amortized by removing holes or preparing offsets for a larger parallel stage.`,
+        `Benchmark the whole path you intend to ship. A chart that times only the compute dispatch but ignores buffer creation, command submission, and readback is incomplete. Conversely, a benchmark that reads back every frame may unfairly punish a production design that would keep the data on the GPU. Separate algorithm time, submission overhead, memory transfer, and downstream savings.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `Tail handling is the most common correctness trap. Real inputs are not always exact multiples of the tile size. Out-of-range lanes should contribute zero and avoid invalid reads and writes. Test sizes zero, one, tile size minus one, tile size, tile size plus one, and several awkward non-power-of-two lengths.`,
+        `Barrier placement is another trap. A workgroupBarrier belongs between tree levels that communicate through workgroup memory. Adding too few barriers creates races. Adding unnecessary barriers can slow the shader or hide a design that is doing more shared-memory traffic than needed. The goal is not many barriers; it is barriers exactly where previous-level writes must be visible.`,
+        `Other failures are systems failures: JavaScript and WGSL disagree on layout, storage buffers are too small, usage flags do not allow a copy, bind groups point at stale buffers, dispatch counts round down instead of up, block-sum recursion fails for large block counts, and validation covers only all-zero or all-one inputs. Scan should be tested against randomized CPU references, not only against one hand-picked diagram.`,
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        `Start with an exclusive scan over u32 flags and a CPU reference. Verify the prefix array and the compacted contents. Then add block sums and block offsets. Only after correctness is stable should you specialize tile size, unroll tree levels, fuse passes, or switch to more compact flag representations.`,
+        `Choose tile sizes from device limits and measured occupancy, not from a diagram. Keep buffer allocation outside hot loops where possible. Reuse pipelines and bind group layouts. Record dispatch counts with ceil(N / tileSize). Keep a separate count path so downstream passes know the compacted length. Make readback optional and observable in profiling.`,
+        `Do not confuse a Fenwick tree with a GPU prefix scan. Fenwick is excellent for online point updates and prefix queries, especially on the CPU. WebGPU scan is usually a batch primitive: transform a whole buffer into offsets, then feed another buffer-oriented pass. They share prefix-sum vocabulary but solve different operational problems.`,
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        `Prefix scan is a foundational GPU primitive because it connects local predicates to global structure. In rendering, it builds visible instance lists, tile queues, light lists, and particle buffers. In data processing, it packs filtered rows, partitions records, computes offsets for variable-length outputs, and prepares radix-sort buckets. In graph processing, it builds dense frontier arrays from sparse edge decisions.`,
+        `The browser context makes it especially useful. WebGPU applications often want rich client-side computation without server round trips. Scan lets an application keep large interactive buffers resident on the GPU, update them with compute passes, and draw or process only dense active subsets. That is the difference between using the GPU as a display target and using it as a parallel data engine.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study WebGPU Buffer & Bind Group Case Study, Fenwick Tree, Compressed Sparse Row Graph, PageRank, WebGPU Swapchain Frame Pacing, Render Graph Framegraph Resource Lifetimes, GPU All-Reduce, and Radix Sort next.',
+        `Primary and practical sources: GPU Gems 3 Parallel Prefix Sum at https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda, WGSL at https://www.w3.org/TR/WGSL/, MDN dispatchWorkgroups at https://developer.mozilla.org/en-US/docs/Web/API/GPUComputePassEncoder/dispatchWorkgroups, and WebGPU Fundamentals compute shaders at https://webgpufundamentals.org/webgpu/lessons/webgpu-compute-shaders.html.`,
+        `Within this curriculum, study WebGPU Buffer and Bind Group Case Study for API mechanics, Radix Sort for another scan-heavy GPU algorithm, Compressed Sparse Row Graph for offset arrays, PageRank for graph workloads, Fenwick Tree for the contrasting online prefix-sum structure, GPU All-Reduce for another collective operation, and Render Graph Framegraph Resource Lifetimes for reasoning about GPU buffers across passes.`,
       ],
     },
   ],

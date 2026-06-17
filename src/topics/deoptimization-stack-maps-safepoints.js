@@ -136,38 +136,107 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Deoptimization is how optimized code safely gives up. A JIT compiler may assume a property load is monomorphic, a value is a small integer, or a call target is stable. If that assumption breaks, the engine must reconstruct a lower-tier execution state and continue correctly.',
-        'The core data structures are safepoint tables, stack maps, live-value locations, deoptimization ids, materialization recipes, and resume targets. They are side tables for optimized machine code.',
+        'Optimizing runtimes get speed by specializing code for what usually happens. A JavaScript JIT may assume a property load is monomorphic, a value is a small integer, a call target is stable, or an object allocation never escapes.',
+        'Those assumptions are allowed only if the runtime can recover when they stop being true. Deoptimization is the recovery path: optimized code leaves the fast tier, reconstructs a lower-tier execution state, and continues with correct language semantics.',
+        'Stack maps and safepoints are the metadata that make that recovery precise. They tell the runtime where live values and object references are at selected machine-code addresses.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'One reasonable approach is to avoid speculation. Compile only code that is valid for every possible runtime value. That is simple and correct, but it leaves many dynamic-language optimizations unused.',
+        'The opposite approach is to speculate aggressively and jump back to the interpreter when a guard fails. That sounds easy until the runtime asks a concrete question: what should the interpreter frame contain at this exact source position?',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Optimized machine code does not naturally preserve interpreter state. Register allocation moves values. Constant folding removes values. Inlining removes physical frames. Escape analysis can replace an object with a few scalar registers.',
+        'A raw machine stack is therefore not enough. When a guard fails, the runtime needs compiler-generated metadata that says which logical values are still needed, where those values live, and how to rebuild the frame shape expected by the lower tier.',
+        'Precise garbage collection has the same problem in another form. The collector must know which machine words are object references. It cannot safely guess from arbitrary register and stack contents.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core idea is reversible speculation. The compiler may erase, move, inline, and specialize state only if it also emits a recipe that can reconstruct the lower-tier state at every possible exit point.',
+        'That recipe lives in side tables: safepoint tables, stack maps, deoptimization ids, live-value locations, materialization descriptions, and resume targets. The optimized code is fast because the common path runs machine instructions. The metadata is what makes the uncommon path correct.',
+        'A safepoint is a machine-code location where the runtime has an exact map of the state it cares about. For deoptimization, that means resume values. For GC, that means object references. The same idea supports both: the runtime can understand optimized machine state at known points.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'At selected machine-code addresses, the compiler emits metadata saying where runtime-needed values live: register, stack slot, constant, tagged pointer, or reconstructed object. A failing guard jumps to runtime support, which reads this map and rebuilds an interpreter or baseline frame.',
-        'The same mechanism helps precise garbage collection. At a safepoint, the runtime can scan only the words that are actual object references instead of guessing from raw machine stack memory.',
+        'During compilation, the optimizer inserts guards for assumptions. It also records deoptimization metadata at guard exits and other safepoints. The metadata maps the current machine program counter to logical values: registers, stack slots, constants, tagged pointers, or values that must be materialized.',
+        'When a guard fails, optimized code transfers control to runtime support. The runtime looks up the deopt id or safepoint entry, reads the live values from their recorded locations, reconstructs any inlined frames and eliminated objects, invalidates or patches optimized code if needed, and resumes in the interpreter or a baseline tier.',
+        'For GC, a safepoint lets the collector scan roots precisely. The stack map says which registers and stack slots hold object references. Non-reference words are ignored instead of being treated as possible pointers.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'Suppose optimized code inlines obj.x after seeing one hidden class. The guard checks the object Map. If the Map changes, optimized code cannot continue on the fast path. The stack map says the object is in R1, the accumulator is in stack slot 3, and the resume bytecode offset is 42. Runtime materializes the lower-tier frame and resumes there.',
-        'Without this metadata, a fast JIT would be brittle. With it, the engine can speculate and still preserve JavaScript semantics when the world becomes more dynamic than expected.',
+        'Suppose optimized code for `return obj.x + 1` assumes that `obj` has the same hidden class seen during warmup and that `x` is stored at a known offset. The fast path is just a shape check, a load, and an integer add.',
+        'If a later call passes an object with a different shape, the guard fails. The runtime cannot simply continue from the raw machine stack, because the optimized code may have inlined the caller, kept `obj` in a register, and represented the source frame differently.',
+        'The deopt metadata says where `obj`, the current bytecode position, the inlined caller values, and any materialized temporaries live. The runtime rebuilds the lower-tier frame and resumes as if the optimized version had never been entered.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Stack maps must match the exact generated code. Register allocation, instruction scheduling, inlining, and frame layout can all change live locations. That is why this topic connects directly to Linear Scan Register Allocation and V8 Generational Garbage Collection.',
-        'A practical runtime also has to keep code versions straight. If a hidden-class dependency is invalidated, every code object that depends on it must either be patched, marked for deoptimization, or prevented from reentry. Metadata is therefore indexed both by machine-code address and by the assumptions it protects.',
-        'Debugging support matters. Engines often need flags that force deoptimization at many safepoints, verify materialized frames, and compare optimized execution against lower-tier execution. Without those checks, wrong stack maps can masquerade as random crashes far from the bad metadata.',
+        'In the deopt metadata view, follow the failing guard into the safepoint and stack map. The important state change is not the guard failure by itself. The important state change is that the runtime can name every value needed to resume lower-tier execution.',
+        'The stack-map table shows why locations matter. A value in register R1, an object reference in stack slot 3, and a constant in a side table are all valid only because the metadata names them for this exact machine-code point.',
+        'In the safepoint resume view, read the GC branch and baseline branch as two consumers of the same precision. GC needs exact roots. Deoptimization needs exact logical values. A stale map can break either path.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The invariant is that every deopt point carries enough information to produce the lower-tier state that would have existed if execution had stayed in the lower tier.',
+        'The compiler may optimize aggressively only while preserving that reconstruction recipe. If it removes an allocation, the recipe must materialize the object. If it inlines a function, the recipe must rebuild the logical frames needed for exceptions, debugging, and continuation.',
+        'Correctness depends on exact agreement between code and metadata. Register allocation, instruction scheduling, inlining, and frame layout can all move live values. If the stack map is stale, deoptimization can be wrong even when the optimized arithmetic was right.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The steady-state cost is metadata size, guard checks, safepoint placement constraints, compiler bookkeeping, and occasional runtime transitions. The uncommon path cost is larger: reconstruct frames, materialize objects, patch or discard optimized code, and resume in a lower tier.',
+        'When code behavior is stable, deoptimization metadata is insurance. It sits mostly unused while optimized code runs fast. When assumptions fail often, the program can thrash between tiers and spend real time rebuilding frames.',
+        'The metadata grows with the number of safepoints and the number of live values that matter at each point. More precise maps improve GC and deopt correctness, but they increase code object size and make compiler pipelines more complex.',
+        'Safepoint placement is a tradeoff. Too few safepoints can delay GC or make exits hard to express. Too many safepoints increase metadata and restrict optimization around calls, loops, and allocation points.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Deoptimization wins in dynamic runtimes because it makes speculation reversible. Engines can optimize for common object shapes, numeric representations, array layouts, and call targets without changing the result when uncommon behavior appears.',
+        'It also supports tiered compilation. A runtime can start in an interpreter, move hot code into a baseline compiler, then promote stable code into a stronger optimizing compiler because optimized code has an exit path.',
+        'The same metadata family supports precise GC, debugging, exception handling, on-stack replacement exits, and frame inspection. All of these systems need a trustworthy map from optimized machine state back to runtime state.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Deoptimization is the wrong tool for assumptions that fail constantly. If a call site is genuinely megamorphic or values change representation on every call, the engine should stay generic instead of repeatedly optimizing and bailing out.',
+        'It is also expensive in code size. AOT systems, embedded runtimes, and simple interpreters may choose less speculation because they cannot afford large side tables and complex recovery machinery.',
+        'The mechanism does not make speculative optimization safe by itself. The compiler must prove that every optimized transformation has a valid reconstruction story at each exit point.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'A missing live value can produce a bad materialized frame. The source-level state looks plausible, but one variable contains the wrong value because the compiler failed to record where it moved.',
+        'A wrong program counter or deopt id can resume at the wrong bytecode position. That can skip side effects, repeat side effects, or throw an exception from a frame shape that never existed.',
+        'A stale object-reference map can become a GC bug. If the collector misses a live object reference, it may reclaim an object that optimized code still needs. If it treats a non-pointer as a pointer, it may retain garbage or corrupt metadata assumptions.',
+        'Runtime teams fight these bugs with deopt stress modes, stack-map verifiers, frame materialization checks, root validators, and differential testing against lower-tier execution.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: LLVM Stack Maps and Patch Points at https://llvm.org/docs/StackMaps.html, V8 Sparkplug blog at https://v8.dev/blog/sparkplug, V8 Maglev blog at https://v8.dev/blog/maglev, and V8 Ignition docs at https://v8.dev/docs/ignition. Study JIT Tiering & Hotness Counters, V8 Ignition Bytecode Pipeline Case Study, V8 Hidden Classes & Inline Caches, Linear Scan Register Allocation, V8 Generational Garbage Collection, and Escape Analysis & Scalar Replacement next.',
+        'Primary sources: LLVM Stack Maps and Patch Points at https://llvm.org/docs/StackMaps.html, V8 Sparkplug at https://v8.dev/blog/sparkplug, V8 Maglev at https://v8.dev/blog/maglev, V8 Ignition at https://v8.dev/docs/ignition, and the V8 design docs index at https://v8.dev/docs.',
+        'Study JIT Tiering & Hotness Counters for promotion policy, V8 Ignition Bytecode Pipeline Case Study for feedback collection, V8 Hidden Classes & Inline Caches for speculation sources, Escape Analysis & Scalar Replacement for materialization pressure, and V8 Generational Garbage Collection for precise root scanning.',
       ],
     },
   ],

@@ -207,42 +207,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'DEFLATE is the compressed data format behind gzip, ZIP, zlib streams, and PNG image data. It combines LZ77-style literals and length-distance pairs with Huffman Coding. The format defines how blocks, code tables, literals, lengths, distances, and end markers are represented; it does not require one exact compressor algorithm.',
-        'That distinction matters. A fast encoder and a slow high-ratio encoder can both produce valid DEFLATE. The decoder contract is stable: rebuild the Huffman tables, read symbols, append literals, and copy length-distance spans from the output window.',
+        "DEFLATE exists because general-purpose compression needs a practical balance. It must find repeated byte sequences, represent them compactly, decode in a streaming way, and run on ordinary machines. It cannot depend on a giant model, random access to the whole file, or a decoder that guesses the encoder strategy.",
+        "The format became durable because it composes two simple ideas well. LZ77 turns repeated text into length-distance references. Huffman coding gives short bit patterns to common symbols. Together they became the compression core behind ZIP, gzip, zlib streams, PNG image data, and many older protocols and containers.",
+        "The most important distinction is between the format and the compressor. DEFLATE defines a bitstream grammar that every decoder must understand. Encoders are free to spend little or lots of CPU finding matches, splitting blocks, and choosing Huffman tables. Different encoders can produce different valid streams for the same input."
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'The encoder parses input bytes into a sequence of literals and LZ77 back-references. Literals and lengths share one Huffman alphabet. Distances use a second Huffman alphabet. Length and distance symbols may be followed by extra bits to represent exact values. A block ends with a special end-of-block code.',
-        'Blocks come in three usable forms: stored blocks with no compression, fixed-Huffman blocks with predefined tables, and dynamic-Huffman blocks whose code lengths are transmitted in the block header. Dynamic blocks usually improve compression on larger or skewed inputs, while fixed blocks avoid table overhead.',
+        "The naive approach is run-length encoding: if bytes repeat, store the byte and a count. That works for long runs like AAAAAA, but real text and binary data usually repeat phrases, headers, field names, words, and fragments that are separated by other bytes. You need references to earlier windows, not only repeated single characters.",
+        "Another naive approach is plain LZ77 with fixed-size tokens. Replace a repeated span with length and distance, and emit literals otherwise. This captures repeated strings, but it still wastes bits when common literals, common lengths, and common distances are represented with the same width as rare ones.",
+        "A third naive approach is to build a custom code tree and serialize the tree directly. That can work, but it bloats metadata and complicates decoding. DEFLATE instead uses carefully defined block types and canonical Huffman codes so the decoder can rebuild tables from compact code-length information."
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Decoding is bounded-memory streaming: maintain a history window, read Huffman symbols, and copy from already produced output. Encoding is the harder side because match search and table selection are policy decisions. Compression level, lazy matching, hash-chain length, block splitting, and table construction affect CPU cost and ratio without changing the file format.',
+        "DEFLATE separates modeling from coding. The LZ77 part models the data as a sequence of literals and back-references. A literal says append this byte. A back-reference says copy this many bytes from this distance behind the current output position. The Huffman part then codes the resulting symbols according to frequency.",
+        "Literals and lengths share one alphabet. Distances use a second alphabet. That split matters because a back-reference needs both a length and a distance, while a literal needs no distance at all. Extra bits refine ranges that would otherwise require too many separate symbols.",
+        "Dynamic blocks add another layer. Instead of using one fixed Huffman table for everything, a block can transmit code lengths for its own literal/length and distance alphabets. The decoder reconstructs canonical codes from those lengths. This keeps the format deterministic without shipping pointer-heavy trees."
       ],
     },
     {
-      heading: 'Complete case studies',
+      heading: 'The mechanism',
       paragraphs: [
-        'gzip wraps DEFLATE with a file header and CRC. zlib wraps it with a smaller stream header and Adler-32. PNG filters image scanlines before DEFLATE so nearby pixel values have smaller residuals and repeated structure. ZIP stores files individually, often with DEFLATE as the per-file compression method.',
-        'The common lesson is modular compression. A transform or parser exposes structure first. LZ77 captures repeated substrings. Huffman coding spends fewer bits on frequent token values. A wrapper then adds metadata, checksums, filenames, or container semantics.',
+        "A DEFLATE stream is made of blocks. A stored block carries raw bytes with little compression work. A fixed-Huffman block uses predefined tables. A dynamic-Huffman block sends enough metadata for the decoder to rebuild block-specific tables, then uses those tables for the compressed payload. A reserved block type is invalid.",
+        "Inside a compressed block, inflate reads symbols from the literal/length Huffman alphabet. Values below 256 are literal bytes. The end-of-block symbol ends the block. Length symbols represent a copy length, sometimes with extra bits. After a length, the decoder reads a distance symbol from the distance alphabet, again sometimes with extra bits, and copies bytes from the already produced output window.",
+        "The copy can overlap with the bytes being written. That is not a bug; it is how patterns like repeated characters expand efficiently. The decoder only needs a bounded sliding window of previous output, not the entire original file. Wrappers such as zlib and gzip add headers and checksums around the DEFLATE stream, but the inner block grammar is the same."
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'DEFLATE is not the same as gzip. gzip is a wrapper format that commonly contains a DEFLATE stream. zlib is another wrapper. Raw DEFLATE has no filename, timestamp, or checksum wrapper by itself. Another misconception is that dynamic Huffman always wins; on tiny inputs, sending the table can cost more than it saves. Finally, DEFLATE is not random-access friendly unless the container adds independent blocks or indexes.',
+        "The block-pipeline visual proves that DEFLATE is a composition, not a single magic table. Raw bytes first become LZ77 tokens. Those tokens split into a literal/length alphabet and a distance alphabet. Huffman coding then turns those alphabets into bits inside a block.",
+        "The HELLOHELLO matrix proves the LZ77 move. The first HELLO has no earlier copy, so it appears as literals. The second HELLO can be represented as length five, distance five. That pair means copy five bytes starting five bytes behind the current output position. The compressor has replaced a repeated span with a pointer into recent output.",
+        "The inflate-decode visual proves the decoder contract. A literal appends a byte. A length symbol is incomplete until a distance is read. The output window is not optional state; it is the dictionary that makes length-distance copies meaningful."
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: RFC 1951 DEFLATE at https://datatracker.ietf.org/doc/html/rfc1951, RFC 1950 zlib format at https://datatracker.ietf.org/doc/html/rfc1950, RFC 1952 gzip format at https://datatracker.ietf.org/doc/html/rfc1952, and Ziv and Lempel 1977 at https://courses.cs.duke.edu/spring03/cps296.5/papers/ziv_lempel_1977_universal_algorithm.pdf. Study LZ77 Compression, Huffman Coding, Arithmetic & ANS Coding, Base-128 Varint & ZigZag Encoding, HPACK Dynamic Table HTTP/2 Case Study, and Delta Bit-Packing Integer Compression next.',
+        "DEFLATE works because many byte streams contain both repeated substrings and skewed symbol frequencies. Source code repeats keywords and identifiers. HTML repeats tags and attribute names. JSON repeats field names. PNG filtering makes neighboring pixel values more predictable before compression. LZ77 captures repeated spans; Huffman coding exploits the fact that some tokens appear much more often than others.",
+        "The format also works operationally because decoding is simpler and more constrained than encoding. A decoder does not need to know how the encoder found matches. It only follows the block grammar, rebuilds canonical tables, reads symbols, and appends or copies bytes. This asymmetry is why implementations can interoperate even when compressors make different speed and ratio choices.",
+        "Canonical Huffman coding is a key reason the metadata stays manageable. Code lengths are enough to reconstruct the exact codes in a deterministic order. The stream sends lengths, not tree pointers."
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        "Encoding is where most of the cost lives. A fast encoder may use a shallow hash chain, choose the first acceptable match, and avoid expensive block splitting. A slower encoder may search more candidates, use lazy matching, tune dynamic blocks, and spend CPU to save more bytes. Both can produce valid DEFLATE streams.",
+        "Dynamic Huffman blocks often improve compression on larger or skewed inputs, but the code-length metadata costs bits. For tiny payloads, stored blocks or fixed-Huffman blocks can be better. For incompressible data, trying too hard wastes CPU and may even increase size after headers and metadata.",
+        "DEFLATE is also limited by its window and age. The sliding window cannot reference arbitrarily old data. The Huffman coder is not as strong as modern entropy coders in many cases. Newer codecs can beat it on ratio, speed, dictionary training, or random-access features. DEFLATE stays relevant because compatibility and tooling are enormous."
+      ],
+    },
+    {
+      heading: 'Real use cases',
+      paragraphs: [
+        "DEFLATE appears anywhere compatibility matters. gzip files, ZIP archives, zlib streams, HTTP content encodings in older stacks, PNG image data, package formats, and countless embedded tools depend on it. Even when newer codecs are available, DEFLATE is often the baseline that every environment can decode.",
+        "A practical example is compressing a JSON response. Field names repeat across objects, punctuation repeats constantly, and common values appear many times. LZ77 can turn repeated field names into back-references. Huffman coding can give short codes to common punctuation, letters, lengths, and distances. A wrapper such as gzip then adds metadata and a checksum for transport or storage.",
+        "PNG is another useful example because it shows preprocessing. Image filters transform rows so nearby pixels produce smaller residuals. DEFLATE then compresses those residual bytes. The compressor is not only looking for visible repeated strings; it is benefiting from earlier transforms that make the byte stream more regular."
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        "The first misconception is confusing DEFLATE with gzip. gzip is a wrapper format that usually contains a DEFLATE stream plus headers and a CRC. zlib is another wrapper. Raw DEFLATE has no filename, no gzip header, and no wrapper checksum.",
+        "The second failure mode is expecting good random access. A plain DEFLATE stream is decoded sequentially because later bytes may refer to earlier output. Containers can add independent blocks or indexes, but the base format is not a random-access database.",
+        "The third failure mode is ignoring adversarial or malformed input. Decoders must enforce block grammar, distance validity, output limits, checksum expectations from wrappers, and resource bounds. Compression formats are parsers, and parsers need defensive implementation."
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        "Study RFC 1951 for the DEFLATE bitstream, RFC 1950 for zlib, RFC 1952 for gzip, LZ77, Huffman coding, canonical prefix codes, sliding-window dictionaries, PNG filters, and compression bombs next. Nearby curriculum topics include Arithmetic and ANS Coding, Base-128 Varint and ZigZag Encoding, HPACK Dynamic Table, Delta Bit-Packing, and general prefix-tree data structures.",
+        "The transfer lesson is that compression is usually a pipeline. First expose structure, then model repetition, then encode frequent symbols cheaply, then wrap the stream with the metadata needed by the container. DEFLATE is old, but that composition still teaches modern codecs."
       ],
     },
   ],

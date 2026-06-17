@@ -60,7 +60,7 @@ function* jsonSchema() {
   yield {
     state: automaton('A schema becomes a next-token state machine'),
     highlight: { active: ['start', 'e-start-open', 'open'], compare: ['key', 'colon', 'value', 'close'] },
-    explanation: 'A JSON schema can be compiled into a state machine. At the start of an object, "{" is legal and almost everything else is illegal. The model still supplies probabilities, but the decoder filters them through the structural state.',
+    explanation: 'A JSON schema can be compiled into a state machine. At the start of an object, "{" is legal and almost everything else is illegal. The model still ranks possible text; the decoder enforces which tokens keep the partial output parseable.',
   };
 
   yield {
@@ -86,7 +86,7 @@ function* jsonSchema() {
       ],
     ),
     highlight: { active: ['s0:open', 's1:city', 's2:colon', 's3:close'], removed: ['s0:city', 's1:close'] },
-    explanation: 'The decoder converts grammar state into a vocabulary mask. Illegal tokens get probability zero before sampling. This is why constrained decoding can guarantee structure while still letting the model choose among legal values.',
+    explanation: 'The decoder converts grammar state into a vocabulary mask. Illegal tokens get probability zero before sampling, then the legal probabilities are renormalized. Structure is guaranteed because invalid continuations never enter the sample set.',
     invariant: 'The model ranks legal continuations; the constraint system defines legality.',
   };
 
@@ -162,7 +162,7 @@ function* grammarMask() {
       ],
     ),
     highlight: { active: ['trie:method', 'fsm:method', 'stack:method'], compare: ['naive:cost'] },
-    explanation: 'The core systems problem is not the idea of masking. It is building masks cheaply enough that structure does not dominate decode time. Vocab tries, finite-state transitions, and grammar stacks are data structures in the hot path.',
+    explanation: 'The core systems problem is not the idea of masking. It is making masks cheap enough that structure does not dominate decode time. Vocab tries, finite-state transitions, and grammar stacks sit directly in the generation hot path.',
   };
 
   yield {
@@ -230,42 +230,72 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Topic Exists',
       paragraphs: [
-        'Constrained decoding makes a language model generate only tokens that keep the output inside a required language: JSON, a regular expression, a context-free grammar, a function-call schema, or a narrow command format. The model still scores likely next tokens, but the decoder masks out tokens that would violate the current structural state. After masking, probabilities are renormalized over the legal set.',
-        'The practical motivation is simple. Prompting a model to "return valid JSON" is a request. Constrained decoding is an enforcement mechanism. It prevents malformed braces, wrong separators, missing required fields, and grammar-invalid command strings before they appear. That is why it is central to tool calling, agent commands, extraction APIs, and structured data generation.',
+        'Constrained decoding exists because many language-model systems need output that software can parse on the first try. Tool calls need valid arguments. Extraction APIs need JSON objects with required fields. Agents need commands from a known action language. Database assistants may need a restricted SQL subset. A prompt that says "return valid JSON" is a request to the model. A constrained decoder is an enforcement mechanism in the generation loop.',
+        'The idea is simple: the model still scores possible next tokens, but the decoder removes tokens that would make the partial output violate a schema, grammar, regular expression, or parser state. The remaining legal tokens are renormalized and sampled or selected. This changes the contract. Instead of generating free text and hoping a repair prompt can fix broken structure later, the system prevents malformed structure from being emitted in the first place.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Naive Approach',
       paragraphs: [
-        'A schema or grammar is compiled into a stateful acceptor. For regular languages this can be a Finite-State Machine. For nested JSON-like structures it may use a stack or parser state. The vocabulary is indexed so the engine can ask which tokens keep the partial byte string valid. A Trie (Prefix Tree) is useful because tokens share prefixes and a token may contain several characters at once.',
-        'At each decode step, the model produces logits over the vocabulary. The grammar engine computes a legal-token mask from the current parser state. Illegal logits are suppressed, Softmax & Temperature is applied to the remaining logits, and the decoder samples or chooses the next token. Beam Search vs Greedy can also run inside the same constraint, as long as each beam carries its own grammar state.',
+        'The naive approach is prompt discipline plus retry. Tell the model the format, parse the answer, and if parsing fails, ask it to fix the output. This can be good enough for demos, but it is weak infrastructure. It adds latency, creates retry storms under load, and still fails in edge cases. It also blurs responsibility: the model is being asked to remember syntax, obey instructions, solve the task, and repair its own mistakes.',
+        'A second naive approach is post-processing. Generate unconstrained text, strip markdown fences, patch missing braces, fill missing fields, or run a best-effort parser. That can hide symptoms while introducing new errors. The repaired object may be syntactically valid but not what the model meant. Worse, repair logic can become a second fragile language interpreter. Constrained decoding moves the syntax rule to the only place where it can be guaranteed: before the next token is chosen.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'The hard part is speed. A naive implementation that tests every vocabulary token against the grammar at every step can erase the serving win from optimized inference. Efficient systems precompute transitions, build vocabulary indexes, separate context-independent from context-dependent token checks, and cache parser states. The constraint logic must also be tokenization-aware: a single token can contain quotes, braces, whitespace, or parts of words.',
-        'Constrained decoding also changes failure modes. A valid JSON object can still contain a false claim, a dangerous SQL predicate, or a wrong tool argument. The structure guarantee should be paired with semantic validation, authorization checks, and source grounding when the output affects real systems.',
+        'The core insight is to separate scoring from legality. The language model is good at ranking plausible continuations. The grammar engine is good at deciding which continuations preserve structure. Constrained decoding combines them by masking logits. Illegal tokens receive probability zero. Legal tokens keep their model scores and compete with each other. The result is still model-generated text, but it is generated inside a formal language boundary.',
+        'This distinction matters because structure and meaning are different problems. A JSON schema can require a field named "city" and a string value. It cannot prove that the city exists, that it was extracted from the source, or that it is safe to pass into a tool. Constrained decoding guarantees shape. Semantic validation, authorization, grounding, and business rules still have to run after the object is produced.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How The System Works',
       paragraphs: [
-        'Structured generation is used for tool calls, function arguments, API payloads, extraction tasks, code-generation subsets, workflow commands, browser automation, database filters, and agent action plans. It is especially valuable in production systems that need parseable output on the first try. Retries and repair prompts are slower, less reliable, and harder to reason about than preventing invalid tokens in the decoding loop.',
+        'A schema or grammar is compiled into a stateful acceptor. For a regular expression, that may be a finite-state machine. For nested JSON or a context-free grammar, it may be a parser state with a stack. At any point, the acceptor represents all valid ways the partial output can continue. The decoder asks this acceptor which token byte strings are legal next steps from the current state.',
+        'The vocabulary makes this harder than it sounds. Models do not emit characters one by one. A token can contain a brace, a quote, a comma, a whole word, whitespace, or a partial string fragment. Efficient engines therefore compile constraints over token byte strings, often using a vocabulary trie, precomputed transitions, cached parser states, and special handling for strings and escapes. At each step the runtime computes a mask, applies it to model logits, renormalizes with softmax, samples or selects a token, and advances the parser state.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What The Visual Is Proving',
       paragraphs: [
-        'The biggest misconception is that constrained decoding makes output correct. It makes output structurally valid. A medical code can match a schema and still be the wrong code. A SQL query can match a grammar and still leak data. Another trap is ignoring tokenization. Grammars written over characters must be reconciled with model vocabularies written over token byte strings. Performance bugs often live at that boundary.',
+        'The schema visual proves that a format can be treated as a state machine. At the beginning of an object, an opening brace is legal and a closing brace or random field value is not. After a required key, a colon may be legal. After a value, a comma or closing brace may be legal depending on required fields. The model still chooses among legal content, but the decoder controls the structural transitions.',
+        'The grammar-mask visual proves that data structures sit in the generation hot path. The order is model logits, legal-token mask, renormalization, and token choice. That loop runs for every generated token and for every active beam if beam search is used. A beautiful grammar that requires scanning every vocabulary token with a slow parser at each step can destroy latency. Practical constrained decoding is a systems problem as much as a formal-language problem.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
       paragraphs: [
-        'Primary sources: Efficient Guided Generation for Large Language Models at https://arxiv.org/abs/2307.09702, XGrammar at https://arxiv.org/abs/2411.15100, and the XGrammar project page at https://catalyst.cs.cmu.edu/projects/xgrammar.html. Study JSON Schema Constrained Decoding Token Mask for the production schema-compile, required-field, token-mask, and validation ledger. Then study Finite-State Machine, Trie (Prefix Tree), Tokenization (BPE), Softmax & Temperature, Beam Search vs Greedy, and Speculative Decoding next.',
+        'It works because generation is incremental. Every invalid final string has a first token where it stopped being a valid prefix. If the decoder prevents that token, the final output cannot become invalid in that way. This is stronger than validation after the fact. Validation can reject a bad sample, but constrained decoding prevents the bad branch from entering the sample set.',
+        'It also works because many output languages have compact state representations. Regular languages can be represented by finite-state machines. JSON schemas can be represented by parser states plus required-field bookkeeping. Context-free grammars can track nested structure with stacks. The model does not need to learn these rules from a prompt at inference time. The decoder already knows them and enforces them mechanically.',
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        'The main cost is latency. A naive mask checks every vocabulary token against the grammar on every decode step. With large vocabularies and long outputs, that can dominate generation. Efficient implementations precompute transitions, share prefixes with tries, cache common parser states, separate context-independent masks from state-dependent checks, and fuse mask application with sampling when possible. The constraint engine must be fast enough to sit beside optimized attention kernels without becoming the new bottleneck.',
+        'The second cost is expressiveness versus usability. A narrow schema gives stronger guarantees and faster masks, but it may force awkward outputs. A broad grammar gives the model more room, but it can be slower and harder to validate semantically. The third cost is failure behavior. If the legal set becomes empty, the system has a grammar, tokenization, or state-management bug. If the model strongly prefers illegal continuations, output quality may degrade because the decoder must choose from weak legal alternatives.',
+      ],
+    },
+    {
+      heading: 'Real Uses',
+      paragraphs: [
+        'Constrained decoding is used for tool calls, function arguments, API payloads, form extraction, browser automation commands, workflow agents, database filters, code-generation subsets, configuration files, and structured summaries. It is valuable wherever parse failures create operational cost. A tool-calling assistant can guarantee that the top-level object has the right function name and arguments. An extraction system can guarantee required keys and data types. A code assistant can stay inside a safe subset rather than emitting arbitrary text.',
+        'It is also useful for streaming interfaces. If each partial output remains a valid prefix of the target language, clients can display or process data with more confidence. The constraint engine still has to handle partial strings, escaped characters, arrays, and required fields correctly. In multi-beam decoding, each beam must carry its own parser state. In speculative decoding, draft tokens must be checked against constraints before they are accepted.',
+      ],
+    },
+    {
+      heading: 'Failure Modes And Limits',
+      paragraphs: [
+        'The biggest misconception is that constrained decoding makes an answer correct. It makes the answer structurally valid. A medical code can match a schema and still be the wrong code. A SQL query can match a grammar and still leak data. A tool call can have a parseable argument and still be unauthorized. Production systems should pair constrained decoding with semantic validation, permission checks, source grounding, range checks, and domain-specific review when the action matters.',
+        'Tokenization is another common failure. A grammar written over characters has to be reconciled with tokens written over byte strings. Tokens may cross logical boundaries, include leading spaces, or represent fragments that are legal only inside strings. Unicode, escaping, and streaming partials add more edge cases. Finally, constraints can reduce diversity. If the schema is too rigid, the model may be forced into unnatural phrasing or low-probability values. The right schema is strict about machine contract and flexible about fields where genuine language variation is needed.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study Finite-State Machine, Trie (Prefix Tree), Tokenization (BPE), Softmax & Temperature, Beam Search vs Greedy, and JSON Schema Constrained Decoding Token Mask. Then study parser theory at the level needed to distinguish regular languages, context-free grammars, stacks, and required-field bookkeeping. For production context, read work such as Efficient Guided Generation for Large Language Models and XGrammar, then connect it to serving topics like speculative decoding, tool calling, validation ledgers, and agent safety. The key habit is to treat constrained decoding as one layer: syntax guarantee first, semantic correctness after.',
       ],
     },
   ],

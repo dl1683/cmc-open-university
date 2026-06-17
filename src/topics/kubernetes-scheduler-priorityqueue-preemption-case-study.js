@@ -337,46 +337,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Kubernetes scheduler is the control-plane component that turns an unscheduled Pod into a Pod bound to a node. The data-structure lesson is that scheduling is not one FIFO queue. kube-scheduler maintains ready work, delayed retry work, unschedulable work, in-flight work, and nominated nodes for preemption.',
-        'Kubernetes Informer DeltaFIFO & Workqueue Case Study explains how controllers watch state and enqueue keys. This case study applies the same queue discipline to Pods: events wake work, but the scheduler spends expensive filter/score cycles only when a Pod might make progress.',
+        'The Kubernetes scheduler is the control-plane component that turns a pending Pod into a Pod bound to a node. That sounds like a priority queue problem, but the real constraint is cluster state. The scheduler must consider CPU, memory, devices, volumes, taints, tolerations, affinity, topology spread, disruption policy, and plugin state while thousands of cluster events are arriving.',
+        'A plain queue would waste the control plane. Many pending Pods cannot fit right now, and retrying them on every loop burns scheduler time that could place work that is actually ready. kube-scheduler therefore separates ready work, delayed retry work, unschedulable work, in-flight work, and nominated nodes. The data structure is a scheduling memory, not just a heap.',
+      ],
+    },
+    {
+      heading: 'The naive queue and wall',
+      paragraphs: [
+        'The obvious design is one priority heap ordered by Pod priority. New Pods enter the heap, the scheduler pops the highest-priority Pod, scans nodes, binds if it can, and pushes it back if it cannot. This works in a tiny cluster because the cost of a bad retry is small and the state changes are easy to reason about.',
+        'The wall appears when the heap fills with Pods that cannot fit for specific reasons. A Pod waiting for a matching label should not wake because an unrelated node changed. A Pod waiting for CPU should not spin every millisecond. A Pod blocked by a scheduling gate should not compete with work that can be placed. The scheduler needs to remember why a Pod failed and which later event could make that failure worth revisiting.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is to split pending work by readiness, not just by priority. activeQ holds Pods ready for a scheduling attempt. backoffQ holds Pods that failed recently and should wait for a retry timer. unschedulablePods holds Pods that were tried and cannot currently fit, waiting for a cluster event that could change the answer. Nominated-node state remembers capacity that preemption may create later.',
+        'This is cache invalidation for scheduling. The cached result says a Pod could not fit under the cluster state observed during the last attempt. The scheduler should invalidate that result only when a relevant event occurs. QueueingHint makes that rule sharper by letting the plugin that rejected a Pod inspect a later event and decide whether that event might help.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The scheduling queue holds pending Pods. activeQ contains Pods ready to be considered, ordered by scheduler priority and queue-sort logic. backoffQ contains failed Pods whose retry delay has not expired. unschedulablePods contains Pods that were tried and currently cannot fit, waiting for a cluster event that could change the answer.',
-        'For one Pod, the scheduling framework runs a scheduling cycle and a binding cycle. The scheduling cycle filters feasible nodes, scores candidates, and reserves or permits state. The binding cycle writes the chosen node back to the API server. The Kubernetes scheduling framework documentation says scheduling cycles run serially while binding cycles may run concurrently.',
-        'QueueingHint adds a sharper invalidation rule. A plugin that rejected a Pod can inspect later cluster events and decide whether that event could make the Pod schedulable. This avoids retry storms where every node, Pod, or label update wakes unrelated unschedulable Pods.',
+        'A Pod usually arrives through API-server state watched by scheduler informers. If it is eligible for scheduling, it enters activeQ. The scheduler pops one Pod, creates a scheduling context, and runs framework phases. PreFilter can compute facts used later. Filter removes nodes that cannot host the Pod. Score ranks feasible nodes. Reserve, Permit, PreBind, Bind, and PostBind handle state claims and the API write.',
+        'The scheduling cycle chooses a node or concludes that none is feasible. The binding cycle writes the selected node back to the API server. Kubernetes documents this as two phases, with scheduling cycles processed serially and binding cycles able to continue concurrently. If a later phase fails, framework plugins can unwind reserved state so the scheduler does not leak a local claim.',
       ],
     },
     {
-      heading: 'Data structures and complexity',
+      heading: 'Preemption mechanism',
       paragraphs: [
-        'The obvious structure is a Binary Heap style priority queue, but the production object is richer: activeQ, backoffQ, unschedulablePods, in-flight sets, per-Pod attempt metadata, plugin failure records, nomination maps, and API-status update paths. Queue and Rate Limiter explain the smaller parts; Backpressure explains why wasting scheduling cycles is a control-plane risk.',
-        'Filtering is usually the expensive phase because it reasons over nodes, Pod requirements, taints, topology, resource requests, and plugin state. Scoring ranks the feasible set. Preemption can be much more expensive because it asks a second question: would removing lower-priority Pods from a node make this pending Pod feasible?',
+        'Preemption starts only after the scheduler fails to find a feasible node for a pending Pod. The second search asks a different question: is there a node where removing lower-priority Pods would make this higher-priority Pod fit? Candidate nodes are ranked while the scheduler tries to avoid PodDisruptionBudget violations when possible.',
+        'If a node is chosen, the scheduler evicts victims and records nominatedNodeName on the pending Pod. That field is not spec.nodeName. It is a claim that the scheduler expects capacity to open on that node after victims terminate. During the grace period, the Pod remains pending and will be retried. A different node may become available first, or a still higher-priority Pod may take the nominated node.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Imagine a cluster under CPU pressure. A critical Pod enters activeQ and outranks batch Pods. The scheduler pops it, runs plugin filters, and finds no feasible node. PostFilter preemption checks candidate nodes, identifies lower-priority victims on nodeA, records nominatedNodeName for the critical Pod, and evicts victims. During their graceful termination window, the Pod remains pending and will be retried.',
-        'That pending state is not a bug. nominatedNodeName is a claim on likely future capacity, not the same as spec.nodeName. If another higher-priority Pod appears or another node becomes free, final binding may change. This is why scheduler events, Pending reasons, PDBs, priority quotas, and clear status matter for operators.',
+        'The queue-lifecycle view shows why the scheduler queue has side pools. activeQ is where real scheduling attempts happen. backoffQ prevents immediate retry loops. unschedulablePods waits for a useful state change. The same Pod can move among these pools as failures, timers, and cluster events change what is worth trying.',
+        'The preemption view shows that nomination and binding are separate commitments. Preemption can prove that evicting lower-priority Pods might make a node feasible, but it cannot skip graceful termination, policy checks, or later competition. The visual point is that preemption creates a future scheduling opportunity, not an instant binding.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Preemption is not magic capacity. It only works when lower-priority Pods can be removed and the pending Pod would then fit. It does not guarantee immediate scheduling because victims receive graceful termination. PDBs are respected on a best-effort basis, not as an absolute shield.',
-        'Another trap is priority inflation. If many tenants can create very high-priority Pods, the scheduler becomes a churn machine. Admission policy and ResourceQuota should limit priority class consumption. Kubernetes Admission Policy Gate is the write-time companion to this runtime scheduler story.',
+        'The queue discipline works because each pool preserves a different invariant. activeQ contains Pods that are eligible for immediate work. backoffQ contains Pods whose retry clock has not expired. unschedulablePods contains Pods whose last known failure still needs a relevant event. The scheduler spends expensive filter and score cycles only when those invariants say a try is defensible.',
+        'Preemption works because priority creates an ordering rule. A higher-priority Pod may displace lower-priority Pods only if the removal would make the pending Pod feasible on a node. The scheduler still has to respect feasibility checks after victims leave. That second check is why nominatedNodeName is information about intended capacity, not proof that the Pod is already placed.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The small data-structure cost is heap and map maintenance: activeQ and backoffQ behave like priority or timer queues, unschedulablePods is map-like, and nomination state needs lookup by Pod and node. The larger runtime cost is filter and score work across nodes and plugins. In a large cluster, one unnecessary wake can multiply into many plugin calls.',
+        'Preemption is more expensive than ordinary scheduling because it performs a second feasibility search over candidate nodes and possible victims. It also has operational cost: evictions create disruption, graceful termination creates delay, and status updates can be confusing if operators expect nominatedNodeName to mean the same thing as nodeName.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This design wins in busy clusters where many pending Pods fail for different reasons. It lets critical Pods move ahead, keeps impossible work out of the hot path, and makes scheduler throughput depend on relevant events instead of blind retries. QueueingHint is especially useful when broad event categories would otherwise wake many Pods that still cannot fit.',
+        'The same pattern appears in other control planes. Informers keep local state fresh, queues separate ready and delayed work, rate limiters prevent storms, admission controls decide who may request special treatment, and reconciliation loops repair drift after asynchronous writes. The scheduler is the placement version of that general control-plane pattern.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Preemption is not magic capacity. It only works when lower-priority victims can be removed and the pending Pod would then fit. It does not help if the limiting resource is absent everywhere, if affinity rules depend on the victims, or if cross-node preemption would be required. PDB handling is best effort rather than an absolute shield.',
+        'Priority also fails as a policy if everyone can claim the top class. Priority sprawl turns scheduling into churn because many tenants can evict one another without reflecting real service importance. Admission policy, ResourceQuota, a small set of priority classes, and good Pending-event observability are part of the algorithm in production, even though they live outside the queue data structure.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Kubernetes scheduler internal queue package docs at https://pkg.go.dev/k8s.io/kubernetes/pkg/scheduler/internal/queue, Kubernetes scheduling framework documentation at https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/, Kubernetes Pod Priority and Preemption documentation at https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/, Kubernetes QueueingHint blog at https://kubernetes.io/blog/2024/12/12/scheduler-queueinghint/, and Kubernetes scheduling queue source comments at https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/backend/queue/scheduling_queue.go.',
-        'Study Kubernetes Informer DeltaFIFO & Workqueue Case Study, Kubernetes Reconciliation Case Study, Kubernetes Admission Policy Gate, LLM Serving Autoscaling Warm Pool, Binary Heap, Queue, Rate Limiter, Backpressure, Borg Cluster Scheduler Case Study, and Mesos Resource Manager Case Study next.',
+        'Study Kubernetes Informer DeltaFIFO and Workqueue for watch-driven queues, Kubernetes Reconciliation for eventual repair, Kubernetes Admission Policy Gate for priority governance, Binary Heap and Queue for the local structures, Rate Limiter and Backpressure for retry discipline, Borg Cluster Scheduler for historical context, and Mesos Resource Manager for a contrasting resource-allocation model.',
       ],
     },
   ],

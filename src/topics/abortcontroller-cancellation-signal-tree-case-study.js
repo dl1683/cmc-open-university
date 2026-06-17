@@ -215,33 +215,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The real problem',
       paragraphs: [
-        'AbortController is the browser cancellation primitive. A controller owns one AbortSignal. APIs receive the signal, listen for abort, and stop their own work when the signal fires.',
-        'The data structure is a one-shot fanout graph: one signal can notify fetch, streams, event listeners, and application tasks. After it aborts, the signal stays aborted and carries a reason.',
+        'Modern web code starts work speculatively. A search request begins before the user finishes typing. A route loader starts before the user decides to navigate again. A stream reader, lock waiter, and event listener can all belong to the same screen, then become useless the moment that screen disappears.',
+        'The hard part is not setting a local flag. The hard part is telling several independently implemented APIs that the same unit of work is over, then making error handling distinguish expected cancellation from a network outage, parser bug, or application failure.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Why a boolean is too small',
       paragraphs: [
-        'Create a controller, pass controller.signal to an API, and call controller.abort(reason) when the operation should stop. For fetch, aborting rejects with AbortError. If response body reading is still pending, that body read can reject too.',
-        'AbortSignal.timeout creates a timer-backed signal. AbortSignal.any combines multiple signals so the first cancellation source wins. These are useful for race policies such as user cancel, navigation change, and timeout.',
+        'A local variable such as cancelled = true works only while one loop owns all the code. It cannot be passed to fetch as a standard contract, cannot automatically unregister an event listener, and cannot tell a stream pipeline why downstream demand stopped.',
+        'Timeout wrappers have the same problem when every caller builds its own version. They race promises, but the underlying operation may keep running. That leaves late rejections, retained listeners, stale UI updates, and wasted network or CPU work.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core model',
       paragraphs: [
-        'Consider a search box. Each keystroke starts a fetch, a stream decoder, and a highlight worker job. The old controller aborts when a new query starts. The fetch rejects, the stream stops, the worker receives a cancel message, and event listeners registered with the signal are removed. Only the latest query is allowed to update the UI.',
+        'AbortController gives one owner the right to end a cancellation scope. The controller exposes an AbortSignal, and every operation that joins the scope receives that same signal. Calling abort(reason) flips the signal once, stores a reason, and notifies observers.',
+        'The signal is monotonic. It starts not aborted, becomes aborted once, and never returns to fresh. That one-shot rule is what makes late checks safe: a function can inspect signal.aborted or call signal.throwIfAborted() without worrying that the cancellation event already passed.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the fanout works',
       paragraphs: [
-        'Do not reuse an aborted signal for a new operation. Do not swallow all errors as cancellation. Do not assume custom work stops automatically; custom code must observe the signal or receive a cancellation message. Do not forget that timeout support may need compatibility checks on older browsers.',
+        'The controller does not know how to cancel every possible operation. It only announces cancellation. Fetch can reject an unsettled request, response body reads can fail with the abort reason, addEventListener can remove a listener when a signal is used as an option, and custom code can stop at its own checkpoints.',
+        'That division is deliberate. AbortSignal is a small shared data structure: a flag, a reason, and a set of abort algorithms or event listeners. Each consumer defines its own cleanup semantics while sharing the same cancellation edge.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked example: search',
+      paragraphs: [
+        'A search box should not let an old query win the race against a newer query. On each keystroke, create a fresh controller for the new request and abort the previous controller. The old fetch rejects, the old stream reader stops, and the old listeners disappear with the cancelled scope.',
+        'The UI still needs to handle the rejection. A user-initiated abort should usually be quiet; a timeout might show a retry message; a real network error should surface differently. Treating all rejected promises as cancellation hides production bugs.',
+      ],
+    },
+    {
+      heading: 'Timeouts and composed signals',
+      paragraphs: [
+        'AbortSignal.timeout(ms) creates a timer-backed signal whose reason is a TimeoutError when the timeout fires. The timeout is based on active time in browser environments, so suspended documents and back-forward cache pauses matter.',
+        'AbortSignal.any([...signals]) creates one signal from several cancellation sources. A route change, a user cancel button, and a timeout can share the same downstream fetch. The first source to abort wins, and the composed signal carries the winning reason where the platform exposes it.',
+      ],
+    },
+    {
+      heading: 'Why the design is safe',
+      paragraphs: [
+        'The important invariant is shared observation of one irreversible transition. Every consumer sees the same aborted state and reason. There is no second abort that changes the outcome, and no reset that makes a cancelled operation valid again.',
+        'This is why reusing a signal is a bug for most operations. If a signal is already aborted, new work should fail or stop immediately. Reuse is not a performance optimization; it leaks the lifetime of an old operation into a new one.',
+        'The design also separates authority from observation. The controller can abort; the signal can only report and notify. Passing a signal to lower-level code lets that code respond to cancellation without giving it the power to cancel sibling work unexpectedly.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The runtime cost is usually small: one controller, one signal, a few listeners, and promise rejection paths. The engineering cost is ownership. Code has to decide which scope owns which work and where cleanup belongs.',
+        'Abort also changes API contracts. A function that accepts a signal must check early, register cleanup, reject with the signal reason when appropriate, and remove any listener it added. Adding cancellation halfway through an API can expose forgotten teardown paths.',
+      ],
+    },
+    {
+      heading: 'Design checklist',
+      paragraphs: [
+        'Create controllers at cancellation boundaries: one user intent, one route load, one request attempt, one background job, or one component lifetime. Pass the signal downward; do not pass the controller unless the child is supposed to own cancellation. That keeps the authority to abort in the same place that created the work.',
+        'Check the signal before starting expensive work and at every meaningful async boundary. For custom functions, accept `{ signal }`, call `signal.throwIfAborted()` when available, register abort cleanup with `{ once: true }`, and remove any listener when the operation settles normally. A cancellation API is only as good as its cleanup path.',
+      ],
+    },
+    {
+      heading: 'Testing cancellation',
+      paragraphs: [
+        'Test the three timing cases: signal already aborted before the function starts, signal aborts while the function is waiting, and signal never aborts. The first should fail immediately, the second should clean up pending work, and the third should complete without retaining abort listeners.',
+        'Also test reason handling. A timeout should produce timeout behavior, a user navigation cancel should be quiet, and a real network failure should still be visible. The point of AbortController is not merely to stop work; it is to make expected cancellation distinguishable from failure.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'AbortController is cooperative, not preemptive. CPU-heavy JavaScript will continue unless it calls throwIfAborted(), checks signal.aborted, yields to the event loop, or receives a separate worker message. The platform does not kill arbitrary computation for you.',
+        'The common bugs are predictable: reusing an aborted signal, swallowing all errors as cancellation, checking only after expensive work is complete, forgetting listener cleanup, and losing the abort reason when wrapping errors.',
+      ],
+    },
+    {
+      heading: 'Where to use it',
+      paragraphs: [
+        'Use AbortController at I/O and lifecycle boundaries: route loaders, search-as-you-type, request retries, stream pipelines, Web Locks waits, drag sessions, event listeners tied to a component, and background tasks tied to a visible screen.',
+        'Do not use it as a general thread-kill primitive, a retry policy, or a substitute for idempotent state updates. Cancellation prevents old work from continuing; it does not prove that old work never partially happened.',
+        'For server communication, pair cancellation with idempotency and stale-result guards. Aborting a browser fetch may stop the client from waiting, but the server may already have received the request. The UI still needs to ignore late results and the backend still needs safe retry semantics.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'The signal fanout view shows one controller ending a whole cancellation scope. Follow the active edges from ctrl to signal and then to fetch, stream, listener, and reason. Those edges are not data flow; they are ownership of a stop request.',
+        'The timeout race view shows cancellation policy becoming a signal. The matrix rows list the sources and mistakes to watch: user stop, timeout, route leave, reuse, late checks, swallowed errors, and retained listeners.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MDN AbortSignal at https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal, MDN AbortSignal.timeout at https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static, MDN AbortController at https://developer.mozilla.org/en-US/docs/Web/API/AbortController, and DOM Standard AbortController at https://dom.spec.whatwg.org/#interface-abortcontroller. Study Promise Microtask Queue, Web Streams Backpressure Queues, Web Locks API Lock Manager, Fetch/CDN Request Flow, Browser Message Channels & Broadcast Coordination, Optimistic UI Mutation Log, Form Validation Dependency Graph, and Backpressure & Flow Control next.',
       ],

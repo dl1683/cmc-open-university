@@ -231,42 +231,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'RandAugment is a practical automated data-augmentation method. Earlier automated augmentation systems searched over large policy spaces: which operation, which probability, which magnitude, and how operations should be composed. RandAugment collapses that into two knobs. N controls how many operations to apply. M controls the shared operation magnitude.',
-        'For each training image, the algorithm randomly chooses N transformations from a fixed catalog and applies them with magnitude M. The label is unchanged. The model therefore sees many randomized views of the same underlying class, which acts as regularization. The local corpus summary gets the intuition right: high-quality input noise can make it harder for the model to memorize superficial details.',
+        'Data augmentation exists because most vision models should ignore many changes in the input. A dog is still a dog after small shifts in color, crop, contrast, translation, or rotation. A model that only sees the exact training image can learn accidental details: the background, the camera, the lighting, the border, or a particular pose. Augmentation forces the learner to see many valid versions of the same example, so the easiest solution is to learn the class signal instead of memorizing one picture.',
+        'RandAugment exists because augmentation policy design became its own expensive optimization problem. Hand-built policies work, but they depend on expert taste and dataset habits. Earlier automated methods searched over operation choices, probabilities, magnitudes, and operation order. That can find strong policies, but the search can be expensive, hard to reproduce, and tied to a small proxy task. RandAugment asks a sharper question: if a fixed catalog of reasonable transforms already contains the useful ingredients, how much policy search do we actually need?',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive baseline',
       paragraphs: [
-        'A typical image catalog includes operations such as rotate, shear, translate, posterize, solarize, contrast, color, brightness, sharpness, and cutout. RandAugment does not learn a separate probability and magnitude for every operation on a small proxy task. It samples uniformly from the catalog and tunes the global strength on the target task. That is the key simplification.',
-        'The paper argues that optimal augmentation strength depends on model size and training-set size. A policy found on a small proxy task can under-regularize or over-regularize the actual training run. RandAugment is cheap enough to tune directly with the model and data you plan to use.',
+        'The first naive baseline is to train on the raw images. That often gives high training accuracy and weaker validation accuracy because the model has no pressure to be invariant to nuisance changes. The second baseline is to add a few hand-written transforms, such as random crop and horizontal flip, and hope they fit the domain. That is better, but it leaves performance on the table when color, geometry, cutout, or contrast changes would teach useful invariance.',
+        'The more sophisticated naive answer is full policy search. Search methods such as AutoAugment treat augmentation as a learned policy: choose operations, choose probabilities, choose magnitudes, and compose sub-policies. The problem is that the search space grows quickly. Searching on the full target training run can be too costly, so teams often search on a reduced dataset or smaller model and transfer the policy. That transfer is the weak point. The right strength of regularization depends on model capacity, dataset size, training length, and label semantics.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'The runtime cost is mostly image preprocessing. The search cost is dramatically smaller than AutoAugment-style policy search because the space is parameterized by N and M rather than a combinatorial policy controller. The training cost can still increase if augmentation is CPU-bound or if strong transforms require more epochs to converge. In production, augmentation pipelines should be profiled like any other input pipeline.',
-        'The main risk is invalid augmentation. A rotated digit may keep its label; a flipped medical image or traffic sign may not. Strong magnitude can help large models generalize, but past a point it creates label noise. The correct setting is empirical and domain-specific.',
+        'The core insight is that the catalog can stay broad while the search becomes tiny. RandAugment removes learned operation probabilities and per-operation magnitudes. For each image, it samples N operations from a fixed catalog and applies them with one shared magnitude M. N is the count of transforms. M is the strength. Instead of learning a controller, the practitioner tunes two numbers on the real task.',
+        'This works because the important question is usually not the exact hand-crafted recipe. It is the level of label-preserving nuisance variation the model can tolerate. If the catalog is reasonable, random sampling already creates a large family of views. The validation set then chooses the strength of regularization. RandAugment turns augmentation from a large architecture-search problem into a small regularization-strength problem.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'RandAugment is useful in image classification, object detection, semi-supervised learning, robustness experiments, and self-supervised pipelines. It connects to Contrastive Learning: SimCLR because both rely on meaningful transformed views. It connects to Dropout and Regularization because all three fight overfitting by injecting noise. It connects to Data Leakage because augmentation must be applied only within the training protocol, never in a way that leaks validation information.',
+        'The first view proves the search-space collapse. The table with N and M is not saying augmentation became trivial. It is saying the policy surface has been compressed into two global controls. The graph after it shows why this is still powerful: every minibatch can see a fresh randomized view, even though the policy description is short. One image might receive rotation and shear. Another might receive color and cutout. The system is simple, but the training stream is varied.',
+        'The regularization-strength view proves the tradeoff. The best M is not always the largest M. Weak augmentation leaves the model free to memorize training views. Strong augmentation can destroy the label and create noise. The plot also shows why proxy search is fragile: a small model and a large model can prefer different strengths. The lesson is not that RandAugment always chooses N equals 2 or M equals 9. The lesson is that augmentation should be tuned as a task-specific regularizer.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the algorithm works',
       paragraphs: [
-        'RandAugment is not a universal image-improvement filter. It is a training-time regularizer. It can hurt tasks where transformations change meaning, where labels are spatially delicate, or where the input pipeline becomes the bottleneck. It also does not remove the need for validation. The paper simplified the search space; it did not prove that every catalog operation is safe for every dataset.',
+        'A typical implementation begins with a catalog of label-preserving operations: rotate, shear, translate, posterize, solarize, color, contrast, brightness, sharpness, equalize, invert, autocontrast, and cutout. Some operations have natural magnitudes, such as rotation angle or translation distance. Others are effectively on or off. RandAugment maps the global M value into the valid range for each operation, then applies the selected operations to the training image.',
+        'During training, for each image, sample N operations, apply them with magnitude M, keep the original label, and feed the transformed image to the model. The policy is stochastic at training time. Validation and test images are not randomly distorted in the same way; evaluation should measure the model on the intended distribution. The practical search is usually a small grid over N and M, sometimes with the catalog or maximum magnitude adjusted for the domain.',
+        'The data structure is simple: an operation catalog, a magnitude mapping table, a sampler, and validation records for each N and M pair. That simplicity is the point. The model training run remains the expensive part. RandAugment tries to avoid spending a second large budget on a separate policy-learning controller.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: RandAugment at https://arxiv.org/abs/1909.13719, the NeurIPS abstract at https://papers.nips.cc/paper/2020/hash/d85b63ef0ccb114d0a3bb7b7d808028f-Abstract.html, and the CVPRW paper at https://openaccess.thecvf.com/content_CVPRW_2020/papers/w40/Cubuk_Randaugment_Practical_Automated_Data_Augmentation_With_a_Reduced_Search_Space_CVPRW_2020_paper.pdf. Study Dropout, Regularization, Contrastive Learning: SimCLR, Data Leakage & Contamination, Adversarial Examples, and Cross-Validation next.',
+        'RandAugment works for the same reason other regularizers work: it makes the memorizing solution less attractive. If the image changes shape, color, crop, and local occlusion across epochs, the model cannot rely as easily on one brittle cue. It must find features that survive the allowed transformations. That is the same broad idea behind dropout, weight decay, mixup, and contrastive learning, but applied to the input distribution.',
+        'The method also works because randomness composes. A small catalog can create many possible training views when operations are sampled repeatedly. The exact sequence is less important than the distribution of views. Validation then checks whether those views preserve the task. When the validation curve improves, the model is learning useful invariance. When it falls, the transform distribution has crossed from regularization into label corruption or underfitting.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The main cost is input-pipeline work. Some operations are cheap, but heavy image transforms can move the bottleneck from the GPU to CPU preprocessing, storage, or data-loader workers. Strong augmentation can also require more training steps before the model settles. RandAugment reduces policy-search cost, but it does not remove the need to run validation sweeps and inspect transformed samples.',
+        'The main tradeoff is semantic safety. A horizontal flip is harmless for many animal photos and wrong for some traffic-sign, medical, satellite, and text-recognition tasks. Rotation can preserve a flower label and change a digit label. Cutout can improve robustness or erase the only object. Object detection, segmentation, OCR, and pose estimation often need label transforms too, not just image transforms. The catalog must be designed for the task, and M must be low enough that labels remain true.',
+      ],
+    },
+    {
+      heading: 'Real uses',
+      paragraphs: [
+        'RandAugment is commonly used in image classification pipelines where a strong baseline is needed without a long augmentation-search project. It is also useful in semi-supervised learning, where the model benefits from consistent predictions across transformed views. Robustness experiments use it to test whether nuisance variation improves performance on corrupted or shifted data. Self-supervised and contrastive methods share the same intuition: transformed views should preserve identity while removing shortcuts.',
+        'In production, RandAugment is a good default when the team can inspect samples, run a small N and M sweep, and monitor validation by slice. It is not only for academic benchmarks. Retail image search, document image classification, agricultural imagery, manufacturing inspection, and mobile vision models can all benefit when the catalog matches the physical invariances of the domain.',
+      ],
+    },
+    {
+      heading: 'Failure modes and limits',
+      paragraphs: [
+        'The most common failure is treating augmentation as image improvement. RandAugment is not trying to make prettier images. It is trying to create training examples that preserve the label while removing shortcuts. If the chosen transforms change the answer, the pipeline is injecting label noise. If they are too weak, the model still overfits. If they are too expensive, the GPU waits for the input loader.',
+        'Another limit is that RandAugment searches over strength, not over the truth of the catalog. The method assumes the catalog is sensible. It will not discover that vertical flips are invalid for chest X-rays or that rotation breaks text labels unless validation or sample audit exposes the problem. It also does not solve data leakage. Augmentation must be applied within the training protocol, and validation data must stay independent.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study the RandAugment paper at https://arxiv.org/abs/1909.13719 and the NeurIPS record at https://papers.nips.cc/paper/2020/hash/d85b63ef0ccb114d0a3bb7b7d808028f-Abstract.html. Then connect it to Regularization: L1 & L2, Dropout, Cross-Validation, Data Leakage & Contamination, Contrastive Learning: SimCLR, Mixup Data Augmentation, Adversarial Examples, Dataset Shift, and Hyperparameter Search. The next question is always the same: what invariances are true for this task, and how much pressure can the model take before those invariances become false?',
       ],
     },
   ],

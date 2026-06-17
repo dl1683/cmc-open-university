@@ -204,42 +204,75 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'DOM event propagation is the browser data structure behind clicks, keyboard events, form events, and many custom events. Dispatch builds an event path, then invokes listeners in capture, target, and bubble phases. The path is why one listener high in the DOM can handle events for many descendants.',
-        'Shadow DOM adds another layer. Events can cross component boundaries when composed is true, but the event target can be retargeted so outside code sees the host rather than private implementation nodes.',
+        'DOM event propagation is the browser mechanism that delivers an event to a target and to the ancestors that are allowed to observe it. A click on a button is not only a callback on that button. Dispatch builds a path of EventTargets, runs capture listeners from the outer side toward the target, runs target listeners, and then runs bubble listeners back outward when the event type bubbles.',
+        'The composed path is the event path as exposed through Event.composedPath(). It matters because modern pages are not plain trees of public elements. Shadow DOM creates component boundaries. An event may cross those boundaries if it is composed, and the platform may retarget the event so outside code sees the host rather than private internal nodes.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'For a normal click on a button inside a list, the browser builds a path that includes the button, list, app container, document, and window. Capture listeners run from root toward the target. Target listeners run at the button. If the event bubbles, bubble listeners run from target back toward the root.',
-        'The DOM Standard dispatch algorithm appends invocation targets to the event path, invokes capture listeners in reverse path order, then invokes target and bubbling listeners in path order. stopPropagation and stopImmediatePropagation modify which later invocations occur; preventDefault affects the default action instead.',
+        'The obvious approach is to attach a listener to every interactive element and treat event.target as the element that was clicked. That works for a small static page. It becomes costly and brittle in large lists, virtualized tables, editors, menus, and applications that constantly add and remove nodes. Setup, teardown, and duplicated routing logic spread through the UI.',
+        'The simple mental model also breaks at component boundaries. event.target is an adjusted target, not always the deepest internal node. Capture listeners may run before the target. stopPropagation and stopImmediatePropagation change later listener invocation. preventDefault affects default actions rather than traversal. Passive listeners cannot cancel some performance-sensitive defaults. A serious curriculum needs the dispatch algorithm, not just the word bubbling.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'Event delegation is a performance and maintainability pattern. Instead of registering thousands of row-level listeners, a table can register one listener on a parent and route by target, composedPath, and data attributes. The tradeoff is routing complexity and care around retargeting.',
-        'The path is also a correctness boundary. If a component uses Shadow DOM, outside code should treat the host and documented custom events as the API. Reaching into composedPath internals can couple app code to private component structure, especially with open shadow roots.',
+        'The core insight is that dispatch walks a precomputed path of EventTargets. It is not a live selector query and not a fresh parent lookup for every listener. Once the event path is constructed, the browser invokes listeners in phases according to listener options, event flags, and propagation state.',
+        'For handler code, the essential distinction is currentTarget versus target. currentTarget is the node whose listener is currently running. target is the adjusted public target for that listener context. composedPath() gives a path that is useful for routing, but closed shadow roots and retargeting mean it is not a promise to expose every private implementation node.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Data structures and mechanism',
       paragraphs: [
-        'Consider a file-tree component. One listener on the tree root handles clicks from thousands of rows. The handler reads event.currentTarget to know the delegate root, uses event.composedPath to find the nearest row action, and reads data-action plus data-node-id to dispatch open, rename, or delete. Adding or removing rows does not add or remove listeners.',
-        'Now put each row action inside a web component. An outside listener may see the component host as event.target rather than the private internal button. The component should dispatch a composed custom event with a documented detail payload if it wants the app to react outside the shadow boundary.',
+        'The main data structure is the event path: an ordered list of invocation targets with enough metadata to handle shadow-including trees, slots, related targets, and adjusted targets. Capture listeners are invoked from the outer end of the path toward the target. At-target listeners run at the target. Bubble listeners run from the target side outward if the event bubbles.',
+        'Listener registration adds more structure. addEventListener records a callback plus options such as capture, once, passive, and signal. capture decides which phase sees the listener. once removes the listener after the first invocation. passive tells the browser the listener will not cancel default behavior, which helps scroll and touch performance. AbortSignal can remove a set of listeners without manual bookkeeping.',
+        'Shadow DOM adds composed and retargeting rules. The bubbles flag controls upward propagation. The composed flag controls whether the event can cross a shadow boundary. Retargeting preserves encapsulation by presenting the host as the target to outside listeners when the real node is private. composedPath() exposes the invocation path that the platform allows the current code to see.',
+        'Default actions are separate from propagation. A link navigation, form submission, text selection, focus change, or scrolling behavior may run because the event was not canceled. The browser can finish listener invocation and still perform or skip the default action according to cancelability, passive listener promises, and event-specific rules.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'event.target and event.currentTarget are not the same. target is the adjusted event target; currentTarget is the node whose listener is currently running. stopPropagation does not cancel default behavior. preventDefault does not stop bubbling. passive listeners may not call preventDefault for scroll-sensitive events.',
-        'Do not assume all custom events cross Shadow DOM boundaries. CustomEvent defaults are not a magic public API. Choose bubbles and composed deliberately, and document the detail payload rather than leaking private DOM.',
+        'Propagation works because it turns local interaction into structured tree traversal. Ancestors can observe or handle descendant events without direct wiring to each child. That makes delegation possible: one stable listener on a container can route clicks, keyboard actions, or input changes for many dynamic descendants.',
+        'Encapsulation works because crossing a boundary and revealing internals are separate decisions. A composed event can leave a component so the application can respond. Retargeting can still keep the internal button, span, or input from becoming part of the public API. The component can expose a documented custom event instead of forcing outside code to depend on its internal DOM shape.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked case study',
       paragraphs: [
-        'Primary sources: DOM Standard event dispatch at https://dom.spec.whatwg.org/#concept-event-dispatch, MDN Event.composedPath at https://developer.mozilla.org/en-US/docs/Web/API/Event/composedPath, MDN Event bubbling guide at https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting/Event_bubbling, MDN stopPropagation at https://developer.mozilla.org/en-US/docs/Web/API/Event/stopPropagation, and MDN EventTarget.addEventListener at https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener. Study Tree Traversals, Browser Rendering, The Event Loop, Virtual DOM Reconciliation, React Fiber Scheduler Case Study, JavaScript Promise Microtask Queue, Browser Message Channels & Broadcast Coordination, and CSP Nonce & Hash Policy next.',
+        'A file tree is a clean example. Thousands of rows may appear, disappear, or move as folders expand. Attaching a click listener to every row works but creates churn. A single listener on the tree root can inspect composedPath(), find the nearest element with a data action and node id, and dispatch open, rename, select, or delete. currentTarget remains the tree root; the routed action comes from the path.',
+        'Now put a row action inside a web component. Outside code may see the component host as event.target. If the internal click is meant to be public, the component can dispatch a composed custom event such as file-action with a detail payload. That event becomes the stable contract. The outside app listens at the tree root without knowing whether the component uses a button, icon, slot, or internal wrapper.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'Event propagation is useful in large dynamic interfaces: tables, menus, autocomplete popovers, file trees, dashboards, document editors, drag handles, analytics hooks, and component shells. It keeps routing near the container that owns the behavior instead of scattering listeners across every child.',
+        'It is also useful for framework internals. UI frameworks often centralize event handling, normalize event differences, or schedule updates from a small set of root listeners. Even when a framework hides the details, understanding DOM dispatch explains why handler order, stopPropagation, portals, shadow roots, and default actions can behave differently from a simple callback chain.',
+        'It is useful for accessibility work too. Keyboard events, focus movement, ARIA-driven widgets, and form controls often need coordination between a leaf control and a composite parent. Delegation can keep that coordination centralized, but only if the component publishes stable events instead of relying on private markup.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Delegation fails when the event does not bubble, when it is not composed across the boundary that the listener sits outside, or when handler code assumes the raw deepest target is public. Some events have special behavior. focus and blur do not bubble in the same way as click, though focusin and focusout exist for delegation. Pointer capture can redirect later pointer events. Disabled form controls and default browser actions add more edge cases.',
+        'Propagation controls are often misused. stopPropagation prevents the event from reaching later nodes in the path, but it does not cancel default behavior. stopImmediatePropagation also prevents later listeners on the same current target. preventDefault asks the browser not to run the default action when the event is cancelable. Passive listeners promise not to cancel. Mixing those up causes broken menus, stuck scroll handlers, and analytics that silently miss events.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'The browser does not expose a single purgatory-like metric for event propagation, so debugging is mostly structural. Useful signals are handler count, duplicate listeners, listeners attached inside render loops, long event-handler tasks, scroll blocking warnings, unexpected default actions, and propagation stops that prevent global handlers from seeing events. Performance tools can show long tasks and input delay caused by heavy synchronous handlers.',
+        'For correctness, log currentTarget, target, eventPhase, bubbles, composed, cancelable, defaultPrevented, and a compact composedPath() when investigating. In component systems, document which custom events are public, whether they bubble, whether they are composed, and what detail payload they carry. That contract is more stable than asking consumers to inspect private nodes.',
+        'Memory signals matter in single-page apps. Detached subtrees with retained listeners, handlers closed over large state, and repeated listener registration during render can cause leaks. AbortController-based listener cleanup and container-level delegation reduce that risk when nodes churn often.',
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        'Primary sources are the DOM Standard event dispatch algorithm at https://dom.spec.whatwg.org/#concept-event-dispatch, MDN Event.composedPath at https://developer.mozilla.org/en-US/docs/Web/API/Event/composedPath, MDN Event bubbling guidance at https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting/Event_bubbling, MDN stopPropagation at https://developer.mozilla.org/en-US/docs/Web/API/Event/stopPropagation, and MDN addEventListener at https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener.',
+        'Study Tree Traversals for path walking, Browser Rendering for the work that may follow input, The Event Loop for task timing, JavaScript Promise Microtask Queue for post-handler scheduling, Virtual DOM Reconciliation and React Fiber Scheduler Case Study for framework response to events, Browser Message Channels & Broadcast Coordination for cross-context events, and CSP Nonce & Hash Policy for the security boundary around executable handlers.',
       ],
     },
   ],

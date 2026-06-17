@@ -97,7 +97,7 @@ function* traceSchema() {
   yield {
     state: trajectoryGraph('A coding-agent trajectory is a typed event log'),
     highlight: { active: ['issue', 'env', 'prompt', 'agent', 'e-issue-env', 'e-issue-prompt', 'e-env-agent', 'e-prompt-agent'], compare: ['train'] },
-    explanation: 'A trajectory store starts before the first model token. The task, environment snapshot, prompt state, tool contracts, and permissions are part of the example. Without them, the later action trace cannot be replayed or judged.',
+    explanation: 'A trajectory store starts before the first model token because the same message can mean different work in different repos, containers, tools, or permission sets. Task, environment, prompt state, tool contracts, and permissions are part of the example, so later actions can be replayed instead of guessed from a transcript.',
   };
 
   yield {
@@ -132,7 +132,7 @@ function* traceSchema() {
       ],
     ),
     highlight: { active: ['env:key', 'turn:key', 'oracle:key', 'proof:key'], found: ['proof:why'] },
-    explanation: 'The schema separates task identity, environment identity, event identity, candidate identity, oracle identity, and proof identity. That separation lets a data team rerun only the broken part when dependencies drift.',
+    explanation: 'The schema separates task identity, environment identity, event identity, candidate identity, oracle identity, and proof identity. A single transcript id cannot answer which part changed; separate keys let a data team rerun only the stale container, bad oracle, or disputed patch.',
   };
 
   yield {
@@ -172,7 +172,7 @@ function* verifierFactory() {
   yield {
     state: factoryGraph('Oracle checks decide whether the trace is real signal'),
     highlight: { active: ['rollout', 'oracle', 'refresh', 'e-rollout-oracle', 'e-oracle-refresh'], found: ['release'], compare: ['dedupe'] },
-    explanation: 'The oracle should prove the bug existed before the patch and is resolved after the patch. For SWE-bench-style tasks, that often means isolated containers, failing-to-passing tests, hidden tests, and strict patch application.',
+    explanation: 'The oracle should prove the bug existed before the patch and is resolved after the patch. For SWE-bench-style tasks, that often means isolated containers, failing-to-passing tests, hidden tests, and strict patch application; otherwise the store only knows that a patch looked plausible.',
     invariant: 'A fluent patch with no oracle proof is unlabeled text, not verified trajectory data.',
   };
 
@@ -229,38 +229,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'A verified agent trajectory store is the data structure behind execution-grounded coding agents. It stores tasks, environment snapshots, prompts, tool calls, observations, patches, oracle results, dedupe keys, and proof records as one replayable object. The goal is not to keep a pretty transcript. The goal is to know exactly which behavior was observed, under which environment, why it was considered correct, and whether it should be used for training, evaluation, debugging, or analysis.',
-        'This extends Code World Models Case Study. Meta CWM reports mid-training on observation-action trajectories from Python interpreter and agentic Docker environments, then reasoning RL in verifiable coding, math, and software-engineering environments: https://arxiv.org/abs/2510.02387 and https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/. The reusable systems lesson is that the trajectory factory matters as much as the model architecture.',
+        'A coding-agent training example is not just a prompt and a final patch. It is an interaction between a task, a repository snapshot, an execution environment, a tool interface, a model policy, a sequence of observations and actions, and an oracle that decides whether the result worked. If those pieces are not stored together, the example cannot be trusted later.',
+        'The same final diff can mean different things in different worlds. It may fix the bug at one commit and fail at another. It may pass because a dependency version changed. It may rely on a hidden setup step, a cached file, a permissive network policy, or a test command that is no longer available. A transcript that looks clear to a human reader can become ambiguous when used for training, evaluation, or audit.',
+        'A verified agent trajectory store exists to keep the work replayable. It stores the task, environment, prompt state, tool calls, observations, patch, oracle checks, dedupe keys, provenance, and proof records as one evidence object. The goal is not to make storage neat. The goal is to know why a trajectory is allowed into a dataset and what claim that inclusion supports.',
       ],
     },
     {
-      heading: 'Core schema',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The store should separate six identities: task id, environment id, turn id, candidate id, oracle id, and proof id. Task id ties the example to a repository, issue, commit, and split. Environment id pins a Docker image digest, dependency lockfile, operating system, test command, and resource limits. Turn id orders observations and actions. Candidate id identifies a patch or solution attempt. Oracle id identifies the tests, hidden checks, or verifier used. Proof id records why the trajectory was promoted or rejected.',
-        'This is Write-Ahead Log and Distributed Tracing discipline applied to AI data. Append raw events first. Derive summaries, embeddings, rewards, and labels later. If a summary claims the agent fixed a bug, the store should still hold the original failing test, the patch, the passing test, stdout, stderr, timeout state, and any redactions. If those records are missing, the example is not verified; it is just plausible prose.',
+        'The obvious approach is to save successful transcripts. Keep the user request, the model messages, the tool calls if convenient, the final patch, and the test output. For a demo, this is enough. A person can skim the run and decide that the agent appeared to make progress.',
+        'This breaks when the transcript becomes a data product. A successful-looking patch may be unverifiable because the environment disappeared. A test pass may be meaningless because the bug never failed before the patch. A model may have copied a leaked benchmark answer. A tool call may have been redacted so heavily that the step cannot be replayed. A final diff hides failed attempts, diagnostic reads, command errors, and repair loops that may be the most useful learning signal.',
+        'The naive store also collapses different questions into one id. Is this the same task? The same environment? The same candidate patch? The same oracle result? The same proof decision? A single transcript id cannot answer those questions. A verified store separates them so stale or disputed parts can be repaired without pretending the whole trajectory is one opaque blob.',
       ],
     },
     {
-      heading: 'Verifier factory',
+      heading: 'The core insight',
       paragraphs: [
-        'A serious verifier factory snapshots repos, builds runnable environments, selects tasks, generates candidate trajectories, checks them with objective oracles, deduplicates near-identical examples, and refreshes stale environments. SWE-bench frames the benchmark problem as resolving real GitHub issues by producing patches for codebases: https://www.swebench.com/ and https://github.com/swe-bench/SWE-bench. OpenAI introduced SWE-bench Verified as a human-validated subset intended to make that evaluation more reliable: https://openai.com/index/introducing-swe-bench-verified/.',
-        'The factory is expensive because every accepted example must survive several failure modes. Dependencies rot. Tests can be flaky. A patch can pass visible tests while missing the real issue. A trajectory can leak benchmark answers. A model can learn one tool grammar instead of the abstract operation. Abstract Agent Operation Graph makes that failure inspectable, while Agent Harness Portability Audit tests whether it matters under interface shifts. Dedupe is also more subtle than string equality: two traces may look different but encode the same fix ritual, and a training set with too many near-duplicates can make benchmark behavior brittle.',
+        'Treat the trajectory as a typed evidence ledger. The ledger has separate keys for task identity, environment identity, event identity, candidate identity, oracle identity, and proof identity. Those keys are not bookkeeping decoration. They are the data structure that makes replay, dedupe, train/eval splitting, refresh, and audit possible.',
+        'This is write-ahead-log discipline applied to agent data. Append the raw events first: observations, actions, payloads, outputs, timestamps, exit codes, diffs, and redaction markers. Derived artifacts come later: summaries, embeddings, reward labels, preference labels, trace compression, and training slices. If a derived label says "verified pass", the raw evidence should still show what failed before, what changed, what passed after, and what was not checked.',
+        'The store should also preserve negative and partial evidence. Failed commands, mistaken edits, timeouts, rejected patches, and partial repairs are not garbage by default. They can teach search, debugging, tool use, and recovery. The label layer decides how to use them; the storage layer should not erase them prematurely.',
+      ],
+    },
+    {
+      heading: 'The schema',
+      paragraphs: [
+        'A minimal task record stores repository, issue text or task prompt, base commit, task source, split family, authoring process, and any known leakage flags. The environment record stores image digest, package lockfiles, system dependencies, test commands, resource limits, network policy, secrets policy, and tool availability. Without this layer, replay depends on luck.',
+        'A turn record stores operation id, parent id, model message, normalized tool call, raw payload, observation, stdout, stderr, exit code, elapsed time, files read, files written, and redaction state. The parent id matters because agent work is a tree or graph of attempts, not just a flat transcript. The same high-level action may branch into retries, diagnostics, or alternative patches.',
+        'A candidate record stores the patch, diff hash, files touched, generated artifacts, and relationship to previous candidates. An oracle record stores pre-patch failure evidence, post-patch pass evidence, hidden-test status if available, flake handling, timeout policy, and failure classification. A proof record links task, environment, turns, candidate, and oracle into an inclusion decision.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The factory starts by snapshotting sources. Repositories are pinned to commits. Tasks are selected from issues, synthetic mutations, benchmark items, or internal bug reports. Environments are built into images with stable digests. Tool contracts are recorded: shell, editor, browser, test runner, patch format, timeout, and permission model.',
+        'Agents then run against those pinned worlds. Every observation and action is appended before later processing. If the agent reads a file, the store records what was requested and what came back. If it runs a command, the store records the command, exit code, time, stdout, stderr, and whether the result was truncated. If it edits a file, the store records the exact patch and the resulting content hash.',
+        'The oracle checks the candidate. For bug-fixing tasks, a strong oracle proves that the relevant test failed before the patch and passed after the patch. It may include hidden tests, lint checks, type checks, or human review, but each check must be named. The store should not say "verified" when it only knows that one visible test passed.',
+        'After verification, the pipeline labels the trajectory. Verified pass, partial repair, flaky oracle, environment failure, policy violation, duplicate, leakage risk, and unusable redaction are different outcomes. Mixing them into one training bucket turns the dataset into noise. Keeping them separate lets training sample the right signal for the right objective.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is replayability. If the environment id reconstructs the runnable world, the event ids reconstruct the action sequence, the candidate id names the patch, and the oracle id names the checks, then the proof record can be inspected or rerun. If any key is missing, the claim becomes weaker because one dependency has moved from evidence into memory.',
+        'Replayability does not require that every future run produce bit-identical output. Real systems have nondeterminism, flaky tests, and dependency drift. The point is that the store can identify what changed. If a dependency update breaks a former pass, the team can mark the environment stale, rebuild it, rerun the oracle, and write a new proof record rather than silently corrupting the old label.',
+        'The store also protects evaluation. Held-out performance is only meaningful if related examples cannot leak across the split. Splits may need to be assigned by repository, issue family, synthetic mutation source, patch fingerprint, oracle fingerprint, or tool grammar. A verified store has enough keys to enforce those boundaries instead of hoping exact prompt text is enough.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost is substantial. Raw event logs are larger than final patches. Containers, test artifacts, and dependency caches are expensive to store. Ingestion is slower because every event needs a schema and every proof needs a link. Redaction, access control, and retention policy are mandatory because trajectories may contain source code, credentials, proprietary data, or user content.',
+        'The schema can also become too rigid. If the store only understands one shell, one editor, or one patch format, models trained from it may overfit to that interface. A good store records concrete tool use while also extracting abstract operations such as read file, search text, edit hunk, run focused test, inspect failure, and rerun suite. The concrete trace supports replay; the abstract trace supports portability analysis.',
+        'The tradeoff is worthwhile when examples are expensive or public claims depend on them. A weak store is faster until something goes wrong: a benchmark result is questioned, a model learns a leaked pattern, an environment cannot be rebuilt, or a large training run overweights duplicates. Then missing evidence becomes the most expensive part of the system.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'A verified trajectory store wins for coding-agent training, SWE-style evaluation, tool-use research, verifier-guided reinforcement learning, and enterprise audit trails. It lets a team answer concrete questions: did the bug fail before the patch, did it pass after, was the environment pinned, was the sample duplicated, and which split owns this family?',
+        'It also improves research quality. Instead of reporting only aggregate success, researchers can separate gains from execution grounding, retry budget, oracle strength, repository familiarity, language distribution, or tool-interface overfitting. The store turns those into measurable columns rather than speculation.',
+        'For production agents, the same structure supports incident review. If an agent made a harmful edit, the team can inspect what it observed, which tool permissions were active, which tests it trusted, and why the run was accepted. That is operationally different from reading a chat transcript after the fact.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The pattern is overkill for disposable demos, simple chat transcripts, or exploratory tasks where no training, evaluation, or audit claim will be made. It is also impossible when the organization cannot legally store enough detail to replay the work. In that case the right answer is not to fake verification; it is to store a narrower claim with explicit limitations.',
+        'It also fails when the oracle is weak. A perfect ledger around a bad verifier still produces bad labels. If the tests do not cover the bug, the proof record should say that only the named checks passed. If the oracle is flaky, quarantine or repeated-run policy belongs in the record. Verification is a claim about evidence, not a feeling about plausibility.',
+        'Finally, the store fails if derived labels overwrite raw events. Summaries are useful for browsing and training, but they are not a substitute for the original observations, actions, and oracle outputs. Once the raw evidence is gone, later audits can only debate summaries.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'Consider a Python bug-fixing agent. The task record stores repository, issue text, base commit, target files, and split assignment. The environment record stores image digest, package hashes, test command, CPU and memory limits, and network policy. Each turn records the model message, tool call, normalized payload, observation, exit code, elapsed time, and redaction markers. The candidate record stores the patch diff and derived features such as files touched. The oracle record stores pre-patch failure, post-patch pass, hidden-test result if available, and failure reason. The proof ledger links all of this into one inclusion decision.',
-        'The same store supports training and audit. Training can sample verified successes, partial repairs, and negative examples separately. Evaluation can hold out repos, issues, or tool grammars. Debugging can replay a failed trajectory from the exact environment. Research can ask whether model gains came from execution grounding, retry budget, test leakage, or tool overfitting. That is why a trajectory store is a control-plane object, not a logging afterthought.',
+        'Consider a Python bug-fixing task. The task record stores the repository, issue text, base commit, failing test hint, source of the task, and split family. The environment record stores image digest, package hashes, test command, CPU and memory limits, filesystem mount policy, and whether network access is blocked. The first oracle run proves the test fails before the patch.',
+        'The agent reads the failing test, searches for the function, edits one file, runs a focused test, sees a new failure, repairs the edge case, and reruns the suite. Each turn is stored with a stable id, tool payload, output, elapsed time, exit code, and content hashes for files read or written. The final candidate stores the diff and patch fingerprint.',
+        'The oracle then runs the agreed checks. If the pre-patch failure and post-patch pass both hold, the proof record marks the trajectory as a verified pass. If the focused test passes but the suite fails, the trajectory becomes a partial repair. If the environment build fails, the task is not a model failure. These distinctions are what make the dataset useful.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Study next',
       paragraphs: [
-        'Do not train on unlabeled agent transcripts as if they were verified trajectories. Do not mix partial and full successes without labels. Do not let the same issue family leak across train and eval. Do not assume a pass in one harness means portability to another. Do not store private code or secrets without redaction and authorization. The better mental model is an evidence ledger: every promoted example must say what happened, why it is correct, and what assumptions make it reusable.',
-        'Study Code World Models Case Study, Execution Trace State Diff Case Study, Dynamic Scratchpad Execution Trace Case Study, Agent Trajectory Dedupe & Provenance Hash, Rust Borrow Checker Ownership Trace, Abstract Agent Operation Graph, Agent Harness Portability Audit, Execution-as-a-Service Verifier Economy Case Study, AlphaEvolve Case Study, Process Reward Models & Verifier Search, LLM Evaluation Harnesses, Temporal Workflow Case Study, Distributed Tracing, Write-Ahead Log, Git Internals, Data Leakage, and Benchmark Variance next. Local source: Code World Models Breakdown.txt in the provided document corpus.',
+        'Study agent trajectory dedupe and provenance hashing next, because verification alone does not prevent duplicate families from leaking across train and eval. Then study state-diff traces, abstract agent operation graphs, interface portability audits, process reward models, verifier search, and benchmark variance.',
+        'For systems grounding, study distributed tracing, write-ahead logs, content-addressed storage, Git internals, data leakage, temporal workflow engines, and software supply-chain provenance. A verified trajectory store is built from those older systems ideas: stable identity, append-only evidence, replayable execution, and explicit proof boundaries.',
       ],
     },
   ],

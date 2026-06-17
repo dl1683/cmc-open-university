@@ -238,42 +238,98 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Elastic Sketch is a network-measurement sketch designed around traffic skew. It splits memory into a heavy part and a light part. The heavy part stores candidate elephant flows with identities and counters. The light part summarizes the long tail of mice flows with compact sketch counters. Queries combine the two pieces to support tasks such as heavy hitter detection, heavy change detection, flow-size distribution, and entropy estimation.',
-        'The design is a case study in choosing data structures that match the workload. Network traffic is not uniform: a few flows dominate, many flows are tiny, and conditions can shift during congestion or attacks. A single flat Count-Min matrix spends the same shape of memory on every flow. Elastic Sketch spends richer state on likely elephants and cheaper approximate state on the tail.',
+        'Network operators need measurements while the network is busy, degraded, or under attack. They want to know which flows are heavy, which flows changed, whether traffic entropy shifted, and how the flow-size distribution looks across switches. The hard part is that measurement must happen at packet speed with limited fast memory.',
+        'A full flow log is too expensive for the data plane. A pure matrix sketch is compact, but it hides the identities of important flows behind hashed counters. Elastic Sketch exists because real traffic is skewed. A few elephant flows carry much of the byte volume, while many mice flows appear briefly and contribute mostly through aggregate tail mass.',
+        'The design spends rich state where identity matters and cheap approximate state where aggregate signal is enough. That is the educational point: the data structure follows the workload shape instead of pretending every flow deserves the same representation.',
+      ],
+    },
+    {
+      heading: 'The naive baselines and their wall',
+      paragraphs: [
+        'The first baseline is an exact flow table. Store every five-tuple or flow key with counters, update it for every packet, and query the table during incidents. This gives beautiful answers when the table fits. It fails when line-rate traffic creates too many short-lived flows, when SRAM is limited, or when attack traffic intentionally expands the key set.',
+        'The second baseline is a flat Count-Min or Count Sketch style matrix. That gives bounded memory and predictable update cost, but it treats elephants and mice as anonymous updates into the same counter grid. Heavy-hitter questions then need extra machinery to recover names, and tail-distribution questions can be distorted by a few large colliding flows.',
+        'The wall is that network measurement tasks are mixed. Heavy hitters need identities. Flow-size distribution and entropy need the tail. Heavy change detection needs continuity across intervals. Network-wide aggregation needs compatible summaries from many devices. A single exact table or a single anonymous sketch makes one of those tasks awkward.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Split the synopsis into a heavy part and a light part. The heavy part stores candidate elephant flow identities with counters and guard metadata. The light part stores compact approximate counters for displaced flows and the long tail. Query logic combines them.',
+        'This is not just a memory optimization. It is a semantic split. Elephant flows are worth naming because operators may route, rate-limit, debug, or sample them directly. Mice flows are often too numerous to name individually at line rate, but their aggregate mass still reveals scans, DDoS shape, entropy changes, and capacity pressure.',
+        'Elastic Sketch is "elastic" because flows can move between these roles as traffic changes. A resident heavy flow can stay. A weak resident can lose its slot. Displaced mass is not discarded; it is folded into the light part so the global measurement remains useful.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Incoming packets are classified by flow key, such as a five-tuple or source-destination pair. A hashed bucket in the heavy part may already contain the flow; if so, its counter increases. If the bucket contains another flow, the algorithm uses guard or vote logic to decide whether the resident should remain, whether the newcomer should be folded into the light part, or whether a swap should occur. Displaced or tail traffic is preserved in the light sketch.',
-        'The light part is sketch-like: it keeps compact counters for flows that are not resident in the heavy part. This preserves approximate information about the long tail without storing every flow identity. The split lets the structure answer multiple measurement tasks from one shared synopsis.',
+        'Each packet is reduced to a flow key and a weight such as packet count or byte count. A hash maps the key to a heavy bucket. If the bucket already holds that flow, the heavy counter increases. If the bucket is empty, the flow can be installed as a candidate elephant.',
+        'If the bucket holds a different flow, the sketch uses guard or vote logic to decide whether the resident is still strong enough to keep identity. A newcomer that does not displace the resident contributes to the light part. If the newcomer becomes more important, the resident can be swapped or evicted, and the displaced mass is inserted into the light sketch.',
+        'The light part behaves like a compact sketch over the tail. It does not store every flow identity in every cell. It keeps approximate counter evidence so a query for a nonresident flow can still estimate frequency and so distribution tasks can account for the mass outside the heavy table.',
+        'At query time, a resident flow can be answered mainly from the heavy part. A nonresident flow is estimated from the light part. For network-wide measurements, collectors combine summaries from multiple switches or workers, but only when dimensions, hash choices, epochs, and interpretation rules are aligned.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual shows',
       paragraphs: [
-        'Elastic Sketch targets line-rate updates under tight memory, so update work must be bounded and cache-friendly. The heavy part costs more per bucket because it stores identities and metadata; the light part is cheaper but less exact. Distributed deployment also adds a parameter-alignment cost: summaries from different switches or workers are meaningful together only when they use compatible dimensions, hashes, and interpretation rules.',
+        'The heavy-light split view shows two memory roles. The packet enters through a flow-key hash. Large, repeated flows try to stay in identity-bearing heavy buckets. Weak or displaced traffic moves through guard logic into the light sketch. The query side joins both answers because neither part is sufficient alone.',
+        'The traffic-surge case study shows the operational loop. Switches update sketches at line rate, collectors merge compatible summaries, analysis tasks ask heavy-hitter, heavy-change, flow-size, and entropy questions, and operators use the result to investigate or mitigate. The sketch is evidence under pressure, not perfect accounting.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A network operator detects congestion and possible scan traffic. Each switch updates an Elastic Sketch in fast memory. A collector periodically receives sketches, rolls them up, and asks several questions: which flows are heavy, which flows changed sharply, what does the flow-size distribution look like, and did entropy drop in a way that suggests concentration or attack? Heavy-part identities explain the top talkers, while the light part preserves enough tail mass to reason about distribution shifts.',
+        'The design works when traffic has a heavy head and a long tail. Elephant flows return often enough to win identity slots. Mice flows are numerous but individually small, so approximate counters preserve enough information without spending a full table entry per flow.',
+        'The split also reduces collision damage. A huge flow that stays in the heavy part is not constantly polluting the anonymous tail counters. Tail flows still collide with one another, but the largest head flows are represented explicitly. That improves heavy-hitter accuracy and helps distribution estimates because the head and tail can be treated separately.',
+        'The guard mechanism matters because traffic changes. A static top-k table can become stale during a surge. Elastic replacement lets the synopsis adapt when a new elephant appears, while the light part keeps displaced contribution visible enough for later queries.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Elastic Sketch is not magic exact telemetry. It is a carefully engineered approximate synopsis. Severe actions such as blocking traffic, customer notification, or routing changes should be backed by packet samples, exact flow logs, or independent counters. Also avoid assuming one parameter setting fits every deployment. The right heavy/light split depends on traffic skew, update rate, memory budget, and the measurement tasks you care about.',
-        'The heavy part can make the design look like a cache, but the goal is measurement, not serving requests. Eviction or swapping preserves measurement information by folding displaced mass into the light part, whereas a cache eviction may simply discard the object. Keep those mental models separate.',
+        'The heavy part is more expensive than the light part because it stores flow identities, counters, and guard state. The light part is cheaper but approximate. The memory budget is therefore a policy choice: too small a heavy part churns under ordinary skew; too large a heavy part wastes scarce fast memory on flows that could have remained anonymous.',
+        'Update cost must be bounded. A switch cannot run a long search per packet. Hashes, bucket probes, guard updates, and light-sketch writes need predictable work. That constraint shapes the algorithm as much as the mathematical error model.',
+        'Distributed use has its own cost. To roll up telemetry, devices must agree on hash seeds, sketch dimensions, epochs, key normalization, counter semantics, and byte-versus-packet interpretation. A collector cannot safely merge summaries that were built with incompatible parameters.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Failure modes',
       paragraphs: [
-        'Primary source: Yang et al., "Elastic Sketch: Adaptive and Fast Network-wide Measurements", ACM SIGCOMM 2018: https://yangzhou1997.github.io/paper/elastic-sigcomm18.pdf and ACM page: https://dl.acm.org/doi/10.1145/3230543.3230544. Study Count-Min Sketch for the matrix-sketch baseline, Conservative Count-Min Sketch for positive-stream bias reduction, Count Sketch for signed updates, Heavy Hitters: Space-Saving Summaries for candidate retention, Hierarchical Heavy Hitters: Prefix Sketch for the prefix-level explanation layer used in network operations, and IP FIB Longest-Prefix Match Case Study for the forwarding-table side of network prefixes.',
+        'Elastic Sketch fails when the workload does not have a useful heavy head. If many flows have similar size, the heavy table can churn and the head-tail split loses much of its advantage. In that case a different sketch or more exact sampling path may fit better.',
+        'It also fails when the flow key is wrong. Aggregating by source IP, prefix, five-tuple, tenant, service, or application label answers different operational questions. A poor key can make the sketch look accurate while hiding the actual incident boundary.',
+        'Adversarial collisions are another risk. If key choice and hashing are predictable to an attacker, approximate counters can be manipulated. Keyed hashes, salt rotation, sampling, and corroborating evidence matter in hostile settings.',
+        'The most serious failure is operational overreach. Approximate telemetry can identify a likely top talker or entropy drop quickly, but blocking customer traffic, paging a team, or rerouting flows should use stronger evidence when the action has high cost.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Start from the measurement question. Heavy hitters need identity retention. Flow-size distribution needs tail mass. Heavy change needs interval alignment and deltas. Entropy needs a defensible key and enough tail visibility. Do not deploy one sketch and assume every dashboard question is equally supported.',
+        'Treat the sketch as a fast triage layer. A good incident workflow records sketch parameters, collection epoch, top heavy entries, tail estimates, switch locations, packet or byte basis, and verification evidence. Verification can come from sampled packets, exact counters, flow logs, ACL counters, service metrics, or short-term higher-fidelity capture.',
+        'For production, monitor the sketch itself. Track heavy-table occupancy, replacement rate, guard pressure, counter saturation, merge compatibility, dropped epochs, and query error against sampled ground truth. A sketch with no self-observation can silently drift from useful telemetry into decorative numbers.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'During a DDoS event, one rack switch sees several source prefixes sending most bytes and a long tail of one-off flows. The heavy part retains the dominant flow keys, so the collector can name the top talkers and locate the switches where they appear. The light part still records tail mass and entropy shift, so the incident is not reduced to a few named elephants.',
+        'The first operator action should be explanation, not blind blocking. The sketch can say that a few flows dominate bytes, that the tail widened, or that entropy collapsed. A safer mitigation path verifies with packet samples, exact interface counters, load balancer logs, or service-level errors before installing broad deny rules.',
+        'After the incident, the team should keep the sketch evidence with the timeline: epoch boundaries, parameters, heavy entries, tail estimates, mitigation decisions, and independent verification. That makes the sketch useful for tuning thresholds instead of merely producing a dramatic graph during the outage.',
+      ],
+    },
+    {
+      heading: 'Where to place it in the curriculum',
+      paragraphs: [
+        'Study Count-Min Sketch before this page so the light part feels familiar. Study Conservative Count-Min Sketch to understand positive-stream overcount bias. Study Count Sketch for signed updates and Heavy Hitters: Space-Saving Summaries for identity-retaining candidate logic. Elastic Sketch combines those instincts into a network telemetry design with hardware and operations constraints.',
+        'Then connect it to network systems topics. IP FIB Longest-Prefix Match explains prefix-based forwarding, Hierarchical Heavy Hitters explains prefix-level incident reporting, and telemetry case studies explain how approximate signals become operational evidence. The data structure is only useful when the surrounding measurement pipeline understands its limits.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary source: Yang et al., "Elastic Sketch: Adaptive and Fast Network-wide Measurements", ACM SIGCOMM 2018, https://yangzhou1997.github.io/paper/elastic-sigcomm18.pdf and ACM page https://dl.acm.org/doi/10.1145/3230543.3230544.',
+        'Study Count-Min Sketch, Conservative Count-Min Sketch, Count Sketch, Heavy Hitters: Space-Saving Summaries, Hierarchical Heavy Hitters: Prefix Sketch, IP FIB Longest-Prefix Match Case Study, BGP Route Selection RIB Case Study, and Cache Admission sketches next. The recurring question is how much identity to keep under fixed memory and high update rate.',
       ],
     },
   ],

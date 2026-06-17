@@ -386,39 +386,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An LLM serving admission-control goodput gate decides whether to admit, defer, degrade, or reject a request before the serving stack spends expensive GPU time. The goal is goodput: useful answers completed before deadline, not a high count of accepted requests.',
-        'Generic Load Shedding & Graceful Degradation already explains why unbounded queues collapse. This case study adds LLM-specific state: input and output token estimates, KV cache pressure, prefill/decode interference, queue age, cache locality, request deadline, and model-route fallback.',
+        'An LLM serving stack can be overloaded even while the GPUs look busy and the request counter looks healthy. Long prompts consume prefill time, active sequences consume KV cache, decode steps stretch inter-token latency, and callers have deadlines. The system needs a front-door decision before an accepted request becomes expensive failed work.',
+        'The goal is goodput: useful answers completed before their deadline. Accepted-request count is a weaker metric because an accepted request that times out after prefill has already burned GPU time, KV memory, retrieval work, and retry budget.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The gate stores an admission record for each request: request class, deadline, estimated prompt tokens, requested max output tokens, cached-prefix estimate, KV bytes, queue age, selected route, brownout eligibility, idempotency key, retry policy, and shed reason. The fleet stores caps for max live sequences, max batched tokens, GPU memory utilization, queue depth, and per-class in-flight limits.',
-        'vLLM optimization docs make the memory side explicit: decreasing max_num_seqs or max_num_batched_tokens reduces concurrent requests in a batch and requires less KV cache space, while chunked prefill schedules pending decode first and then fits prefill into the remaining token budget: https://docs.vllm.ai/en/stable/configuration/optimization/.',
+        'A reasonable first design accepts every authenticated request, lets the scheduler queue it, and relies on autoscaling when load rises. A slightly better version sets a global max queue length or max concurrent request count. That works when requests are similar, deadlines are loose, and new capacity arrives quickly.',
+        'LLM traffic violates those assumptions. A short chat, a 128k-token agent request, an eval replay, and abusive scripted traffic can share the same endpoint while placing very different pressure on prefill, decode, KV cache, and user-facing latency.',
       ],
     },
     {
-      heading: 'Admission and autoscaling',
+      heading: 'Where it breaks',
       paragraphs: [
-        'Ray Serve exposes request timeout and autoscaling controls around ongoing requests per replica. Its performance guide documents request_timeout_s for end-to-end HTTP timeout behavior: https://docs.ray.io/en/latest/serve/advanced-guides/performance.html. Its advanced autoscaling guide emphasizes target ongoing requests per replica and load testing latency-sensitive workloads: https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html.',
-        'LLM Serving Autoscaling Warm Pool continues this section: it separates desired replicas from ready replicas, models warm capacity, cold-start lag, KV-locality loss on new replicas, and the scale-event ledger that tells whether autoscaling protected goodput.',
-        'KServe LLMInferenceService and its control-plane API put LLM-specific metrics into the serving control plane. The Workload Variant Autoscaler can scale based on inference metrics such as KV cache utilization and queue depth rather than ordinary CPU or memory metrics: https://kserve.github.io/website/docs/reference/crd-api. Autoscaling helps, but admission still has to survive the delay before new capacity is ready.',
+        'Accept-all fails at the overload knee. Queue age grows, request deadlines expire, KV blocks fill, long prefill work delays decode, and clients retry. The server can spend its best GPU minutes on requests whose callers have already given up.',
+        'Autoscaling does not remove the need for admission. Ray Serve exposes request timeouts and autoscaling controls, including ongoing requests per replica and load testing for latency-sensitive services, but new replicas still need placement, startup, model load, and readiness time: https://docs.ray.io/en/latest/serve/advanced-guides/performance.html and https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html.',
       ],
     },
     {
-      heading: 'Complete case study: product traffic spike',
+      heading: 'Core insight',
       paragraphs: [
-        'A product launch sends a burst of short chat, long agent, batch summarization, eval replay, and abusive scripted traffic to the same model. The gate admits interactive chats while their first-token budget is still viable, routes long agents toward cache hits or prefill/decode pools, defers batch work, sheds eval replay, and denies abusive requests early. If pressure keeps rising, brownout shortens context, tries semantic or prompt cache paths, routes low-risk requests to a smaller model, and finally returns a fast 503 with Retry-After.',
-        'The goodput ledger shows the difference. Accept-all looked generous but produced many timeouts after prefill. The gate completed fewer raw requests but more useful answers before deadline, with lower p99 and lower GPU waste. The audit rows explain every admit, defer, shed, timeout, and completed answer by request class.',
+        'Admission control works when each request gets a small resource-and-deadline record before it enters the expensive queue. The record estimates prompt tokens, output cap, cached-prefix chance, KV bytes, request class, queue age, deadline slack, route options, brownout eligibility, retry policy, and shed reason.',
+        'The invariant is simple: admit only work that still has a plausible path to a useful answer. Defer work that can wait. Degrade work that has an approved cheaper route. Reject work whose best path already misses the contract.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Do not shed after expensive work. Rejection after tokenization, retrieval, auth, or prefill has already spent the capacity you meant to protect. Do not shed by CPU alone; queue depth, p99, KV utilization, and deadline slack move earlier. Do not optimize acceptance rate. A request accepted into a queue it cannot escape before timeout is not success.',
-        'Primary sources: Google SRE Handling Overload at https://sre.google/sre-book/handling-overload/, Google SRE cascading failures at https://sre.google/sre-book/addressing-cascading-failures/, vLLM optimization docs at https://docs.vllm.ai/en/stable/configuration/optimization/, Ray Serve performance docs at https://docs.ray.io/en/latest/serve/advanced-guides/performance.html, Ray Serve advanced autoscaling at https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html, KServe CRD API at https://kserve.github.io/website/docs/reference/crd-api, and Google Cloud LLM inference autoscaling guidance at https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/machine-learning/inference/autoscaling-tpu. Study Load Shedding & Graceful Degradation, Backpressure, Retries with Jitter, SLO-Aware LLM Request Router, LLM Serving Autoscaling Warm Pool, Chunked Prefill Token Budget Scheduler, KV Cache Concurrency Capacity Model, Tail Latency & p99 Thinking, Feature Flag Control Plane, and LLM Unit Economics Ledger Case Study next.',
+        'Inspect the gate as a resource estimate plus a policy decision. The estimate says how much prefill, decode, KV memory, queue time, and deadline slack the request needs. The policy says which classes may be admitted, degraded, deferred, or rejected under current load.',
+        'The request ledger should record the decision and the reason: admitted to route A, shortened context, served from cache, sent to smaller model, deferred, rejected with Retry-After, or denied by quota. Without this record, overload behavior becomes invisible and impossible to improve.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The gate reads live scheduler state and per-class policy. It checks max live sequences, max batched tokens, GPU memory utilization, queue depth, KV pressure, p99, TTFT, inter-token latency, and request deadline slack. vLLM optimization docs make the memory side concrete: changing max_num_seqs or max_num_batched_tokens changes concurrent request pressure and KV cache needs, while chunked prefill fits prefill work around decode token budget: https://docs.vllm.ai/en/stable/configuration/optimization/.',
+        'A brownout ladder gives the gate more choices than yes or no. It can use a cached answer, shorten context, skip optional retrieval, route to a smaller model, defer batch work, or return a fast 503 with Retry-After. KServe puts LLM-specific metrics such as KV cache utilization and queue depth into the control plane, which is exactly the kind of signal an admission gate needs: https://kserve.github.io/website/docs/reference/crd-api.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is conservation. GPU time, KV memory, and deadline slack are finite. If a request cannot finish with the remaining resources, accepting it cannot create more capacity; it only competes with requests that can still succeed.',
+        'Early rejection is useful because it preserves the scarce resource before it is spent. The gate is not trying to predict the future perfectly. It is keeping impossible or low-priority work from consuming the queue positions, KV blocks, and decode steps needed by viable requests.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Admission control adds estimation work, policy design, telemetry, and false-negative risk. A conservative gate can reject requests that might have succeeded. An aggressive gate can admit too much and collapse back into accept-all behavior.',
+        'The expensive part is not the if statement. It is keeping estimates honest under changing model versions, prompt shapes, cache hit rates, priority classes, and retry behavior. The gate needs load tests, per-class dashboards, and an audit ledger so teams can see whether it protected goodput or only moved pain around.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Admission control wins during launch spikes, mixed interactive and batch traffic, tenant priority conflicts, long-context agent bursts, cache-local routing decisions, and brownout events. It is strongest when the service has clear SLOs and multiple legal actions: admit, defer, degrade, reroute, or reject.',
+        'LLM Serving Autoscaling Warm Pool continues the same control problem. It separates desired replicas from ready replicas, models warm capacity, cold-start lag, KV-locality loss on new replicas, and the scale-event ledger that tells whether autoscaling protected goodput.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Admission control is the wrong main tool for offline batch jobs whose only goal is eventual throughput. It also fails when the product has no honest degradation path, no client retry contract, no deadline propagation, or no accurate live view of KV and queue state.',
+        'Bad gates can create unfairness. If priority tiers, tenant quotas, and shed reasons are not explicit, the system may quietly protect easy traffic and starve important long requests. The remedy is not to remove the gate; it is to make the policy measurable and reviewable.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track admitted, degraded, deferred, rejected, timed out, and completed requests separately. Also track saved GPU seconds, saved KV blocks, TTFT, inter-token latency, p99, retry rate, queue age, deadline slack at admission, deadline slack at first token, and completion before deadline.',
+        'The best gate is tuned near the goodput knee: the point where accepting more work reduces useful completions. Load tests should include retry storms, long-context bursts, cache-miss traffic, tenant priority conflicts, and autoscaling lag. A gate that only works on average traffic is not an overload gate.',
+        'Thresholds should be staged through canaries. Start in shadow mode, compare predicted misses with actual misses, then reject only a narrow class with clear Retry-After behavior. A gate that launches at full force without an audit ledger can cause the same customer pain it was meant to prevent.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'LLM admission control is not about being unfriendly to users. It is about refusing to spend scarce GPU and KV capacity on work that cannot satisfy its contract. Early, explainable rejection is often better than late timeout after expensive prefill.',
+        'For course design, teach this after backpressure and before autoscaling. Students should see the chain: estimate resource demand, compare it with live capacity and deadline, choose the cheapest acceptable action, and record the reason for audit.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Google SRE Handling Overload at https://sre.google/sre-book/handling-overload/, Google SRE cascading failures at https://sre.google/sre-book/addressing-cascading-failures/, vLLM optimization docs at https://docs.vllm.ai/en/stable/configuration/optimization/, Ray Serve performance docs at https://docs.ray.io/en/latest/serve/advanced-guides/performance.html, Ray Serve advanced autoscaling at https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html, KServe CRD API at https://kserve.github.io/website/docs/reference/crd-api, and Google Cloud LLM inference autoscaling guidance at https://docs.cloud.google.com/kubernetes-engine/docs/best-practices/machine-learning/inference/autoscaling-tpu.',
+        'Study Load Shedding & Graceful Degradation for the general overload pattern, Backpressure and Retries with Jitter for client behavior, SLO-Aware LLM Request Router for routing policy, LLM Serving Autoscaling Warm Pool for delayed capacity, Chunked Prefill Token Budget Scheduler for prefill/decode pressure, KV Cache Concurrency Capacity Model for memory limits, Tail Latency & p99 Thinking for SLO math, Feature Flag Control Plane for policy rollout, and LLM Unit Economics Ledger Case Study for cost accounting.',
       ],
     },
   ],

@@ -69,7 +69,7 @@ function* threePolicies() {
       markers: [{ id: 'outage', x: 10, y: 250, label: 'outage: t = 5 → 15' }],
     }),
     highlight: { removed: ['naive'], visited: ['cap'] },
-    explanation: `Policy 1 — the reflex everyone writes first: on failure, retry immediately, up to 3 attempts. The simulation (run live by this module) shows what that reflex does to a 10-second outage: every failed cohort comes straight back while NEW traffic keeps arriving, so demand stacks 80 → 160 → 240 — the dead service is being hit at TRIPLE its normal load, by its own clients, for the entire outage. Worse, look at t = 15 when the service recovers: 240/s greets a 100/s capacity, so the "recovered" service immediately drowns — failures continue for ${NAIVE.filter((l, t) => t >= 15 && l > CAP).length} more seconds on self-inflicted load alone. The outage ended; the storm it bred did not.`,
+    explanation: `Policy 1 is the tempting reflex: retry immediately, up to three attempts. The simulation shows why that is dangerous. During the outage, failed cohorts return at once while new traffic keeps arriving, so offered load climbs from 80 to 160 to 240 requests per second. When capacity returns, the service is greeted by its own retry backlog and remains overloaded for ${NAIVE.filter((l, t) => t >= 15 && l > CAP).length} extra seconds. The original outage ended; client behavior kept it alive.`,
     invariant: 'Immediate retries multiply demand exactly when capacity is lowest: load triples while the service is at zero.',
   };
 
@@ -79,7 +79,7 @@ function* threePolicies() {
       series: [capLine, series('naive', 'naive', NAIVE), series('backoff', 'exponential backoff (no jitter)', BACKOFF)],
     }),
     highlight: { compare: ['backoff', 'naive'], visited: ['cap'] },
-    explanation: 'Policy 2 — EXPONENTIAL BACKOFF: wait 2 seconds before the first retry, 4 before the next. Smarter — and watch the simulation expose its flaw: every client computes the SAME delays, so failed cohorts return in synchronized WAVES. The waves overlap with new traffic and each other, and the post-recovery hangover is actually LONGER than naive\'s — demand stays above capacity until t ≈ 26 as wave after synchronized wave crashes in. Backoff without randomness just schedules the stampede for later (the same synchronized-expiry lesson as Cache Invalidation & Versioning\'s thundering herd: identical timers create identical spikes).',
+    explanation: 'Policy 2 adds exponential backoff, which is better but still incomplete. Every client waits the same 2 seconds, then the same 4 seconds, so retry cohorts come back in synchronized waves. The overload is postponed rather than smoothed. This is the same thundering-herd shape as synchronized cache expiry: identical timers create identical spikes.',
     invariant: 'Deterministic backoff synchronizes clients: the herd is not dispersed, only postponed.',
   };
 
@@ -89,7 +89,7 @@ function* threePolicies() {
       series: [capLine, series('naive', 'naive', NAIVE), series('jitter', 'backoff + jitter + budget', JITTER)],
     }),
     highlight: { found: ['jitter'], removed: ['naive'], visited: ['cap'] },
-    explanation: `Policy 3 — the production answer, three ingredients deep: exponential backoff (space the attempts), JITTER (randomize each delay across its window, so cohorts smear into a gentle drizzle instead of waves), and a RETRY BUDGET (clients may add at most 20% extra traffic, ever). The simulated curve barely registers the disaster: peak load ${Math.round(Math.max(...JITTER))}/s — within sixteen percent of normal — and the moment the outage ends, the system simply… works. Same outage, same clients, same number of user requests. The only thing that changed is WHEN failures asked again.`,
+    explanation: `Policy 3 adds the missing pieces: jitter and a budget. Jitter spreads each retry over a window, so cohorts return as a drizzle instead of a wave. The budget caps total retry traffic, so clients cannot add unlimited load while the service is weak. In this simulation the peak is ${Math.round(Math.max(...JITTER))}/s, close enough to capacity that recovery actually sticks.`,
     invariant: 'Jitter desynchronizes, budgets cap amplification: retry load becomes bounded noise instead of a wave.',
   };
 
@@ -110,7 +110,7 @@ function* threePolicies() {
       format: (v) => (v > 50 ? `${v}/s` : `t = ${v}s`),
     }),
     highlight: { removed: ['naive:peak', 'backoff:recover'], found: ['jitterRow:peak', 'jitterRow:recover'] },
-    explanation: 'The scoreboard, every number from the live simulation. The pattern this page shares with Hot Rows & Append-and-Aggregate and Tail Latency & p99 Thinking: systems rarely die of their original wound — they die of the RESPONSE to it. A 10-second blip became a 21-second meltdown purely through client behavior, and the fix cost nothing but patience and a random number. The severe version of this has a name worth knowing — METASTABLE FAILURE: a system that stays down after its trigger is gone, held under by its own retry load. Several famous cloud outages lived in that state for hours.',
+    explanation: 'The scoreboard is the lesson in numbers. The same outage and same baseline demand produce three different recoveries because retry timing changes offered load. The severe failure mode is metastability: the trigger is gone, but the system remains down because retry traffic keeps it beyond capacity. Jitter and budgets do not fix the original failure; they keep the response from becoming a second failure.',
   };
 }
 
@@ -130,7 +130,7 @@ function* discipline() {
       format: (v) => ['', 'retrying a non-idempotent write can charge a card TWICE', 'space attempts so the sick get breathing room', 'random delay in [0, window] — desynchronize the herd', '≤10-20% extra traffic, globally — caps the amplification', 'when failures persist, stop retrying entirely (Circuit Breakers & Deadlines)'][v],
     }),
     highlight: { removed: ['idem:why'], active: ['jitterRow:why'] },
-    explanation: 'The checklist, in priority order — and item 1 outranks everything: a retry is a DUPLICATE REQUEST, so retrying anything non-idempotent risks double-charged cards and double-sent emails. The fix is IDEMPOTENCY KEYS: the client attaches a unique ID per logical operation, the server remembers processed IDs and returns the original result for duplicates (this is how Stripe\'s API makes payment retries safe). Items 2-4 you watched work in the simulation; AWS\'s engineering blog famously benchmarked the jitter variants and "full jitter" — delay drawn uniformly from [0, backoff window] — won. Item 5 closes the loop: retries handle BLIPS; persistent failure is the breaker\'s job.',
+    explanation: 'The checklist starts with correctness. A retry is a duplicate request, so non-idempotent writes need idempotency keys or another dedupe mechanism before retries are safe. Backoff, jitter, and budgets only solve load timing; they do not prevent double charges or duplicate emails. Persistent failure belongs to the circuit breaker, not to infinite retries.',
     invariant: 'A retry is a duplicate: without idempotency, every retry policy is a correctness bug with good intentions.',
   };
 
@@ -146,7 +146,7 @@ function* discipline() {
       format: (v) => ['', '3 attempts, total amplification ×3 — bounded and known', '3 layers × 3 attempts each = up to 27 requests from ONE user click'][v],
     }),
     highlight: { found: ['edge:math'], removed: ['every:math'] },
-    explanation: 'The trap that survives even good per-client policies: STACKED retries. If the browser retries 3×, the gateway retries 3×, and the service retries its database 3×, one user click can detonate into 27 database attempts — exponential amplification through the call stack (fan-out math, Tail Latency & p99 Thinking\'s formula pointed inward). The discipline: retry at ONE layer — usually the outermost client that owns the user experience — and let inner layers fail fast and honestly upward (deadlines from Circuit Breakers & Deadlines make that automatic). One owner per failure, one budget per request.',
+    explanation: 'Stacked retries are the hidden multiplier. Three attempts at the browser, three at the gateway, and three in the service can turn one click into 27 database attempts. Pick one retry owner for the request path, usually the layer that understands the user deadline. Inner layers should fail fast and propagate the error upward.',
   };
 
   yield {
@@ -164,7 +164,7 @@ function* discipline() {
       format: (v) => ['', 'doomed work', 'transient blips', 'persistent sickness', 'blast-radius containment', 'overload and stragglers'][v],
     }),
     highlight: { active: ['r2:role'] },
-    explanation: 'The full resilience stack this Systems tour has assembled, each tool matched to its failure: deadlines kill doomed work, retries absorb transient blips, Circuit Breakers & Deadlines handle persistent sickness, Bulkheads & Resource Isolation cap the blast radius, and shedding plus hedging tame overload and tails. Retries are the most-used and most-misused of the five — the only one that ADDS load to a struggling system — which is why they alone come with a checklist instead of a knob. Tune them like medicine: right dose, right timing, never two prescribers for the same patient.',
+    explanation: 'Retries belong in a stack, not alone. Deadlines stop work that can no longer help. Retries handle short blips. Breakers stop persistent sickness. Bulkheads contain blast radius. Shedding handles overload. Retries are the unusual member because they add load to a system that may already be struggling, so they need ownership, timing, and a hard budget.',
   };
 }
 
@@ -175,47 +175,143 @@ export function* run(input) {
   else throw new InputError('Pick a view.');
 }
 
-export const article = {
+const legacyArticle = {
   sections: [
     {
       heading: `What it is`,
       paragraphs: [
-        `A retry is a duplicate request: when a network call fails, the client sends it again, hoping the transient blip resolves before the third attempt runs out. Three layers of policy control retries: exponential backoff (space attempts apart so the struggling service gets breathing room), jitter (randomize each delay so synchronized clients do not form a wave), and a retry budget (cap the extra traffic you add — never exceed 20% amplification globally). The dangerous truth: retries are the only resilience tool that ADDS load to a sick system. Every other tool in the stack — timeouts, circuit breakers, bulkheads — removes or isolates load. Retries can heal transient failures; misconfigured, they extend the outage indefinitely through metastable failure: the system stays down after its original wound heals because its own clients are drowning it under retry load.`,
-        `This page animates three policies facing the same 10-second outage — naive immediate retries, deterministic backoff, and backoff with jitter and a budget — and shows why the third survives while the first melts the system down.`,
+        `A retry is a duplicate request. It is useful when a failure is brief, such as a dropped packet or a restarted connection. It is dangerous when the service is overloaded, because the retry adds more work to the system that is already failing. Good retry policy is therefore not "try harder." It is "try again only when the operation is safe, the caller still has budget, and the extra traffic is bounded."`,
+        `Backoff spaces attempts. Jitter randomizes those attempts so clients do not return in waves. A retry budget caps amplification. Idempotency keys or server-side dedupe make duplicate writes safe. Circuit breakers stop retries when the problem is no longer a blip.`,
+      ],
+    },
+    {
+      heading: `Legacy visual note`,
+      paragraphs: [
+        `In the outage view, keep your eye on offered load versus the capacity line. The outage is identical in all three plots; only client timing changes. Immediate retries stack failed cohorts on top of new demand, deterministic backoff creates synchronized waves, and jitter plus a budget turns retries into bounded noise. The invariant is that retries change load, not just success probability.`,
+        `In the discipline view, the checklist separates correctness from pacing. Idempotency makes duplicates safe; backoff and jitter spread them out; the budget caps amplification; the breaker says when to stop. The layer table is the warning for outsiders: three harmless-looking retry loops can multiply into one user's click becoming dozens of downstream attempts.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `The live simulation in the first view runs a 30-second day at 80 requests per second steady demand, 100 requests per second capacity, and a full outage from t = 5 to t = 15. Three cohorts of requests face this blip under three policies: Policy 1 — naive immediate retries: on failure, retry instantly, up to 3 attempts. Every failed request returns immediately while new demand keeps arriving, so failures stack 80 → 160 → 240 requests per second — the service is hit at triple its normal load by its own clients. When the service recovers at t = 15, it faces 240 requests per second and immediately fails again; the self-inflicted storm lasts 7 more seconds after the outage ends. Policy 2 — exponential backoff without jitter: wait 2 seconds before the first retry, 4 seconds before the second. Spacing feels smarter — it gives the service time to recover — but every client computes the same delays, so failed cohorts return in synchronized waves, and those waves overlap with new traffic and each other, extending the hangover to t ≈ 26. The outage is over; the system's own response to it is not.`,
-        `Policy 3 — the production answer: exponential backoff plus jitter plus a retry budget. Backoff (2, 4, 8 seconds...) spaces attempts. Jitter randomizes each delay uniformly across its window — delay in [0, 2 seconds], then [0, 4 seconds], then [0, 8 seconds] — so failed cohorts smear into a gentle drizzle instead of synchronized waves. A retry budget caps extra traffic at 20% of your normal demand (just 16 extra requests per second at t = 5). The simulated curve barely registers the disaster: peak load ~116 requests per second, within 16% of normal, and the system simply works the moment the outage ends at t = 15. Same outage, same number of user requests, same clients — the only thing that changed is WHEN failures asked again. The second view drills into the discipline: a five-item checklist (idempotency keys first, then backoff, jitter, budget, and a circuit breaker above retries), the stacked-retries trap (3 layers × 3 attempts = 27 requests from one click; retry at ONE layer only), and how retries fit into the complete resilience stack alongside timeouts, circuit breakers, bulkheads, and load shedding.`,
+        `The animation simulates 80 new requests per second, 100 requests per second of capacity, and a 10-second outage. Immediate retries stack failed cohorts on top of new traffic, so the service sees up to 240 requests per second and stays overloaded after recovery. Exponential backoff spaces the attempts, but without jitter every client uses the same schedule and comes back in waves.`,
+        `Backoff plus jitter plus a budget changes the shape. Jitter spreads each retry randomly across its window. The budget limits total extra traffic, here to 20 percent. The same outage now produces a small bump instead of a recovery storm. The mechanism is simple: failed work asks again later, at different times, and only up to a known amplification limit.`,
+        `The second view adds the production rules. Retry only idempotent work or work protected by an idempotency key. Retry at one layer, not every layer. Stop retrying when the deadline is gone or the circuit breaker opens. Log enough metadata to know whether the retry helped or amplified the incident.`,
       ],
     },
     {
       heading: `Cost and complexity`,
       paragraphs: [
-        `The computational cost of retries is negligible: compute exponential backoff once per failure (a few multiplications), randomize if jitter is enabled (one random number generator call per retry), and store a counter per in-flight request. Memory is constant: one integer per pending retry. The real costs are semantic: retrying a non-idempotent operation (a write that is not guarded by an idempotency key) can charge a card twice, send a duplicate email, or double-process a financial transaction. This is why idempotency keys are checklist item 1: the client attaches a unique ID per logical operation, the server remembers processed IDs and returns the original result for duplicates (Stripe's API made this famous). A system without idempotency keys cannot retry safely, no matter how clever the backoff. The second complexity is stacked retries: if your browser retries 3×, your API gateway retries 3×, and your backend service retries its database 3×, one user click detonate into 27 attempts. The fan-out math means the amplification is exponential through the layers. The discipline: retry at ONE layer — typically the outermost client — and let inner layers fail fast and honestly upward. Deadlines from Circuit Breakers & Deadlines enforce this automatically.`,
+        `The CPU cost is tiny: counters, timers, and random delay selection. The real cost is semantic. A duplicate payment request without an idempotency key can charge twice. A duplicate email can send twice. A duplicate database mutation can violate an invariant. Reliable retry systems often need request IDs, dedupe storage, response replay, and clear expiration rules for those IDs.`,
+        `The other cost is coordination across layers. If clients, gateways, services, and database drivers all retry independently, amplification becomes multiplicative. A retry budget should be shared or enforced at the layer that owns the user deadline. Inner layers should prefer small timeouts and clear errors over hidden retry loops.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `Retries power every production client: browser-to-backend, backend-to-database, mobile app to API. The discipline is universal but the configuration is not. Low-latency financial systems retry aggressively with millisecond windows; long-latency batch systems retry with hour-long exponential windows. Mobile clients retry with jitter because networks are unreliable and handoff storms are real. Edge services (CDNs, cloud gateways) retry to origin with budgets because the origin is usually the bottleneck. Database drivers retry transient connection failures. Message queues retry delivery with dead-letter fallbacks. The AWS full-jitter benchmark (published in their "Timeouts, Retries, and Backoff" engineering post) became the gold standard: delay uniformly from [0, min(cap, base × 2^attempt)]. Google's SRE book made metastable failure famous by naming it: a system that stays down after its original cause is fixed because its own clients are drowning it. Cloud outages have lasted hours in this state — Netflix had one in 2012, triggered by a retry storm during maintenance. The fix was discipline: budgets, circuit breakers, and a single retry owner per request. That discipline now ships in every HTTP client library worth using.`,
+        `Retries appear in browsers, mobile apps, SDKs, service clients, database drivers, message queues, and batch jobs. The configuration depends on the domain. A mobile upload may retry over minutes. A checkout authorization may have a short deadline and strict idempotency. A background sync may retry for hours but must avoid synchronized wakeups.`,
+        `Cloud SDKs and service meshes commonly include exponential backoff with jitter because the thundering-herd problem is universal. Payment APIs use idempotency keys because correctness matters more than raw retry success. Message queues combine retry delay with dead-letter queues when work keeps failing.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
-        `The first trap is forgetting that a retry is a duplicate: every single retry is a repeat of the request that failed. If that request is non-idempotent (a POST to charge a card, a PUT to update state without guards), retrying it is a correctness bug, not a reliability fix. This is not a performance concern; it is a correctness concern. The second trap is missing the budget: retry without a cap and you will amplify load indefinitely during an outage. One failure × 3 attempts is ×3 load; stacked across layers it is ×27. The third trap is deterministic backoff without jitter — it synchronizes the herd and postpones the stampede instead of dispersing it. The simulation shows this: backoff makes waves, jitter makes rain. The fourth trap is stacked retries: retrying at every layer in your call stack multiplies attempts exponentially. The discipline is one owner per request, typically the outermost client. The fifth trap is ignoring metastable failure: after an outage, your retry load might hold the system down longer than the original cause did. This is why the checklist includes a circuit breaker — when failures persist, stop retrying entirely and fail fast instead.`,
-        `A subtle misconception is believing the simulation is accurate in absolute terms; it is not. Real systems have network jitter, cascading timeouts, and uneven load distribution that the flat model hides. The point is the shape: naive retries create a spike, backoff creates waves, backoff-plus-jitter smooths the curve. Your actual system will have different numbers but the same dynamic. Finally, do not assume one configuration fits all layers: a retry policy for talking to a database (millseconds, tight budget) looks nothing like a retry policy for talking to an external API (seconds, loose budget) or a mobile client talking over LTE (exponential windows, heavy jitter).`,
+        `The first trap is treating retry as harmless. It is not; it is duplicate work. The second is deterministic backoff without jitter, which schedules the herd for later. The third is no budget, which lets clients add unlimited traffic during the worst moment. The fourth is stacked retries, where every layer believes it is being helpful and the database receives the product of all attempts.`,
+        `The simulation is not a precise model of your system. Its value is the shape: immediate retries spike, deterministic backoff waves, jitter plus budget smooths. Your actual policy should be tied to deadlines, operation idempotency, dependency capacity, and a breaker that stops retries when the failure is persistent.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Retries work only for transient failures; persistent problems need Circuit Breakers & Deadlines. When you have many layers, Bulkheads & Resource Isolation contain the blast radius of failures. To understand why retries amplify load, study Tail Latency & p99 Thinking — the p99 request latency drives your retry windows. If you are building a robust system, Cache Invalidation & Versioning teaches the thundering-herd lesson that motivates jitter. When your system is under heavy load, explore load shedding and hedging (sending redundant requests to beat the latency tail). Finally, idempotency keys are your foundation — they are not a performance optimization, they are a correctness requirement.`,
+        `Circuit Breakers & Deadlines explains when to stop retrying. Load Shedding & Graceful Degradation explains what the overloaded server should send back. Backpressure & Flow Control shows the healthier version of the conversation: the server signals strain and clients slow down.`,
+        `Tail Latency & p99 Thinking helps choose retry delays from real latency distributions. Cache Invalidation & Versioning gives the synchronized-expiry lesson behind jitter. Message Queue covers delayed retries, dead-letter queues, and idempotent processing.`,
       ],
     },
   ],
 };
 
+export const article = {
+  sections: [
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Retries exist because distributed systems fail in ways that are often temporary. A packet drops, a leader changes, a rate limit resets, a dependency restarts, or a queue drains. Retrying can turn a transient failure into a successful user request.',
+        'Retries also create outages when used carelessly. If thousands of clients retry at the same fixed times, they can amplify load on the recovering service. Backoff and jitter exist to make retries helpful without turning them into synchronized traffic spikes.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is immediate retry: if a request fails, send it again right away. That is fine for a single client and disastrous at fleet scale. When the dependency is overloaded, immediate retry adds more work at the exact moment it needs less.',
+        'The next obvious approach is fixed delay: retry after one second, then again after one second. That avoids a tight loop but synchronizes clients. If many clients fail at once, they retry together, fail together, and retry together again.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Exponential backoff reduces pressure by spacing later attempts farther apart. Jitter randomizes each delay so clients spread out instead of forming waves. The system is not only delaying work; it is de-correlating clients.',
+        'The retry policy must be tied to a deadline and an idempotency story. Retrying forever is not resilience. Retrying a non-idempotent payment without a key can duplicate side effects. A good retry plan says when to stop and how duplicate attempts are made safe.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A basic policy chooses a base delay, a multiplier, a maximum delay, and a maximum attempt count or deadline. After each retryable failure, it computes the next backoff. With jitter, the actual wait is sampled from a range rather than using the same deterministic value for every client.',
+        'Full jitter samples between zero and the exponential cap. Equal jitter keeps part of the delay fixed and randomizes the rest. Decorrelated jitter uses the previous delay to choose the next range. The exact variant matters less than the principle: avoid synchronized retry waves.',
+        'The client should retry only errors that are plausibly transient: timeouts, connection resets, 429s, 503s, leader-not-ready responses, and similar conditions. Validation errors, permission failures, malformed requests, and most 4xx errors should not be retried blindly.',
+        'A deadline should wrap the whole operation, not only each attempt. Without a total deadline, three attempts with long per-attempt timeouts can exceed the user budget by a large margin. The caller should know when the answer is no longer useful.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The retry-wave view proves why deterministic backoff is not enough. Even if attempts are farther apart, a whole fleet can still line up on the same schedule. That creates bursts against the dependency and can keep it from recovering.',
+        'The jitter view proves that randomness is a coordination tool. Each client has a slightly different retry time, so load becomes a smear instead of a spike. The average retry pressure may be similar, but the peak pressure is lower and recovery is more likely.',
+        'The timeline should be read across clients, not down one client. A single request with backoff may look reasonable. The system risk appears when many clients follow the same schedule and accidentally behave like one synchronized load generator.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Backoff works because many failures clear with time: a queue drains, a deployment finishes, a lock releases, or a leader election completes. Waiting gives the dependency a chance to recover before receiving more work.',
+        'Jitter works because independent random delays reduce correlation. The service sees a smoother arrival process rather than synchronized batches. In distributed systems, correlated behavior is often the real enemy; jitter breaks that correlation cheaply.',
+        'Deadlines make the policy honest. Without a deadline, every retry can be locally reasonable while the whole operation violates the caller latency budget. Backoff answers when to try again; the deadline answers whether trying again is still worth it.',
+        'Idempotency makes the policy safe. A retry is a duplicate by definition, so the receiver must be able to recognize the original operation or make the operation naturally repeatable. Without that property, better timing only creates cleaner duplicate damage.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Retries spend time and capacity. A successful third attempt may save a user request, but the first two attempts still consumed client sockets, server work, logs, and queue slots. Under overload, a high retry budget can multiply traffic several times.',
+        'Backoff also increases latency. A policy that is gentle on the server may be too slow for user-facing requests. A policy that is fast for the user may be too aggressive for batch clients. Different routes need different retry budgets.',
+        'The multiplier effect is easy to underestimate. If three layers each try three times, one original request can become 27 downstream attempts in the worst case. Good systems put the retry budget near the edge or pass retry context through the stack.',
+        'Timeout choice is part of the same tradeoff. A timeout that is too short creates false failures and unnecessary retries. A timeout that is too long holds resources and leaves no budget for a useful retry. Retry policy and timeout policy should be designed together.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Retries with jitter win for transient network failures, rate-limit recovery, service restarts, leader elections, lock contention, optimistic transaction retries, cloud API calls, and background jobs. They are a basic hygiene feature for any distributed client.',
+        'They work best with idempotency keys, deadlines, circuit breakers, hedged requests used carefully, and server-provided retry-after hints. The retry loop should be part of a larger resilience policy rather than a hidden while loop.',
+        'They are also valuable in batch and queue workers because a failed job can be rescheduled without blocking the whole worker. In that setting, jitter prevents every failed job from waking up on the same second after an outage.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure is retrying unsafe side effects. Creating an order, charging a card, or sending an email needs idempotency or a deduplication key before retries are safe. Otherwise a transient timeout can become duplicate real-world action.',
+        'The second failure is retry amplification. If every layer retries three times, a frontend, backend, and database client can turn one user request into dozens of attempts. Retry budgets should be coordinated across layers.',
+        'The third failure is ignoring server signals. A 429 with Retry-After, a permanent validation error, or a circuit-breaker open state should change client behavior. Blind retry loops are not robust; they are load generators.',
+        'Observability is part of the design. Track attempts per original request, retry reasons, final outcome, delay distribution, and dependency status. Without those dimensions, retries disappear into generic latency and make incidents harder to explain.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Rate Limiter Token Bucket, Circuit Breaker, Bulkheads and Resource Isolation, Idempotency Keys, Tail Latency, Queue Backpressure, Hedged Requests, and Distributed Tracing. Then inspect a real client library and ask which errors it retries, what deadline bounds it, and whether jitter is enabled by default.',
+        'A useful exercise is to graph 1,000 clients retrying with fixed backoff, exponential backoff, and full jitter. The average number of attempts may be similar, but the peak concurrent load will explain why jitter is a systems primitive.',
+        'Then add a retry budget and a circuit breaker to the simulation. The moment the dependency starts failing broadly, the best client behavior is often to send fewer attempts, not more determined attempts.',
+      ],
+    },
+  ],
+};

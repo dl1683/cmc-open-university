@@ -195,11 +195,85 @@ export const article = {
     { title: 'CME AutoCert MDP 3.0 User Manual', url: 'https://www.cmegroup.com/tools-information/webhelp/autocert-mdp3/Content/Autocert-MDP3-User-Manual.pdf' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['Market-data book reconstruction is the process of building a local order book from sequenced exchange feed messages. An ITCH-style feed carries order-level messages such as add, execute, cancel, delete, and replace. CME-style feeds can include market-by-order and market-by-price views.', 'The data structures are feed parsers, sequence trackers, order-reference maps, price-level aggregates, snapshots, retransmission buffers, and per-symbol state machines.'] },
-    { heading: 'How it works', paragraphs: ['The consumer parses each binary message, verifies sequence continuity, updates the order-reference map, adjusts price-level depth, and publishes a local view to strategies or analytics. A replace may remove one order reference and add a new one, which can affect priority.', 'If a sequence gap appears, the book is suspect. The system requests missing messages, replays a gap range, reloads a snapshot, or waits for a channel reset depending on feed rules and gap size.'] },
-    { heading: 'Cost and complexity', paragraphs: ['The hot path must parse and apply messages quickly, but correctness depends on gap detection and recovery. A single missing cancel or replace can leave phantom liquidity in the local book.', 'Order-level state can be much larger than aggregate depth. Consumers often maintain several derived views: best bid/ask, depth ladder, trades, imbalance signals, and full order maps.'] },
-    { heading: 'Complete case study', paragraphs: ['A book builder receives an add for order reference 9001, then an execution reducing it, then a replace that creates reference 9020 at a new price. The local order map updates the reference, the price ladder removes quantity from the old level and adds it to the new one, and the sequence ledger records the boundary.', 'Later, a sequence jump appears. The consumer marks the symbol stale, requests the missing range, replays it, checks the state digest, and only then exposes the book again.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not process messages after a gap as if the book is clean. Do not aggregate depth without retaining enough order-reference state for executions, cancels, and replaces. Do not ignore trading-state messages such as halts or resets.', 'A data feed is a protocol, not just a stream of prices. The sequence and recovery contract is part of the data structure.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: Nasdaq TotalView-ITCH at https://www.nasdaqtrader.com/content/technicalsupport/specifications/dataproducts/NQTVITCHSpecification.pdf, CME MDP 3.0 market-data docs at https://cmegroupclientsite.atlassian.net/wiki/display/EPICSANDBOX/CME%2BMDP%2B3.0%2BMarket%2BData, and CME AutoCert MDP 3.0 manual at https://www.cmegroup.com/tools-information/webhelp/autocert-mdp3/Content/Autocert-MDP3-User-Manual.pdf. Study Limit Order Book Price-Time Priority Case Study, Matching Engine Sequencer Event Log Case Study, Ring Buffer, Write-Ahead Log, and Message Queue next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A direct market-data feed does not deliver a ready-made current order book. It delivers a protocol: sequenced binary messages that say an order was added, executed, cancelled, deleted, replaced, or affected by a trading-state change. Each serious consumer builds its own local book by replaying those messages in order.',
+        'That local book matters because downstream systems make decisions from it. Trading strategies read best bid and offer, depth, imbalance, queue position, and recent trades. Risk systems reconcile fills against visible liquidity. Simulators and backtests need a realistic event stream. Surveillance systems need to know what the market looked like before and after an event.',
+        'The reconstruction problem exists because snapshots alone are too coarse for many uses. A snapshot can say there are 10,000 shares at a price. It cannot always say which order reference was reduced, which order lost priority after replacement, whether a cancel removed displayed liquidity before an execution, or whether a sequence gap made the local view stale.',
+      ],
+    },
+    {
+      heading: 'The reasonable first approach',
+      paragraphs: [
+        'The first mental model is to treat market data as a stream of prices: last trade, best bid, best ask, maybe aggregate depth at each price level. For many dashboards, that is enough. If the user only wants a delayed chart, a compact top-of-book feed or periodic snapshot can be the right tool.',
+        'The second shortcut is to maintain only aggregate price levels. On an add, increase quantity at that price. On an execution or cancel, decrease quantity. This is smaller than tracking every order and can support simple depth analytics. It is also attractive because it resembles a map from price to quantity, which is easy to store and query.',
+        'Those shortcuts fail for full-depth order-by-order feeds. ITCH-style protocols identify orders by reference numbers. Later messages often refer back to that reference rather than repeating all original fields. If the local consumer threw away the order map, it may not know which side, price, symbol, or remaining size a later execution or cancel should affect.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The first wall is identity. An order is not just quantity at a price. It has a reference id, side, symbol, price, displayed size, remaining size, and time priority. A replace may remove one reference and create another, often changing queue priority. An execution may reduce a specific order. A delete may remove the rest. Aggregate depth hides the identity needed to update state correctly.',
+        'The second wall is order. Message sequence is part of the data. Applying add, execute, cancel, and replace messages in a different order can create a different book. One missing cancel can leave phantom liquidity. One missing add can make a later execution impossible to apply. A valid-looking message after a gap is not proof that the book is clean.',
+        'The third wall is recovery. Real feeds can drop packets, restart channels, switch sessions, or require retransmission. A book builder must know when it is authoritative, when it is tainted, and which sequence boundary makes it safe to resume. Parsing bytes is only the first step; maintaining trust in local state is the harder system problem.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Book reconstruction is event sourcing under a strict sequence contract. The feed is the log. The local order map and price-level ladder are derived state. If the consumer starts from a known image and applies every message exactly once in sequence, the derived book should match the exchange-defined state for that channel and symbol partition.',
+        'The core data structure is two synchronized views. The order-reference map answers identity questions: given order 9001, what symbol, side, price, and remaining quantity does it represent? The price-level structure answers market-view questions: what is the best bid, best ask, and visible depth at each price? Updates must keep both views consistent.',
+        'The invariant is strict: contiguous sequence plus valid state transition equals authoritative local book. Break either condition and the consumer should mark the book suspect. A post-gap stream of valid messages may still be wrong because the missing message could have changed the state those later messages depend on.',
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        'A feed handler reads bytes from a channel, decodes message type and fields, checks sequence continuity, routes by symbol or partition, and applies state transitions. An add inserts a new order reference and increases the corresponding price-level quantity. An execution reduces remaining shares on the referenced order and reduces displayed depth. A cancel reduces quantity without necessarily implying a trade. A delete removes the live reference. A replace removes or reduces the old reference and creates a new reference with its own priority rules.',
+        'The builder also handles non-order messages. Trading-state changes may pause a symbol. System events may mark session boundaries. Cross trades, auctions, halts, and resets can require special handling. Some feeds publish checksums, heartbeats, or snapshots. Production systems keep ledgers for channel, session, symbol, sequence, applied message count, state digest, and recovery mode.',
+        'Derived views are published after state updates, not before. A strategy may need top-of-book only. A simulator may need full order-by-order depth. A reconciliation process may need every execution and cancel. All of those views should come from the same sequenced state machine so they can be audited against the feed.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The replay graph proves that the feed is not the book. The feed is parsed into order-reference state and price-level state, and only then does a local book emerge. Consumers should be downstream of reconstruction, not loosely attached to raw bytes with ad hoc interpretations.',
+        'The message-to-state matrix proves why order references are necessary. Add creates a reference. Execute and cancel look up that reference. Replace involves old and new references and can move displayed quantity across price and priority. A book builder that stores only aggregate depth has already thrown away information later messages may require.',
+        'The recovery view proves that a gap is a state transition, not just a logging warning. Once a sequence jump appears, the book is tainted until retransmission, replay from a snapshot, or a channel reset restores a verified boundary. The gap-size plot shows why small gaps and large gaps often use different recovery paths.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The reconstruction algorithm works because each message is an incremental state transition over a known previous state. If the previous state is correct, the message is decoded correctly, and the transition rule matches the feed specification, then the next state is correct. By induction over a contiguous message sequence, the local book remains correct from the initial image to the current sequence number.',
+        'That proof depends on exactly-once ordered application. Duplicates must be detected or made idempotent by sequence handling. Out-of-order messages must be buffered or rejected according to the feed contract. Gaps must stop authority. Session and channel boundaries must be respected because an order reference may be meaningful only within the correct stream context.',
+        'It also depends on lossless enough state. If later messages refer to order references, the builder must keep those references until they are fully removed. If downstream consumers need queue priority, replacement rules and timestamps matter. If only aggregate depth is retained, the system may still serve a simple dashboard, but it no longer reconstructs the full order-by-order book.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Order-level reconstruction costs more memory than aggregate depth. A busy symbol can have many live orders, and each order needs identity, side, price, remaining quantity, and sometimes participant or attribution fields depending on the feed. Price levels are smaller, but they cannot answer every later update by themselves.',
+        'Latency pressure shapes implementation. Handlers often avoid allocation on the hot path, use compact structs or typed arrays, partition by channel or symbol, and publish snapshots through lock-free queues or ring buffers. Recovery code may be less frequent, but it must be correct under stress because gaps often occur when networks or downstream systems are already overloaded.',
+        'The tradeoff is richness versus operational complexity. A top-of-book feed is easier to consume and may be enough for a retail quote display. Full-depth reconstruction gives better analytics and simulation fidelity, but it requires protocol expertise, replay tooling, state checksums, careful session handling, and strong observability.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Book reconstruction wins in market-data handlers, execution algorithms, smart order routers, exchange simulators, market-impact research, surveillance, post-trade reconciliation, and backtesting systems. It lets each consumer maintain the view it needs while preserving the ability to audit that view back to sequenced feed events.',
+        'A concrete example shows the value. Add order 9001 on the bid, execute part of it, then replace the remaining quantity with order 9020 at a new price. The order map knows 9001 is no longer live, 9020 has the new identity, the old price level lost quantity, the new level gained quantity, and the sequence ledger records the exact boundary where the move happened.',
+        'It also wins for reproducibility. If a strategy behaved strangely at 10:01:03, a replayable feed plus snapshots can reconstruct the local book around that moment. Without the event log and sequence discipline, debugging becomes guesswork against a stale or aggregated view.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The system fails if it processes after a sequence gap as if the book were clean. It fails if it ignores trading-state messages, session resets, symbol partitions, duplicate messages, or feed-specific replacement rules. It fails if it silently drops unknown message types. In market data, quiet partial correctness is dangerous because downstream systems can trade on it.',
+        'It also fails when the builder optimizes away fields before understanding future dependencies. A field that seems irrelevant for top-of-book display may be needed for audit, queue simulation, or a later message. Retention policies should be explicit: what is required for correctness, what is required for downstream products, and what can be discarded after a known terminal state?',
+        'Study next: Limit Order Book Price-Time Priority Case Study for matching rules, Matching Engine Sequencer Event Log Case Study for exchange-side ordering, Ring Buffer for low-latency handoff, Write-Ahead Log for replay discipline, Message Queue for delivery contracts, and Stream Processing Watermarks for reasoning about event time and completeness. Primary sources include the Nasdaq TotalView-ITCH specification and CME MDP 3.0 market-data documentation listed in the references.',
+      ],
+    },
   ],
 };

@@ -201,35 +201,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Optimistic UI renders the expected result of a write before the server confirms it. The data structure is a pending mutation log plus either a cache patch, a UI overlay, or both. The log gives the UI a durable explanation for why a not-yet-confirmed item is visible.',
-        'A good optimistic update stores variables, ordering, status, rollback context, and a reconciliation plan. That plan might restore a snapshot on error, replace a temporary id on success, or invalidate related queries so the server result repairs the cache.',
+        'Many writes are slow only because the network is slow. A like, todo add, reorder, or draft edit often has an obvious expected result, and forcing the user to wait for confirmation makes the interface feel broken.',
+        'Optimistic UI exists to show the expected result immediately while still keeping enough data to admit failure, retry, rollback, or reconcile with the server result.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to disable the button, wait for the request, then update the UI. That is honest, but it adds visible latency to simple operations.',
+        'The next attempt is to directly change local state before sending the request. That feels fast, but without a mutation record the UI has no durable explanation for the pending value and no precise way to undo or reconcile it.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The happy path hides the hard cases. A refetch can overwrite the optimistic patch with older server data. Two writes can return out of order. A filtered list can show a pending item the server would exclude. A coarse rollback can erase a later successful mutation.',
+        'The missing structure is a log. The client needs to know which pending operation created which visible change, what order it belongs to, and how to undo or settle it.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Optimistic UI is a mutation log plus a projection. The log stores variables, client id or submitted time, status, ordering, rollback context, and a reconciliation plan. The projection renders base server data as if the pending log entries had already committed.',
+        'That projection can be a direct cache patch, a separate UI overlay, or both. The important rule is that optimism is explicit data, not a hidden side effect.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the mutation-path view, follow the operation record, not just the visible card or row. The UI changes immediately because the client has added a pending entry, saved rollback context, and projected that entry over the last confirmed server data.",
+        "In the conflict-handling view, pay attention to ordering. A later mutation can be visible while an earlier one is still unresolved, and a refetch can bring back server data that is older than the optimistic projection. The log is what lets the client reapply pending intent after new base data arrives.",
+        "Every highlighted state answers one question: can the client still explain why the screen looks this way? If the answer is yes, rollback, retry, commit, and reconciliation are structured operations. If the answer is no, optimism has become a hidden side effect.",
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'On mutate, the client records the operation, snapshots the old cache value, cancels or pauses conflicting refetches, applies the optimistic patch, and sends the request. On success it commits or reconciles. On failure it rolls back or leaves a failed record with a retry path.',
-        'The hard part is not the happy path. It is races. Refetches can overwrite optimistic data. Two writes can return out of order. A filtered list can include a pending item that the server would filter out. A rollback can erase a later mutation if the snapshot is too coarse.',
+        'On mutate, the client records the operation, snapshots the old cache value or stores an inverse operation, cancels or pauses conflicting refetches, applies the optimistic projection, and sends the request.',
+        'On success, the client replaces temporary ids, writes the server response into cache, removes or marks the pending record, and may invalidate related queries. On failure, it rolls back the snapshot, applies the inverse operation, or keeps a failed retryable record visible.',
+        'For a task board, adding a card creates `op#17` with a temporary id. Success swaps `temp:17` for the server id. Failure removes the pending card or marks it failed. Moving a card may need an overlay because it affects two columns, counts, filters, and detail views.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'Consider a task board. Adding a card creates op#17 with a temporary id, patches the list, and sends POST /cards. If the server returns id=42, the cache swaps temp:17 for 42 and invalidates board queries. If the server rejects the card, the rollback restores the previous list or marks temp:17 failed with a retry button.',
-        'Moving a card is harder. The mutation affects the source column, target column, counts, filters, and maybe a detail drawer. For that case, an overlay log can be safer than rewriting every cached list. The overlay says: render card X as if it moved until the server confirms or rejects.',
+        'Consider a todo app filtered to "active" items. The user adds "pay invoice." The client creates `op#42`, assigns `temp:42`, stores the submitted text, and renders the item as pending. If the server returns id `todo_900`, the client rewrites references from the temporary id to the real id and marks the operation settled.',
+        'Now consider a failed toggle. The user marks an item done, which would remove it from the active filter. If the request fails and the client only saved the visible list, rollback may be wrong because other refetches or local edits may have changed the list in the meantime. A better design stores the inverse operation, such as "set completed back to false for item X," and then reapplies remaining pending operations over the current base data.',
+        'The important distinction is snapshot rollback versus operation rollback. A snapshot is simple and works for isolated writes. An inverse operation is more robust when many views and concurrent mutations can touch the same data.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Optimistic UI is not free latency. It borrows trust from the future. The UI must still communicate pending, failed, and retried states. Hiding those states can make the app feel fast while silently lying.',
-        'Do not optimistically grant authority, spend money, send irreversible messages, or show data protected by a write that has not committed. Use optimism where the inverse operation is clear and user harm is low.',
+        'The invariant is that every visible unconfirmed change has a matching pending mutation record. That record is the source of rollback, retry, ordering, and pending UI.',
+        'Ordering makes concurrent optimism deterministic. If operations have submitted timestamps or client sequence numbers, the UI can render them in a stable order even when server responses arrive out of order.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The fast path is a local cache or overlay update, usually much cheaper than a network round trip. The real cost is bookkeeping: snapshots, inverse operations, temp ids, mutation records, invalidation, and reconciliation code.',
+        'Memory grows with pending operations and rollback context. Complexity grows with the number of cached views touched by a mutation. Direct cache patches are convenient for shared data, but overlays are safer when filters, sorting, pagination, or multiple lists make a precise patch hard.',
+      ],
+    },
+    {
+      heading: 'Conflict patterns',
+      paragraphs: [
+        'Out-of-order responses are the common case. If mutation A and mutation B touch the same entity, and B returns first, the client cannot blindly overwrite the cache when A returns later. It needs a version, timestamp, server authority rule, or replay model that says which result wins and how pending operations are reapplied.',
+        'Refetch races are another common case. Many libraries cancel outgoing refetches before applying an optimistic patch because an old response can otherwise erase the patch. If a refetch is allowed to complete, the client should treat its result as new base data and replay still-pending mutations on top.',
+        'Temporary ids create their own edge cases. A pending comment may be referenced by a pending reaction, edit, or reorder before the server assigns the real id. The mutation log needs an id-mapping step so settled server data can connect back to local intent.',
+      ],
+    },
+    {
+      heading: 'Design rules',
+      paragraphs: [
+        'Show pending state when the user may care. Fast does not mean invisible. A subtle pending marker, disabled duplicate action, or retry affordance tells the user the interface is making a promise that has not settled yet.',
+        'Keep optimism narrow for high-harm operations. You can optimistically move a card in a kanban board because the inverse is clear. You should not optimistically show a bank transfer as final, grant admin access, or reveal data controlled by server authorization.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Optimism wins for reversible, low-harm writes: likes, todos, local edits, draft saves, card reordering, and comments that can be marked pending.',
+        'It is strongest when the user already expects the write to succeed and the app can clearly label pending, failed, and retried states.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Optimistic UI is not free latency. It borrows trust from the future. If the app hides pending and failed states, it can feel fast while lying to the user.',
+        'Do not optimistically grant authority, spend money, send irreversible messages, or show protected data before a write commits. Use optimism where the inverse operation is clear and user harm is low.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: TanStack Query optimistic updates at https://tanstack.com/query/v5/docs/framework/react/guides/optimistic-updates, TanStack Query mutations at https://tanstack.com/query/v5/docs/framework/react/guides/mutations, SWR mutation and revalidation at https://swr.vercel.app/docs/mutation, and React useOptimistic at https://react.dev/reference/react/useOptimistic. Study Query Cache: Stale Time & GC, Cache Invalidation & Versioning, UI State Machine Workflow, AbortController Cancellation Graph, Background Sync Outbox Queue, IndexedDB Object Store Case Study, and Local-First Sync Engine next.',
       ],

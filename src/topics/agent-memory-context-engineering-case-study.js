@@ -98,7 +98,7 @@ function* memoryLayers() {
   yield {
     state: memoryGraph('Agent memory is a hierarchy, not one vector store'),
     highlight: { active: ['task', 'ctx', 'model', 'e-task-ctx', 'e-ctx-model'], compare: ['trace', 'notes', 'semantic', 'graph'] },
-    explanation: 'A long-running agent starts with a tiny working set: the current goal, relevant instructions, and the immediate observations needed for the next action. Everything else should live outside the model window until retrieval earns it a place.',
+    explanation: 'The naive baseline is to keep stuffing the transcript into the prompt. A long-running agent needs a tiny working set for the next action, while traces, notes, semantic memory, and graph facts live outside the window until retrieval earns them a place.',
   };
 
   yield {
@@ -133,7 +133,7 @@ function* memoryLayers() {
   yield {
     state: memoryGraph('Observations are written before they are reused'),
     highlight: { active: ['tool', 'trace', 'notes', 'semantic', 'graph', 'e-tool-trace', 'e-tool-notes', 'e-tool-semantic', 'e-trace-graph', 'e-notes-graph'], found: ['pack'] },
-    explanation: 'The write path should preserve provenance first, then derive summaries, vectors, tags, and graph facts. Graphiti and Zep push this idea into a temporal context graph where relationships carry validity windows and derived facts trace back to episodes.',
+    explanation: 'The write path should preserve provenance first, then derive summaries, vectors, tags, and graph facts. Graphiti and Zep push this into a temporal context graph where relationships carry validity windows and derived facts trace back to episodes.',
     invariant: 'Derived memory should never erase the raw episode that justified it.',
   };
 
@@ -182,7 +182,7 @@ function* contextPacking() {
   yield {
     state: contextGraph('Context engineering decides what the model sees now'),
     highlight: { active: ['goal', 'pinned', 'recent', 'retrieved', 'rank', 'prompt', 'llm', 'e-goal-rank', 'e-rank-prompt', 'e-prompt-llm'], compare: ['compress', 'drop'] },
-    explanation: 'Memory is the warehouse. Context engineering is the loading dock. The system must choose the smallest set of high-signal tokens that maximizes the next step: instructions, current task, recent state, retrieved evidence, and tool results.',
+    explanation: 'Memory is the warehouse. Context engineering is the loading dock. The system chooses the smallest high-signal token set for the next step: instructions, current task, recent state, retrieved evidence, and parsed tool results.',
   };
 
   yield {
@@ -278,45 +278,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Agent memory and context engineering are the data-structure layer underneath long-running AI agents. Memory decides what is persisted outside the model window: notes, traces, source ledgers, embeddings, graph facts, user preferences, and reusable instructions. Context engineering decides which of those records should be placed into the model window for the next action. They are related, but not the same problem.',
-        'MemGPT names the core constraint directly: LLMs are limited by finite context windows, so the system needs virtual context management inspired by operating-system memory hierarchy: https://arxiv.org/abs/2310.08560. Anthropic frames the practical engineering levers as compaction, structured note-taking, and sub-agent architectures for long-horizon agents: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents. LangChain summarizes the same space as writing, selecting, compressing, and isolating context: https://www.langchain.com/blog/context-engineering-for-agents.',
+        'A long-running agent has a simple physical problem: the model only sees the tokens placed in its current context window. The task, old tool results, user preferences, local rules, source links, unresolved bugs, and previous decisions may all matter later, but they cannot all stay in the prompt forever. If the system treats the transcript as its only memory, every new turn makes the next decision more expensive and less focused.',
+        'Agent memory is the outside-of-context storage layer. It decides what to persist: raw episodes, notes, source ledgers, embeddings, graph facts, user preferences, and reusable procedures. Context engineering is the inside-the-window selection layer. It decides what the model should see for the next action. The two layers are connected, but they solve different problems. Memory answers "what might be useful later?" Context packing answers "what is worth spending attention on now?"',
+        'MemGPT describes the same constraint as virtual context management inspired by operating-system memory hierarchy: a small fast context window backed by larger external memory at slower tiers: https://arxiv.org/abs/2310.08560. Anthropic describes context as a finite resource that must be curated for agents: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents. LangChain gives the practical verbs: write, select, compress, and isolate context: https://www.langchain.com/blog/context-engineering-for-agents.',
       ],
     },
     {
-      heading: 'Architecture',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A production agent should have a working context, an episodic trace, a scratchpad or note store, a semantic index, optional temporal graph memory, procedural memory, and a prompt-packing policy. The working context holds only what the next step needs. The episodic trace stores raw observations and tool outputs. The scratchpad stores progress and unresolved decisions. The semantic index retrieves similar memories. A temporal graph stores facts that change over time and keeps validity windows. Procedural memory stores stable rules such as repo conventions, style guides, or tool preferences.',
-        'The key design rule is provenance first. Write the raw episode before generating summaries, tags, embeddings, or graph edges. Graphiti and Zep make this explicit with episodes as ground-truth streams, entity/fact edges, temporal validity, and hybrid retrieval across vector, full-text, and graph traversal: https://github.com/getzep/graphiti and https://www.getzep.com/platform/graphiti/. The Zep repository describes a graph-RAG path where messages, business data, and events are extracted into a temporal graph, then retrieved as relationship-aware context blocks: https://github.com/getzep/zep.',
+        'The first reasonable design is to keep appending the conversation. This works for short tasks. It preserves ordering, requires no extra index, and gives the model every prior instruction and observation. A human can scroll back through the same transcript, so it feels natural to let the model do the same thing.',
+        'The next reasonable design is a vector store. Split old messages into chunks, embed them, and retrieve the nearest chunks for each new user request. That improves recall when the relevant memory is semantically close to the current query. It also gives the system a clean retrieval interface: query in, top-k memories out.',
+        'Both designs are useful baselines. They fail because the memory problem is not one problem. A raw transcript does not distinguish current rules from obsolete turns, private user data from public facts, unresolved decisions from completed work, or high-authority source evidence from model-generated guesses. A vector store knows similarity, but similarity is not the same as permission, freshness, provenance, contradiction handling, or task relevance.',
       ],
     },
     {
-      heading: 'Memory data structures',
+      heading: 'The wall',
       paragraphs: [
-        'Different memories answer different queries. A write-ahead episode log answers, "What actually happened?" A note file answers, "What did we decide?" A vector store answers, "What past material is semantically close?" A temporal graph answers, "Which fact is true for this entity at this time?" A source ledger answers, "What evidence supports this claim?" Treating all of these as one vector database creates brittle retrieval because similarity alone does not know authority, freshness, permissions, or contradiction.',
-        'A-MEM pushes beyond append-only memory by using a Zettelkasten-style network of linked notes. New memories receive structured attributes, tags, keywords, contextual descriptions, and links to older memories; the system can also update older memory representations as new information arrives: https://arxiv.org/abs/2502.12110 and https://github.com/agiresearch/A-mem. That makes memory more adaptive, but it also raises operational requirements: versioning, source links, conflict handling, and rollback become part of the memory system.',
+        'The wall is attention quality. A larger prompt can carry more facts, but it can also carry more distraction. Old assumptions compete with new instructions. Duplicated tool output raises latency without adding signal. A stale memory can overpower a fresher observation. A malicious web page can be retrieved beside trusted instructions. A summary can hide the one constraint that mattered.',
+        'The wall is also accountability. If an answer cites a memory, the system needs to know where the memory came from. If two memories disagree, the system needs to show the conflict instead of silently choosing the one with the nearest embedding. If a user asks for work in one repository, memories from another repository should not leak into the context just because the wording is similar. A useful agent needs recall, but it also needs isolation, authority, time, and source tracking.',
       ],
     },
     {
-      heading: 'Context packing and compaction',
+      heading: 'The core insight',
       paragraphs: [
-        'A prompt pack should be assembled like a cache line for the next action. Pinned instructions, the current task, recent state, retrieved evidence, selected notes, and parsed tool results compete for the same attention budget. Raw transcripts are usually bad prompt packs because they include stale turns, redundant tool output, hidden contradictions, and old assumptions. Good systems rank, trim, summarize, and isolate before calling the model.',
-        'Compaction is the common long-horizon move: summarize a nearly full conversation, start a fresh context, and preserve the details that future decisions need. Anthropic notes that compaction should preserve architectural decisions, unresolved bugs, implementation details, and recent files while clearing redundant tool calls and results. This is a data-structure problem, not just a writing task: the summary must be checkable against the trace, and the trace must remain available if the summary drops an important nuance. Agent Model Router & Context Handoff Ledger applies the same rule at ownership boundaries, where a context capsule replaces transcript sprawl.',
+        'The core insight is to separate the write path from the read path. The write path preserves what happened, then derives searchable forms from it. The read path retrieves candidates, checks them, ranks them, compresses them, and packs only the useful pieces into the next prompt. A memory should not reach the model merely because it exists.',
+        'The write path should be provenance-first. Store the raw episode before generating summaries, tags, embeddings, graph edges, or durable notes. Derived memory can be compact and searchable, but it should point back to the episode or source that justified it. This invariant is the difference between a memory system and a pile of plausible recollections.',
+        'Graphiti and Zep use this idea for temporal knowledge graphs: episodes feed entity and relationship extraction, facts can carry time validity, and retrieval can combine vector, text, and graph signals: https://github.com/getzep/graphiti and https://github.com/getzep/zep. A-MEM takes a different route by organizing memories as linked, evolving notes with tags, context, and dynamic connections: https://arxiv.org/abs/2502.12110. The common lesson is that memory needs structure beyond nearest-neighbor recall.',
       ],
     },
     {
-      heading: 'Complete case study: coding and research agent',
+      heading: 'Memory tiers',
       paragraphs: [
-        'Imagine a coding agent working on this educational repo for several days. The working context contains the current topic, selected source links, the exact files being edited, and the validation command. The episodic trace stores every command, screenshot path, article word count, and browser result. The note store records durable decisions such as "validate with route smoke checks, not unit tests" and "source-backed modules should include at least two primary links." The semantic index retrieves older topics with similar animations. The source ledger keeps arXiv, official docs, and local PDF evidence separate from the final article prose.',
-        'When the user asks for another module, the context pack should not include the entire week of transcripts. It should include the current goal, the latest repo conventions, the most relevant prior topic files, source links for the chosen concept, and the validation pattern. If the agent finds a contradiction, such as a source claim that changed after an older module was written, the temporal graph should keep both facts with dates instead of silently overwriting history. Distributed Tracing explains the runtime view; Prompt Injection Threat Model explains why retrieved pages must be treated as untrusted input; Zanzibar Authorization Case Study explains why private memories need access control; Temporal Workflow Case Study explains how multi-hour work survives restarts.',
+        'A practical agent usually needs several memory tiers. Working context holds the current goal, active files, constraints, and immediate next actions. It should be small enough that every token can influence the next decision. An episodic trace stores raw tool calls, observations, page reads, command outputs, screenshots, and user messages. It answers "what actually happened?"',
+        'A note store records task-level state: decisions made, open questions, partial plans, and handoff summaries. A semantic index retrieves similar past material when wording is the best available key. A temporal graph stores facts whose truth changes by entity and time, such as "this API version was current on this date" or "this user preference applied to this workspace." Procedural memory stores stable habits such as repo validation commands or writing rules. A source ledger stores the evidence behind claims.',
+        'These tiers answer different queries. "What command failed?" wants the episode log. "What did we decide about style?" wants notes or procedural memory. "Which old topic resembles this topic?" wants semantic search. "Which fact is current for this entity?" wants a temporal graph. Collapsing all of them into one vector database makes the system simple, but it also removes the distinctions that make recall safe.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Context packing',
       paragraphs: [
-        'The most common mistake is believing that a larger context window removes the need for memory design. Larger windows reduce pressure, but they do not solve context poisoning, stale facts, privacy leaks, low-authority memories, source-less recollection, irrelevant tokens distracting the model, or Lost in the Middle behavior where evidence in different positions is used unevenly. Another mistake is over-compression: a neat summary can erase a subtle constraint that becomes critical later. The cure is layered memory, provenance, ranking, recency, authorization, and evaluation of the prompt pack itself.',
-        'Primary sources: MemGPT at https://arxiv.org/abs/2310.08560, Anthropic context engineering at https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents, LangChain context engineering at https://www.langchain.com/blog/context-engineering-for-agents, Graphiti at https://github.com/getzep/graphiti, Zep Graphiti platform notes at https://www.getzep.com/platform/graphiti/, Zep examples at https://github.com/getzep/zep, A-MEM at https://arxiv.org/abs/2502.12110, and the A-MEM implementation at https://github.com/agiresearch/A-mem. Study Agent Model Router & Context Handoff Ledger, Titans Test-Time Neural Memory Case Study, Agentic AI Patterns, Deep Research Agent Architecture, Claim Graph & Source Ledger, RAG Pipeline, Multi-Index RAG, LightRAG, Lost in the Middle: Long-Context Failure Modes, Semantic Cache for LLMs, KV Cache, LRU Cache, Distributed Tracing, Prompt Injection Threat Model, Zanzibar Authorization Case Study, and Temporal Workflow Case Study next.',
+        'Context packing is the policy that spends the next prompt budget. The pack normally includes pinned system and developer rules, the current user goal, recent conversation state, active files, selected tool results, retrieved memories, source excerpts, and a short plan. Each item should have a reason to be present. If it cannot affect the next decision, it is probably noise.',
+        'Good prompt packs rank before they compress. They check permissions before retrieval output reaches the model. They prefer fresh memories when facts drift. They keep source links near claims that depend on sources. They isolate untrusted text from instructions so a retrieved page cannot become a hidden command. They also make dropping explicit: obsolete turns, repeated tool logs, failed paths, and low-trust guesses should be summarized or removed.',
+        'Compaction is the long-horizon version of the same operation. When the context window fills, the system writes a restartable summary. The summary is not a literary recap. It is a state object: current goal, active constraints, files touched, decisions made, unresolved problems, exact validation status, and next actions. The raw trace remains available because a compact summary can lose a nuance that later becomes decisive.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The design works when three invariants hold. First, raw evidence is preserved before derived memory is written. Second, derived memory carries enough provenance to be checked. Third, prompt packing is query-specific rather than global. The model does not need every memory; it needs the few records that make the next action more correct.',
+        'This is the same logic behind caches and indexes. A cache is useful because it keeps the hot working set close, not because it contains the whole database. An index is useful because it answers a specific lookup pattern, not because it replaces the source of truth. Agent memory should be treated the same way. Working context is the hot set. Semantic search, notes, and graphs are indexes. The episode log and source ledger are the ground truth.',
+        'The correctness argument is not mathematical proof of a model answer. It is an engineering argument about state fidelity. If every derived memory can be traced to evidence, stale facts carry validity information, private records require authorization, and context packing records why material was included, then the agent can be audited and corrected. Without those properties, memory improves fluency while weakening trust.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The main cost is write amplification. One observation may be written to an episode log, summarized into notes, embedded into a semantic index, extracted into graph facts, and linked to sources. That costs storage, embeddings, graph extraction, and sometimes extra model calls. The benefit is that later retrieval can be selective instead of replaying the whole transcript.',
+        'The read path has its own cost. Retrieval must search one or more stores, rerank candidates, check freshness and permissions, compress evidence, and build a prompt. Larger context windows reduce pressure, but they do not remove the need for ranking. Long prompts still raise latency and can dilute attention. The useful metric is not "how much context did we include?" It is "how much decision-relevant signal did the model receive per token?"',
+        'When input volume doubles, a transcript-only agent gets slower and noisier. A layered memory system grows storage and indexing cost, but the prompt can stay bounded. That is the point of the hierarchy. The outside memory may grow with the project; the inside context should remain a small, high-signal working set.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Consider a coding and research agent working in this educational repository for several days. The working context contains the assigned files, the local writing rules, the validation commands, and the latest user constraints. The episode log stores commands, file reads, diffs, browser checks, and validation output. The note store records durable project choices such as "study notes are the article" and "do not touch files outside the assigned write set."',
+        'The semantic index can retrieve nearby topics with similar structure, such as another case study with a strong study-next section. The source ledger stores arXiv pages, official docs, and local source files separately from the final prose. A temporal graph can keep facts such as "this package version was current on June 17, 2026" separate from older facts that may still explain old decisions.',
+        'When the user asks for another rewrite, the prompt pack should not include a week of transcripts. It should include the current goal, the write set, the relevant writing doctrine, the four active files, the adjacent topic names, and any source checks needed for unstable facts. If an old memory says to run full tests but the current user says not to run unit tests, the current task constraint wins and the old memory should be either omitted or marked as lower priority.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Memory can make an agent worse. Context poisoning happens when untrusted retrieved text lands near instructions. Stale memory happens when an old fact beats a newer observation. Bad entity merges happen when the system treats two similarly named people, repos, companies, or APIs as one thing. Over-compression happens when a clean summary drops the awkward detail that later decides the task.',
+        'Privacy is a separate failure mode. A useful memory in one workspace may be a leak in another. Authorization should happen before prompt packing, not after the model has already seen the record. Source-less memory is another trap. If the agent remembers a claim but cannot point to evidence, the system should treat it as a lead to verify, not as a fact to assert.',
+        'Operationally, evaluate memory by replaying tasks. Measure whether retrieved context changes decisions for the better, whether stale records are suppressed, whether sensitive records stay isolated, and whether summaries preserve unresolved constraints. Memory quality is not the size of the store. It is the rate at which retrieved material improves the next action without creating new risk.',
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        'This design matters most for long-horizon coding agents, research agents, customer-support agents, personal assistants, enterprise knowledge agents, and compliance-heavy workflows. These agents need to remember work across turns and sessions, but they also need to prove why a memory was used. The same pattern applies to multi-agent systems: handoff capsules should carry the current state, evidence, and unresolved risks instead of dumping raw transcripts on the next agent.',
+        'It is the wrong tool for short, stateless tasks. If a user asks a one-turn question and no future behavior depends on it, writing durable memory can add cost and risk. If a system cannot enforce permissions, durable memory may be worse than no memory. If facts change quickly and the team has no freshness policy, memory becomes a stale cache that sounds confident.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources and useful anchors: MemGPT at https://arxiv.org/abs/2310.08560, Anthropic context engineering at https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents, LangChain context engineering at https://www.langchain.com/blog/context-engineering-for-agents, Graphiti at https://github.com/getzep/graphiti, Zep at https://github.com/getzep/zep, and A-MEM at https://arxiv.org/abs/2502.12110.',
+        'Study Agent Model Router & Context Handoff Ledger for boundary-crossing context capsules, Titans Test-Time Neural Memory Case Study for model-side memory, Agentic AI Patterns for planning and tools, Claim Graph & Source Ledger for provenance, RAG Pipeline for retrieval basics, Semantic Cache for LLMs for reuse under similarity, LRU Cache for working-set intuition, Prompt Injection Threat Model for untrusted retrieved text, Zanzibar Authorization Case Study for access control, and Temporal Workflow Case Study for restartable long-running work.',
       ],
     },
   ],

@@ -32,7 +32,7 @@ export function* run(input) {
       yield {
         state: snapshot(),
         highlight: { active: [id] },
-        explanation: `Insert ${value} into an empty tree — it becomes the root. Every later value will find its place by comparing against it.`,
+        explanation: `${value} becomes the root because the tree is empty. Every later insertion will preserve order by comparing downward from this first pivot.`,
       };
       continue;
     }
@@ -44,7 +44,7 @@ export function* run(input) {
       yield {
         state: snapshot(),
         highlight: { compare: [currentId] },
-        explanation: `Insert ${value}: compare with ${current.value} — ${value} is ${goLeft ? 'smaller, go LEFT' : value === current.value ? 'equal; this tree sends duplicates RIGHT (a policy every BST must pick)' : 'larger, go RIGHT'}.`,
+        explanation: `At ${current.value}, the ordering rule chooses the next subtree: ${value} is ${goLeft ? 'smaller, so only the LEFT side can contain its slot' : value === current.value ? 'equal, and this tree sends duplicates RIGHT because every BST needs a duplicate policy' : 'larger, so only the RIGHT side can contain its slot'}.`,
         invariant: 'For every node: all values in its left subtree are smaller, all in its right subtree are larger or equal.',
       };
       const side = goLeft ? 'left' : 'right';
@@ -54,7 +54,7 @@ export function* run(input) {
         yield {
           state: snapshot(),
           highlight: { active: [id] },
-          explanation: `The ${side} child of ${current.value} is empty — ${value} hooks in right there. The comparisons that led here are exactly the path a future search for ${value} will retrace.`,
+          explanation: `The ${side} child of ${current.value} is empty, so ${value} becomes a leaf there. The comparison path that placed it is exactly the path a future search for ${value} will retrace.`,
         };
         break;
       }
@@ -101,44 +101,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `A BST is a node-based ordered structure. Each node stores a value, a left child, and a right child. Everything in the left subtree is smaller than the node; everything in the right subtree is larger. That rule turns comparisons into navigation: smaller goes left, larger goes right, equal follows whatever duplicate policy the implementation chooses.`,
-        `The structure is the tree version of Binary Search, but with one huge caveat: the shape matters. A perfectly balanced tree with 1,023 nodes has height 10, so search is short. Insert the same values in sorted order without rebalancing and you get a 1,023-node chain, no better than Linked List for lookup. The data rule gives order; balance gives speed.`,
+        `A binary search tree exists for dynamic ordered data. You want to insert and delete keys while still asking ordered questions: is this key present, what is the next larger key, what lies between 20 and 40, and how do I iterate in sorted order?`,
+        `A sorted array handles the ordered questions well, but middle insertions and deletions shift the suffix. A linked list inserts cheaply but searches linearly. A hash table is fast for exact lookup but gives no sorted order. A BST tries to keep order and updates in the same structure.`,
+      ],
+    },
+    {
+      heading: `The reasonable baseline`,
+      paragraphs: [
+        `The first baseline is a sorted array. Binary search gives O(log n) lookup, and the memory layout is compact. The price is update cost: inserting near the front can move almost every element.`,
+        `The second baseline is a linked list. It can splice nodes without shifting an array, but it cannot jump to the middle for search. Finding the insertion point is still O(n).`,
+        `The third baseline is a hash table. It is usually better for exact lookup when you do not need order. It cannot answer predecessor, successor, or range queries without extra structure.`,
+      ],
+    },
+    {
+      heading: `The wall`,
+      paragraphs: [
+        `The wall is preserving sorted order while allowing local edits. Arrays preserve order globally but pay for insertion with movement. Lists edit locally but lose fast navigation.`,
+        `A plain BST has a second wall: shape. The ordering rule says where values belong, but it does not force the tree to stay short. Insert sorted values into an unbalanced BST and the tree becomes a chain.`,
+      ],
+    },
+    {
+      heading: `Invariant and layout`,
+      paragraphs: [
+        `Each node stores a key and two child pointers. Every key in the left subtree is smaller than the node key. Every key in the right subtree is larger, or larger-or-equal if the duplicate policy sends equals right.`,
+        `That rule is local, but it applies to every subtree. A subtree is itself a binary search tree with a lower and upper bound inherited from its ancestors.`,
+        `The layout is pointer-based, not array-based. Unlike a binary heap, a BST is not required to be complete. Its runtime depends on height, not on the number of nodes alone.`,
       ],
     },
     {
       heading: `How it works`,
       paragraphs: [
-        `Search starts at the root. Compare the target with the current value. Equal means found. Smaller means move to the left child. Larger means move to the right child. Reaching a missing child proves the target is absent, because the ordering rule would have forced the value down that path if it existed.`,
-        `Insertion uses the same walk, then attaches a new leaf where the search falls off the tree. Deletion has three cases. A leaf can disappear directly. A node with one child can be replaced by that child. A node with two children needs a replacement value, usually the in-order successor: the smallest value in the right subtree. After copying or moving that successor, the tree must still satisfy the ordering rule everywhere.`,
-        `Tree Traversals reveal the hidden sorted order. An in-order traversal - left, node, right - visits values from smallest to largest. Pre-order and post-order are useful for copying, deleting, or serializing tree-shaped data.`,
+        `Search starts at the root. If the target equals the current key, search is done. If the target is smaller, move left. If it is larger, move right. A missing child proves absence because the ordering rule would have forced the key down that path.`,
+        `Insertion uses the same walk and attaches a new leaf where search falls off the tree. The new node starts with no children, so only the edge from its parent needs to satisfy the ordering rule.`,
+        `Deletion has three cases. A leaf can be removed. A node with one child can be replaced by that child. A node with two children is replaced by its in-order successor, the smallest key in the right subtree, or by its in-order predecessor from the left subtree.`,
+        `In-order traversal visits left subtree, node, then right subtree. Because the invariant holds recursively, that traversal yields the keys in sorted order.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Why it works`,
       paragraphs: [
-        `Search, insert, and delete cost O(h), where h is the height of the tree. If the tree is balanced, h is O(log n). If it degenerates into a chain, h is O(n). Space is O(n) for the nodes, and recursive operations use O(h) call-stack space. Big-O Growth Rates is the reason self-balancing trees matter: logarithmic height keeps growing slowly, while linear height grows with every inserted value.`,
+        `Search is correct because each comparison proves one entire subtree impossible. If target is smaller than node.key, every key in the right subtree is too large. If target is larger, every key in the left subtree is too small.`,
+        `Insertion is correct because it follows the same proof path until it reaches the only missing child where the key can fit. Attaching the key there preserves the ancestor bounds that led to that position.`,
+        `Deletion is correct in the two-child case because the successor is the smallest key greater than the deleted node. It can replace the deleted key without violating the left side, and removing it from its old spot is a simpler leaf or one-child deletion.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Cost and behavior`,
       paragraphs: [
-        `Sorted maps and sets often use balanced search trees. C++ std::map is commonly implemented with a red-black tree; Java TreeMap uses a red-black tree too. AVL Tree Rotations show the stricter balancing style, where rotations repair height differences after inserts and deletes. Scapegoat Tree Rebuilds shows the opposite repair style: no per-node balance metadata, but occasional whole-subtree rebuilding. These structures are useful when you need ordered iteration, predecessor/successor queries, or range queries that Hash Table cannot provide.`,
-        `Database indexes usually use B-Trees (How Databases Read), not simple binary nodes, because disk and SSD pages prefer wide nodes with many keys. Machine-learning decision forests also use tree shapes, but those trees split feature space rather than maintaining the exact ordered-set invariant. Binary Heap (Priority Queue) is another tree-shaped structure, yet it optimizes only for the top priority, not full sorted lookup.`,
+        `Search, insert, and delete cost O(h), where h is the height of the tree. A balanced tree has h = O(log n). A degenerate chain has h = O(n).`,
+        `The difference is large. A balanced tree with 1,023 nodes has height about 10. A chain with 1,023 nodes can take 1,023 comparisons. Doubling a balanced tree adds about one level; doubling a chain doubles the worst path.`,
+        `Space is O(n) for the nodes. Recursive implementations use O(h) stack space. Pointer chasing costs more cache misses than array search, which is one reason static sorted arrays still win when updates are absent.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it wins`,
       paragraphs: [
-        `The main pitfall is assuming the average picture is guaranteed. A plain unbalanced implementation can be excellent on random insert order and terrible on sorted or nearly sorted insert order. If worst-case latency matters, use a self-balancing tree. Another common mistake is confusing the search-tree property with the heap property: a heap parent beats its children, but the left and right subtrees are not globally ordered around every node.`,
-        `Duplicates need a policy before you code. You can reject them, count them inside the node, or consistently place equals on one side. Deletion is also easy to under-test; the two-child case is where many implementations lose subtrees or break the ordering invariant.`,
+        `Balanced BSTs win in sorted maps and sets. They support exact lookup, insertion, deletion, ordered iteration, predecessor, successor, floor, ceiling, and range scans in one structure.`,
+        `They are useful when keys change over time and sorted order is part of the API. Examples include in-memory indexes, language runtime maps with ordered semantics, interval structures built on ordered endpoints, and sweep-line algorithms that maintain an active ordered set.`,
+        `The plain BST is also the teaching base for AVL trees, red-black trees, treaps, splay trees, and scapegoat trees. Those structures keep the same search invariant and add a rule that repairs shape.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `An unbalanced BST fails under sorted, reverse-sorted, or adversarial insertion order. If worst-case latency matters, use a self-balancing tree instead of hoping the input is random.`,
+        `A BST is the wrong default for exact lookup when order is irrelevant. A hash table is usually faster and simpler. A sorted array is often better for static data because binary search is compact and cache-friendly.`,
+        `Databases usually use B-trees or B+ trees rather than binary nodes. Storage devices prefer wide nodes that pack many keys into one page; a binary pointer tree wastes page reads.`,
+        `Duplicates need a policy before implementation: reject them, count them in the node, or place equals consistently on one side. Deletion, especially the two-child case, needs tests that prove no subtree is lost.`,
+      ],
+    },
+    {
+      heading: `Implementation guidance`,
+      paragraphs: [
+        `Write the comparison contract first. Decide whether keys are numbers, strings, objects with a comparator, or records with separate key and value fields. Decide how equality behaves before insert, search, and delete are written; changing the duplicate policy later can corrupt traversal order.`,
+        `Test the shape-changing cases directly: delete the root, delete a leaf, delete a node with one child, delete a node with two children, insert duplicates, and search for missing keys that fall between existing values. For production ordered maps, prefer a balanced tree from the standard library or a well-tested package instead of a hand-written plain BST.`,
+      ],
+    },
+    {
+      heading: `Concrete example`,
+      paragraphs: [
+        `Insert 10, 4, 16, 2, 7, and 12. The value 12 goes right from 10 because it is larger, then left from 16 because it is smaller. A later search for 12 follows the same path and never inspects 2, 4, or 7.`,
+        `Insert 1, 2, 3, 4, 5 into a plain BST and every value goes to the right child of the previous value. The invariant still holds, but the tree is now a linked list. Correctness survived; performance did not.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Sources: Open Data Structures covers binary search trees at https://opendatastructures.org/ods-cpp/6_2_Unbalanced_Binary_Searc.html and VisuAlgo provides an interactive BST reference at https://visualgo.net/en/bst. Study Binary Search first if the sorted-order logic is not automatic yet. Then learn Tree Traversals for in-order, pre-order, post-order, and level-order walks. AVL Tree Rotations explains how balance is repaired by rotations, Red-Black Tree by color rules, Treap by randomness, Splay Tree by access locality, and Scapegoat Tree Rebuilds by partial rebuilding. Compare with Hash Table for exact lookup, B-Trees (How Databases Read) for databases, and Binary Heap (Priority Queue) for priority-first access.`,
+        `Study Binary Search first for the sorted-order elimination idea. Study Tree Traversals for in-order, pre-order, post-order, and level-order walks. Then study AVL Tree, Red-Black Tree, Treap, Splay Tree, and Scapegoat Tree to see different ways of keeping height under control.`,
+        `Compare with Hash Table for unordered exact lookup, B-Tree for storage indexes, Binary Heap for priority-first access, and k-d Tree for search trees over multidimensional points.`,
       ],
     },
   ],

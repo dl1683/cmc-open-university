@@ -199,41 +199,61 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An extent is a compact record for a contiguous run: logical file start, physical block start, length, and state. Extent-based filesystems use these records to map file offsets to disk blocks without storing one pointer per block.',
-        'Delayed allocation postpones the exact physical block choice until writeback. The page cache can hold dirty data first, and the filesystem can later allocate larger contiguous extents with better global context.',
+        'A filesystem has to answer a simple question quickly: for this byte range in a file, which physical storage blocks contain the data? Old block-map designs answered with one pointer per block or with layers of indirect pointer blocks. That works, but it wastes metadata when a large file is mostly contiguous. A one gigabyte file with four kilobyte blocks has more than two hundred thousand blocks. If those blocks sit in a few long runs, storing every pointer separately repeats information the system already knows.',
+        'Extents exist to compress that repeated structure. An extent says that a logical run of file blocks maps to a physical run of disk blocks. The record stores a logical start, a physical start, a length, and state. Delayed allocation is the companion idea for writes. Instead of choosing physical blocks immediately for every buffered write, the filesystem can keep dirty data in memory and wait until writeback has enough context to pick larger contiguous runs.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting wrong answer',
       paragraphs: [
-        'Small files can keep a few extents close to the inode. Larger or fragmented files use an extent tree, often a B+tree-style structure, so logical block lookup stays efficient. Sparse holes require no physical blocks; unwritten extents can reserve space without exposing old disk contents as file data.',
-        'During buffered writes, data becomes dirty in the page cache. With delayed allocation, the filesystem records that a logical range needs blocks but waits to choose physical placement. At writeback or fsync, it allocates physical extents, updates extent metadata, writes data, and journals or logs the metadata changes required for crash recovery.',
+        'The naive write path allocates blocks as soon as each write arrives. A process appends a few pages, the filesystem asks the allocator for blocks, records the block pointers, and moves on. This is easy to understand because every write gets a final home immediately. It fails under real workload pressure. Small appends from many files interleave, free space becomes chopped into small pieces, and the final layout of each file reflects scheduling accidents rather than file structure.',
+        'The naive metadata structure is equally expensive. A pointer-per-block map treats a contiguous movie file, a sparse virtual disk image, and a badly fragmented log as if they need the same kind of description. Sparse files become awkward because missing ranges need special handling. Preallocation becomes awkward because blocks may be reserved before data exists. Large sequential reads spend extra work walking metadata that could have been described as a few runs.',
       ],
     },
     {
-      heading: 'Case study: append-heavy file',
+      heading: 'The core insight',
       paragraphs: [
-        'An append-heavy workload that writes many small chunks can become one large dirty range. Immediate allocation might scatter blocks as chunks arrive. Delayed allocation lets writeback allocate a larger contiguous run, reducing extent count and improving later sequential reads. The cost is that allocation and metadata work may appear later as fsync or writeback latency.',
+        'The core insight is run-length compression for storage layout. Files are indexed by logical offsets, but storage devices allocate physical ranges. If logical blocks 0 through 1023 live at physical blocks 8000 through 9023, one extent can replace 1024 separate pointers. If the file later has a hole, an unwritten reservation, or a shared copy-on-write range, the same ordered range map can represent that state without inventing a separate structure for each case.',
+        'Delayed allocation adds a timing insight. The first write is often the worst moment to choose placement because the filesystem sees only a tiny piece of the future file. During writeback it may see a much larger dirty range, current free-space state, neighboring allocations, and pressure from other files. Waiting does not make allocation free, but it often makes allocation better. The invariant is that the logical file state must remain correct even while physical placement is still pending.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'How the system works',
       paragraphs: [
-        'Extent lookup is logarithmic when a tree is needed, and tiny when extents fit inline. The hard parts are fragmentation, crash consistency, free-space search, unwritten extent conversion, copy-on-write or shared extents, and making fsync mean what applications expect. Readahead & Dirty Writeback explains the page-cache pressure that often triggers this machinery.',
+        'An extent map for a file is ordered by logical block number. Lookup begins with the requested logical offset. If the file has only a few extents, those records may fit near the inode. If the file grows or fragments, the mapping moves into a tree so lookup stays efficient. Filesystems such as ext4 and XFS use extent-based metadata because the common case is not random blocks everywhere. The common case is many runs, some written, some holes, some reserved, and some waiting for conversion.',
+        'During a buffered write, data first lands in the page cache and the relevant pages become dirty. With delayed allocation, the filesystem records that the logical range has dirty data but may not assign exact physical blocks yet. Later, writeback, fsync, sync, or memory pressure forces the decision. The allocator searches free space, chooses a run or several runs, writes data, and converts delayed or unwritten extent state into written extent state. Metadata updates then record the new map.',
+        'Crash consistency requires more than the extent lookup algorithm. The filesystem must update extent records, free-space accounting, inode size, timestamps, and sometimes journal or log entries. It must also avoid exposing stale old disk contents through preallocated but unwritten ranges. That is why many filesystems distinguish written extents from unwritten extents. An unwritten extent reserves space, but reads should return zeros until real data has been committed into that range.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'An extent map is not automatically durable user data. Filesystem journaling often protects metadata consistency, while application-visible durability still depends on fsync or an equivalent protocol. Another trap is assuming delayed allocation only improves performance; it can also move work into unlucky foreground operations if the dirty set grows too large.',
+        'The extent-map view proves that a file layout is a range map. Written data, holes, and unwritten reservations are not separate stories; they are states attached to logical intervals. The reason a tree appears is scale. A tiny file can keep a few records inline, but a large fragmented file needs indexed range lookup. The data structure changes shape while the contract stays the same: map a logical interval to a state and, when present, to physical storage.',
+        'The delayed-allocation view proves that allocation time is a design choice. The dirty page-cache range exists before physical blocks are chosen. The important transition is conversion: delayed logical state becomes physical extents during writeback. That transition is where the allocator can improve contiguity, but it is also where latency and durability questions become visible.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works and what it costs',
       paragraphs: [
-        'Primary sources: ext4 block and inode allocator docs at https://docs.kernel.org/filesystems/ext4/allocators.html, fiemap extent flags at https://docs.kernel.org/filesystems/fiemap.html, XFS overview at https://docs.kernel.org/admin-guide/xfs.html, and XFS delayed logging design at https://docs.kernel.org/filesystems/xfs-delayed-logging-design.html. Study B-Trees, Interval Tree, Linux Page Cache XArray, Readahead & Dirty Writeback, fsync Rename Crash Consistency, ext4 JBD2 Journal Modes, Write-Ahead Log, and SQLite B-Tree & Pager next.',
+        'Extents work because many storage layouts have locality. Sequential writes, large media files, database segment files, package archives, VM images, and object-store cache files often occupy runs. Even when a file is not perfectly contiguous, it may still have far fewer extents than blocks. Fewer metadata records means smaller inode metadata, cheaper scans, simpler readahead decisions, and less pointer chasing during sequential I/O.',
+        'Delayed allocation works because batching improves placement. If an application writes sixty-four megabytes through the page cache, allocating one page at a time gives the allocator a narrow view. Allocating during writeback lets the filesystem request a larger run. It can also merge adjacent dirty ranges, reduce metadata churn, and avoid allocating blocks for data that is overwritten or truncated before writeback.',
+        'The cost is complexity moved later. fsync can become slower because it must force allocation, data writeout, and metadata durability that earlier writes postponed. Memory pressure can turn background decisions into foreground stalls. Free-space fragmentation still exists, especially on full filesystems. Copy-on-write filesystems add shared extent references and reference counting. Thin provisioning and network storage can add another layer where physical placement is not fully under the filesystem control.',
+      ],
+    },
+    {
+      heading: 'Real uses and failure modes',
+      paragraphs: [
+        'Extents are used in mainstream filesystems such as ext4 and XFS, and related extent ideas appear in copy-on-write filesystems, flash filesystems, and user-space tools that inspect layout. fiemap exposes extent-like answers to user space so tools can ask what ranges back a file and whether those ranges are delayed, unwritten, shared, encoded, or unknown. Databases care about these details when they preallocate files, manage fsync latency, or try to avoid fragmentation in write-ahead logs and table files.',
+        'The common failure is misunderstanding durability. Metadata journaling can protect the extent tree and allocator state, but that does not automatically mean recently written user data survives a crash unless the application uses the right sync protocol. Another failure is assuming delayed allocation always improves performance. It improves layout when there is room and workload locality. It can hurt latency when a critical fsync must do all postponed work. It can also surprise applications that infer disk allocation from file size rather than from sync and allocation calls.',
+        'Space exhaustion is another edge case. Delayed allocation lets a write appear accepted while exact blocks are not chosen yet, so the filesystem must reserve enough space or report errors at sync and close boundaries in a disciplined way. Full disks, quotas, thin devices, and overcommit policies make that accounting part of the correctness story, not just a performance detail.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study B-Trees for the indexed extent shape, Interval Tree for range maps, Linux Page Cache XArray for dirty page tracking, Readahead and Dirty Writeback for the flush path, ext4 JBD2 Journal Modes for crash behavior, fsync Rename Crash Consistency for the application contract, Write-Ahead Log for a database view of durability, and SQLite B-Tree and Pager for a storage engine that owns its page map directly. Primary references include the Linux ext4 allocator documentation, Linux fiemap documentation, XFS administration documentation, and the XFS delayed logging design notes.',
       ],
     },
   ],

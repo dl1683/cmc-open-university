@@ -195,41 +195,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Debezium is a change data capture platform. It reads committed changes from database logs and publishes them as event streams, commonly through Kafka Connect into Kafka topics. Instead of asking every service to dual-write to both a database and a broker, CDC uses the database log as the source of committed truth.',
-        'The official Debezium documentation describes the MySQL connector as reading the binlog, producing row-level insert, update, and delete events, and emitting them to Kafka topics: https://debezium.io/documentation/reference/stable/connectors/mysql.html. The PostgreSQL connector captures row-level changes from PostgreSQL schemas: https://debezium.io/documentation/reference/stable/connectors/postgresql.html.',
+        `Applications often need downstream search indexes, caches, analytics tables, and services to react to committed database changes. Asking every application path to publish its own event recreates the dual-write problem.`,
+        `Debezium is a change data capture platform. It reads committed changes from database logs and publishes them as event streams, commonly through Kafka Connect into Kafka topics.`,
+        `The deeper idea is that the database log is already the system of record for committed mutation order. Databases use it for crash recovery and replication. CDC reuses that source instead of asking every business-code path to remember every integration side effect.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'A transaction commits to the database. The database appends the change to its replication or recovery log. A Debezium connector tails that log, decodes the change, attaches source metadata and schema information, and publishes an event. The connector also tracks offsets so it can resume after restarts. Downstream consumers read events and update projections, search indexes, caches, analytics tables, or other services.',
-        'Events need more than a row payload. They need a stable key for partitioning and ordering, source position for debugging, before and after images where supported, operation type, schema history, and a clear delete or tombstone policy. Without that metadata, replay and incident investigation become guesswork.',
+        `The obvious approach is application-level event publishing after each write. It works for simple paths but misses bulk updates, manual SQL, backfills, rollbacks, and crashes between commit and publish.`,
+        `The wall is that the database log is already the committed truth. If downstream systems need to mirror committed changes, reading the log is more reliable than trusting every writer to remember every side effect.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'CDC shifts complexity out of application dual writes and into a shared data pipeline. That is usually a good trade, but it is still a trade. Connectors can lag. Kafka topics can fill. Schema changes can break consumers. Restarts can replay events. Consumers must be idempotent because delivery is generally at least once. Monitoring connector lag and failure state is part of the architecture, not an afterthought.',
-        'Ordering also has scope. A database log has a commit order, but Kafka partitions, topic routing, and consumer groups define what downstream systems actually observe. If a projection requires per-aggregate order, the event key and topic design must preserve it.',
+        `Use the database replication or recovery log as the source of committed change events. A connector tails the log, decodes row changes, attaches source metadata and schema information, and publishes events with resume offsets.`,
+        `CDC shifts reliability from many application call sites into one shared pipeline. The event stream becomes replayable because it carries source position, operation type, key, schema, and row image metadata.`,
+        `This does not mean the stream is magically exactly once from database to every side effect. It means the capture side is anchored to committed facts, and the rest of the pipeline can be designed around replay, offsets, idempotency, and explicit contracts.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What the views show',
       paragraphs: [
-        'Consider an order service. When checkout succeeds, the service writes the order row and an outbox row in the same database transaction. The outbox row contains event id, aggregate id, aggregate type, event type, and payload. Debezium tails the commit log, sees the outbox row, applies the outbox event router, and publishes OrderPlaced to a Kafka topic. Inventory, email, billing, and analytics consumers process the event with idempotency keys.',
-        'If the service crashes after commit, the event is still in the database log. If the transaction rolls back, no event is published. If Debezium restarts, it resumes from an offset and may replay, so consumers dedupe by event id. This is the practical reason CDC and Transactional Outbox are usually studied together.',
+        `In the log-to-stream view, follow the commit path. The application writes the database, the database appends to its WAL or binlog, the connector tails that log, and Kafka receives decoded change events. The offset store is the recovery anchor: after a crash, the connector resumes from a known log position.`,
+        `In the outbox view, the important fact is transaction boundaries. The domain row and the outbox row commit together. Debezium publishes only committed outbox rows, so downstream systems see events derived from database truth instead of a fragile second write from application code.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How It Works',
       paragraphs: [
-        'CDC is not a distributed transaction across every downstream system. It is a reliable way to publish committed changes for asynchronous consumers. It does not remove the need for idempotency, schema governance, topic ownership, lag alerts, or backfill plans. It also does not mean every table should become a public API. A CDC stream is a contract and should be treated like one.',
+        `A transaction commits to the database. The database appends the change to its log. Debezium tails that log, decodes the change, and publishes an event. It tracks offsets so it can resume after restarts.`,
+        `Events need more than row payload. They need stable keys for partitioning and ordering, source positions for debugging, before and after images where supported, operation type, schema history, and delete or tombstone policy.`,
+        `A connector also needs a snapshot story. Existing rows may be captured first, then streaming changes continue from a known log position. The handoff between snapshot and streaming must avoid missing rows or duplicating them in a way consumers cannot handle.`,
+        `Schema history matters because log records are decoded under table definitions that can change over time. Consumers need a compatible envelope and schema governance, not just a pile of JSON blobs flowing through a topic.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
+      paragraphs: [
+        `If the application crashes after commit, the change is still in the log. If the transaction rolls back, there is no committed log record to publish. That is why CDC pairs naturally with Transactional Outbox.`,
+        `Offsets make restart possible, but replay remains possible. Consumers must be idempotent because delivery is generally at least once.`,
+        `The outbox pattern works because it narrows the atomicity requirement. The service does not need a distributed transaction between the database and Kafka. It needs one local transaction that writes both business state and an event row. CDC then transports that committed row to Kafka after the fact.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `An order service marks order 42 as paid. In the same database transaction, it inserts an outbox row with event_id E7, aggregate_id 42, type OrderPaid, and a payload. The transaction commits, so the WAL contains both the order update and the outbox insert.`,
+        `Debezium reads the WAL, sees the committed outbox insert, and the outbox event router maps it to an orders.events topic keyed by order 42. If the connector crashes after Kafka publish but before the offset is safely recorded, it may publish E7 again after restart. A payment-email consumer therefore stores event_id E7 before sending or uses another idempotency mechanism.`,
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        `CDC shifts complexity out of application dual writes and into a pipeline. Connectors can lag, Kafka topics can fill, schema changes can break consumers, and restarts can replay events. Monitoring lag and failure state is part of the architecture.`,
+        `Ordering has scope. A database log has commit order, but Kafka partitions, topic routing, and consumer groups define what downstream systems observe. Per-aggregate order requires careful event keys and topic design.`,
+        `Backfills are a separate operational problem. Replaying a topic, re-snapshotting a table, and rebuilding a projection all have different blast radii. Good CDC deployments define how consumers distinguish initial loads, live updates, tombstones, and correction events.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `CDC fits search indexing, cache invalidation, audit streams, analytics ingestion, data lake feeds, CQRS projections, and asynchronous service integration. It is strongest when the database log is already the most trustworthy record of committed changes.`,
+        `The order-service outbox case is the standard production shape: write order row and outbox row together, let Debezium publish OrderPlaced, and let downstream consumers dedupe by event id.`,
+        `It also helps with non-application writers. Bulk SQL updates, maintenance scripts, and backfills can still appear in the change stream if they commit through the database. Application-level event publishing often misses those paths unless every tool is carefully wrapped.`,
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        `CDC is not a distributed transaction across every downstream system. It does not remove the need for idempotency, schema governance, topic ownership, lag alerts, or backfill plans.`,
+        `It also does not mean every table should become a public API. A CDC stream is a contract and should be treated like one.`,
+        `It can be the wrong fit for derived domain events that are not naturally row changes. Raw table CDC can leak internal schemas and force consumers to understand database details. The outbox pattern exists partly to publish intentional events rather than every internal mutation.`,
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        `Start by deciding whether the stream is raw table replication, an outbox event stream, or both. Raw table topics are useful for projections and analytics, but public integration events should usually be owned by a service and keyed by the aggregate that downstream systems order around.`,
+        `Treat offsets, schema history, and consumer idempotency as production state. Back up connector configuration, monitor source-log lag and offset flush failures, alert on schema-history problems, and rehearse re-snapshot or replay before an incident. A CDC pipeline is recoverable only if its recovery procedure has been tested under duplicate delivery and late consumers.`,
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Official sources: Debezium MySQL connector docs at https://debezium.io/documentation/reference/stable/connectors/mysql.html, PostgreSQL connector docs at https://debezium.io/documentation/reference/stable/connectors/postgresql.html, Outbox Event Router docs at https://debezium.io/documentation/reference/stable/transformations/outbox-event-router.html, and the Debezium tutorial at https://debezium.io/documentation/reference/stable/tutorial.html. Study Transactional Outbox, Write-Ahead Log, Kafka Log Case Study, Idempotency, Message Queue, and Schema Evolution next.',
       ],

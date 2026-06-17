@@ -359,45 +359,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'LoRA Fine-Tuning teaches the core math: freeze W, train low-rank matrices, and apply W + B A. Production LoRA adds a second problem: how do you manage many small adapters safely on top of one large base model? The answer is an adapter registry, compatibility gate, serving cache, merge policy, and rollout ledger.',
-        'The data structure is a manifest plus tensors. The manifest binds an adapter to an exact base checkpoint hash, target module list, rank, alpha or scale, dtype, training config, evaluation results, owner, trust state, and rollout flag. Without that manifest, adapter files become small but dangerous weight patches.',
+        'LoRA makes adaptation cheap enough that a team can create many task-specific model variants without copying the whole base model. That is the attraction: freeze the base weights, train low-rank matrices, and apply a small delta at inference or merge time.',
+        'Production turns that convenience into a control problem. A company may have one large base model and hundreds of adapters for tenants, domains, languages, tools, policy regimes, and experiments. The adapter file is small, but it changes model behavior. A registry exists so those patches are versioned, compatible, auditable, and safe to serve.',
       ],
     },
     {
-      heading: 'Registry and compatibility',
+      heading: 'The obvious approach and its wall',
       paragraphs: [
-        'Base-model compatibility is non-negotiable. A LoRA adapter trained for one checkpoint and module layout cannot be assumed to work on another, even if the architecture name is similar. Tensor shapes can match while tokenizer, rope scaling, target-module naming, quantization path, or base revisions differ. The registry should compare hashes and target module metadata before the adapter reaches the decode path.',
-        'The practical gate checks base hash, tensor shape, target modules, rank cap, dtype path, signature, owner, data lineage, and rollout state. Failed checks should block, sandbox, or queue the adapter rather than silently casting or attaching it. vLLM warns that dynamic runtime adapter loading carries security risk unless the environment is isolated and trusted, which is exactly the point of the gate.',
+        'The obvious approach is to store adapter files in a bucket and let each request name the adapter it wants. If the file exists, load it. If it improves a benchmark, promote it. If it becomes popular, merge it into the base model.',
+        'That breaks quickly. An adapter is valid only relative to the exact base checkpoint and target module layout it was trained against. Similar model names are not enough. Tokenizer revisions, rope scaling, quantization paths, target-module names, rank caps, dtype rules, and safety status can differ while the file still looks loadable.',
+        'The wall is not math. The wall is identity, provenance, and scheduling. Without a registry and serving ledger, small adapters become untracked executable patches.',
       ],
     },
     {
-      heading: 'Merge versus hot-swap',
+      heading: 'Core insight',
       paragraphs: [
-        'PEFT documents a merge_and_unload path: load a base model, load a LoRA adapter, merge the adapter into the base weights, and unload adapter weights. Merging is useful when one adapter is promoted into a stable single-task model and you want the simplest inference path. The result should be treated as a new checkpoint with its own hash, evaluation result, and rollback pointer.',
-        'Hot-swap serving keeps adapters separate. That is better when one base serves many tenants, tasks, or experiments. A request chooses an adapter ID, policy validates it, the cache loads or reuses the adapter tensors, and the model applies the low-rank update during inference. Hot-swap preserves flexibility and fast rollback but adds cache, batching, and security complexity.',
+        'The core insight is to treat a LoRA adapter as a typed patch, not as a loose model artifact. The type includes the base checkpoint hash, target modules, tensor shapes, rank, scale, dtype, quantization assumptions, tokenizer compatibility, training lineage, evaluation record, trust boundary, and rollout state.',
+        'Once the adapter is a typed patch, the serving decision becomes ordinary systems work. Validate the patch, choose merge or hot-swap, cache it if it stays separate, batch compatible requests, trace the result, and fail closed when identity or policy is missing.',
       ],
     },
     {
-      heading: 'Multi-adapter serving',
+      heading: 'Reading the three views',
       paragraphs: [
-        'Multi-LoRA serving is a scheduler problem. Requests with different adapters can share the same base weights, but they may need different A and B tensors and sometimes different target modules. A naive scheduler that interleaves many adapters can fragment decode batches and increase p99. A route-aware scheduler groups compatible requests, pins hot adapters, and keeps cache misses out of latency-sensitive paths.',
-        'The cache policy should consider adapter size, rank, hit rate, tenant priority, current rollout, and trust state. The trace should record request id, base hash, adapter id, adapter hash, cache hit or miss, merge or hot-swap path, rank, target modules, and latency slice. That turns an adapter incident into a replayable event.',
+        'The registry view is the compatibility gate. Watch the base hash, target modules, rank, dtype, signature, and rollout state before anything reaches the decode path. The blocked style adapter is the important negative case: a present file is not automatically a valid adapter.',
+        'The merge path view shows when an adapter becomes a new checkpoint. The table is layer-local: for each targeted module, compute the low-rank delta and add it to the frozen weight. The audit rows matter because a merged checkpoint can otherwise lose the evidence that explains where it came from.',
+        'The serving view keeps the base model resident and applies adapters per request. The cache, grouping lane, p99 plot, and rollout gate show the real serving problem: many adapters can share one base, but they can also fragment batches, evict each other, and widen the attack surface.',
       ],
     },
     {
-      heading: 'QLoRA and quantized bases',
+      heading: 'How the registry works',
       paragraphs: [
-        'QLoRA combines a frozen 4-bit quantized base model with trainable LoRA adapters. The QLoRA paper reports fine-tuning a 65B parameter model on a single 48 GB GPU by backpropagating through the frozen 4-bit model into low-rank adapters, with NF4, double quantization, and paged optimizers. That makes the compatibility gate even more important: the adapter path must understand the quantized base format and dtype transitions.',
-        'Merging into a quantized base is not always the same operation as merging into an fp16 base. Some stacks dequantize, merge, and re-save; others keep adapters separate. The registry should record whether an adapter is merge-safe, serve-only, or requires a specific quantization runtime.',
+        'A useful registry stores two things together: the adapter tensors and the manifest that gives those tensors meaning. The manifest should record base checkpoint hash, adapter hash, target modules, rank, alpha or scale, dtype, tokenizer or vocabulary assumptions, quantization requirements, training data identifier, training config, evaluation slices, owner, signature, allowed tenants, rollout percentage, and rollback pointer.',
+        'The compatibility gate should fail closed. Base hash mismatch blocks. Shape mismatch blocks. Missing target modules block. Unsafe dtype casts block. Unknown signatures block. Rank above runtime cap may queue or reject. An adapter with incomplete evaluation may enter canary, but it should not quietly become production.',
+        'This is also the right place to model trust. Dynamic adapter loading can be useful, but it is a supply-chain surface. A registry can require signatures, limit who may publish adapters, sandbox untrusted adapters, and prevent tenant A from selecting tenant B\'s patch.',
       ],
     },
     {
-      heading: 'Operational gates',
+      heading: 'Merge and hot-swap',
       paragraphs: [
-        'A LoRA deployment should gate on holdout quality, safety slices, policy behavior, p99 latency, cache hit rate, eviction pressure, provenance, and rollback readiness. The small file size is a trap: an adapter can be promoted casually because it is cheap to store, but it still changes the model behavior for real users.',
-        'Common failures are base hash mismatch, tokenizer mismatch, unsafe dynamic loading, adapter cache thrash, merged checkpoint provenance loss, dtype bugs, overfit instruction style, and incompatible adapter composition. Treat adapters like executable model patches: signed, versioned, evaluated, scoped, and observable.',
+        'Merging is attractive when one adapter becomes the stable path for a model. The serving system can load a single checkpoint, avoid per-request adapter lookup, and remove hot-swap overhead from the decode path. The cost is artifact sprawl: the merged model is now another full checkpoint to scan, evaluate, store, deploy, and roll back.',
+        'Hot-swap serving is better when one base model supports many tenants, domains, or experiments. A request selects an adapter ID, policy validates it, the cache loads or reuses the tensors, and inference applies W plus the low-rank delta. This preserves flexibility and fast rollback, but adds scheduler, cache, provenance, and security complexity.',
+        'Quantized bases make the decision sharper. A QLoRA-style adapter may depend on a particular quantization runtime and dtype transition. Some systems dequantize, merge, and resave. Others keep adapters separate. The registry should say whether an adapter is merge-safe, serve-only, or runtime-specific.',
+      ],
+    },
+    {
+      heading: 'Why batching gets hard',
+      paragraphs: [
+        'Multi-adapter serving is not just a storage problem. Requests can share the same base weights, but they may need different A and B tensors. If a scheduler interleaves many adapters naively, it can fragment batches, churn kernels, cause cache misses, and raise p99 latency.',
+        'A route-aware scheduler groups requests by compatible adapter state, keeps hot adapters resident, loads cold adapters away from latency-critical paths when possible, and records cache hit or miss in the trace. The cache policy should consider rank, bytes, hit rate, tenant priority, rollout state, and safety state, not recency alone.',
+        'The serving trace should include request ID, tenant, base hash, adapter ID, adapter hash, merge or hot-swap path, cache result, rank, target modules, latency slices, policy result, and output quality or safety outcome. That is what makes an adapter incident replayable.',
+      ],
+    },
+    {
+      heading: 'Worked case study',
+      paragraphs: [
+        'Imagine one base model serves three product lanes: SQL help, legal drafting, and support replies. SQL and support are ready adapters trained against base m7b@9f with rank 8 on q and v projections. Legal is canary with rank 16 on q, v, and o. A style adapter was trained against m7b@2a and targets all modules.',
+        'The registry lets SQL and support serve immediately, lets legal serve only to its canary cohort, and blocks style because the base hash does not match. In hot-swap mode, requests for SQL are grouped into lane A, legal into lane B, and support into lane C. A support cache miss may be acceptable for batch replies but not for interactive chat.',
+        'If the SQL adapter becomes the only SQL path and passes holdout, safety, latency, and rollback checks, the team may merge it into a dedicated SQL checkpoint. The merge audit records base hash, adapter hash, dtype path, evaluation result, merged checkpoint hash, and rollback pointer. Without that audit, the new checkpoint is just unexplained weight soup.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The registry adds operational overhead: manifests, signatures, hash checks, evaluation storage, rollout flags, cache accounting, and trace joins. That overhead is the price of safely serving many model variants on one base.',
+        'Merging lowers hot-path complexity but increases checkpoint storage and promotion burden. Hot-swap lowers storage and improves flexibility but increases p99 risk, cache pressure, and security concerns. A system that supports both needs clear rules for when an adapter graduates from hot-swap to merged checkpoint.',
+        'The most common failures are base hash mismatch, tokenizer mismatch, target-module drift, unsafe dynamic loading, cache thrash, dtype bugs, quantization incompatibility, overfit instruction style, missing rollback, and merged checkpoint provenance loss.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'It wins when one base model must support many tasks, tenants, experiments, or regulated variants without copying the full model for each one. It is especially useful when adapters change often but the base model changes slowly.',
+        'It fails when adapter behavior is treated as harmless because the files are small. It also fails when teams compose adapters casually, ignore evaluation slices, skip signatures, or let runtime loading bypass policy. LoRA reduces training cost; it does not remove release engineering.',
       ],
     },
     {

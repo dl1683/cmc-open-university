@@ -61,7 +61,7 @@ function* superstepsAndMessages() {
   yield {
     state: graph('Pregel thinks in vertices, not records'),
     highlight: { active: ['a', 'b', 'c', 'd'], compare: ['worker1', 'worker2'] },
-    explanation: 'Pregel is a vertex-centric system for large graph processing. Instead of writing map and reduce phases by hand, the programmer writes a vertex function. Each vertex reads messages, updates its own state, and sends messages to neighbors.',
+    explanation: 'Pregel makes the vertex the unit of programming. Instead of forcing an iterative graph algorithm into map and reduce phases, each vertex reads messages, updates its own state, and sends messages to neighbors.',
   };
 
   yield {
@@ -88,14 +88,14 @@ function* superstepsAndMessages() {
       ],
     ),
     highlight: { active: ['s0:compute', 's0:send', 's1:read', 's1:compute'], found: ['barrier0:read', 'barrier1:compute'] },
-    explanation: 'Pregel uses bulk-synchronous parallelism. Messages sent in one superstep are received in the next. The barrier makes reasoning cleaner and gives the system a place to aggregate, checkpoint, and recover.',
+    explanation: 'Read supersteps as rounds with mailboxes. Messages sent in superstep 0 are visible in superstep 1. The barrier is expensive, but it gives the system a clean place to aggregate, checkpoint, and recover.',
     invariant: 'A vertex only sees messages from the previous superstep.',
   };
 
   yield {
     state: graph('Messages move along graph edges'),
     highlight: { active: ['a', 'e-a-b', 'e-a-d', 'b', 'd'], compare: ['worker1', 'worker2'] },
-    explanation: 'In one superstep, A can send messages to B and D. The system routes those messages to whichever workers own the destination vertices. The graph abstraction stays local even though the execution is distributed.',
+    explanation: 'The edge arrows are logical graph messages, not necessarily local machine sends. The runtime routes each message to the worker that owns the destination vertex.',
   };
 
   yield {
@@ -153,7 +153,7 @@ function* pageRankOnGraph() {
       ],
     ),
     highlight: { active: ['a:sends', 'b:sends', 'd:sends'], found: ['c:receives'] },
-    explanation: 'Every vertex can execute the same small function. The distributed system handles message delivery, barriers, and workers. That is why vertex-centric APIs are useful for graph algorithms with repeated neighborhood communication.',
+    explanation: 'Every vertex runs the same small rule, while the system handles delivery, barriers, and worker placement. That is the attraction: repeated neighborhood communication becomes the natural control flow.',
   };
 
   yield {
@@ -216,41 +216,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The graph-processing problem',
       paragraphs: [
-        'Pregel is Google\'s system for large-scale graph processing. Programs are written as vertex functions. In each superstep, a vertex receives messages from the previous superstep, updates local state, sends messages to other vertices, and may vote to halt.',
-        'The case study matters because graph algorithms are often iterative and communication-heavy. Pregel gives those algorithms a native execution model instead of forcing them through record-oriented batch jobs.',
+        'Pregel is Google\'s system for large-scale graph processing. The problem it solves is not merely that graphs can be large. The deeper problem is that many graph algorithms are iterative, stateful, and neighbor-driven. PageRank, shortest paths, connected components, label propagation, belief propagation, and many recommendation features repeatedly update vertex state based on messages from adjacent vertices.',
+        'That shape is awkward in a record-oriented batch system. MapReduce can process large data, but a graph algorithm forced through repeated map and reduce stages has to keep materializing state, reshuffling edges, and rebuilding the next round. The algorithm is conceptually local to vertices, but the execution system treats it as a sequence of global record transformations. Pregel gives the algorithm a model that matches the graph: vertices hold state, send messages, and advance in coordinated rounds.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Core insight',
       paragraphs: [
-        'The graph is partitioned across workers. A master coordinates supersteps. Workers run vertex functions, buffer outgoing messages, deliver messages for the next superstep, and checkpoint state for recovery. Combiners can reduce message volume, while aggregators compute global values such as convergence metrics.',
-        'PageRank illustrates the pattern. Each vertex sends rank mass to neighbors, receives rank contributions in the next superstep, updates its value, and repeats until the global rank change is small enough.',
+        'The core insight is to make vertex state the unit of programming and supersteps the unit of coordination. The programmer writes the local rule: receive messages, update this vertex, send new messages, maybe halt. The runtime turns that rule into a distributed computation by partitioning vertices, moving messages, checkpointing state, and advancing the whole graph one synchronized round at a time.',
+        'That split is why Pregel is teachable. The algorithmic invariant is local: a vertex only changes from its previous state and incoming messages. The system invariant is global: every message sent in one superstep is processed in the next, and termination happens only when no active vertex and no in-flight message remains. The model gives students both the graph idea and the distributed-systems contract.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The programming model',
       paragraphs: [
-        'Pregel trades a clean programming model for barrier costs and network pressure. Poor partitioning can make message traffic dominate. High-degree vertices can become hot. Slow workers delay the barrier. Checkpointing improves recovery but adds IO. The model fits iterative graph algorithms best when the graph is large and the per-vertex computation is simple.',
+        'Pregel programs are written as vertex functions. In each superstep, a vertex receives messages sent to it in the previous superstep, updates its own value, sends messages to other vertices, and may vote to halt. A halted vertex becomes inactive until it receives another message. The whole computation ends when every vertex is inactive and there are no messages in flight.',
+        'This is the bulk synchronous parallel model applied to graphs. Work proceeds in rounds. Inside a round, many vertices run in parallel. Between rounds, messages are delivered and global coordination happens. The barrier is not an incidental implementation detail; it is the thing that makes the model easier to reason about. A message sent in superstep N is processed in superstep N plus 1, not halfway through an uncontrolled race.',
+        'The graph is partitioned across workers. A master coordinates the computation, while workers store assigned vertices and edges, run vertex functions, buffer outgoing messages, and deliver incoming messages for the next round. Checkpoints allow recovery. Combiners can reduce message volume when an operation is associative and commutative. Aggregators compute global values such as convergence metrics, counts, maximum distances, or total residual error.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why PageRank fits the model',
       paragraphs: [
-        'Pregel-style systems influenced Giraph, GraphX, PowerGraph, GraphLab, and many graph analytics stacks. Good fits include PageRank, connected components, shortest paths, label propagation, community detection, and large-scale recommendation graph features.',
+        'PageRank is the clean classroom example. Each page is a vertex. Each link is an edge. During a superstep, a vertex distributes its current rank mass across outgoing edges. In the next superstep, each neighbor receives contributions, combines them with damping, updates its rank, and sends out the next round of mass. The global computation emerges from many small vertex-local computations.',
+        'The algorithm needs repeated communication with neighbors and a convergence test. Pregel gives both. Messages move rank contributions. Aggregators can track total change in rank across the graph. When the global change falls below a threshold, the system can stop. The developer writes the vertex behavior; the runtime handles partitioning, message delivery, barriers, and fault tolerance.',
+        'This is the educational power of Pregel. It does not make PageRank mathematically different. It makes the distributed execution match the algorithm\'s natural shape. Instead of expressing every iteration as a separate dataflow job, the programmer expresses how one vertex behaves in one round.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Pregel is not a graph database for low-latency interactive traversals. It is a batch graph-processing system. Another misconception is that MapReduce and Pregel compete for every job. They solve different shapes: record transformations versus iterative graph state.',
+        'Pregel works because many graph algorithms are local but repeated. A vertex often needs only its own state, its edges, and messages from neighbors. That locality lets workers run many vertices in parallel. The repeated superstep structure gives the system a simple way to coordinate progress without making every message an immediate distributed transaction.',
+        'The barrier also makes recovery and reasoning easier. At superstep boundaries, the system can checkpoint vertex state and messages. If a worker fails, the computation can restart from a known consistent point. That is simpler than recovering an arbitrary asynchronous graph computation where messages may be partly applied and state may be in the middle of mutation.',
+        'Combiners and aggregators are the other key pieces. A combiner reduces multiple messages headed to the same vertex when the operation allows it. For example, PageRank contributions can be summed. Aggregators let the system compute global facts without forcing the user to build separate jobs. These tools turn the vertex model from a toy abstraction into something practical for large graphs.',
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        'Pregel-style systems influenced Apache Giraph, GraphX, PowerGraph, GraphLab, and many graph analytics platforms. The model is a good fit for PageRank, shortest paths, connected components, label propagation, community detection, semi-supervised learning on graphs, and large-scale graph-derived recommendation features.',
+        'The model matters whenever the graph is too large for one machine and the algorithm repeatedly pushes information along edges. Social graphs, web graphs, knowledge graphs, routing graphs, fraud rings, citation networks, and item-user interaction graphs all contain this pattern. A vertex-centric model lets engineers think in terms of local update rules while the system handles distributed execution.',
+        'Pregel is not a replacement for every graph system. A graph database is built for low-latency interactive traversals and updates. A graph neural network framework may need tensor kernels and mini-batch sampling. A streaming graph system may need continuous updates. Pregel is best understood as a batch analytics model for iterative graph computation.',
+      ],
+    },
+    {
+      heading: 'Costs and failure modes',
+      paragraphs: [
+        'The clean programming model has real costs. Barriers make reasoning easier, but the slowest worker can delay the whole superstep. Poor partitioning can make cross-worker message traffic dominate. High-degree vertices can become hot spots. Some graphs have skewed degree distributions, so equal vertex counts do not mean equal work. Checkpointing improves recovery but adds IO and storage cost.',
+        'Message volume is often the limiting factor. A simple vertex function can generate enormous traffic if every active vertex sends to every neighbor every round. Combiners help only when the operation permits safe reduction. Aggregators help with global values but do not eliminate neighbor traffic. Good graph processing requires thinking about edge cuts, partitioning, degree skew, and convergence behavior.',
+        'The barrier model can also be too rigid. Some algorithms converge faster with asynchronous updates, or they spend too much time waiting for global rounds. Other workloads are too small to justify the distributed overhead. Pregel makes large iterative graph jobs tractable, but it is not automatically faster than a single-machine graph library on a graph that fits in memory.',
+      ],
+    },
+    {
+      heading: 'A worked connected-components example',
+      paragraphs: [
+        'Connected components show the model without PageRank math. Give every vertex an initial component label equal to its own ID. In each superstep, a vertex sends its current smallest known label to its neighbors. When a vertex receives a smaller label, it updates its own label and sends that label onward in the next round. When no vertex changes, every vertex in the same connected component has converged to the same minimum label.',
+        'The algorithm is easy to state locally, but the system work is substantial. Messages must cross partitions. High-degree vertices may send many labels. Aggregators can count how many vertices changed in a round to decide when to stop. Checkpoints protect the long computation from worker failure. This is exactly the kind of job Pregel was built to express.',
+      ],
+    },
+    {
+      heading: 'Practical guidance',
+      paragraphs: [
+        'Use a Pregel-style model when the algorithm is naturally vertex-local, iterative, and message-driven. Look for repeated neighbor communication, simple per-vertex state, and a clear convergence or halt condition. Watch partition quality, cross-worker edge cuts, message volume, combiner opportunities, high-degree vertices, and convergence metrics.',
+        'Avoid it for small graphs, ad hoc graph queries, graph workloads dominated by low-latency reads, heavy per-vertex computation that barely communicates, or algorithms where barrier latency dominates useful work. If the graph fits comfortably in memory on one machine, a local graph library may be simpler and faster.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Pregel is a programming model for iterative graph state. Vertices compute locally. Messages carry information along edges. Supersteps provide a clear rhythm: receive, compute, send, synchronize. That rhythm makes large graph algorithms easier to distribute and recover.',
+        'The deep lesson is that the right execution model should match the algorithm\'s communication pattern. Record transformations fit MapReduce. Iterative neighbor communication fits Pregel. Low-latency traversals fit a graph database. Choosing the wrong model turns a simple algorithm into operational friction.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Google Research Pregel page at https://research.google/pubs/pregel-a-system-for-large-scale-graph-processing/, ACM DOI at https://dl.acm.org/doi/10.1145/1807167.1807184, and an accessible paper copy at https://15799.courses.cs.cmu.edu/fall2013/static/papers/p135-malewicz.pdf. Study Graph BFS, PageRank, Message Queues, MapReduce Case Study, Borg Cluster Scheduler Case Study, and Dapper Tracing Case Study next.',
+        'Primary sources: Google Research Pregel page at https://research.google/pubs/pregel-a-system-for-large-scale-graph-processing/, ACM DOI at https://dl.acm.org/doi/10.1145/1807167.1807184, and an accessible paper copy at https://15799.courses.cs.cmu.edu/fall2013/static/papers/p135-malewicz.pdf. Study Graph BFS, PageRank, Message Queues, MapReduce Case Study, Borg Cluster Scheduler Case Study, Dapper Tracing Case Study, and Graph Neural Networks next.',
       ],
     },
   ],

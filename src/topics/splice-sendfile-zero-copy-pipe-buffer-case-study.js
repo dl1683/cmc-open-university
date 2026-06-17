@@ -175,17 +175,46 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'sendfile and splice are Linux interfaces for moving data between file descriptors while avoiding unnecessary copies through user-space buffers. The data may still move through kernel structures, page-cache references, pipe buffers, socket queues, and device DMA, but the application does not need to copy every byte into its own buffer just to send it back out.',
-        'The data-structure lesson is that zero-copy is mostly reference movement. Pipe buffers and socket queues carry references to pages or kernel buffers, with offsets, lengths, flags, and lifetime rules. That is very different from a read/write loop that materializes bytes in user memory.',
+        'A static file server often needs to move bytes from disk cache to a socket. The content already sits in the kernel page cache, and the destination is also in the kernel networking path. Copying the bytes into a user-space buffer just to copy them back into the kernel wastes CPU cycles, memory bandwidth, and cache space.',
+        'sendfile and splice exist to remove that unnecessary user-space copy. They do not remove all work. The kernel still manages page references, pipe buffers, socket queues, offsets, lifetimes, and backpressure. The win is that the application can move ownership and references instead of touching every byte.',
+      ],
+    },
+    {
+      heading: 'The obvious attempt',
+      paragraphs: [
+        'The straightforward implementation is a read/write loop: read file bytes into a buffer, then write that buffer to the socket. It is portable, easy to debug, and correct for transformations because the application owns the bytes in the middle.',
+        'The wall appears when the transfer is large and unmodified. The loop performs two copies across the user-kernel boundary path, pollutes CPU caches with data the application never inspects, and burns memory bandwidth that could have gone to useful work. Under slow clients it also needs the same partial-write and readiness logic as the zero-copy path.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core data structure is a queue of references, not a buffer of copied bytes. Page-cache pages already contain the file data. Pipe buffers and socket queues can carry references to those pages or kernel buffers, plus offset, length, flags, and release rules.',
+        'sendfile packages the common file-to-socket case behind one interface. splice exposes the pipe-buffer bridge explicitly, usually requiring a pipe on one side of the transfer. The invariant is that byte order and offsets are preserved even when the implementation moves references instead of materializing bytes in user memory.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'Inspect the path as a chain of ownership and backpressure. The file descriptor names the source, the page cache holds the bytes, pipe buffers or socket queues carry references, and the application records how many bytes actually moved. The fast path is only real if the trace shows the bytes avoided user-space materialization.',
+        'The key debugging question is where the byte range lives right now. It may be in the page cache, attached to pipe buffers, queued to the socket, or already acknowledged by the write side. A zero-copy system that cannot answer that question is only a hope wrapped around a syscall.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'sendfile is commonly used for static file transfer: a regular file is the source, a socket is the destination, and the kernel can connect page-cache data to the socket path without a user-space copy. splice is lower level and usually uses a pipe as one side of the transfer, making the pipe buffer the explicit bridge.',
-        'The fast path depends on support from the file type, socket path, filesystem, and operation. If the kernel must transform bytes, encrypt them, or handle an unsupported source or sink, it may copy or fall back. A correct application treats zero-copy as an optimization, not as a separate correctness model.',
+        'For sendfile, the application provides an input descriptor, output descriptor, optional offset, and byte count. The kernel looks up file pages, attaches data to the outgoing path where supported, advances offsets according to actual progress, and returns the number of bytes moved.',
+        'For splice, one side is normally a pipe. The first splice can attach file page references to pipe buffers. The second splice can move those pipe buffers into a socket or another compatible destination. The pipe is not just plumbing; it is the bounded queue that carries the transfer state.',
+        'Both calls must be driven like other I/O. They can move fewer bytes than requested, block, or return EAGAIN in nonblocking mode. A correct loop keeps the remaining byte range, waits for readiness, and retries without duplicating or skipping bytes.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Correctness comes from preserving the same stream contract as read/write. The destination receives the same byte sequence in the same order, and the returned byte count tells the application exactly how much of the range has advanced.',
+        'The optimization is safe only because the kernel owns the page-cache references, pipe-buffer lifetimes, and socket-queue release path. A page cannot be reclaimed or overwritten out from under an in-flight reference. Backpressure keeps the bounded queues from pretending the network accepted data it has not accepted.',
       ],
     },
     {
@@ -196,16 +225,45 @@ export const article = {
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Zero-copy saves copy cost, but it adds capability checks, fallback paths, and lifetime pressure. The fast path depends on support from the source, destination, filesystem, socket path, and operation. TLS, compression, filters, checksumming, or unsupported file types can force copies or a different offload path.',
+        'The practical cost is control complexity. The application still handles short transfers, readiness, cancellation, offsets, rate limiting, and error recovery. Slow clients can keep page references alive in outgoing queues, so a server must cap per-connection and global pressure.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'The fit is strongest for large, already-cached, unmodified payloads: static files, media segments, backups, and proxy paths that forward bytes without inspecting them. The access pattern is sequential, and the application does not need to transform the body.',
+        'It is the wrong default for tiny responses, highly dynamic bodies, content that must be encrypted or compressed in user space, or paths where unsupported sources and sinks make fallback common. In those cases a plain buffered loop may be simpler and just as fast.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
       paragraphs: [
         'Zero-copy calls can make partial progress. They can block or return EAGAIN in nonblocking mode. They can interact badly with transformations, TLS, compression, filters, or file types that do not support the path. They can also increase memory pressure if page references remain attached to slow downstream queues.',
-        'Another misconception is that avoiding user-space copies always dominates. For small payloads, syscall overhead, complexity, and fallback handling can outweigh the benefit. For large static transfers, the savings in CPU and memory bandwidth are usually clearer.',
+        'Another misconception is that avoiding user-space copies always dominates. For small payloads, syscall overhead, branchy fallback handling, and more complicated accounting can outweigh the benefit. For large static transfers, the savings in CPU and memory bandwidth are usually clearer.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track bytes sent by zero-copy path, fallback bytes, short-transfer count, EAGAIN count, socket-queue depth, pinned page pressure, per-connection outstanding bytes, slow-client age, TLS or compression bypass rate, and CPU cycles per transferred megabyte. These metrics tell you whether the design is actually saving work.',
+        'The fallback path needs the same observability as the fast path. A server that silently falls back to read/write for most responses may still be correct, but the performance story has changed. The article-level lesson is that system calls are not magic labels; workload fit and measured path determine the result.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'splice and sendfile are reference-moving tools for specific byte paths. They are excellent when the application does not need to inspect or transform the payload. They are less compelling when responses are tiny, dynamic, encrypted in user space, or frequently unsupported by the source and sink.',
+        'For course design, teach this after file descriptors and page cache, then connect it to backpressure. Students should see that zero-copy is not only an optimization trick. It is a lifetime, offset, and queue-management discipline.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: splice(2) at https://man7.org/linux/man-pages/man2/splice.2.html, sendfile(2) at https://man7.org/linux/man-pages/man2/sendfile.2.html, and Linux splice documentation at https://www.kernel.org/doc/html/latest/filesystems/splice.html. Study File Descriptor Table & Open File Description, Linux Page Cache XArray, epoll Interest & Ready Lists, io_uring Submission & Completion Rings, NIC RX Ring & NAPI Poll, and Backpressure & Flow Control next.',
+        'Primary sources: splice(2) at https://man7.org/linux/man-pages/man2/splice.2.html, sendfile(2) at https://man7.org/linux/man-pages/man2/sendfile.2.html, and Linux splice documentation at https://www.kernel.org/doc/html/latest/filesystems/splice.html.',
+        'Study next by role: File Descriptor Table & Open File Description for offset and descriptor semantics, Linux Page Cache XArray for the source pages, epoll Interest & Ready Lists and io_uring Submission & Completion Rings for driving nonblocking progress, NIC RX Ring & NAPI Poll for the device side, and Backpressure & Flow Control for the queue limits that zero-copy does not remove.',
       ],
     },
   ],

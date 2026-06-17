@@ -84,7 +84,7 @@ function* visualDocumentRetrieval() {
   yield {
     state: visualPipeline('Visual document retrieval embeds page images'),
     highlight: { active: ['query', 'qenc', 'pages', 'venc'], compare: ['late'] },
-    explanation: 'Traditional RAG usually extracts text, chunks it, and embeds the chunks. Visual document retrieval also embeds rendered pages, so layout, figures, tables, formulas, checkboxes, and typography can become retrieval evidence.',
+    explanation: 'Read this as expanding the evidence surface. Text chunks catch words, but rendered pages preserve layout, tables, marks, figures, and visual relationships that OCR can flatten.',
   };
 
   yield {
@@ -115,7 +115,7 @@ function* visualDocumentRetrieval() {
   yield {
     state: visualPipeline('ColPali adapts late interaction to page images'),
     highlight: { active: ['venc', 'late', 'rank', 'e-venc-late', 'e-qenc-late', 'e-late-rank'], found: ['crop'] },
-    explanation: 'ColPali uses a vision-language model to produce multi-vector page embeddings, then uses a late-interaction scoring pattern similar to ColBERT. Query tokens can match different visual page patches.',
+    explanation: 'The ColPali frame mirrors ColBERT in visual space: a query can match different page patches, so a table, label, checkbox, or figure can contribute to the page score.',
   };
 
   yield {
@@ -171,7 +171,7 @@ function* fusionAndEvaluation() {
       ],
     ),
     highlight: { active: ['cell:first', 'chart:first', 'cross:first'], found: ['caption:second'] },
-    explanation: 'Different multimodal questions need different first moves. A chart question should not start and end with OCR. A table-cell question should not depend only on page-level similarity.',
+    explanation: 'The routing table is the practical lesson. A chart question, table-cell question, and exact-ID question should not all take the same retrieval path.',
   };
 
   yield {
@@ -221,44 +221,60 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why multimodal RAG exists',
       paragraphs: [
-        'Multimodal RAG extends Retrieval-Augmented Generation beyond plain text chunks. A real knowledge base often contains PDFs, tables, slide decks, diagrams, screenshots, forms, images, audio, and video. If the pipeline extracts only text, it can lose the structure that carries the answer: table alignment, chart shape, checkbox state, page layout, handwriting, figure captions, and cross-page references.',
-        'The core data-structure change is that evidence is no longer one list of text chunks. It becomes a collection of linked surfaces: OCR tokens, page images, table cells, chart objects, embeddings, regions, metadata, and graph edges. Retrieval then becomes a fusion problem across modalities, not a single vector search.',
+        'Multimodal RAG exists because many documents do not store their meaning as plain paragraphs. Policies, invoices, scientific papers, medical forms, engineering drawings, slides, dashboards, and regulatory exhibits communicate through layout, tables, figures, checkboxes, visual marks, captions, row and column alignment, and page position. A text-only RAG pipeline can extract words from those documents and still lose the fact that mattered. The answer may be encoded by a tick mark next to a label, a trend line crossing a threshold, a table cell under a grouped header, or a figure referenced from a footnote.',
+        'The core data-structure change is that evidence is no longer one list of text chunks. A robust system keeps linked surfaces: OCR tokens, page images, image patches, table cells, chart regions, bounding boxes, captions, document metadata, permissions, embeddings, and cross-page references. Retrieval becomes a fusion problem over multiple evidence types. The system is not trying to make vision replace text. It is trying to preserve the original document geometry long enough for the final answer to be grounded in the actual evidence.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'What OCR-only retrieval misses',
       paragraphs: [
-        'A multimodal RAG pipeline renders or ingests document pages, extracts text where useful, embeds page images or regions with a vision-language model, stores structured tables separately, and keeps metadata such as document version, page number, region coordinates, and permissions. A user question can fan out to OCR/BM25, text embeddings, image-page retrieval, table lookup, and entity-graph expansion before a reranker builds a small grounded context.',
-        'CLIP-style contrastive learning is the foundation for shared image-text spaces: https://arxiv.org/abs/2103.00020. ColPali adapts the late-interaction idea from ColBERT to visually rich document retrieval by embedding page images with a vision-language model and scoring with multi-vector interaction: https://arxiv.org/abs/2407.01449. The associated ViDoRe benchmark and model releases are available through the project page at https://huggingface.co/vidore.',
+        'The naive design is familiar: run OCR, split extracted text into chunks, embed each chunk, and retrieve by vector similarity or BM25. This works for clean prose. It fails when document structure is the carrier of meaning. OCR can flatten a pricing table so the row label, column header, and value become neighbors without preserving their relationship. It can detach a checkbox from the label it modifies. It can extract a chart caption but not the slope, peak, or outlier shown in the plot. It can scramble two-column PDFs or footnotes into the wrong reading order.',
+        'The opposite naive design is to send every page image to a vision-language model at answer time. That is too expensive, too slow, and too hard to audit at scale. A thousand-page document library cannot be reread visually for every question. Multimodal RAG is the middle path: retrieve cheaply and broadly across text, layout, tables, and vision; narrow the candidate set; then spend expensive visual reasoning on a small number of pages or regions. The retrieval layer must therefore know which modality is likely to carry the answer.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The ColPali mechanism',
       paragraphs: [
-        'The cost is higher than text-only RAG. Page images are larger than text chunks, vision encoders are expensive, multi-vector indexes are larger than single-vector indexes, and region grounding requires extra metadata. Product Quantization for Vector Search, late-interaction compression, batching, and careful top-k limits become necessary when the corpus has millions of pages.',
-        'The benefit is that the system can answer questions text-only RAG mishandles: "Which checkbox is selected?", "What does the chart show after Q3?", "What number is in row B, column 7?", or "Which image matches this part number?" A Survey of Multimodal Retrieval-Augmented Generation reviews the broader design space, datasets, metrics, and limitations: https://arxiv.org/abs/2504.08748. Ask in Any Modality offers another broad survey: https://arxiv.org/abs/2502.08826.',
+        'ColPali adapts the late-interaction idea from ColBERT to visually rich document retrieval. In ColBERT, a passage is represented as many token vectors instead of one pooled vector, and each query token finds its best matching passage token. ColPali moves that idea into page-image retrieval. Pages are rendered and encoded by a vision-language model into multiple patch-level or token-level representations. A text query is also encoded as multiple query vectors. Scoring uses multi-vector interaction, so different parts of the question can match different visual regions on the page.',
+        'This matters because a page is not a sentence. A query about a deductible table may need one query token to match the table title, another to match the plan tier, and another to match the dollar amount region. A single pooled page vector can blur those signals. A full vision-language read of every page is too costly. Late interaction preserves reusable page computation while still letting query terms seek fine-grained support. CLIP-style contrastive learning established shared image-text representation as a foundation: https://arxiv.org/abs/2103.00020. ColPali applies this retrieval shape to document pages: https://arxiv.org/abs/2407.01449.',
       ],
     },
     {
-      heading: 'Complete case study: visually rich policy PDFs',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Consider an enterprise benefits assistant over thousands of policy PDFs. The answer to a coverage question may live in a table with merged cells, a footnote, and a diagram that says which plan tier applies. OCR may extract the words but lose the row and column relationship. A multimodal pipeline can retrieve the page image, use table extraction for cells, preserve coordinates, and send the relevant crop to a vision-language model for final grounding.',
-        'A strong design is layered. Multi-Index RAG finds candidates from text, vector, metadata, and graph indexes. ColPali-style retrieval catches visually rich pages. Cross-Encoder Reranker or a multimodal reranker chooses the final evidence. Cache Invalidation & Versioning tracks document versions. Zanzibar Authorization Case Study prevents retrieving pages the user cannot view.',
+        'The visual document retrieval pipeline proves that the evidence surface has expanded. The query is text, but the candidate evidence can be OCR text, page images, patches, tables, or regions. The page image branch preserves layout that text extraction can destroy. The late-interaction node is the key scoring step: it allows the query to find support across multiple visual patches rather than forcing the page into one global embedding. The crop node reminds us that the final answer should inspect and cite the relevant region, not merely name a document.',
+        'The fusion view proves that multimodal RAG is a routing problem. A caption question should start with text. A table-cell lookup should start with a table parser and verify against a page crop. A trend question should favor visual retrieval. A cross-page entity question may need a graph or metadata index before a reranker. The evaluation table proves that final answer accuracy is not enough. A system can answer correctly while citing the wrong region, retrieve the right page but miss the crop, or choose the wrong modality and accidentally succeed.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Do not assume multimodal means "send the whole PDF to a vision model." That is slow, expensive, and hard to audit. Retrieval should narrow the evidence first. Do not assume OCR is obsolete either; exact terms, IDs, and citations often still need text indexes. The right architecture combines modalities and records which modality supported each answer.',
-        'The hardest failure mode is false grounding. A model may answer correctly from prior knowledge while citing the wrong page, or cite a page that contains the right words but not the right visual relationship. Evaluation should separately score page recall, region grounding, modality attribution, and answer faithfulness.',
+        'It works because documents often contain redundant evidence across modalities. The phrase in a heading, the position of a value in a table, the caption under a chart, and the region selected by a visual retriever can reinforce one another. Text retrieval supplies exact terms and identifiers. Vision retrieval supplies layout and visual similarity. Table extraction supplies structured cells. Entity graphs supply cross-document links. A reranker can combine these signals and ask which candidate actually supports the question.',
+        'The architecture also works economically. Vision-language models are expensive, but retrieval can make their use targeted. A ColPali-style page index or hybrid retriever can find the top pages, then a smaller final context can include crops, OCR spans, table cells, and coordinates. This gives the answer model enough evidence without forcing it to read the whole corpus visually. The design resembles other multi-stage retrieval systems: cheap recall first, more expensive precision later, and answer generation only after evidence has been narrowed.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Primary sources: CLIP at https://arxiv.org/abs/2103.00020, ColPali at https://arxiv.org/abs/2407.01449, the ViDoRe/ColPali project at https://huggingface.co/vidore, Multimodal RAG survey at https://arxiv.org/abs/2504.08748, Ask in Any Modality survey at https://arxiv.org/abs/2502.08826, and RAG-Anything at https://arxiv.org/abs/2510.12323. Study Embeddings & Similarity, Contrastive Learning: SimCLR, RAG Pipeline, Multi-Index RAG, ColBERT Late-Interaction Retrieval, Cross-Encoder Reranker, Product Quantization, and GraphRAG Community Summary Case Study next.',
+        'The cost is higher than text-only RAG. Page images are larger than text chunks. Vision encoders are slower than text encoders. Multi-vector indexes are larger than single-vector indexes. Region grounding requires coordinate metadata and often image crops. Updating a corpus requires rerendering, re-embedding, reindexing, and invalidating stale page versions. Product quantization, residual compression, batching, caching, and careful top-k limits become necessary when a corpus reaches millions of pages.',
+        'The operational tradeoff is also harder. Text chunks are easy to quote. Visual evidence needs page numbers, bounding boxes, crop images, and sometimes table coordinates. Authorization must be enforced at the document, page, and region level. Evaluation data is more expensive because labels may need page, region, modality, and answer annotations. Latency budgets must decide when to use OCR-only retrieval, when to add ColPali-style visual retrieval, when to invoke a full vision-language model, and when to fall back to a human review flow.',
+      ],
+    },
+    {
+      heading: 'Evaluation and grounding',
+      paragraphs: [
+        'A useful benchmark separates the pipeline into page recall, region recall, evidence attribution, answer faithfulness, and citation quality. If the system retrieves the right PDF but not the right crop, the retrieval layer still failed for a visual question. If it answers correctly from prior knowledge while citing an unrelated region, the answer layer failed even though the final string looked right.',
+        'Production systems should store evidence objects, not just answer text. A good evidence object contains document id, page number, crop coordinates, OCR spans, table coordinates when available, modality source, retriever score, reranker score, permissions, and version. That record lets reviewers see where the answer came from and lets engineers debug whether a miss was caused by OCR, visual retrieval, fusion, ranking, or generation.',
+      ],
+    },
+    {
+      heading: 'Where it helps and where it fails',
+      paragraphs: [
+        'Multimodal RAG is useful for benefits policies, contracts with exhibits, medical forms, insurance claims, financial statements, slide decks, product manuals, scanned archives, compliance packets, scientific papers, and customer-support screenshot libraries. It is especially strong when the question asks about a visual relationship: which box is selected, which line crosses a threshold, which row and column intersect, which diagram part is labeled, or which page region proves a claim.',
+        'It fails when teams treat vision as a substitute for retrieval discipline. Sending whole PDFs to a model is expensive and can hide unsupported answers. OCR is still necessary for exact names, IDs, citations, and keyword filters. Visual retrievers can overmatch pages that look similar but contain the wrong value. Table extraction can hallucinate structure from messy scans. A model may answer from prior knowledge while citing the wrong page. The benchmark must expose these layers separately: page recall, region grounding, modality attribution, citation correctness, and final answer faithfulness.',
+        'Study Embeddings and Similarity, RAG Pipeline, ColBERT Late-Interaction Retrieval, Cross-Encoder Reranker, Product Quantization, Block-Max WAND Top-K Retrieval, Query Expansion, RAG Citation Span Index, RAG Claim Verification Support Ledger, GraphRAG Community Summary, Table Extraction, and Authorization Graphs next. The durable lesson is to keep the evidence object rich enough that the system can explain not only what it answered, but which modality and which region justified the answer.',
       ],
     },
   ],

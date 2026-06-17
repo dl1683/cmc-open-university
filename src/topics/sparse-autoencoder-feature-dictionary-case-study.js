@@ -342,45 +342,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A sparse autoencoder is an interpretability tool trained on internal model activations. It reconstructs a dense activation vector through a sparse set of learned feature IDs. The decoder vectors act like a learned dictionary; the sparse code says which dictionary entries were active for a token or prompt.',
-        'The motivation is superposition. Modern networks often store more useful features than they have clean neuron axes, so a single neuron can mix unrelated concepts. Sparse autoencoders try to recover a more human-auditable coordinate system: a larger feature dictionary where only a few features are active at once.',
+        'A transformer activation is easy for the model to use and hard for a human to inspect. A residual-stream vector may contain thousands of floating-point values, and a single direction in that space can mix syntax, topic, sentiment, refusal behavior, factual associations, and artifacts from the training distribution.',
+        'Sparse autoencoders exist because mechanistic interpretability needs a better handle than raw neurons. The goal is to turn a dense activation into a small set of learned feature IDs that can be browsed, labeled, tested, and connected to behavior.',
       ],
     },
     {
-      heading: 'The data structure',
+      heading: 'The obvious approach and wall',
       paragraphs: [
-        'The practical output is a feature table, not just a model checkpoint. Each row needs a feature id, decoder direction, top activating examples, activation statistics, a label hypothesis, specificity tests, ablation or steering results, and version metadata for the base model, layer, dataset, SAE architecture, and sparsity setting.',
-        'Once stored this way, the SAE becomes queryable infrastructure. You can ask which features fired on a prompt, retrieve the top examples for a feature, join features to benchmark deltas, compare features across model versions, and build dashboards for steering experiments. That is why this belongs next to Feature Hashing, Embeddings & Similarity, PCA, and Saliency Maps instead of living only as a research paper.',
+        'The obvious approach is to inspect individual neurons, run PCA, or look for directions that correlate with a concept. Those tools are useful, but they hit the same wall: neural networks can represent many more useful features than they have clean, one-feature-per-neuron axes.',
+        'This is the superposition problem. If useful features are sparse, a model can pack them into overlapping directions. One neuron can respond to several unrelated patterns, and one real concept can be split across many units. A dashboard of raw neurons can therefore look interpretable while still hiding the mechanism.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Train a new coordinate system around the model activation. The encoder maps a dense activation into a larger sparse code. The decoder maps that sparse code back into the original activation space. If training succeeds, the sparse coordinates behave more like features than the original neuron axes did.',
+        'The useful artifact is not only the autoencoder loss. It is the feature dictionary: stable feature IDs, decoder directions, top activating examples, activation statistics, labels treated as hypotheses, causal tests, and version metadata.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the dictionary-learning view, follow the activation through three representations: dense residual stream, sparse feature code, and reconstructed activation. The sparse middle row is the interpretability interface. It is what lets a system ask which feature IDs fired on a token.',
+        'In the feature-audit view, do not treat the label node as the conclusion. The label is a guess made from top examples. The serious evidence comes later: held-out examples, specificity checks, ablations, steering experiments, and benchmark deltas.',
+        'The steering frame should be read with caution. Clamping a feature is a causal intervention, but it is not automatically a clean control knob. The output delta must be checked for side effects, overreach, and capability loss.',
       ],
     },
     {
       heading: 'How training works',
       paragraphs: [
-        'Collect activations from a chosen layer, often a residual stream. Train an encoder to map each activation into an overcomplete sparse vector. Train a decoder to reconstruct the original activation from that sparse vector. The objective balances reconstruction quality against sparsity so that features stay selective enough to inspect.',
-        'Top-k SAEs enforce a fixed number of active features. Other variants use L1 penalties or related sparsity mechanisms. The main knobs are dictionary size, layer choice, sparsity target, dataset, dead-latent handling, and reconstruction-error handling. The wrong setting can produce a dictionary that reconstructs well but is hard to interpret, or labels nicely but fails causal tests.',
+        'First choose a model, layer, and activation stream. Collect many activations from real prompts or documents. Train an encoder to produce an overcomplete sparse vector, then train a decoder to reconstruct the original activation from only the active features.',
+        'The objective balances two pressures. Reconstruction pressure says the decoded activation should preserve the information the model was using. Sparsity pressure says only a few features should fire for each token. Too little sparsity gives another dense latent space. Too much sparsity loses information and can create brittle or dead features.',
+        'Top-k SAEs force exactly k active features. Other variants use L1 penalties or related sparsity mechanisms. The important knobs are dictionary size, sparsity target, layer choice, training corpus, normalization, dead-latent handling, and how reconstruction error is measured.',
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'Why it works when it works',
       paragraphs: [
-        'Anthropic first made the superposition problem vivid with Toy Models of Superposition, then used dictionary learning to decompose a small transformer layer into thousands of features in Towards Monosemanticity. The same line later scaled to Claude 3 Sonnet, where sparse autoencoders with many millions of features produced interpretable feature candidates and enabled feature steering demonstrations.',
-        'The important lesson is not that every learned feature is automatically true. The lesson is that the unit of analysis can move from raw neurons to sparse learned features, and those features can be subjected to evidence: top activating examples, specificity scoring, ablations, steering, and downstream behavioral evaluation.',
+        'The method relies on sparsity in the underlying computation. If a feature is present only in a minority of contexts, a sparse basis can separate it more cleanly than the original neuron basis. The decoder vector then gives a direction in activation space, while the sparse activation value says how strongly that feature appeared.',
+        'Reconstruction keeps the dictionary honest. If the SAE cannot rebuild activations well enough, the feature code may be an attractive story that no longer preserves what the model was using. Sparsity keeps the dictionary usable. If every feature fires all the time, browsing feature IDs is no better than browsing dense activations.',
+        'Interpretability still needs causal evidence. A feature label becomes more credible when it predicts held-out activations, ablation weakens the claimed behavior, steering strengthens it in the expected direction, and unrelated behaviors do not move much.',
       ],
     },
     {
-      heading: 'Steering and risk',
+      heading: 'Concrete case study',
       paragraphs: [
-        'Feature steering uses the SAE as a control surface at inference time. Encode an activation, increase or decrease selected feature activations, decode the modified activation, and continue the forward pass. This can change behavior without changing model weights, which makes it appealing for experimentation and safety work.',
-        'The caution is that steering is not automatically modular. A refusal feature can raise unsafe-prompt refusal rates while also raising over-refusal on safe prompts and reducing unrelated benchmark performance. A style or topic feature can spill into hallucination or instruction-following failures. Every steering claim needs a grid of prompt classes, clamp values, and capability regressions.',
+        'Anthropic made the superposition problem concrete with Toy Models of Superposition, then used sparse dictionary learning in Towards Monosemanticity to find more interpretable features in a small transformer. The later Scaling Monosemanticity work applied the same idea to Claude 3 Sonnet and reported millions of feature candidates, including features that appeared to correspond to topics, entities, code patterns, and behavior-related concepts.',
+        'The lesson is not that every feature label is true. The lesson is that the unit of analysis can move from raw neurons to sparse learned features, and those features can be put through an evidence pipeline. Top examples suggest a label. Held-out examples test the label. Ablations and steering test causal involvement. Capability and safety evaluations test the side effects.',
+        'A refusal-steering example shows the tradeoff. Increasing a feature associated with refusal may raise refusal on unsafe prompts. The same intervention can also raise refusal on safe prompts or lower unrelated task performance. A feature can be real and still be too entangled to use as a production control.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Do not equate a feature label with a mechanism. A label is a hypothesis produced from examples. It becomes stronger when held-out examples fit, ablation reduces the behavior, steering increases it, and alternative explanations fail. It becomes weaker when it only describes the training examples or when clamping causes broad unrelated damage.',
-        'Do not ignore versioning. SAE features are tied to a base model, layer, training corpus, sparsity setting, and implementation. If any of those change, feature IDs and labels may drift. A production feature dictionary needs the same discipline as a vector index or model checkpoint: immutable versions, replayable data cuts, privacy review, and regression tests for the behaviors it claims to explain.',
+        'Training SAEs is compute-heavy because it requires large activation datasets, high-dimensional dictionary matrices, repeated reconstruction passes, and careful sweeps over sparsity. Serving the base model just to collect activations can be a major part of the bill.',
+        'The analysis workload is also large. A dictionary with millions of features needs storage, search, top-example retrieval, feature-label generation, human or model-assisted review, causal tests, privacy review, and versioning. Without that infrastructure, the dictionary is hard to trust and easy to overinterpret.',
+        'The main technical tradeoff is reconstruction versus sparsity. The main scientific tradeoff is label clarity versus causal faithfulness. The main product tradeoff is steering power versus side effects.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'SAEs win when the goal is to make internal activations searchable and testable. They are useful for finding recurring concepts, building feature browsers, comparing prompts, studying model internals, and designing cautious activation interventions.',
+        'They fail when a team treats labels as mechanisms, ignores reconstruction error, cherry-picks top examples, or evaluates steering on one prompt class. They also struggle with feature splitting, dead latents, correlated features, layer drift, and features that mean different things in different contexts.',
+        'A production-quality feature dictionary should look less like a gallery and more like a versioned dataset: feature IDs, examples, statistics, label provenance, causal results, known failure modes, privacy handling, and regression tests tied to model and SAE versions.',
+        'The best use is investigative. A feature dictionary can suggest where to look, what to ablate, and which behaviors may share circuitry. It should not be treated as a complete map of the model or a policy guarantee.',
       ],
     },
     {

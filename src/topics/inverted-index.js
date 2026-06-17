@@ -231,41 +231,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An inverted index maps terms to postings lists. A posting says that a term appeared in a document, often with frequency, positions, fields, payloads, or score metadata. This turns search from "scan every document" into "look up a few sorted lists and combine them."',
-        'The structure is foundational because it sits under search engines, code search, log search, document retrieval, spam filtering, and many RAG Pipeline systems. It is also a bridge topic: Hash Table, Trie, Merge Sort, Roaring Bitmaps, LSM Trees (How Cassandra Writes), SPLADE Learned Sparse Retrieval, and Embeddings & Similarity all become practical once you see how a search engine stores and queries text.',
+        'An inverted index exists because search should not scan every document for every query. Text collections, logs, code repositories, and RAG corpora need a direct route from a query term to the documents that might contain it.',
+        'The structure flips the corpus. Instead of document -> terms, it stores term -> postings. That one reversal is the foundation of fast Boolean search, phrase search, lexical retrieval, and many candidate-generation stages in modern search systems.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive baseline and wall',
       paragraphs: [
-        'Index construction tokenizes documents, normalizes terms, emits term-document-position facts, sorts or groups those facts by term, and writes a term dictionary plus postings files. A Boolean query intersects postings lists. A phrase query also checks positions. A ranked query retrieves candidates and then scores them with term statistics, static quality, learned features, or neural reranking.',
-        'Production indexes usually use immutable segments. New documents enter a memory buffer, flush into a segment, and become searchable. Background merges combine segments, remove deletes, and improve locality. This is search-flavored compaction: it buys query speed at the cost of write amplification.',
+        'The baseline is to store documents and scan their text at query time. That is acceptable for a tiny corpus and keeps ingestion simple. It collapses when the corpus has millions of documents and users expect interactive latency.',
+        'A slightly better baseline stores a per-document set of normalized terms. That avoids raw text parsing at query time, but the query still touches far too many documents. A rare term might appear in 50 documents out of 50 million; a scan wastes almost all of its work proving absence.',
+        'The wall is selectivity. Search needs to start from the terms in the query, not from the documents in the corpus.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'The main costs are postings size, dictionary size, merge write amplification, and query-time decompression. Common optimizations include sorted doc ids, delta compression, block compression, skip pointers, impact-ordered postings, tiered indexes, and caching. The right structure depends on query mix: exact phrase search, Boolean filtering, top-k ranking, and hybrid semantic search put pressure on different parts of the index.',
+        'Map each normalized term to a postings list. A posting says that the term appears in a document, usually with extra data such as term frequency, positions, fields, payloads, or block-level score metadata.',
+        'The key invariant is that each postings list is sorted by document id. Sorted postings make Boolean intersection a merge problem, make skipping possible, and let query engines move monotonically through candidate documents.',
+        'Positions add another invariant: within a document, occurrences are ordered. That is what lets phrase and proximity queries test word order after the document-level candidates have been found.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'What the diagram emphasizes',
       paragraphs: [
-        'Lucene-style engines use inverted indexes with segments. Web search engines add huge ranking and serving layers. Observability tools use related structures for log search. Databases use inverted indexes for text columns and sometimes bitmap-style postings for analytical filters. Hybrid retrieval stacks combine inverted indexes with HNSW (Vector Search at Scale), Product Quantization for Vector Search, and learned rerankers.',
+        'In the build-postings view, read the first table left to right: raw text becomes normalized tokens, and each document receives a doc id. The postings table then shows the inversion: terms such as search, need, and index point back to sorted document lists.',
+        'The segment frames show the production shape. New postings are buffered, flushed into immutable segments, searched across segments, and merged in the background. This is why search indexing resembles an LSM tree even though the query API looks very different.',
+        'In the query-execution view, the highlighted postings lists are the only documents the Boolean query needs to consider. The phrase frame adds positions, and the ranking frame separates retrieval from scoring and reranking.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'An inverted index is not just a map from word to documents. Serious systems need positions, fields, compression, segment metadata, deletes, scoring statistics, and merge policy. Another misconception is that vector search replaces inverted indexes. In practice, lexical search remains valuable for exact names, identifiers, rare terms, filters, and explainability; vector search adds semantic recall. SPLADE shows the bridge case: a neural model can learn term expansion while still serving through postings.',
+        'Index construction tokenizes documents, normalizes terms, assigns doc ids, emits term-document-position facts, groups those facts by term, sorts postings by doc id, and writes a term dictionary plus compressed postings files.',
+        'A Boolean AND query intersects postings lists, usually starting with the most selective term. A phrase query first intersects documents, then checks positions inside each candidate. A ranked query retrieves candidates and scores them with term statistics such as tf-idf or BM25, field boosts, static quality, learned features, or reranking models.',
+        'Large engines write immutable segments instead of mutating one giant index. Deletes are often tombstones until a merge rewrites segments. Merging improves locality and compression, but it creates write amplification.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Correctness',
       paragraphs: [
-        'Primary sources: Stanford Introduction to Information Retrieval contents at https://nlp.stanford.edu/IR-book/html/htmledition/contents-1.html, the Stanford PDF at https://nlp.stanford.edu/IR-book/pdf/irbookonlinereading.pdf, and Lucene index file format notes at https://lucene.apache.org/core/3_0_3/fileformats.html. Study Trie (Prefix Tree), Suffix Array & LCP, Roaring Bitmaps, LSM Trees (How Cassandra Writes), Block-Max WAND Top-k Retrieval, SPLADE Learned Sparse Retrieval, Embeddings & Similarity, and RAG Pipeline next.',
+        'Retrieval is correct if the analyzer and indexer record every searchable occurrence under the same normalized term that the query analyzer will later produce. If query term q maps to postings list P, every indexed document containing q must appear in P.',
+        'Two-pointer intersection is correct because postings are sorted. If one pointer is at a smaller doc id than the other, that smaller document cannot match the larger one, so advancing it cannot skip a valid intersection. Equal ids are emitted as matches.',
+        'Phrase search is correct only when positions are stored and analyzed consistently. A document that contains fast at position 1 and need at position 3 matches a proximity query with a gap allowance, but not the exact phrase fast need.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'In the animation corpus, fast appears in docs 1 and 3. Need also appears in docs 1 and 3. The query fast AND need intersects [1, 3] with [1, 3] and emits docs 1 and 3 without reading docs 2 or 4.',
+        'For the phrase fast need, doc 1 has fast at position 1 and need at position 3, so the exact phrase is absent. Doc 3 has the same gap. Positions let the engine reject both documents after retrieval without rescanning the original text.',
+        'If the query were search AND engine, postings [1, 2] and [2, 4] would intersect to doc 2. Ranking would then decide whether doc 2 is the best result, but retrieval has already narrowed the candidate set.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The main costs are postings size, dictionary size, positions, stored fields, query-time decompression, cache behavior, and merge write amplification. Positions make phrase queries possible but can be a large part of the index.',
+        'Common optimizations include delta encoding doc ids, block compression, skip pointers, impact-ordered postings, block-max WAND metadata, Roaring Bitmaps for filters, term dictionaries backed by finite-state structures, query caches, and tiered segment merges.',
+        'The best layout depends on query mix. Boolean filters want fast intersections. Phrase search wants positions. Top-k ranking wants scoring bounds and early termination. Hybrid search wants lexical candidates to cooperate with vector retrieval and reranking.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Inverted indexes win in web search, code search, log search, document retrieval, spam filtering, database text columns, observability tools, legal discovery, and many RAG pipelines.',
+        'Lexical retrieval remains strong for exact names, identifiers, error messages, rare terms, filters, and explainability. Even when vector retrieval adds semantic recall, postings are often the fastest way to honor exact constraints.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when treated as just a hash map from word to documents. Serious systems need analyzers, positions, fields, compression, segment lifecycle, deletes, scoring statistics, and merge policy.',
+        'It also fails at pure meaning. Exact terms miss paraphrases, synonyms, and conceptual similarity. Embeddings help with semantic recall, while learned sparse methods such as SPLADE bridge the gap by producing expanded sparse terms that still serve through postings.',
+        'Analyzer mismatch is another common failure. If indexing lowercases, stems, or removes terms differently from querying, the correct documents may never be considered.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Make the analyzer a versioned contract. Store which tokenizer, normalization rules, stop-word list, synonym set, stemmer, and field rules produced each segment. Reindexing is often required when that contract changes; pretending old and new analysis are identical creates silent recall bugs.',
+        'Keep postings metadata close to the query patterns you need to accelerate. Boolean filters need doc ids and fast intersections. Phrase search needs positions. Ranked top-k needs term statistics and upper-bound score data. Highlighting may need offsets. Each extra payload costs space, so the index should match real queries.',
+        'Plan for deletes and merges from day one. Tombstones, soft deletes, segment warming, cache invalidation, and merge throttling are not side details; they decide whether indexing keeps up while queries stay fast.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Trie and finite-state dictionaries for term lookup, Suffix Array & LCP for another text-indexing family, Roaring Bitmaps for compressed set operations, LSM Trees for segment and compaction intuition, Block-Max WAND Top-k Retrieval for efficient ranking, SPLADE Learned Sparse Retrieval for neural sparse search, Embeddings & Similarity for dense retrieval, and RAG Pipeline for how retrieval feeds generation.',
+        'For a deeper text-search foundation, read Introduction to Information Retrieval and Lucene index-format documentation, then inspect how a real engine stores dictionaries, postings, positions, norms, deletes, and segments.',
       ],
     },
   ],

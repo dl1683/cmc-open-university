@@ -62,7 +62,7 @@ function* nearDuplicates() {
   yield {
     state: dedupGraph('Duplicate control starts before embedding'),
     highlight: { active: ['crawl', 'clean', 'chunk'], found: ['shingle'] },
-    explanation: 'A RAG corpus often contains repeated FAQ pages, mirrored PDFs, boilerplate footers, stale policy versions, and slightly edited release notes. If those duplicates reach the vector index unchanged, top-k retrieval can fill with the same evidence repeated five ways.',
+    explanation: 'The opening frame is the naive corpus: repeated pages, boilerplate, and stale variants all look like candidates. If they reach retrieval unchanged, top-k can spend its slots on copies.',
   };
 
   yield {
@@ -93,7 +93,7 @@ function* nearDuplicates() {
   yield {
     state: dedupGraph('MinHash signatures make near-duplicate search cheap'),
     highlight: { active: ['shingle', 'minhash', 'lsh'], found: ['canon'] },
-    explanation: 'After normalization, each chunk becomes a set of token shingles. MinHash compresses that set into a signature, and LSH buckets likely-near chunks together so exact verification only runs on candidates.',
+    explanation: 'Read this as a two-stage filter. Shingles describe overlap, MinHash makes compact signatures, and LSH buckets likely duplicates so the expensive exact comparison runs only where it matters.',
     invariant: 'MinHash finds candidates; canonicalization decides what survives.',
   };
 
@@ -151,7 +151,7 @@ function* chunkHygiene() {
       ],
     ),
     highlight: { active: ['cid:stores', 'hash:stores', 'dupes:stores'], found: ['fresh:why'] },
-    explanation: 'Canonicalization turns dedup from a one-off cleanup script into an index invariant. Every chunk has a stable id, content fingerprint, version, source list, and freshness state.',
+    explanation: 'The canonical row is the durable object. Retrieval indexes one representative, while backlinks preserve where the text appeared and which source version it came from.',
   };
 
   yield {
@@ -228,44 +228,72 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'RAG deduplication is the corpus-maintenance layer that prevents repeated or stale chunks from dominating retrieval. It combines text normalization, shingling, MinHash, locality-sensitive hashing, exact verification, and canonical chunk records. The goal is not to delete provenance; the goal is to index one canonical representative while preserving backlinks to every source version.',
-        'This is a different problem from dense semantic search. HNSW and DiskANN find nearby embeddings. MinHash and LSH find near-duplicate sets of shingles. A production RAG system usually needs both because semantic similarity and textual resemblance catch different failure modes.',
+        `Retrieval-augmented generation depends on the context window spending tokens on distinct, current evidence. Real corpora fight that assumption. Help centers mirror pages. PDFs contain repeated headers and page numbers. Release notes copy old wording with one date changed. Legal and policy documents keep stale versions online. Email threads repeat the same answer through quoted replies. If all of that text reaches the vector index unchanged, top-k retrieval can fill with five versions of the same chunk while missing exceptions, procedures, or dates.`,
+        `RAG deduplication exists to make the corpus behave like evidence rather than a pile of files. It combines normalization, shingling, MinHash, locality-sensitive hashing, exact verification, and canonical chunk records. The goal is not to erase provenance. The goal is to index one representative chunk while preserving backlinks to every source version, so retrieval gets novelty and citations still know where the statement appeared.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach and its wall',
       paragraphs: [
-        'First normalize the document text: remove navigation, footers, page numbers, tracking strings, repeated headers, and template boilerplate. Then split into chunks and represent each chunk as token shingles. MinHash compresses each shingle set into a signature whose collision behavior estimates Jaccard similarity. LSH banding buckets signatures so likely duplicates become candidates without comparing all pairs.',
-        'Candidates are verified with stricter checks: exact Jaccard, containment, edit distance, source version, timestamp, document type, and domain-specific rules. The winner becomes the canonical chunk. Duplicates become backlinks, aliases, tombstones, or excluded variants. The vector index receives canonical chunks; the source ledger still remembers every original source.',
+        `The naive pipeline embeds every chunk and trusts the retriever or reranker to sort things out. That fails because duplicates are not just low-quality results; they can look highly relevant. A user asks about refunds, and every mirrored refund page has almost the same embedding. Rank fusion can make the problem worse by rewarding the same text from multiple indexes. The model then sees repeated evidence and may answer confidently from a stale duplicate.`,
+        `The second naive approach is all-pairs comparison. Compare every chunk with every other chunk, merge the ones above a threshold, and call the corpus clean. That is simple for a thousand chunks and impossible for millions. Worse, raw text comparison before normalization confuses boilerplate with evidence. Two unrelated pages with the same footer can look similar, while an HTML page and a PDF export of the same policy can look different because one has page numbers and line breaks.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The expensive baseline is all-pairs chunk comparison, which is infeasible for large corpora. MinHash plus LSH changes the cost shape: compute a compact signature for each chunk, use hash buckets to generate candidates, then verify only a small fraction. Storage includes signatures, buckets, canonical records, source aliases, and tombstone metadata.',
-        'The operational cost is in drift. Websites change templates, PDFs are re-exported, documents are re-chunked, and product policies get replaced. A durable system stores content fingerprints and canonical ids so downstream citations, embeddings, eval sets, and cache entries can be invalidated precisely. RAG Index Lifecycle and Alias Swap shows how those canonical records move through tombstones, shadow rebuilds, and safe cutovers.',
+        `Near-duplicate detection should use the geometry that matches the problem. Dense embeddings are good at semantic neighborhood, but duplicate control needs textual resemblance and containment. A shingle set captures overlapping token windows. Jaccard similarity asks how much two sets overlap. MinHash compresses each set into a signature that preserves Jaccard behavior probabilistically. LSH banding turns those signatures into candidate buckets, so the system compares likely pairs instead of every possible pair.`,
+        `Canonicalization is the product layer on top of detection. MinHash can say two chunks are likely near-duplicates; it cannot decide which one should survive. The canonical record stores a stable chunk id, content fingerprint, source aliases, version, freshness state, and duplicate policy decision. One representative enters retrieval. Duplicates become backlinks, aliases, tombstones, or excluded variants. The index becomes smaller, but the evidence ledger becomes richer.`,
       ],
     },
     {
-      heading: 'Complete case study: duplicated policy corpus',
+      heading: 'Mechanism',
       paragraphs: [
-        'A support RAG system ingests a help center, a PDF archive, release notes, and emailed policy updates. The same refund policy appears as HTML, PDF, and FAQ text. Older PDFs disagree with current HTML. Before dedup, top-k retrieval returns five near-identical refund chunks, two of them stale. The model answers confidently with the old 45-day rule.',
-        'After dedup, the pipeline strips boilerplate, detects mirrors with MinHash, tombstones stale versions, stores source aliases, and indexes one fresh canonical chunk. Top-k now contains the current refund rule, exceptions, restocking fee policy, and contact procedure. RAG Evaluation improves because context precision rises and faithfulness failures from stale chunks drop.',
+        `The pipeline starts before chunking. Normalize text by removing navigation, footers, repeated headers, tracking strings, page numbers, OCR artifacts, and template language that should not count as evidence. Then chunk the cleaned content with stable boundaries where possible. Each chunk becomes a set of token shingles, often fixed-length word sequences. MinHash applies many hash functions or hash permutations and keeps compact minima that approximate the original set's overlap behavior.`,
+        `LSH groups signatures into bands. If two chunks share enough bands, they become a candidate pair. That pair still needs verification: exact Jaccard, containment, edit distance, source freshness, document type, timestamp, authority, and domain-specific rules. A refund FAQ copied from the current policy may merge. A stale PDF may become a tombstone. A jurisdiction-specific policy may stay separate even if most words overlap. The decision is a policy judgment backed by data structures.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Do not dedupe by URL alone. Mirrors, PDFs, exports, and copied support articles often carry different URLs. Do not dedupe by embedding similarity alone either; semantically related chunks are not necessarily duplicates. Conversely, boilerplate-heavy pages can look duplicate-like while their important middle paragraphs differ.',
-        'Over-aggressive dedup can remove legitimate variants such as jurisdiction-specific policies, pricing tiers, date-specific rules, and quoted source documents. Keep duplicate decisions auditable, preserve aliases, and sample the false-positive and false-negative buckets. Treat dedup thresholds as eval-tuned data-structure parameters, not universal constants.',
+        `The first view proves that duplicate control starts before embeddings. Crawl, clean, chunk, shingle, MinHash, LSH, canonicalize, and index are ordered for a reason. If boilerplate survives into shingles, unrelated pages collide. If stale versions survive into the index, retrieval cannot distinguish current evidence from old evidence. MinHash and LSH are recall devices: they propose candidate pairs cheaply, but they do not make the final claim that two chunks are interchangeable.`,
+        `The chunk-hygiene view proves that the canonical row is the durable object. Top-k before hygiene spends ranks on mirrors and stale exports. Top-k after hygiene has the current rule plus exceptions, dates, fees, and procedure details. That is the practical win: the context window uses tokens for new evidence, while backlinks still preserve every source that contained the duplicated statement.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `It works because it separates cheap candidate generation from expensive truth. MinHash signatures are small enough to compute and store for every chunk. LSH buckets make likely duplicates meet without scanning the whole corpus. Exact comparison and policy checks then run on a much smaller set. This changes the cost shape from quadratic comparison to a pipeline of linear signature creation, bucket lookup, and limited verification.`,
+        `It also works because it keeps identity stable. A RAG stack has many downstream artifacts: embeddings, lexical indexes, reranker features, citations, eval failures, answer caches, and feedback traces. If dedup is a one-off cleanup script, those artifacts drift. Canonical ids and content fingerprints let the system know whether a chunk changed, moved, merged, split, or became stale. That makes invalidation precise instead of rebuilding or trusting old references blindly.`,
+      ],
+    },
+    {
+      heading: 'Tradeoffs and cost',
+      paragraphs: [
+        `The engineering cost is not only signatures. The system stores shingles or their hashes, MinHash signatures, LSH buckets, canonical records, source aliases, tombstones, freshness states, and audit samples. Thresholds must be tuned against false merges and missed duplicates. A low threshold finds more candidates but can over-prune legitimate variants. A high threshold is safer but leaves repeated chunks in retrieval. Chunk size also matters: large chunks hide small differences, while tiny chunks create noisy overlaps.`,
+        `Operational drift is the harder cost. Websites change templates, PDFs are regenerated, policy pages are updated, and chunking algorithms evolve. A canonical id should survive harmless source movement but change when the evidence changes. Backfills need to preserve citation lineage. Shadow indexes need to prove that a dedup change improves context quality before alias swap. A good dedup system behaves like part of the index lifecycle, not a cleaning script someone runs once.`,
+      ],
+    },
+    {
+      heading: 'Uses and failure modes',
+      paragraphs: [
+        `Dedup helps support assistants, policy copilots, legal research, documentation search, enterprise knowledge bases, code search over generated files, and evaluation-set hygiene. It improves retrieval precision, reduces token waste, lowers embedding and storage cost, prevents duplicate votes in rank fusion, and makes stale-source failures easier to diagnose. It also helps evaluation: if a faithfulness failure came from a stale duplicate, the evidence chain can identify the source alias rather than blaming the model alone.`,
+        `The failure modes are subtle. URL-based dedup misses mirrors and exports. Embedding-based dedup can collapse semantically related but distinct rules. Boilerplate-heavy pages can look duplicate even when the middle paragraph differs. Over-aggressive containment rules can delete jurisdiction-specific policies, price tiers, date windows, quoted source material, or examples that should remain separate. Every dedup policy needs sampled false positives, sampled false negatives, and an audit trail for why a canonical chunk won.`,
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        `A support RAG system ingests a help center, a PDF archive, release notes, and emailed policy updates. The refund policy appears as HTML, a PDF export, a FAQ answer, and a copied email. Older PDFs still say 45 days, while the current HTML says 30 days with exceptions. Before dedup, top-k returns five refund chunks, including stale copies. The answer is fluent, cited, and wrong.`,
+        `After dedup, the pipeline strips boilerplate, shingles cleaned chunks, uses MinHash and LSH to find mirrors, verifies candidates, tombstones stale versions, and indexes one current canonical chunk with aliases to every source. Top-k now includes the rule, exceptions, fee policy, contact procedure, and date caveat. The model did not become smarter; the evidence presented to it became less redundant and less stale.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Broder on resemblance and containment at https://www.cs.princeton.edu/courses/archive/spr05/cos598E/bib/broder97resemblance.pdf and the Stanford MMDS MinHash/LSH chapter at https://infolab.stanford.edu/~ullman/mmds/ch3n.pdf. Study MinHash & Locality-Sensitive Hashing, Content-Defined Chunking Dedup, RAG Pipeline, Multi-Index RAG, RAG Index Lifecycle and Alias Swap, Maximal Marginal Relevance, Reciprocal Rank Fusion, RAG Evaluation, and Citation Span Index next.',
+        `Primary sources: Broder on resemblance and containment at https://www.cs.princeton.edu/courses/archive/spr05/cos598E/bib/broder97resemblance.pdf and the Stanford MMDS MinHash/LSH chapter at https://infolab.stanford.edu/~ullman/mmds/ch3n.pdf. Study MinHash and Locality-Sensitive Hashing for the signature math, Content-Defined Chunking Dedup for boundary stability, RAG Index Lifecycle and Alias Swap for rebuilds, Maximal Marginal Relevance and Reciprocal Rank Fusion for diversity after retrieval, and RAG Evaluation for measuring whether dedup actually improves answers.`,
       ],
     },
   ],

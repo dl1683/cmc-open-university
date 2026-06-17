@@ -193,43 +193,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Argo CD is a GitOps controller for Kubernetes. It continuously compares desired application state from Git with live state in the cluster, reports sync and health status, and can apply changes automatically or manually. The data-structure lesson is the desired/live diff graph: Git revision, generated manifests, Application spec, live Kubernetes objects, sync operation, and health assessment.',
-        'Primary sources: Argo CD docs at https://argo-cd.readthedocs.io/, automated sync policy at https://argo-cd.readthedocs.io/en/latest/user-guide/auto_sync/, and resource health docs at https://argo-cd.readthedocs.io/en/latest/operator-manual/health/.',
+        `Kubernetes gives teams an API for declaring resources, but it does not by itself answer a harder operational question: which copy of the declaration is the source of truth? If a deployment exists in Git, in a rendered Helm chart, in a CI job, in a cluster, and in an emergency kubectl patch, the system can be running while nobody knows which state is intended.`,
+        `Argo CD exists to make that question explicit. It is a Kubernetes controller that compares desired application state from a Git revision with live state in a cluster. When live state deviates from the desired target, the application becomes OutOfSync. A sync operation applies the desired manifests, optionally prunes objects no longer declared, and then health checks decide whether the workload is actually ready.`,
+        `The data-structure lesson is a reconciliation graph. The nodes are Git revision, Application spec, manifest generator, desired object set, live object set, diff result, sync operation, and health status. The edges are not just deployment steps. They preserve the contract that Git says what should exist, the cluster says what does exist, and the controller keeps comparing the two.`,
       ],
     },
     {
-      heading: 'Sync loop',
+      heading: 'The reasonable first attempt',
       paragraphs: [
-        'An Application points to a repository, path, target revision, destination, and sync policy. Argo CD renders manifests from Git, compares them with live objects, and marks the app Synced or OutOfSync. A sync operation applies desired objects and can prune resources that are no longer declared.',
-        'This is Kubernetes Reconciliation Case Study with Git as the intent store. The controller does not need a CI pipeline to call the cluster directly. A commit changes desired state; the controller detects the diff and converges the cluster.',
+        `The first deployment design is a script or CI pipeline that runs kubectl apply. It is simple and useful. A commit triggers a job, the job renders YAML, the job talks to the cluster, and the cluster stores the result. Many teams start here because it has few moving parts and gives fast feedback.`,
+        `The second design is direct cluster administration. Operators patch resources during incidents, scale deployments by hand, edit ConfigMaps, or roll back images with kubectl. This is also reasonable in an emergency. The cluster is the system of record for what is serving traffic right now, so direct edits feel like the shortest path from problem to fix.`,
+        `Both approaches break down when they become normal practice. A CI apply job may succeed once and then stop watching. A manual patch may fix production but never reach Git. A rollback may restore an old Deployment while leaving a migration, Secret, or CRD in a newer shape. The missing piece is continuous comparison between intended state and actual state.`,
       ],
     },
     {
-      heading: 'Health and drift',
+      heading: 'The wall',
       paragraphs: [
-        'Sync status is not health status. Synced means live manifests match desired manifests. Healthy means Kubernetes status and Argo health checks suggest the workload is operational. A Deployment can be synced but unavailable, or manually changed and still serving traffic.',
-        'Drift detection needs discipline. Mutating webhooks, server-side defaults, status fields, generated names, and secret rotation can create noisy diffs. Ignore rules should be precise so they hide expected controller-owned fields without hiding real configuration drift.',
+        `The wall is drift. Live state changes after deployment because people patch it, controllers mutate it, webhooks default fields, status fields change, secrets rotate, autoscalers update replica counts, and failed rollouts leave partial state behind. If the deployment system only pushes changes, it may never notice that the cluster has wandered away from Git.`,
+        `The second wall is that matching YAML does not mean a healthy service. A Deployment can be Synced and still have no available replicas. A StatefulSet can match the desired manifest while waiting on storage. A Job can be applied but failed. Compliance and readiness are separate questions, so a useful GitOps controller must report both sync status and health status.`,
+        `The third wall is ordering. Kubernetes resources are not all independent. CRDs should exist before custom resources. Namespaces and RBAC should exist before workloads that use them. Config, Secrets, database migrations, Deployments, Services, and smoke-test Jobs may need phases, hooks, or sync waves. A flat apply of all manifests can race its own prerequisites.`,
       ],
     },
     {
-      heading: 'Complete case study: service hotfix',
+      heading: 'Core insight',
       paragraphs: [
-        'A production service has a bad image. An operator patches the Deployment directly with kubectl. Argo CD soon reports OutOfSync because live state no longer matches Git. The team commits the hotfix image to Git, or rolls the cluster back to the Git-declared image. Either way, the source of truth becomes explicit again.',
-        'A more mature path uses sync waves: CRDs first, namespace and RBAC next, config and secrets after that, application workloads after dependencies, and smoke-test jobs at the end. Git stores intent, sync waves encode ordering, and health checks decide whether the rollout is ready.',
+        `The core insight is to turn deployment into a control loop. Git is the desired-state store. The cluster is the live-state store. Argo CD repeatedly renders the desired manifests, reads live Kubernetes objects, computes a diff, and drives the live state back toward the desired state when a sync is requested or automation is enabled.`,
+        `This is the same reconciliation pattern used by Kubernetes controllers, but the intent source is outside the cluster. The Application object tells Argo CD where to find the repo, which path and revision to render, and where to apply the result. That separates change approval from cluster mutation. A commit changes intent; the controller performs convergence.`,
+        `The important split is sync versus health. Sync asks whether live objects match desired manifests. Health asks whether those objects appear operational according to resource-specific checks. A GitOps system that collapses those two signals can say "deployed" when it only means "applied."`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How it works',
       paragraphs: [
-        'GitOps is not just saving YAML in Git. It is a reconciliation contract. If people routinely mutate the cluster by hand and never update Git, the diff signal becomes background noise. If auto-prune is enabled without ownership boundaries, accidental deletion can be fast and broad. Rollback is only reliable if Git revisions, generated manifests, migrations, and external dependencies are all understood.',
+        `An Argo CD Application combines desired source and destination. The source names a Git repository, path, and target revision. The destination names a Kubernetes cluster and namespace. The sync policy controls whether Argo CD applies changes automatically or waits for a manual sync. The controller and repo server turn the selected revision into manifests, then compare those manifests with live objects from the Kubernetes API.`,
+        `If desired and live state differ, Argo CD reports OutOfSync. A sync operation applies missing or changed desired objects. If pruning is enabled, it can delete objects that are live but no longer declared. Sync options, hooks, and waves refine this basic operation by controlling apply behavior and resource ordering. Health assessment runs separately and rolls resource health into the Application health view.`,
+        `A rollback is the same loop in reverse. Instead of treating rollback as a special cluster command, the team moves Git intent to an older known-good revision or commits a revert. Argo CD renders that desired state, computes the diff from current live state, applies the change, and checks health. Emergency direct edits can still happen, but they become visible drift until Git is updated or the cluster is reconciled back.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The correctness argument is an invariant over desired and live object sets. After each comparison, every tracked resource is either in sync, out of sync, missing, extra, or ignored by an explicit rule. A sync operation attempts to reduce that difference by applying desired resources and optionally pruning extras. Because the controller keeps running, reconciliation is not a one-shot deployment event.`,
+        `Git gives the loop a durable intent history. A commit has an author, timestamp, review trail, and content-addressed identity. That makes deployment state easier to audit than a sequence of unrecorded cluster edits. The controller does not need the CI system to keep a privileged cluster token and remember every object it touched. The commit is the input; the controller owns convergence.`,
+        `Health checks complete the argument by preventing a false success signal. Applying a Deployment object only proves the API server accepted the manifest. Health waits for observed generation, updated replicas, availability, or custom resource logic depending on type. The sync loop answers "does the cluster match Git"; health answers "does the matched thing appear ready."`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `A platform team deploys a service with a CRD-backed operator. The desired repo contains the CRD, namespace, RBAC, ConfigMap, Secret reference, Deployment, Service, and a post-sync smoke-test Job. If all of those objects are applied at once, the custom resource may be submitted before the CRD exists, the Deployment may start before config is valid, and the smoke test may run before the service has endpoints.`,
+        `The team adds ordering. The CRD goes in an early wave. Namespace and RBAC follow. Config and Secret references come next. The Deployment and Service roll after their prerequisites. The post-sync Job runs after the workload is expected to be available. Git stores the desired state, sync waves encode dependency order, and health checks decide whether the rollout can be trusted.`,
+        `Now a production incident occurs. An operator patches the Deployment image directly to stop an outage. Argo CD marks the Application OutOfSync because live state no longer matches Git. The team has two honest choices: commit the hotfix image to Git, making it the new desired state, or revert the cluster to the Git-declared image. Either way, drift is not allowed to become invisible tradition.`,
+      ],
+    },
+    {
+      heading: 'What the animation shows',
+      paragraphs: [
+        `The sync-loop view follows the dataflow from Git revision and Application spec into rendered manifests, then into the desired/live diff, sync operation, Kubernetes API, live objects, and health assessment. The matrix names the risk at each stage: wrong revision, bad template, noisy diff, failed apply, or dangerous prune.`,
+        `The drift-health view separates two axes that learners often merge. OutOfSync is a comparison result. Healthy is a runtime assessment. The rollback frame shows that GitOps rollback is not a panic button hidden outside the model; it is another desired-state change that the reconciliation loop applies and verifies.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `Argo CD adds a controller, repo rendering, cache state, RBAC design, and operational policy. The payoff is continuous comparison, but the cost is that every source of mutation now needs a clear owner. If another controller or operator changes fields that Argo CD thinks it owns, the app can flap between OutOfSync and Synced. If ignore rules are too broad, real drift disappears inside an exception.`,
+        `Automatic sync reduces manual deployment work but increases the blast radius of a bad commit. Auto-prune keeps clusters clean but can delete resources quickly if ownership boundaries are wrong. Sync waves reduce dependency races but add rollout modeling work. Hooks can encode migrations and smoke tests, but failed hooks become part of the deployment state machine.`,
+        `The dominant cost in practice is not CPU time. It is semantic hygiene. Teams must decide which resources are managed by Argo CD, which fields are controller-owned, how secrets are generated, how environments are promoted, who can override live state, and how emergency changes are reconciled back into Git.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Argo CD wins when teams need auditable Kubernetes delivery across many services or clusters. Git history becomes the deployment ledger. Review workflows become part of operations. A cluster that drifts from Git is visible. A rollback can be expressed as a revision move rather than a manually reconstructed command sequence.`,
+        `It also wins when platform teams want separation of duties. CI can build images and update manifests without holding broad cluster credentials. Argo CD can run inside the cluster or management plane with the permissions needed to reconcile applications. That makes deployment less dependent on one CI runner being both builder and cluster administrator.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `GitOps fails when Git is treated as a suggestion. If operators routinely patch live resources and never commit the result, Argo CD becomes a drift alarm that everyone learns to ignore. If generated manifests are not deterministic, the diff signal becomes noisy. If secrets, external databases, DNS, and cloud resources are outside the model, a Synced app can still fail because its real dependencies are not represented.`,
+        `It is also the wrong tool for changes that cannot be safely represented as declarative desired state. Some incident actions are exploratory. Some data migrations require transactional application logic. Some rollbacks cannot undo external side effects. Argo CD can orchestrate hooks and surface health, but it cannot make an unsafe operational plan safe by putting YAML in Git.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first failure mode is diff noise. Mutating webhooks, server defaults, managed fields, status updates, and generated values can make every comparison look dirty. The fix is narrow diff customization, not hiding whole resources. The second is prune loss. If a manifest disappears because of a bad path, branch, or generator error, automated pruning can delete live resources that were still needed.`,
+        `The third is false health. A resource may pass a built-in health check while the application is still broken at the business level. Smoke-test Jobs, progressive delivery, metrics, and tracing can add evidence, but they need to be modeled explicitly. The fourth is rollback illusion. Reverting manifests does not automatically revert databases, queues, external APIs, or customer-visible side effects.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Git Internals for the content-addressed source of truth, Kubernetes Reconciliation Case Study for the control-loop pattern, Kubernetes Informer DeltaFIFO & Workqueue for controller mechanics, Helm Release Revision Ledger for rendered chart state, Flagger Progressive Delivery Canary for traffic-gated rollout, Feature Flag Control Plane for exposure control, and Distributed Tracing for rollout observability.',
+        `Primary sources: Argo CD overview at https://argo-cd.readthedocs.io/, automated sync policy at https://argo-cd.readthedocs.io/en/latest/user-guide/auto_sync/, sync phases and waves at https://argo-cd.readthedocs.io/en/stable/user-guide/sync-waves/, and resource health at https://argo-cd.readthedocs.io/en/latest/operator-manual/health/.`,
+        `Study Git Internals for the source-of-truth ledger, Kubernetes Reconciliation Case Study for the controller pattern, Kubernetes Informer DeltaFIFO and Workqueue for controller mechanics, Helm Release Revision Ledger for rendered chart history, Flagger Progressive Delivery Canary for traffic-gated rollout, Feature Flag Control Plane for exposure control, and Distributed Tracing for verifying a rollout beyond Kubernetes status.`,
       ],
     },
   ],

@@ -212,38 +212,98 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Shamir secret sharing is a threshold scheme. A dealer splits a secret into n shares so any k shares can reconstruct the secret, while k - 1 or fewer shares reveal no information about it. The secret is not copied. It is encoded as the intercept of a random polynomial over a finite field.',
-        'Adi Shamir introduced the scheme in "How to Share a Secret." The paper defines a (k, n) threshold scheme where k or more pieces make the data computable, but k - 1 or fewer pieces leave it undetermined: https://web.mit.edu/6.857/OldStuff/Fall03/ref/Shamir-HowToShareASecret.pdf.',
+        'Some secrets must survive loss without becoming easy to steal. A root encryption key, recovery key, signing key, or emergency credential cannot live only in one safe, one laptop, or one person\'s memory. That is available only until the holder disappears.',
+        'Copying the secret fixes availability by destroying the security model. One stolen copy is the secret. Shamir secret sharing gives a cleaner contract: split one secret into n shares so any k shares reconstruct it, while k - 1 or fewer shares leave the secret completely undetermined.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The reasonable first attempt is redundancy: put the key in several places and require people or procedures to protect each copy. This is simple, and it is why backup copies are common outside cryptography.',
+        'The wall is that redundancy changes the threat model. If five people each hold a full copy, the attacker needs one mistake. Splitting the bytes into chunks has the opposite problem: missing one chunk can block recovery, and partial chunks may leak structure. The system needs quorum recovery without partial disclosure.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A polynomial of degree k - 1 is fixed by k distinct points. With fewer than k points, many polynomials still fit. Shamir puts the secret at f(0), chooses the other coefficients uniformly at random, and gives participants nonzero points on the curve.',
+        'The x coordinate can be public. The y coordinate is the share. Recovery is not a vote and not a password ceremony; it is interpolation over a finite field. The threshold is enforced by algebra, not by trust in a coordinator.',
+      ],
+    },
+    {
+      heading: 'What the views teach',
+      paragraphs: [
+        'In the share-generation view, watch the secret flow into the polynomial as the intercept, not as a copied value. The random coefficient node matters because those coefficients are the mask that makes every fewer-than-threshold view compatible with every possible secret.',
+        'In the reconstruction view, focus on the selected shares and the lambda nodes. The shares do not reveal the whole curve one by one. Their Lagrange weights cancel every nonconstant term at x = 0, leaving only the original intercept.',
+        'The picture is deliberately small, but the algebraic meaning is the same in a real field. Shares are points on a hidden polynomial. The threshold is the number of points needed to pin down that polynomial. The plot is not suggesting that attackers are confused by a curved line; it is showing how much mathematical freedom remains below the threshold.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'To make a k-of-n scheme, choose a random polynomial of degree k - 1. Put the secret in the constant term. Evaluate the polynomial at n nonzero x positions and hand each participant one point. Reconstruction uses Lagrange interpolation to evaluate the polynomial at x = 0.',
-        'The visualization uses a tiny field for readability: f(x) = 9 + 4x + 2x^2 mod 17. Real systems use large finite fields and cryptographic randomness. The small example is for structure, not security.',
+        'Choose a finite field large enough for the secret representation and for n distinct x values. For a k-of-n scheme, sample k - 1 random coefficients and build f(x) = secret + a1*x + a2*x^2 + ... + a(k-1)*x^(k-1). Then hand out shares (1, f(1)), (2, f(2)), and so on.',
+        'Reconstruction takes any k shares and evaluates f(0) with Lagrange interpolation. It does not need to recover every coefficient first. Each selected share is multiplied by a basis weight that equals 1 at that share\'s x position, 0 at the other selected x positions, and a useful value at x = 0.',
+        'The field requirement is not cosmetic. Division during interpolation means every nonzero denominator must have an inverse. Integers with normal division or floating point arithmetic do not give the same guarantees. Real implementations use a prime field or a binary extension field, encode the secret into field elements, and track the field choice in share metadata.',
       ],
     },
     {
-      heading: 'Complete case study: offline recovery key',
+      heading: 'Why it works',
       paragraphs: [
-        'A company wants disaster recovery for a root encryption key without giving any one executive the key. It creates a 3-of-5 Shamir sharing: one share goes to legal, one to security, one to finance, one to an external custodian, and one to the CEO. Losing two shares still permits recovery; stealing two shares does not reveal the key.',
-        'During a recovery ceremony, three trustees authenticate each other, combine their shares on an isolated machine, unwrap the root key, rotate dependent keys, and then erase reconstruction material. The threshold policy improves availability and limits single-person compromise, but it concentrates risk during reconstruction.',
+        'Correctness comes from uniqueness. Over a field, k distinct points determine exactly one polynomial of degree at most k - 1. If the dealer generated shares from that polynomial, interpolating any k valid shares gives the same polynomial, so f(0) is the original secret.',
+        'Privacy comes from the remaining freedom. Given only k - 1 shares, every possible intercept can be completed by exactly one degree-(k - 1) polynomial that matches those shares. Because the hidden coefficients were chosen uniformly, the observed shares do not make one candidate secret more likely than another.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not confuse Shamir sharing with encryption. It protects the secret by splitting it into threshold shares, but once reconstructed the secret exists normally and must be handled like any other high-value key. Do not reuse polynomial coefficients across secrets. Do not accept unauthenticated shares in hostile settings; verifiable secret sharing or commitments may be needed.',
-        'Do not use toy fields, floating-point interpolation, or ad hoc string arithmetic. This is finite-field algebra. Production implementations need constant-time field operations, authenticated envelopes, versioned metadata, and tested recovery procedures.',
+        'The visualization uses the toy field mod 17 and the polynomial f(x) = 9 + 4x + 2x^2. The secret is f(0) = 9. Evaluating at x = 1 through 5 gives shares (1,15), (2,8), (3,5), (4,6), and (5,11). This tiny field is readable on screen, not secure.',
+        'Pick shares (1,15), (3,5), and (5,11). Their Lagrange weights at x = 0 are 4, 3, and 11 mod 17. Reconstruction computes 15*4 + 5*3 + 11*11 = 196, and 196 mod 17 = 9. The arithmetic returns the intercept, not a majority vote among shares.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Straightforward share generation costs O(nk): evaluate a degree-(k - 1) polynomial for n share positions. Straightforward reconstruction costs O(k^2) field operations with direct Lagrange interpolation. Each share stores one field element plus its x coordinate and metadata.',
+        'The operational cost is often larger than the math. Shares need strong randomness, authenticated storage, versioned metadata, trustee replacement rules, tested recovery steps, and erasure after use. A threshold scheme that nobody has rehearsed is not a recovery plan.',
+        'Changing the threshold later is not free. To move from 3-of-5 to 4-of-7, a system normally runs a new sharing ceremony for the same secret or for a rotated replacement secret. Old shares must be revoked or destroyed according to policy, because stale shares can preserve old access paths.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Shamir sharing fits offline recovery keys, disaster recovery, custody ceremonies, high-value signing keys, and administrative actions where no single holder should be able to act alone. It is useful when availability and insider resistance must be tuned with one threshold parameter.',
+        'It also fits systems that need small shares. In the basic scheme, each share is the size of one field element for each secret field element. For large data, share an encryption key and store the encrypted data normally instead of splitting the whole dataset into Shamir shares.',
+      ],
+    },
+    {
+      heading: 'Where it is not the right tool',
+      paragraphs: [
+        'It is a poor fit for secrets that must be used constantly. Every reconstruction creates a moment where the full secret exists again. If the system needs frequent live authorization, threshold signatures, hardware-backed keys, or multisignature workflows may reduce the need to reassemble the secret.',
+        'It is also not enough when shareholders may submit fake shares or when the dealer may be malicious. Those settings need authenticated shares, commitments, verifiable secret sharing, or a different protocol. Shamir sharing alone assumes valid shares from a valid sharing ceremony.',
+        'It is also not a backup catalog. Shamir protects the secret value, but it does not tell future operators which system the key belongs to, which version is current, who is authorized to combine shares, or what to rotate after recovery. Those facts belong in separate, authenticated procedure documents.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Give every share a clear identifier: scheme version, threshold, total share count, field or library version, x coordinate, creation date, and the protected secret label. Store that metadata without exposing the y value. During recovery, reject duplicate x coordinates and shares from different ceremonies before interpolation begins.',
+        'Plan the human ceremony as carefully as the code. Use independent storage locations, tamper-evident packaging when appropriate, authenticated communication between trustees, and a rehearsal with a test secret. After a real reconstruction, rotate dependent credentials if the recovery environment may have exposed the secret.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Do not use floating-point interpolation. Do not use a toy modulus. Do not reuse the same random polynomial coefficients for different secrets. Do not lose the x coordinate or the field/version metadata. Do not treat a printed share as self-authenticating.',
+        'The dangerous window is reconstruction. Verify participants, isolate the machine, control logging and screenshots, rotate dependent keys when appropriate, and wipe temporary material. The scheme prevents fewer-than-threshold disclosure; it does not make the reconstructed key harmless.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Adi Shamir, "How to Share a Secret" at https://web.mit.edu/6.857/OldStuff/Fall03/ref/Shamir-HowToShareASecret.pdf and ACM DOI page at https://dl.acm.org/doi/10.1145/359168.359176.',
-        'Study Binary Exponentiation, Reed-Solomon Erasure Coding, TUF Update Metadata Case Study, Federated Learning & Secure Aggregation, KZG Polynomial Commitment Opening Case Study, Verkle Trees & Stateless Clients, and Transparency Log Witnessing Case Study next.',
+        'Primary source: Adi Shamir, "How to Share a Secret" at https://web.mit.edu/6.857/OldStuff/Fall03/ref/Shamir-HowToShareASecret.pdf and the ACM DOI page at https://dl.acm.org/doi/10.1145/359168.359176.',
+        'Study finite fields and modular inverses first if the arithmetic feels opaque. Then study Reed-Solomon erasure coding for the coding-theory cousin, KZG polynomial commitments for commitment-based polynomial checks, threshold signatures for avoiding reconstruction, and verifiable secret sharing for malicious-share settings.',
       ],
     },
   ],

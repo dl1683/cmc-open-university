@@ -212,42 +212,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Eytzinger layout stores sorted keys in the breadth-first order of an implicit binary search tree. Instead of a sorted array [2, 4, 6, 8, 10, 12, 14], the Eytzinger array stores [8, 4, 12, 2, 6, 10, 14]. Search starts at the root and uses heap-style child indices: left child 2i, right child 2i+1 in the one-based view.',
-        'The paper Array Layouts for Comparison-Based Searching compares sorted order, Eytzinger layout, implicit B-tree layout, and van Emde Boas layout for repeated in-RAM searches, finding Eytzinger surprisingly strong for large arrays on modern hardware: https://arxiv.org/abs/1509.05053. The ACM DOI is https://dl.acm.org/doi/10.1145/3053370.',
+        'Binary search uses sorted order perfectly in the comparison model. With 1,000,000 keys, it needs about 20 comparisons. That sounds like the end of the story until the array is large enough that memory stalls and branch mispredictions dominate the comparisons.',
+        'Ordinary binary search jumps from the middle to the middle of a half, then to the middle of a quarter. Those addresses are hard for the CPU to predict, and the branch direction depends on the query. Two O(log n) searches can have very different hardware cost.',
+        'Eytzinger layout keeps the same binary-search decision tree but stores it in breadth-first order. The algorithm still discards half the remaining ranks at each comparison; the machine sees a more regular path through memory.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Baseline And The Wall',
       paragraphs: [
-        'The layout is built by doing an inorder traversal over the implicit tree while consuming the sorted keys. That preserves the binary-search-tree invariant: everything in the left subtree is smaller, everything in the right subtree is larger. But memory order is breadth-first, so the upper levels of the tree are packed near the beginning of the array.',
-        'Search is still logarithmic. At each node, compare the query with the node key and jump to one of two predictable child indices. For lower_bound, record a candidate whenever the current key is greater than or equal to the query, then move left. If the query is larger, move right. When the index runs past the array, return the last candidate.',
+        'The reasonable baseline is a sorted array searched with lower_bound. It is compact, simple, and optimal up to constant factors if each comparison has the same cost.',
+        'The wall is that comparisons do not have the same cost on real hardware. A comparison that hits in L1 cache is cheap. A comparison that waits on memory is expensive. A branch that the predictor gets wrong flushes useful work.',
+        'For repeated lookup over a read-mostly array, layout becomes part of the data structure. The question changes from how many comparisons to which memory locations the comparisons touch.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Layout',
       paragraphs: [
-        'Asymptotically, Eytzinger search is O(log n), the same as ordinary binary search. The difference is cache and branch behavior. Ordinary binary search jumps to midpoints that can be difficult for hardware prefetchers and branch predictors. Eytzinger search follows regular child indices, so implementations can prefetch likely descendants and use branch-friendly or branchless comparisons.',
-        'The cost is layout conversion and update difficulty. If the set changes frequently, maintaining Eytzinger order is inconvenient. If the array is small enough to stay hot in cache, ordinary sorted order may be as good or better. Eytzinger is a read-heavy, many-queries-over-one-array optimization.',
+        'Eytzinger layout stores an implicit complete binary search tree in array order. In the one-based view, index i has left child 2i and right child 2i + 1. The array relation looks like a heap, but the value rule is binary-search-tree order.',
+        'The sorted ranks live in the inorder traversal. Every value in the left subtree of a node is smaller. Every value in the right subtree is larger. Breadth-first storage only changes where the nodes sit in memory.',
+        'For keys [2, 4, 6, 8, 10, 12, 14], ordinary sorted order is [2, 4, 6, 8, 10, 12, 14]. Eytzinger order is [8, 4, 12, 2, 6, 10, 14]. The median sits first because it is the root of the comparison tree.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanics',
       paragraphs: [
-        'The pattern matters in database indexes, analytics engines, search structures, routing tables, and any service that repeatedly searches static sorted arrays. It is a clean example of how Big-O Growth Rates can hide hardware costs: O(log n) algorithms with the same comparison count can behave differently because cache misses, branch mispredictions, and prefetchability dominate.',
+        'Build the layout by walking the implicit tree in inorder while consuming the sorted input. Recurse to the left child, write the next sorted key at the current index, then recurse to the right child. This puts sorted order into the tree relation.',
+        'Search starts at index 1 in a one-based implementation. If the query is less than or equal to the current value, record the current index as a lower_bound candidate and move to the left child. If the query is larger, move to the right child.',
+        'The loop stops when the child index passes the array length. The answer is the last candidate. For exact search, the same path is followed, but the algorithm can stop early when the current key equals the query.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why It Works',
       paragraphs: [
-        'Do not confuse Eytzinger layout with a heap priority queue. The array index relation looks heap-like, but the values satisfy binary-search-tree order, not heap order. Do not expect it to help every lookup. The win appears in specific hardware and workload regimes: many searches, large read-only arrays, and implementations tuned for prefetch and branch behavior.',
+        'Correctness comes from the inorder invariant. At each node, all keys in the left subtree are smaller than the node key, and all keys in the right subtree are larger. A comparison discards exactly the subtree whose ranks cannot contain the answer.',
+        'For lower_bound, the candidate rule preserves the smallest known key that is still >= query. Moving left searches for a smaller valid candidate. Moving right is safe only after proving the current value and its left subtree are too small.',
+        'The array permutation does not change the comparison tree. It changes address order. The search returns the same answer ordinary binary search would return over the sorted keys.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost And Behavior',
       paragraphs: [
-        'Primary sources: Array Layouts for Comparison-Based Searching at https://arxiv.org/abs/1509.05053 and ACM DOI https://dl.acm.org/doi/10.1145/3053370. Study Binary Search, Binary Heap, B-Trees, van Emde Boas Tree, Learned Indexes, and Database Indexing next.',
+        'The build step is O(n) after the input is sorted. Search is O(log n) comparisons and O(1) extra space, the same asymptotic cost as ordinary binary search.',
+        'The practical difference is memory behavior. Upper tree levels sit near the start of the array and are reused across many searches. Child indices are regular, so tuned implementations can prefetch descendants or use branchless comparisons.',
+        'The cost is update pain. Inserting one key into the logical sorted set can require rebuilding the layout. Eytzinger is for static or batched data, not for a set with frequent individual updates.',
+      ],
+    },
+    {
+      heading: 'Implementation Checklist',
+      paragraphs: [
+        'Choose and document the indexing convention first. Many explanations use one-based indices because children are 2i and 2i + 1. JavaScript arrays are zero-based, so code either reserves index 0 as unused or rewrites the formulas to left = 2i + 1 and right = 2i + 2. Mixing those conventions is the easiest way to return the wrong lower_bound.',
+        'Handle non-perfect sizes explicitly. Real arrays rarely contain exactly 2^k - 1 keys, so the implicit tree has missing leaves near the end. The builder and search loop must agree on which indices are valid, how candidates are stored, and what happens when the query is larger than every key.',
+        'Benchmark with the real query distribution. Eytzinger layout is about memory behavior, so a microbenchmark over tiny arrays or sequential queries can tell the wrong story. Compare against ordinary binary search, branchless sorted-array search, and B-tree-style block search on the data sizes that matter.',
+      ],
+    },
+    {
+      heading: 'Testing It',
+      paragraphs: [
+        'Property tests are straightforward. Generate sorted arrays with distinct keys and duplicates if lower_bound supports them, build the Eytzinger layout, then compare every query result with a trusted sorted-array lower_bound. Include empty arrays, one-element arrays, powers of two, and sizes just below or above powers of two.',
+        'Also test the builder independently by traversing the implicit tree inorder and checking that it produces the original sorted sequence. That test proves the layout invariant directly instead of only testing search through it.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'The layout fits read-heavy in-memory indexes: analytics columns, routing tables, sorted dictionaries, search kernels, and database components that run many lookups over the same sorted keys.',
+        'It is most useful when the data is large enough to miss cache and stable enough to justify a conversion step. The improvement comes from fewer expensive stalls, not from fewer comparisons.',
+        'It is also a good lesson in performance thinking. The abstract data structure is still binary search, but the physical arrangement changes how the processor experiences that search.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'Small arrays usually do not benefit because the whole search path is already hot in cache. A plain sorted array is also easier to inspect, serialize, update, and share across code that expects sorted order.',
+        'The heap-like index formula causes a common mistake: treating the values as a heap. They are not heap-ordered. The root is the median, not the minimum.',
+        'Low-level implementations need boundary discipline. One-based indexing, sentinel padding, prefetch distance, and duplicate-key lower_bound rules can all create off-by-one bugs even when the high-level idea is correct.',
+      ],
+    },
+    {
+      heading: 'Concrete Example',
+      paragraphs: [
+        'Store [2, 4, 6, 8, 10, 12, 14] as [8, 4, 12, 2, 6, 10, 14]. To compute lower_bound(11), compare with 8 and move right. Compare with 12, record 12 as the best candidate, and move left. Compare with 10 and move right past the leaf. The answer is 12.',
+        'The same comparisons happen in a normal binary-search tree. The difference is that the nodes are array positions 1, 3, and 6. The path can be computed with multiplication and addition instead of midpoint arithmetic.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study Binary Search first because Eytzinger layout keeps its decision rule. Study Binary Heap to separate heap-shaped indexing from heap ordering. Study B-Tree and implicit B-tree layouts for cache-line-sized search blocks. Study van Emde Boas layout for cache-oblivious recursion.',
+        'Primary sources: Array Layouts for Comparison-Based Searching, https://arxiv.org/abs/1509.05053, and ACM DOI page, https://dl.acm.org/doi/10.1145/3053370.',
       ],
     },
   ],

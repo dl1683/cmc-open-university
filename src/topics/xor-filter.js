@@ -217,43 +217,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An xor filter is a static approximate-membership data structure. It answers set queries with the same high-level contract as a Bloom Filter: stored keys are never reported absent, while absent keys may occasionally be reported present. The attraction is speed and space. A query uses three table reads and an xor of small fingerprints, with no k independent bit probes and no variable-length bucket walk.',
-        'The paper Xor Filters: Faster and Smaller Than Bloom and Cuckoo Filters reviews this construction and reports that xor filters can be faster than Bloom and cuckoo filters while using less memory: https://arxiv.org/abs/1912.08258. The trade is that construction is more involved and the set is immutable. If the represented set changes, the filter is normally rebuilt.',
+        'A large system often needs to ask a cheap question before doing expensive work: could this key be in that file, shard, manifest, or snapshot? If the answer is definitely no, the system can skip disk, network, decompression, or an index walk.',
+        'Bloom filters solve that broad problem, but many production sets are immutable after publication. An SSTable, object manifest, or versioned shard is built once and queried many times. Xor filters exploit that static setting: spend more effort during construction so each later query is only three table reads and a fingerprint comparison.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The static-filter bargain',
       paragraphs: [
-        'Each key maps to three table positions and has a small fingerprint. Construction forms a hypergraph whose vertices are table slots and whose hyperedges are keys connected to their three slots. The builder repeatedly peels a key that is incident to a degree-one slot, pushes it onto a stack, and removes its three incidences. If peeling removes all keys, the graph is acyclic enough for assignment. If a cyclic core remains, the builder retries with a new seed or a larger table.',
-        'Assignment runs in reverse peel order. For each key, two of its three slot values have already been assigned. The builder chooses the last slot value so that table[h1(key)] xor table[h2(key)] xor table[h3(key)] equals fingerprint(key). At query time, compute the same three positions, xor their stored values, and compare the result to the query fingerprint.',
+        'A Bloom filter is the familiar baseline: hash the key several times and check bits. It is simple and insert-friendly. That is exactly why it remains the right answer for many mutable or low-complexity systems.',
+        'The unused feature in an immutable set is incremental insertion. Once the file is sealed, there will be no per-key updates. Xor filters trade that update flexibility for a denser table and a smaller constant at query time.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core equation',
       paragraphs: [
-        'Lookup is O(1) with a tiny constant: three reads, two xor operations, and one fingerprint comparison. Space depends on fingerprint size and load factor. Construction is expected linear but can fail for a seed when the hypergraph has an unpeelable core. Production implementations handle that by retrying. The practical cost is therefore paid at build time, not query time.',
-        'This build/query split explains the use case. Xor filters are excellent for immutable files, sorted-string tables, object manifests, and snapshots where many reads follow one build. They are much less attractive for a live set that receives frequent inserts and deletes. Counting Bloom filters or Cuckoo Hashing-style structures may be better when updates matter.',
+        'Each key gets three table positions and a small fingerprint. Construction chooses the table bytes so this equation is true for every stored key: table[h1(key)] xor table[h2(key)] xor table[h3(key)] = fingerprint(key).',
+        'A query recomputes the same three positions and xors their stored values. If the result differs from the key fingerprint, the key is definitely absent. If the result matches, the key is maybe present and the caller must consult the source of truth if it needs an exact answer.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How construction works',
       paragraphs: [
-        'Storage engines use approximate filters to avoid expensive lookups. If an SSTable or object shard definitely does not contain a key, the engine can skip disk, network, decompression, and index traversal. Xor filters fit this pattern because the file or shard becomes immutable after it is flushed. The filter is built once alongside the file and then queried for the life of that file version.',
+        'The builder treats the problem as a 3-uniform hypergraph. Table slots are vertices. Keys are hyperedges connected to the three slots chosen by their hashes. If a slot is touched by exactly one remaining key, that key can eventually be solved from that slot.',
+        'Peeling repeatedly finds such degree-one slots, pushes their keys onto a stack, and removes their incidences from the graph. If all keys peel, assignment runs backward. For each key in reverse order, two slot values are already fixed, so the builder writes the remaining slot value that makes the xor equation true.',
+        'If peeling gets stuck with a cyclic core, the current hash seed failed. Production builders retry with a new seed or a slightly larger table. That probabilistic construction is the price paid for the compact static query layout.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Invariant and proof idea',
       paragraphs: [
-        'Do not treat maybe present as proof. Like a Bloom filter, an xor filter is a front door that avoids unnecessary work; positive answers usually need a real lookup in the source of truth. Do not expect cheap incremental updates. The equations were solved for one static set. Adding one key changes the hypergraph and can invalidate the construction.',
-        'Another misconception is that xor means cryptographic security. The xor operation is just the algebra that reconstructs a small fingerprint. It is not an authenticated membership proof and should not be used as a security boundary.',
+        'The reverse assignment invariant is: when a key is processed, at least one of its three slots is still free and the other needed values are already known. The peeled stack guarantees that because the key was removed through a degree-one slot.',
+        'Solving the remaining slot makes the equation true for that key without changing equations already fixed later in the reverse order. By induction over the reversed stack, every stored key satisfies its xor equation. That is why the filter has no false negatives for the exact set used to build it.',
+      ],
+    },
+    {
+      heading: 'Visual checkpoints',
+      paragraphs: [
+        'In the peeling-build view, read each key as an edge touching three slots. The build is not storing the key in all three slots. It is finding an order in which the xor equations can be solved one remaining slot at a time.',
+        'The peel-stack frame is the important transition: construction first removes keys, then fills table values in the opposite order. In the reverse-assignment frame, the highlighted slots for key A are the three positions whose stored bytes must xor back to the fingerprint for A.',
+        'In the membership-query view, follow the four rows as the complete query path: compute three positions, load three bytes, xor them, compare to fingerprint(key). The error-semantics table explains the contract: present keys return maybe present, absent keys usually return definitely absent, and absent keys can collide by fingerprint chance.',
+      ],
+    },
+    {
+      heading: 'Parameter choices',
+      paragraphs: [
+        'Fingerprint width sets the false-positive budget. An 8-bit fingerprint is cheap but gives more accidental matches than a 12-bit or 16-bit fingerprint. The right value comes from the cost of a false positive. If a false positive only checks a local block cache, small fingerprints may be fine. If it triggers a network request or disk seek, the filter needs a lower false-positive rate.',
+        'The table needs slack. Peeling fails more often when the table is too tight because the random hypergraph is more likely to contain a core with no degree-one slot. Production implementations choose a load factor that makes retries rare rather than chasing the theoretical minimum table size.',
+        'Hashing must be deterministic for the serialized filter. The table, fingerprint seed, position seed, and any sizing parameters are part of the data format. A reader that cannot reproduce the same three positions cannot query the filter safely.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Build the filter beside the immutable object it guards. For an LSM tree, that usually means constructing it when an SSTable is flushed or compacted. For a manifest, it means constructing it when the snapshot is published. The filter and the source of truth should have the same lifetime.',
+        'Make retry behavior explicit. A failed peel should return a normal build failure code with enough context to retry a new seed or larger allocation. Treating build failure as corruption makes operators fear a property that is actually part of the algorithm.',
+        'Do not use the filter as the only record of the set. It stores fingerprints, not keys or values. A maybe-present result must flow to the real index, file, map, or object store. A definitely-absent result is the only answer the filter can make final.',
+        'Test with adversarial shapes, not only random keys. Duplicate keys, tiny sets, already-hashed keys, empty sets, serialization round trips, and seed changes are where many static-filter bugs appear. The mathematical idea is small; the production surface is in building and loading it correctly.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Lookup is O(1) with a small fixed constant: three position computations, three table reads, two xor operations in the byte case, and one fingerprint comparison. Space is driven by fingerprint size and load factor. A larger fingerprint lowers the false-positive rate at the cost of more memory.',
+        'Construction is expected linear in the number of keys but not deterministic for a fixed seed. The builder needs enough slack in the table for peeling to succeed with high probability. Retry logic is not optional in a real implementation.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Xor filters fit immutable storage files, SSTables, object manifests, CDN publication sets, package indexes, and versioned shards. They are especially useful when negative lookups are common and a definite negative avoids a much more expensive operation.',
+        'They are also a good conceptual bridge to Binary Fuse and Ribbon filters. All of these structures make the static-filter bargain explicit: solve more during build, spend less during query.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Xor filters are a poor fit for live sets with frequent inserts and deletes. Adding one key changes the hypergraph and can invalidate the solved equations. The normal update is rebuild or replace the whole filter for a new snapshot.',
+        'They also do not prove membership. A maybe-present answer is a hint to perform the real lookup. Xor is not a security primitive here; it is just the algebra used to reconstruct a small fingerprint. Use authenticated data structures when membership answers cross a trust boundary.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: Xor Filters: Faster and Smaller Than Bloom and Cuckoo Filters at https://arxiv.org/abs/1912.08258. Study Bloom Filter, Cuckoo Hashing, Quotient Filter, Count-Min Sketch, RocksDB LSM Case Study, and S3 Object Storage Case Study next.',
+        'Primary source: Xor Filters: Faster and Smaller Than Bloom and Cuckoo Filters at https://arxiv.org/abs/1912.08258. Study Bloom Filter, Cuckoo Filter, Cuckoo Hashing, Quotient Filter, Binary Fuse Filter, Ribbon Filter, Count-Min Sketch, RocksDB LSM Case Study, and S3 Object Storage Case Study next.',
       ],
     },
   ],

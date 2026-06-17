@@ -207,50 +207,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A JavaScript lexical environment is the runtime structure that connects names to values. The ECMAScript specification describes Environment Records as the mechanism for associating identifiers with variables and functions according to lexical nesting: https://tc39.es/ecma262/multipage/executable-code-and-execution-contexts.html. A lexical environment combines that record with an outer environment reference.',
-        'A closure is a function bundled with references to its surrounding state. MDN phrases this as a function enclosed with references to its lexical environment: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Closures. This topic treats that definition as a data-structure story: binding tables linked by outer pointers, plus function objects that retain those pointers.',
+        'JavaScript programs constantly ask the runtime one basic question: when code says `name`, which binding should that name mean? Lexical environments are the data structure behind that answer. They connect identifiers to storage cells and connect each scope to the scope outside it.',
+        'Closures matter because functions often outlive the call that created them. Event handlers, timers, promises, factories, modules, and React callbacks all depend on a function remembering the environment where it was created. This topic treats scope as a linked structure and closures as references into that structure, not as a vague language feature.',
       ],
     },
     {
-      heading: 'How lookup works',
+      heading: 'The naive model and its wall',
       paragraphs: [
-        'When code reads a name, the engine starts in the current environment record. If the name is not present, it follows the outer reference and tries again. That continues until the binding is found or the chain ends. This is why lexical scope is determined by where code is written, not by which function happened to call it.',
-        'The environment record can be thought of as a binding table, but it is not just a normal JavaScript object. Spec environment records are internal mechanisms. Implementations are free to store optimized locals on stack frames, in registers, in context objects, or in other engine-specific layouts as long as observable behavior matches the spec.',
+        'A beginner model says variables live in the nearest pair of braces and a closure copies whatever value it needs. That model works for a few examples, but it breaks on `var`, hoisting, the temporal dead zone, loop callbacks, nested functions, and memory retention.',
+        'The wall appears when time enters the program. A callback runs later, after the outer function returned. A `let` binding exists before it can be read. A `var` loop callback sees the final loop value because every callback shares the same function-scoped cell. The correct model has to describe binding creation, binding lookup, and binding lifetime separately.',
       ],
     },
     {
-      heading: 'Closures and lifetime',
+      heading: 'Core invariant',
       paragraphs: [
-        'When a function is created, it records the lexical environment in which it was created. If that function escapes, for example by being returned, stored in an object, used as a timer callback, or registered as an event listener, the captured environment may outlive the call frame that created it. That is how private counters, factories, and module patterns work.',
-        'This is also a memory-management lesson. The Modern JavaScript Tutorial notes that a lexical environment dies when it becomes unreachable: https://javascript.info/closure. V8 garbage collection follows reachability too. If a closure remains reachable, everything it captures remains live, even if the original function call returned long ago.',
+        'The invariant is simple: identifier lookup starts in the current environment record and follows outer links fixed by lexical nesting. The caller does not choose the outer chain. The source location where the function was created chooses it.',
+        'A closure stores a reference to the environment chain it needs. It does not copy every value by default. It preserves access to bindings, so later reads observe the current contents of those bindings unless a fresh binding was created for that execution or iteration.',
       ],
     },
     {
-      heading: 'TDZ and binding states',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Hoisting is easier to teach as binding creation plus initialization state. var creates a function-scoped binding initialized to undefined. let and const create block-scoped bindings, but they cannot be read before initialization. MDN calls this interval the temporal dead zone for let, const, and class declarations: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let.',
-        'The famous loop callback bug follows the same model. var in a loop shares one function-scoped binding, so delayed callbacks often read the final value. let creates a fresh per-iteration binding, so each callback sees the value from its iteration.',
+        'In the scope-chain view, treat each graph node as one lexical environment. The edges are outer references. The lookup node is asking for a name; the highlighted path shows the chain the engine must search before it can resolve that name. The matrix then makes the hidden binding table explicit: which names exist in each environment and which outer record is next.',
+        'In the closure-lifetime view, separate the call frame from the environment record. The frame can return while a captured environment remains reachable through a function object, timer queue, or listener. In the final plot, compare narrow capture with broad capture: the point is not that closures are bad, but that captured reachability controls retained memory.',
       ],
     },
     {
-      heading: 'V8 implementation notes',
+      heading: 'Mechanics',
       paragraphs: [
-        'Engine internals are more concrete than the spec but less stable. A V8-focused explanation by Vyacheslav Egorov describes V8 closures as JSFunction objects with an attached Context object for captured variables: https://mrale.ph/blog/2012/09/23/grokking-v8-closures-for-fun.html. Treat that as an implementation lens, not a portable guarantee.',
-        'The important engineering point is optimization. Locals that do not escape can often stay cheap. Captured variables need a representation that closures can reach later. That representation can extend lifetime and influence garbage collection, especially for callbacks, listeners, and long-lived caches.',
+        'When execution enters a script, module, function, or block, the runtime creates environment records for the declarations that belong there. A function environment can hold parameters, `var` declarations, and function declarations. A block environment can hold `let`, `const`, and class declarations. Each record also knows its outer environment.',
+        'When a function object is created, it receives an internal reference to the current lexical environment. The specification describes this through lexical environments and environment records: https://tc39.es/ecma262/multipage/executable-code-and-execution-contexts.html. Engines can optimize the representation, but they must preserve the same observable lookup, TDZ, and closure behavior.',
+        'Hoisting is binding creation, not always usable initialization. `var` creates a function-scoped binding initialized to `undefined`; function declarations are callable according to their declaration-instantiation rules; `let` and `const` create block-scoped bindings that cannot be read until initialized.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Correctness rules',
       paragraphs: [
-        'Closures are not copies of values by default. They close over bindings, so later reads see the current binding value unless a fresh binding was created. Also, closures do not leak by themselves. They retain memory only when reachable closures capture state that is no longer semantically needed. Removing listeners, clearing timers, and narrowing captured data are memory-management tools.',
+        'A read is correct only if it finds the nearest visible binding in the lexical chain and respects the binding state. If the nearest binding is a `let` or `const` binding still in the temporal dead zone, the result is a `ReferenceError`; the engine does not skip it to use an outer binding with the same name.',
+        'A closure is correct only if it keeps the environment needed by the function reachable. That is why a returned counter can keep its private `count` cell alive, and why removing a DOM listener can release a captured object graph once no other root points to it.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Primary sources: ECMAScript execution contexts and environment records at https://tc39.es/ecma262/multipage/executable-code-and-execution-contexts.html, MDN Closures at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Closures, MDN let and TDZ at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let, JavaScript.info closures at https://javascript.info/closure, and V8 closure internals at https://mrale.ph/blog/2012/09/23/grokking-v8-closures-for-fun.html. Study Stack, Hash Table, Linked List, Recursion, The Event Loop, V8 Ignition Bytecode Pipeline Case Study, V8 Generational Garbage Collection, WeakRef & FinalizationRegistry, JavaScript Proxy Trap & Inline Cache, Gradual Typing Boundaries & Blame Guards, and Web Workers next.',
+        'The semantic model is uniform, but the implementation is optimized. Locals that never escape can often stay in stack slots, registers, or optimized frames. Variables captured by escaping closures need storage the closure can reach later, commonly an engine-specific context object.',
+        'The tradeoff is expressiveness versus lifetime. Closures let code package behavior with private state, but they can retain more memory than intended when a callback captures a large object or when a long-lived listener is never unregistered. Narrow captured values, clear timers, remove listeners, and avoid closing over broad request or component objects when only one field is needed.',
+      ],
+    },
+    {
+      heading: 'Debugging method',
+      paragraphs: [
+        'When closure behavior is surprising, ask three questions in order. Where was the function created? Which binding record contains the name being read? Is that binding a fresh cell for this call or iteration, or a shared cell that later writes can change?',
+        'For memory issues, ask a reachability question instead of a syntax question. What root keeps the callback alive: a timer, event listener, promise chain, cache, module singleton, or DOM node? Then inspect what the callback captured. The leak is often not the closure itself, but an unnecessarily large object graph reachable through it.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose `makeCounter` declares `let count = 0` and returns `() => ++count`. Calling `makeCounter` creates a function environment with a `count` binding. Returning the inner function lets the call frame finish, but the returned function still points to the environment that contains `count`. Each call follows that saved environment reference and increments the same cell.',
+        'Now compare `for (var i = 0; i < 3; i++) setTimeout(() => console.log(i))` with the same loop using `let i`. The `var` version has one shared function-scoped binding, so the callbacks read the final value. The `let` loop creates a fresh per-iteration binding, so each callback reads the value from its own iteration.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'This model wins whenever JavaScript code crosses time or ownership boundaries: callbacks, memoized functions, event listeners, module state, factory functions, private state, async handlers, and UI component closures. It turns confusing behavior into ordinary graph reachability and name lookup.',
+        'It fails as a performance prediction if treated too literally. The specification explains behavior, not storage layout. V8, SpiderMonkey, and JavaScriptCore are free to inline, allocate, elide, and rewrite internal structures as long as the program observes the same scope and closure semantics.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'The biggest pitfall is accidental reachability. A closure that captures a whole request object, DOM subtree, cache, or component instance can keep that graph alive as long as the callback is registered. The fix is boring and effective: capture only the fields needed, clear timers, remove listeners, and drop references when ownership ends.',
+        'The second pitfall is assuming closures snapshot values. They usually preserve access to bindings. If several callbacks close over the same mutable binding, they will observe later writes to that cell. Use `let` per iteration, pass values as parameters, or create a small factory when each callback needs its own stable binding.',
+        'The third pitfall is confusing lexical scope with dynamic call order. Calling a function from a different object or module does not change its saved outer environment. `this` has its own binding rules, but ordinary identifier lookup follows the lexical chain created where the function was written.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: ECMAScript execution contexts and environment records at https://tc39.es/ecma262/multipage/executable-code-and-execution-contexts.html, MDN Closures at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Closures, MDN let and TDZ at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let, JavaScript.info closures at https://javascript.info/closure, and V8 closure internals at https://mrale.ph/blog/2012/09/23/grokking-v8-closures-for-fun.html.',
+        'Then study Stack for call frames, Linked List for outer-chain intuition, The Event Loop for callbacks that run later, V8 Ignition Bytecode Pipeline Case Study for engine execution, V8 Generational Garbage Collection for retained reachability, WeakRef & FinalizationRegistry for lifetime edges, JavaScript Proxy Trap & Inline Cache for runtime lookup optimization, and Web Workers for closures crossing concurrency boundaries.',
       ],
     },
   ],

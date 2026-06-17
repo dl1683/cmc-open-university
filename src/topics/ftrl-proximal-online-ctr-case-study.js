@@ -276,44 +276,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'FTRL-Proximal is an online optimization algorithm used for huge sparse prediction problems, especially click-through-rate prediction. Each example arrives as a sparse feature vector, the model predicts, the label arrives, and only the active coordinates update. The case-study shape is logistic regression over feature-hashed categorical and text features.',
-        'The central data structures are simple but powerful: a sparse hashed feature vector, a weight vector, and two per-coordinate state arrays often called z and n. n accumulates squared gradients for adaptive per-coordinate learning rates. z accumulates adjusted gradients. The actual weight can be computed lazily from z, n, L1, and L2, which lets the system keep many coordinates at exact zero.',
+        'FTRL-Proximal exists for prediction problems that are huge, sparse, and always changing. Click-through-rate prediction is the classic example. An ad impression arrives with query terms, ad id, advertiser id, device, location, hour, publisher, user context, and crossed features. The model must produce a probability now. The click label may arrive later. Then the system has to learn without retraining from scratch.',
+        'The feature space is enormous because categorical ids and feature crosses explode. A billion possible coordinates may exist, but one impression touches only a small set. The learner needs to update only those active coordinates, keep memory under control, adapt quickly to fresh evidence, and serve a sparse model fast enough for ranking. Ordinary dense training is the wrong shape.',
+        'FTRL-Proximal, short for Follow-The-Regularized-Leader with a proximal update, gives a practical answer. It combines online logistic regression, per-coordinate adaptive learning rates, and L1-driven sparsity. The important data structures are a hashed sparse feature vector and two per-coordinate state arrays often called z and n. The actual weight can be computed lazily from that state only when a coordinate is touched.',
+      ],
+    },
+    {
+      heading: 'The naive approach',
+      paragraphs: [
+        'The naive approach is a nightly batch model. Collect yesterday impressions and clicks, build a training table, fit logistic regression or a tree model offline, and ship the new model in the morning. This can work for stable domains, but ad traffic is not stable. New campaigns launch, budgets move, spam changes, devices shift, publishers change layout, and query demand reacts to the news.',
+        'Another naive approach is ordinary online gradient descent with one global learning rate. Predict, observe the label, take a step on active weights, and repeat. This is simple, but the global rate is wrong for sparse high-cardinality features. A feature seen ten million times should not move like a feature seen twice. A global decay schedule can freeze rare features before they have enough evidence.',
+        'A third shortcut is manual count thresholding. Ignore rare features until they appear often enough, prune low-count crosses, and hope the remaining model is small. That saves memory, but it throws away rare signals that may be valuable. The right question is not whether a feature is rare. The question is whether cumulative evidence is strong enough to pay the serving and overfitting cost of a nonzero weight.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to let every coordinate carry its own learning history and its own sparsity decision. FTRL-Proximal does not treat all features as equally mature. It tracks how much gradient evidence a coordinate has accumulated and how much squared-gradient history it has seen. Frequent features settle down. Rare features can still move when strong evidence finally arrives.',
+        'The proximal part is the sparsity mechanism. L1 regularization is not handled as an afterthought. It is built into the coordinate state so a weight can remain exactly zero until the cumulative signal beats the L1 threshold. That is critical in a hashed feature space where most possible coordinates should not cost memory or latency at serving time.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'On each impression, hash active feature names into indices. Read the current lazy weights for those indices and compute p = sigmoid(w dot x). When the click label y arrives, compute the logistic gradient. For each active coordinate, update n_i with g_i squared and update z_i with the adjusted gradient term. The proximal formula applies L1 as a threshold: if |z_i| is below lambda1, w_i is zero; otherwise w_i is a shrunk value scaled by accumulated curvature.',
-        'This differs from ordinary online gradient descent in two practical ways. First, learning rates are per coordinate, so a feature that has appeared millions of times takes smaller steps than a fresh rare feature. Second, L1 sparsity is handled through the cumulative proximal state, which can produce a much smaller serving model without simply ignoring low-count features by hand.',
+        'On each impression, the feature builder emits names such as campaign=91, device=mobile, query_token=shoes, or campaign=91 x device=mobile. Feature hashing maps those names into fixed integer coordinates. The vector is sparse: most coordinates are absent, and active coordinates usually have value 1 or a small numeric value.',
+        'The model predicts first. It reads or lazily computes weights for the active coordinates, forms w dot x, and returns p = sigmoid(w dot x). Later, when the click label y is joined, the logistic gradient for an active coordinate is approximately (p - y) * x_i. Only active coordinates update. This progressive-validation order matters: prediction must happen before the label trains the model, or the learner grades itself after seeing the answer.',
+        'FTRL stores two main pieces of state per coordinate. n_i accumulates squared gradients. This creates an adaptive learning rate because coordinates with larger n_i take smaller future steps. z_i stores an adjusted cumulative gradient that includes the correction needed for changing per-coordinate rates. The lazy weight formula applies L1 and L2 regularization from z_i and n_i. If abs(z_i) is at or below lambda1, the weight is exactly zero. Otherwise it becomes a shrunk nonzero value scaled by accumulated curvature.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The online-update graph proves the time order. An impression becomes hashed sparse features, the model reads current weights, and a pCTR is served before the click label is known. Only after the label is joined does the learner compute the gradient and update z and n. This prevents accidental self-grading.',
+        'The sparse-coordinate table proves that a huge model can still perform a tiny update. The impression touches campaign, publisher, device, and one crossed feature. No other coordinates need to move. The FTRL state table proves the adaptive part: a frequent campaign coordinate has a small step, while a rare crossed feature may still be able to react. The zero weights prove the L1 gate.',
+        'The sparsity-system view proves that FTRL is not just an optimizer formula. The learner sits inside a system with hashing, delayed-label joins, calibration, holdout guards, and serving. The Pareto plot proves the production objective: lower loss is not enough. The useful frontier is lower loss at a given model size and latency.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'FTRL works in this setting because it matches the sparsity pattern of the data. A single event touches a small number of coordinates, so the learner performs a small update. The rest of the model remains unchanged and often remains implicit. That keeps online learning feasible even when the hash space is very large.',
+        'It also works because per-coordinate adaptation handles uneven feature frequency. A global schedule cannot know that one feature is mature and another is new. n_i gives each coordinate its own history. A feature with many large gradients gets smaller steps. A fresh feature can still move enough to matter when it finally appears.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'FTRL saves serving cost through sparsity, but it is not free. The system still needs state for z and n across a large hash space, or a sparse map of touched coordinates. It needs feature hashing, namespace governance, delayed label joins, model snapshots, calibration, holdouts, and rollback. A production CTR learner is a data system as much as an optimizer.',
+        'The regularization parameters also trade accuracy against size. A high L1 threshold creates a small model but can remove useful rare features. A low threshold preserves more signal but can densify the model. The learning-rate parameters affect adaptation speed. Fast adaptation helps with fresh campaigns and distribution shifts, but it can also chase spam, instrumentation bugs, or temporary traffic artifacts.',
       ],
     },
     {
       heading: 'Complete case study: search ads',
       paragraphs: [
-        'A search ads system predicts whether an impression will be clicked. Features include query tokens, ad id, advertiser id, device, geography, hour, publisher, and crosses such as advertiser x device. Feature Hashing Signed Projection Primer explains why these features fit a fixed-width vector without a giant vocabulary service. FTRL explains how the model can learn online from an endless stream of impressions and delayed clicks.',
-        'The serving loop predicts before update. The logging loop later joins click labels, applies an attribution window, and feeds updates to the learner. Delayed Feedback Attribution Window Case Study expands that label-join path because premature negatives can poison an online model even when the optimizer is correct. Contextual Bandit Logged Policy Evaluation Case Study adds the counterfactual layer: if the serving policy samples ads or stories, the log must also preserve action probabilities so future policies can be replayed and gated before launch. The model registry records hash bits, namespace grammar, optimizer parameters, calibration layer, holdout policy, and logging policy version. A sparse model is valuable operationally: fewer nonzero weights reduce memory, cache pressure, and ranking latency.',
+        'A search ads system receives an impression request and must rank candidate ads. For each candidate, it builds features from the query, ad, advertiser, campaign, device, geography, time, publisher, and historical interactions. Crossed features capture interactions such as advertiser x query token or campaign x device. Feature hashing maps all of this into a fixed coordinate space without maintaining a giant online vocabulary service.',
+        'The serving path computes pCTR from the current sparse model. The logging path records the impression, the model version, feature namespace version, hash configuration, displayed position, and later click or no-click label. The label join applies an attribution window because clicks are delayed. Treating a delayed click as an immediate negative can poison the learner even if FTRL itself is implemented correctly.',
       ],
     },
     {
-      heading: 'Systems lessons',
+      heading: 'Real uses',
       paragraphs: [
-        'The 2013 Google paper is important because it treats CTR prediction as a deployed system. It discusses FTRL-Proximal, per-coordinate learning rates, memory savings, performance visualization, confidence estimates, calibration, and automated feature management. That is the right framing: the optimizer is only one part of a feedback loop that includes data freshness, delayed labels, feature churn, monitoring, and rollback.',
-        'Progressive validation matters. For an online learner, an honest metric predicts on an example before training on it. If the system updates first and scores second, it is grading itself after seeing the answer. Holdout slices, calibration curves, delayed-label audits, and online/offline replay checks keep the learner from adapting to instrumentation bugs or short-term traffic artifacts.',
+        'FTRL-Proximal fits any online sparse prediction problem where fresh categorical evidence matters. Ads are the famous use case, but the same shape appears in recommendation ranking, feed ranking, email response prediction, spam detection, fraud risk, notification click prediction, marketplace matching, and search ranking features.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Failure modes',
       paragraphs: [
-        'Do not use FTRL as a magic replacement for feature quality. Bad namespaces, leaky labels, broken attribution windows, and hash collisions still break the model. Do not compare only AUC or log loss without model size and serving cost. Do not change hash width or namespace grammar without retraining. And do not assume online adaptation is always good: fast learners can also adapt quickly to spam, logging outages, or delayed-label artifacts.',
-        'Another trap is confusing sparsity with fairness or safety. L1 removes weak coordinates; it does not know whether a strong coordinate is a proxy, a privacy leak, or a brittle shortcut. Pair sparse online learning with Data Leakage & Contamination audits, Feature Store lineage, calibration, and slice metrics.',
+        'The first failure mode is broken time order. If the learner updates before predicting, metrics become inflated. If delayed clicks are treated as negatives too early, the model learns false feedback. If training data includes features unavailable at serving time, the model learns leakage. These are data-contract failures, not optimizer failures.',
+        'The second failure mode is uncontrolled feature generation. Bad namespaces, exploding crosses, hash collisions, and unstable ids can make the model large and noisy. L1 helps, but it cannot fix a feature pipeline that creates garbage. The third failure mode is miscalibration. A ranking system may care about order, but bidding, pacing, and allocation often need probabilities that mean what they say.',
+        'The fourth failure mode is unsafe adaptation. An online learner can react quickly to real shifts, but it can also react quickly to fraud, outages, bot traffic, logging bugs, or one-off events. Holdouts, slice metrics, delayed-label audits, traffic guards, and rollback are part of the algorithm in practice because they protect the feedback loop around the optimizer.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
-        'Primary sources: Google Research Ad Click Prediction: a View from the Trenches at https://research.google/pubs/ad-click-prediction-a-view-from-the-trenches/ and PDF at https://research.google.com/pubs/archive/41159.pdf, McMahan Follow-the-Regularized-Leader and Mirror Descent at https://proceedings.mlr.press/v15/mcmahan11b/mcmahan11b.pdf, Adaptive Online Learning survey at https://arxiv.org/abs/1403.3465, and Vowpal Wabbit feature and hashing docs at https://vowpalwabbit.org/features.html and https://vowpalwabbit.org/docs/vowpal_wabbit/python/9.6.0/tutorials/cmd_linear_regression.html. Study Feature Hashing Signed Projection Primer, Delayed Feedback Attribution Window Case Study, Contextual Bandit Logged Policy Evaluation Case Study, Logistic Regression, Gradient Descent, Regularization, Calibration Curves, ROC Curves & AUC, Feature Store, and Training-Serving Skew Replay Diff next.',
+        'Study Logistic Regression, Gradient Descent, Regularization, Feature Hashing Signed Projection Primer, Calibration Curves, ROC Curves and AUC, and Feature Store before treating FTRL as a production system. Then read Delayed Feedback Attribution Window Case Study and Contextual Bandit Logged Policy Evaluation Case Study to understand the logging and counterfactual pieces around online learning.',
+        'For primary sources, read Google Research Ad Click Prediction: a View from the Trenches, McMahan Follow-the-Regularized-Leader and Mirror Descent, and Vowpal Wabbit feature hashing documentation. The practical lesson across all of them is the same: the optimizer matters, but the prediction-before-update contract, feature grammar, label timing, calibration, and serving budget matter just as much.',
       ],
     },
   ],

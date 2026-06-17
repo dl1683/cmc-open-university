@@ -239,44 +239,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why This Exists`,
       paragraphs: [
-        'A BK-tree, short for Burkhard-Keller tree, indexes objects in a discrete metric space. Each node stores one object, and each outgoing edge is labeled with the distance from the parent object to the child object. For fuzzy word lookup, the metric is usually Levenshtein edit distance.',
-        'The goal is not to make edit distance cheaper. Edit Distance still computes the true distance between two visited strings. The BK-tree reduces how many dictionary words need that expensive dynamic-programming comparison.',
+        `A BK-tree exists for exact fuzzy lookup in a discrete metric space. In spellcheck, dedupe, typo-tolerant search, hash matching, and name matching, the question is often: return every stored item within distance r of the query.`,
+        `The expensive part is not only scanning memory. Edit distance and similar metrics can require real computation for every candidate. A BK-tree tries to avoid those distance calls by proving that whole subtrees cannot contain an answer.`,
+        `The structure is useful when the application needs recall within a stated distance, not merely a good-looking similarity score. A spellchecker that promises "all dictionary words within edit distance two" needs an exact metric search method or a candidate generator with a separate completeness argument.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `Naive Baseline and Wall`,
       paragraphs: [
-        'Insertion starts at the root. Compute the distance from the new item to the current node. If a child edge with that exact distance exists, follow it. Otherwise create a child under that distance. The same rule applies recursively, so every node partitions descendants by distance from itself.',
-        'Querying with radius r uses the triangle inequality. If the query is distance d from the current node, only children whose edge distance k lies between d-r and d+r can contain answers. Any edge outside that band is too close or too far to reach a valid match, so the whole subtree can be pruned.',
+        `The baseline is a linear scan. For a query word q, compute Edit Distance(q, word) for every dictionary entry and keep the words with distance at most r. This is exact and often good enough for small dictionaries.`,
+        `The wall is that most words are irrelevant, but the scan cannot know that until it pays for the distance computation. For radius 1 or 2, a metric law should be able to rule out large groups before running dynamic programming against every word.`,
+        `A trie improves prefix lookup but does not directly answer "near this whole word" unless it is paired with dynamic programming over trie states. A BK-tree attacks a different shape: the query has a radius in a metric space, and the index stores distance buckets that make some branches impossible.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: `Core Insight and Invariant`,
       paragraphs: [
-        'A complete spellcheck system builds a BK-tree over dictionary words. A user types a misspelling. The system queries the tree with radius 1 or 2, depending on word length and latency budget. Returned candidates are then ranked by edit distance, word frequency, keyboard-neighbor typo likelihood, and language context.',
-        'That second ranking stage matters. A BK-tree only says which words are within a metric radius. It does not know that "form" is more likely than "from" in one sentence and less likely in another. The data structure is a candidate generator, not the whole product.',
+        `Organize objects by their distance from pivots. Each node stores one object. Each outgoing edge is labeled by the exact distance from the parent object to the child object. Insertion follows the edge with the computed distance, creating a new child when that distance bucket is empty.`,
+        `The invariant is bucketed distance from each pivot: every item in the subtree behind edge k from node p was routed through that edge because its distance to p was k. During a radius query, the triangle inequality turns the current distance d(q, p) into a safe edge band: only k in [d - r, d + r] can still contain answers.`,
+        `The pivot is not a median and the tree is not ordered alphabetically. It is a decision tree over distances. Two words that sort near each other may live far apart if their edit distance to earlier pivots differs, while words with different spellings may share a bucket because they are equally far from a pivot.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Animation Meaning',
       paragraphs: [
-        'BK-tree performance depends on the metric distribution and search radius. With small radii and well-spread discrete distances, it can prune heavily. With a large radius or a metric where many items have similar distances, it may visit most of the tree. Worst case is linear.',
-        'The structure is easy to update incrementally, but tree shape depends on insertion order and root choice. It is often good enough for medium dictionaries and small edit-distance radii. Large-scale fuzzy search systems may use SymSpell-style deletes, finite-state transducers, n-gram indexes, or specialized Levenshtein automata instead.',
+        `In the metric tree view, each edge label is an edit-distance bucket from the parent word, not a sorted-order comparison. The path for boon is determined by distances to book and then books, which is why the tree shape depends on insertion order and metric distribution.`,
+        `In the radius query view, the main idea is the band test. If the query is distance 2 from book and r=1, only child edges 1 through 3 are possible. The edge 4 subtree is removed because the triangle inequality proves it cannot contain a word within radius 1.`,
+        `In the spellcheck case-study view, the output of the tree is a candidate set. The animation separates candidate generation from ranking because real correction quality depends on frequency, keyboard mistakes, morphology, and context after the metric search is finished.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Mechanics`,
       paragraphs: [
-        'The most important pitfall is using a distance that is not a metric. BK-tree pruning relies on the triangle inequality. Some typo costs, weighted edits, or transposition variants may not satisfy the exact property unless defined carefully. If the metric law fails, pruning can drop true answers.',
-        'Another misconception is that BK-trees are tries. A Trie follows characters or bytes. A BK-tree follows distance buckets. It can store words, names, hashes under Hamming distance, shapes, or any object with a valid discrete metric.',
+        `To insert a word, compare it with the current node's word. If the distance is zero, treat it as a duplicate or update the payload. If there is a child edge with that exact distance, recurse into that child. Otherwise attach the new word as a child labeled with that distance.`,
+        `To query q with radius r, compute d = distance(q, node.word). Report the node if d <= r. Then visit only child edges k where d - r <= k <= d + r. Every visited node still requires a real distance computation; the tree's job is to reduce how many nodes are visited.`,
+        `The child map is usually keyed by integer distance. For Levenshtein distance over words, that means a node can have child buckets 1, 2, 3, and so on. Sparse maps are common because most pivots do not have children at every possible distance.`,
+        `Distance evaluation should accept an early cutoff when the query radius is small. A banded edit-distance routine can stop once it proves the distance exceeds the current radius or a pruning threshold. That optimization often matters as much as the tree shape.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Correctness`,
       paragraphs: [
-        'Primary source: Burkhard and Keller, "Some approaches to best-match file searching", Communications of the ACM DOI page at https://dl.acm.org/doi/10.1145/362003.362025. Metric-search context: Brin, "Near Neighbor Search in Large Metric Spaces", VLDB PDF at https://www.vldb.org/conf/1995/P574.PDF, and Yianilos, "Data Structures and Algorithms for Nearest Neighbor Search in General Metric Spaces", https://algorithmics.lsi.upc.edu/docs/practicas/p311-yianilos.pdf. Study Edit Distance, Trie, Aho-Corasick Automaton, Finite-State Transducer Static Map, k-d Tree, HNSW Search, and Inverted Index next.',
+        `Let p be the current pivot word, q the query, and x any word in the subtree behind edge k. By the BK-tree routing invariant, d(p, x) = k. The query has d(q, p) = d. The triangle inequality implies d(q, x) >= |d - k|.`,
+        `If |d - k| > r, then every x in that subtree is farther than r from q, so pruning the whole subtree is safe. If |d - k| <= r, the subtree might contain answers, so the search must descend and compute real distances there. Correctness depends on the distance function being a true metric.`,
+      ],
+    },
+    {
+      heading: `Cost and Tradeoffs`,
+      paragraphs: [
+        `There is no universal O(log n) guarantee. Performance depends on radius, metric distribution, root choice, insertion order, alphabet, word lengths, and how concentrated the distance buckets are. Small radii over well-spread discrete distances can prune heavily; large radii or clustered data can visit most nodes.`,
+        `The worst case is linear visits, and each visited node still pays for the distance function. For Levenshtein distance, that may mean dynamic programming over word lengths unless the implementation uses banded distance, early cutoff at r, caching, or specialized automata.`,
+        `Memory overhead is modest compared with structures that store many grams or automaton states, but the tree can become unbalanced. Insertion order can place a poor pivot at the root, and repeated near-duplicates can create long chains in the same few buckets.`,
+        `A larger radius also widens every band. If d is 7 and r is 4, the query must consider child buckets 3 through 11. That can erase the pruning benefit, especially when the data is dense in the metric space.`,
+      ],
+    },
+    {
+      heading: `Implementation Guidance`,
+      paragraphs: [
+        `Start with a clean metric contract. The distance function should be deterministic, symmetric, and triangle-inequality respecting. If the product wants asymmetric keyboard costs, pronunciation weights, or learned similarity, use the BK-tree only if those weights still satisfy the metric rules or treat it as a heuristic index that needs recall testing.`,
+        `Keep payloads separate from index keys. A node can store the canonical word and a list of document ids, dictionary entries, or normalized forms. For spellcheck, normalize case and Unicode before indexing, but preserve the original surface forms for ranking and display.`,
+        `Measure visited nodes, distance calls, candidate count, and final correction accuracy. A BK-tree can look fast in microbenchmarks while producing too many candidates for the ranker or missing product expectations because the chosen radius is wrong for the language and vocabulary.`,
+      ],
+    },
+    {
+      heading: `Worked Example`,
+      paragraphs: [
+        `Use the animation's query boon with radius 1. At root book, Edit Distance(boon, book) = 2, so book is not reported unless the allowed radius were at least 2. The search band is child edges 1 through 3.`,
+        `The edge to books has label 1, so it is visited. The edge to cake has label 4, so it is pruned: any word behind cake was routed through distance 4 from book, and |4 - 2| = 2 > 1. Under books, the search can find boon at distance 0 and report it. Nearby candidates such as boo or books may be compared depending on their local edge labels and distances.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `BK-trees win for exact radius search over discrete metrics with small radii: medium-sized dictionaries, typo correction, approximate command lookup, fuzzy user-name dedupe, Hamming-distance hashes, and other cases where insertion is useful and approximate nearest-neighbor indexes would be overkill.`,
+        `In spellcheck, the BK-tree should be treated as candidate generation. A production system still needs ranking by word frequency, keyboard adjacency, morphology, domain vocabulary, and sentence context. The closest edit distance is not always the best correction.`,
+        `They are also good teaching tools because the pruning proof is local. At each pivot the tree can justify exactly why a bucket is searched or skipped, which makes the algorithm easier to audit than a learned similarity index.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `The distance must be a metric: nonnegative, symmetric, zero only for equal items, and triangle-inequality respecting. Some weighted edit costs, asymmetric typo models, and custom similarity scores violate that contract. If the metric law fails, the tree can prune a subtree that actually contains an answer.`,
+        `BK-trees are also not tries or substring indexes. They do not support prefix traversal, wildcard matching, or full-text search. For very large spellcheck systems, n-gram indexes, deletion dictionaries, finite-state transducers, Levenshtein automata, or search-engine candidate generation may be faster and easier to tune.`,
+      ],
+    },
+    {
+      heading: `Sources and Study Next`,
+      paragraphs: [
+        `Primary source: Burkhard and Keller, "Some approaches to best-match file searching", Communications of the ACM DOI page at https://dl.acm.org/doi/10.1145/362003.362025. Metric-search context: Brin, "Near Neighbor Search in Large Metric Spaces", VLDB PDF at https://www.vldb.org/conf/1995/P574.PDF, and Yianilos, "Data Structures and Algorithms for Nearest Neighbor Search in General Metric Spaces", https://algorithmics.lsi.upc.edu/docs/practicas/p311-yianilos.pdf.`,
+        `Study Edit Distance for the metric, Trie and Aho-Corasick Automaton for prefix and multi-pattern search contrasts, Finite-State Transducer Static Map for compact dictionaries, k-d Tree for low-dimensional geometry, HNSW Search for approximate vector search, and Inverted Index for full-text candidate retrieval.`,
       ],
     },
   ],

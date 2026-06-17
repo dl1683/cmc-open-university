@@ -195,42 +195,65 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'The Update Framework, or TUF, secures software update systems with signed metadata roles. It does not define a package manager. It gives a package manager or application updater a disciplined way to decide which metadata and target files are trustworthy.',
-        'The current TUF specification describes four fundamental top-level roles: Root, Targets, Snapshot, and Timestamp. Root defines trusted keys for roles. Targets signs file metadata and delegations. Snapshot signs the versions of targets metadata. Timestamp signs the current snapshot hash and expires quickly. Together they protect clients even when mirrors are malicious or some keys are compromised.',
+        `The Update Framework, or TUF, is a security design for software update metadata. It does not replace a package manager, build system, CDN, or installer. It gives those systems a way to decide which update metadata is trusted, which target files are allowed, and whether the repository state is fresh enough to use.`,
+        `The problem is sharper than checking a signature on a downloaded file. An attacker may serve an old but valid version, freeze a client on stale metadata, combine new metadata with old metadata, replay a vulnerable package, or steal one online signing key. TUF treats the update repository as a set of signed roles with different jobs. Root defines trusted role keys. Targets signs information about files. Snapshot signs a consistent set of metadata versions. Timestamp signs the current snapshot and expires quickly.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'A client starts with trusted root metadata bundled with the application. It updates root through threshold signatures, fetches fresh timestamp metadata, uses timestamp to select snapshot, uses snapshot to select a consistent set of targets metadata, and finally downloads only target bytes whose hash and size match trusted targets metadata.',
-        'Delegation lets the targets role grant full or partial authority to other roles. For example, one role can sign browser extension targets while another signs language-package targets. Delegation is revoked when the delegating role signs new metadata without that delegation.',
+        `The obvious approach is HTTPS plus a signed package. That blocks many simple attacks. If the transport is private and the file signature verifies, the client knows the bytes came from some trusted key at some time. For a small internal updater, that may look sufficient.`,
+        `The wall is that freshness and consistency are separate from file authenticity. A mirror can serve an older package that was valid last month. A compromised online key can sign a new timestamp pointing at stale content. A repository can accidentally publish mismatched metadata where one role describes version N while another role still describes version N - 1. A single signing key can become too powerful if it can authorize every file and every repository state. TUF's answer is to split authority and make clients verify the shape of the update history, not just one signature.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The core insight',
       paragraphs: [
-        'The central structures are signed metadata objects, key dictionaries, role-to-key threshold maps, target path maps, hash and size records, version numbers, expiry times, snapshot metadata indexes, and delegation graphs. Versions block rollback. Expiry blocks freeze. Snapshot indexes block mix-and-match. Threshold signatures reduce the blast radius of a single stolen key. Shamir Secret Sharing is a useful adjacent pattern for offline root-key recovery ceremonies, where a raw secret should not live with one person.',
-        'This topic connects directly to Transparency Log Witnessing Case Study, Software Supply Chain Provenance Graph, and Sigstore Keyless Signing Transparency. Transparency logs make signing events public. Provenance explains how an artifact was built. Sigstore uses TUF-distributed roots. TUF answers a different question: which update metadata and target bytes should a client accept right now?',
+        `The core insight is role separation. Different update questions deserve different keys, different expiry schedules, and different blast radii. Root metadata answers who is trusted to sign the other roles. Targets metadata answers which files are valid and what their hashes and sizes are. Snapshot metadata answers which versions of target metadata belong together. Timestamp metadata answers what the newest snapshot is right now.`,
+        `This turns update security into a set of small verification gates. A bad mirror is not trusted because target bytes must match signed hashes. A rollback is detected because metadata versions cannot go backward. A freeze is detected because timestamp metadata expires. A mix-and-match attack is detected because snapshot pins metadata versions. A single stolen key is less damaging when roles use threshold signatures and when highly trusted keys, such as root keys, can be kept offline.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'A desktop application updater polls a repository through a CDN mirror. The mirror is compromised and serves an old vulnerable binary plus matching old targets metadata. The client first checks timestamp metadata. If the timestamp is expired, the freeze is detected. If the mirror pairs a fresh timestamp with old targets metadata, snapshot version checks fail. If the mirror serves different binary bytes, the targets hash check fails.',
-        'Now suppose the online timestamp key is stolen. That key can cause a temporary freeze or denial of service, but it cannot authorize arbitrary target bytes because targets metadata and snapshot metadata still need their own trusted signatures. The role split is the safety feature.',
+        `The main data structures are signed metadata files. Each file has a signed portion, a version number, an expiration time, and signatures from keys authorized for that role. Root metadata stores keys and role definitions, including signature thresholds. Targets metadata stores target paths, hashes, sizes, custom metadata, and delegations. Snapshot metadata stores the versions and hashes of metadata files. Timestamp metadata stores the current snapshot version and hash and is small enough to fetch often.`,
+        `Delegation is a tree of authority under targets. A top-level targets role can delegate a path pattern to another role, such as releases for one product, nightly builds, language-package indexes, or hardware-specific images. The delegated role can then sign only the target paths it was trusted to manage. Revocation is also metadata: the delegating role signs a new version that removes or changes the delegation.`,
+        `The client workflow is ordered. Start from trusted root metadata that shipped with the application or was already accepted. Update root carefully, one version at a time, checking threshold signatures. Fetch timestamp. Use timestamp to identify and verify snapshot. Use snapshot to identify a consistent targets metadata set, including delegated metadata if needed. Download target bytes only after trusted targets metadata names the file and records its expected hashes and size.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'A valid TLS connection to a mirror is not the same as update security. TUF assumes mirrors and networks can lie. Another mistake is treating all signing keys as equivalent. Root keys should be highly protected and often offline; timestamp keys are online and deliberately less trusted.',
-        'TUF also does not decide whether an update is semantically safe. It can say the bytes are the trusted update bytes. It cannot prove the update has no vulnerability, bad migration, malicious maintainer change, or policy violation. That is where provenance, transparency monitoring, sandboxing, and deployment policy enter.',
+        `TUF works because the client never asks one artifact to prove everything. Target hashes prove file integrity. Versions prove monotonic progress. Expiration proves freshness. Snapshot proves that the metadata set is internally consistent. Root proves which keys are allowed to speak for each role. Threshold signatures mean a client can require more than one key before accepting highly sensitive metadata.`,
+        `The order of checks matters. A client that trusts targets metadata before checking snapshot can be tricked into inconsistent metadata. A client that ignores expiry can be frozen on old metadata forever. A client that accepts older versions can be rolled back to a vulnerable release. A client that treats timestamp as all-powerful lets an online key authorize too much. The verification sequence is the security boundary.`,
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        `The runtime cost is extra metadata fetches and signature checks. Timestamp is designed to be small and frequently refreshed. Snapshot is larger because it names metadata versions. Targets metadata can grow with repository size, which is why delegation and path scoping matter. Clients cache trusted metadata, but they still need to persist it so future rollback checks have a remembered version to compare against.`,
+        `The operational cost is key management. Root keys should be protected by ceremonies, hardware security modules, offline storage, or split responsibility. Timestamp keys are often online because they must sign frequently, so the system assumes they are more exposed and limits their authority. Targets and delegated keys need rotation plans, expiry schedules, audit logs, and emergency recovery paths. TUF is a protocol plus an operating discipline.`,
+        `Repository layout also affects behavior. Consistent snapshots can put versioned metadata and target filenames on the wire so caches do not accidentally serve old bytes under a stable name. That costs extra storage and cache churn, but it makes CDN behavior easier to reason about. If a repository keeps stable filenames, operators need tighter cache invalidation and monitoring because stale metadata can look like a protocol failure to clients.`,
+      ],
+    },
+    {
+      heading: 'Where it is useful and where it fails',
+      paragraphs: [
+        `TUF fits package indexes, application updaters, plugin ecosystems, container or model artifact distribution, embedded devices, and any repository where clients may fetch through untrusted mirrors. Uptane adapts the same family of ideas to automotive update systems, where different electronic control units and safety constraints need more structure than a desktop updater.`,
+        `TUF is the wrong layer for some questions. It does not prove that source code was reviewed, that a build was reproducible, that a maintainer was honest, that a dependency is free of vulnerabilities, or that installing the update is safe for a particular fleet. It can tell the client that these are the authorized bytes for this repository state. Provenance systems, transparency logs, policy engines, sandboxing, staged rollout, and vulnerability scanners answer adjacent questions.`,
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        `Watch expired metadata, rejected rollback attempts, signature-threshold failures, unexpected root rotations, delegated-role misses, target hash mismatches, metadata size growth, mirror inconsistency, and clients pinned to old trusted metadata. A spike in timestamp failures can mean an outage, a clock problem, or a compromised mirror serving stale files. A target hash mismatch means the repository metadata and bytes no longer agree, and the client should not install.`,
+        `The most important drill is key compromise. Decide in advance which role key is assumed stolen, what damage that role can do, which higher role can revoke or rotate it, how clients will receive the new metadata, and how operators will prove the recovery worked. Without that drill, threshold signatures and role separation can exist on paper while the real recovery path remains unclear.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: The Update Framework specification at https://theupdateframework.github.io/specification/latest/, TUF documentation at https://theupdateframework.io/, and Uptane standard role metadata at https://uptane.org/docs/1.0.0/standard/uptane-standard. Study Shamir Secret Sharing, Merkle Tree, Merkle Mountain Range Append-Only Log, Transparency Log Witnessing Case Study, Content-Addressed Merkle DAG Object Store, Software Supply Chain Provenance Graph, Sigstore Keyless Signing Transparency, OPA Rego Policy Decision Graph, and Seccomp BPF Sandbox Policy next.',
+        `Primary sources: The Update Framework specification at https://theupdateframework.github.io/specification/latest/, TUF project documentation at https://theupdateframework.io/, and Uptane at https://uptane.org/. Study Merkle Tree for hash commitments, Merkle Mountain Range Append-Only Log and Transparency Log Witnessing for public auditability, Software Supply Chain Provenance Graph for build evidence, Sigstore Keyless Signing Transparency for certificate-backed signing, Shamir Secret Sharing for key recovery ceremonies, and OPA Rego Policy Decision Graph for install policy next.`,
       ],
     },
   ],

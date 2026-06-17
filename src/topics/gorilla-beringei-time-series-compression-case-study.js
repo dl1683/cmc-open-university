@@ -209,10 +209,31 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Gorilla was Facebook Meta\'s in-memory time-series database design for recent monitoring data. Its compression lesson is simple and powerful: monitoring samples are ordered, regular, and often slowly changing, so encode them as a stream rather than as independent rows. Timestamps use delta-of-delta encoding. Floating-point values use XOR against the previous value and store only the changed bit range.',
-        'Beringei is the open-source storage engine that carried the same idea into a reusable implementation. Prometheus local storage later used Gorilla-inspired XOR chunks. The shared data-structure idea is a compact per-series chunk that can be appended and scanned quickly.',
+        'Monitoring systems need recent time-series data to be cheap enough to keep hot. Operators ask dashboards and alert rules about the last minutes or hours constantly, and they need answers during incidents. If recent samples spill into slow storage too early, observability becomes less useful exactly when it matters.',
+        'Gorilla was Facebook Meta\'s in-memory time-series database design for recent monitoring data. Beringei carried the same idea into an open-source storage engine. The key lesson is that compression can change the storage tier where data lives, not merely reduce a bill after the fact.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious storage design is one row per sample: series id, timestamp, value. That is easy to ingest and easy to reason about, but it wastes the regularity of monitoring data. Adjacent timestamps usually follow a scrape interval, and adjacent values often move slowly.',
+        'Another simple answer is general-purpose compression over blocks of rows. That can help, but it may not line up with the query path. A time-series engine usually scans one series over a time range. A codec shaped around per-series chunks can decode exactly the stream the query needs.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is hot working-set size. A monitoring backend can ingest millions of samples per second. Keeping recent samples in memory improves query latency, but raw timestamps and floats make the hot set too expensive. Compression has to be fast enough for ingest and simple enough for repeated scans.',
+        'The second wall is cardinality. Even excellent compression per series does not make labels and indexes free. A million compressed streams still need metadata, routing, retention policy, and query planning. Codec efficiency and cardinality control solve different parts of the problem.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Encode each series as an ordered stream. Store the first timestamp and value as anchors. For timestamps, encode how the interval changes. For values, encode how the bit pattern changes relative to the previous value. Monitoring data is regular enough that those changes are often small.',
+        'This is why the structure is a chunk, not just a compressed file. A chunk is a self-contained run of samples for one series. It can be appended, retained, scanned, and dropped as a unit that matches common range-query behavior.',
       ],
     },
     {
@@ -223,9 +244,31 @@ export const article = {
       ],
     },
     {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'Read Gorilla compression as exploiting what changes slowly. Timestamps are delta-of-delta encoded because sampling intervals are usually stable; floating-point values use XOR against the previous value because nearby measurements often share bit patterns.',
+        'The animation should make the workload assumption visible. Compression is excellent for regular telemetry and weaker when timestamps jitter heavily or values change unpredictably. The format is a bet on monitoring data shape.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a counter is scraped every 15 seconds. The first timestamp is stored directly, and the first interval is 15 seconds. If the next scrape is also 15 seconds later, the delta-of-delta is zero. A long run of regular scrapes therefore needs very few bits for time.',
+        'For values, imagine a floating-point gauge moving from 71.2 to 71.25. The binary representation changes, but often only a middle window of bits changes. XOR exposes the changed window. The encoder stores enough metadata and changed bits to reconstruct the exact new value, while repeated values can be represented very cheaply.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The timestamp codec works because monitoring collection is usually scheduled. Even with jitter, intervals are far more predictable than arbitrary event times. Delta-of-delta turns a stable interval into repeated zeros, which are cheap to encode.',
+        'The value codec works because many operational measurements are smooth, repeated, or slowly changing. XOR with the previous value turns similarity into runs of unchanged leading and trailing bits. The codec is lossless because it stores the changed bit range, not a rounded approximation.',
+      ],
+    },
+    {
       heading: 'Cost and complexity',
       paragraphs: [
         'The write path is streaming and append-friendly. The decoder is sequential: start from the first sample and replay codes. That is a good fit for range queries over recent time windows, but not for arbitrary point mutation inside a chunk. Compression ratio depends on regular scrape intervals, stable values, cardinality, and chunk length. More series means more chunk metadata and index pressure even if each individual series compresses well.',
+        'Sequential decoding is a deliberate tradeoff. It keeps the format compact and simple, but random access inside a chunk usually means decoding from an anchor or maintaining extra indexes. Time-series workloads accept this because range scans are more common than single-sample random updates.',
       ],
     },
     {
@@ -236,9 +279,24 @@ export const article = {
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins',
       paragraphs: [
-        'Gorilla-style compression does not solve high cardinality by itself. One million tiny compressed streams still require labels, indexes, chunks, retention policy, and query planning. It also does not make old data free; long retention usually needs compaction, downsampling, object storage, or remote systems. Finally, the codec is workload-shaped. Random timestamps and noisy values compress worse than regular scrapes and stable counters.',
+        'Gorilla-style compression wins for recent operational metrics, regular scrapes, smooth gauges, counters, and dashboards that scan recent windows. It is especially valuable when keeping hot chunks in memory changes query latency and incident response.',
+        'It also teaches a general design pattern: design the codec around the access path. Time-series range scans want per-series ordered chunks. Log search, columnar analytics, and object storage may choose different compression shapes because their query paths are different.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Gorilla-style compression does not solve high cardinality by itself. One million tiny compressed streams still require labels, indexes, chunks, retention policy, and query planning. It also does not make old data free; long retention usually needs compaction, downsampling, object storage, or remote systems.',
+        'The codec is workload-shaped. Random timestamps and noisy values compress worse than regular scrapes and stable counters. If the data behaves more like arbitrary events than scheduled metrics, a time-series chunk codec may be the wrong abstraction.',
+      ],
+    },
+    {
+      heading: 'Operational review',
+      paragraphs: [
+        'A production review should look at compression ratio by metric family, chunk fill rate, out-of-order samples, scrape jitter, series churn, index size, and query latency. A good ratio on value bits can still coexist with bad memory pressure if the system creates too many short-lived series.',
+        'The codec also affects incident workflows. If hot chunks stay memory-resident, dashboards and alerts stay responsive during failures. If cardinality or jitter pushes chunks out of the hot tier, operators may experience the same monitoring system as slow even though the compression algorithm is working correctly on each individual stream.',
       ],
     },
     {

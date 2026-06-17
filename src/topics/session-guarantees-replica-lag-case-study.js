@@ -167,38 +167,104 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'Session guarantees are consistency promises scoped to a client session. They include read-your-writes, monotonic reads, monotonic writes, and writes-follow-reads. They do not require every replica to be globally current; they require this session to avoid contradicting itself.',
-        'Terry, Demers, Petersen, Spreitzer, Theimer, and Welch introduced the classic session guarantees for weakly consistent replicated data: https://www.cs.cornell.edu/courses/cs734/2000FA/cached%20papers/SessionGuaranteesPDIS_1.html. Azure Cosmos DB documents practical session tokens for read-your-writes behavior: https://learn.microsoft.com/en-us/azure/cosmos-db/consistency-levels.',
+        'Replicated systems often serve reads from nearby or lightly loaded replicas. That keeps latency low, but it can make one user see time run backward. A user edits a profile, refreshes, lands on a lagging replica, and sees the old profile.',
+        'Session guarantees solve that user-facing problem without requiring global linearizability. They include read-your-writes, monotonic reads, monotonic writes, and writes-follow-reads. The system does not promise that every replica is current. It promises that this session will not contradict the history it has already observed.',
       ],
     },
     {
-      heading: 'Core mental model',
+      heading: 'The obvious attempt',
       paragraphs: [
-        'The data structure is a per-session high-water mark. Writes and reads advance the mark. Future reads carry the mark so the router can choose a sufficiently fresh replica, wait for catchup, or route to a primary.',
-        'This is weaker and cheaper than linearizability. Other clients can see older data while this client sees a coherent progression of its own actions.',
+        'The simple approach is sticky sessions: keep sending the same user to the same replica. That works until the replica fails, a region changes, the user switches devices, or a service-to-service call loses the routing context.',
+        'The stronger simple approach is to make every read linearizable. That gives a clean global order, but it can add cross-replica coordination to reads that only need to respect one client session. Many products do not need the entire world to agree before showing a user their own cart edit.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The data structure is a per-session high-water mark. A write response or read response advances the mark to the latest logical sequence number, version, timestamp, or dependency set the session has observed. Future reads carry that mark as a minimum freshness requirement.',
+        'The invariant is local: do not serve this session from a replica whose state is older than the session token permits. The router can satisfy the token by choosing a fresh replica, waiting for a lagging one to catch up, routing to a primary, or rejecting the low-consistency path.',
+      ],
+    },
+    {
+      heading: 'The four guarantees',
+      paragraphs: [
+        'Read-your-writes means a session that writes version 8 should not later read version 5 of the same item. Monotonic reads mean a session that has seen version 8 should not later see version 7. Monotonic writes mean the session writes in an order the system preserves. Writes-follow-reads means a write that depends on a prior read carries that dependency forward.',
+        'These guarantees are weaker than linearizability because they do not order every operation from every client. They are stronger than arbitrary eventual consistency because they preserve one session story.',
+      ],
+    },
+    {
+      heading: 'How the token is used',
+      paragraphs: [
+        'The useful object is the session token. After a write, the token records the version, log sequence number, timestamp, or dependency frontier that the session has observed. Later reads carry that token as a minimum freshness requirement. A replica below the token is not eligible to answer unless the router waits for it to catch up.',
+        'This turns replica choice into a data-dependent routing decision. The router is not merely choosing the closest replica; it is choosing a replica fresh enough for this user history. A different user with no token may receive a stale but fast read, while this session gets a slower but coherent read.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A write returns a token such as an LSN, vector-like dependency, or service-specific session value. The client stores it and sends it on later reads and writes. The read router checks candidate replicas against the token. A replica that has caught up can serve the read; a lagging replica must wait, be skipped, or forward the request.',
+        'Azure Cosmos DB documents practical session tokens for read-your-writes behavior: https://learn.microsoft.com/en-us/azure/cosmos-db/consistency-levels. The general idea goes back to the classic session-guarantees paper by Terry, Demers, Petersen, Spreitzer, Theimer, and Welch: https://www.cs.cornell.edu/courses/cs734/2000FA/cached%20papers/SessionGuaranteesPDIS_1.html.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is monotonicity over the session token. The token only advances as the session observes newer state. If every later operation requires a replica at least as fresh as the token, that session cannot move backward relative to its own observations.',
+        'This is not a claim that the replica is globally latest. It is a claim that the chosen replica satisfies the session lower bound. Other clients may still see older data if their contracts allow stale reads.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Session guarantees add token plumbing to clients, APIs, routers, caches, and service calls. The token must be carried across devices or backend calls when the user experience depends on it. Lose the token and the system falls back to ordinary replica freshness.',
+        'Freshness constraints can increase latency. A nearby replica may need to wait for replication, or the router may send the read to a farther region or primary. Large dependency tokens can also become a metadata cost in systems with many partitions or causal dependencies.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Session guarantees win in product flows where self-contradiction is worse than slight routing complexity: carts, profiles, account settings, document edits, dashboards after a write, and mobile-to-web handoff.',
+        'They are also useful in multi-region systems. A regional failover can move traffic without making a user forget an update, as long as the token crosses the failover boundary and the new region can satisfy or wait for it.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Session guarantees are the wrong contract when the application needs one real-time order for all clients, such as strict inventory decrement, certain financial ledgers, or coordination locks. Those need stronger consistency or transaction protocols.',
+        'They also fail if the application treats the token as optional while promising read-your-writes in the UI. Sticky routing alone is not enough once traffic moves across devices, services, regions, or recovery paths.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'A shopping cart service writes to a quorum and replicates asynchronously across regions. The add-item response includes a session token. The browser sends that token on later cart reads. If the nearest replica is behind, the router waits until it reaches the token, chooses a fresher replica, or sends the read to the primary.',
-        'After a regional failover, the token prevents the user from seeing an older cart just because DNS or a load balancer moved them to another replica.',
+        'A shopping cart service writes to a quorum and replicates asynchronously across regions. The add-item response includes a session token for cart version 19. The browser sends that token on later cart reads. If the nearest replica is at version 16, the router waits until it reaches 19, chooses a fresher replica, or sends the read to the primary.',
+        'After a regional failover, the token prevents the user from seeing an older cart just because DNS or a load balancer moved them to another replica. The system stays eventually consistent for clients that accept stale reads, while this session keeps a coherent cart history.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Operational signals',
       paragraphs: [
-        'Do not call session consistency linearizability. It does not define one global real-time order for all clients. It protects a session-level story.',
-        'Do not rely only on sticky sessions. Tokens are more portable: they can cross devices, service boundaries, and regional failovers if the application carries them.',
+        'A session-guarantee implementation should track token propagation rate, reads that had to wait for freshness, fallback-to-primary rate, replica lag by partition, token size, cross-region token failures, and user-visible stale-read reports. These metrics tell operators whether the guarantee is actually being delivered or only documented.',
+        'The highest-risk path is context loss. If a frontend drops the token, a background service strips it, or a mobile client switches devices without carrying it, the system may violate read-your-writes while every replica behaves correctly according to its own local state. Session guarantees are end-to-end contracts, not storage-engine features alone.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Session guarantees are a middle ground. They are stronger than arbitrary eventual consistency because one user does not move backward through their own history. They are weaker and cheaper than global linearizability because they do not order every client against every other client.',
+        'The deep lesson is that consistency can be scoped. A product may not need the world to agree before every read, but it often needs a user to see a coherent story after their own actions. Session tokens make that story explicit.',
+        'The wrong tool is global consistency by default. If the only user-facing requirement is "show me my own write," a per-session high-water mark may deliver the experience with less coordination. If the requirement is "everyone must agree before the next action," session guarantees are too weak. Teach students to name the user promise before choosing the consistency model.',
+        'If students remember one diagnostic question, make it this: whose history must remain coherent? Session guarantees answer "this user or workflow," not "the entire system."',
+        'The comparison to caching is useful. A cache can serve stale data safely only when the caller\'s freshness contract allows it. A session token is the caller carrying that contract into the cache or replica-routing layer.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: Session Guarantees for Weakly Consistent Replicated Data at https://www.cs.cornell.edu/courses/cs734/2000FA/cached%20papers/SessionGuaranteesPDIS_1.html, DBLP entry at https://dblp.org/rec/conf/pdis/TerryDPSTW94.html, Azure Cosmos DB consistency levels at https://learn.microsoft.com/en-us/azure/cosmos-db/consistency-levels, and Amazon Dynamo at https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf.',
-        'Study Read/Write Quorums, Amazon Dynamo Case Study, Version Vectors, Read Repair Digest Quorum, Hinted Handoff Replica Queue, Cache Invalidation, and CRDTs next.',
+        'Study Read/Write Quorums for replica acknowledgment rules, Amazon Dynamo Case Study for eventual-consistency lineage, Version Vectors for dependency tracking, Read Repair Digest Quorum for touched-replica convergence, Hinted Handoff Replica Queue for short-outage catchup, Cache Invalidation for freshness boundaries, and CRDTs for another way to preserve useful behavior under replication.',
       ],
     },
   ],

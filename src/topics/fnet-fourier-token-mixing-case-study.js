@@ -325,44 +325,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'FNet asks a blunt architecture question: what if a Transformer encoder did not learn an attention matrix at all? Lee-Thorp, Ainslie, Eckstein, and Ontanon replace the self-attention sublayer with an unparameterized Fourier transform that mixes tokens. The rest of the encoder skeleton remains recognizable: embeddings, position information, residual paths, normalization, feed-forward layers, and a task head still do learned work.',
-        'The important distinction is content dependence. Self-attention computes a fresh token-to-token routing table for each input. FNet uses the same global Fourier mixing rule for every input, then relies on the learned feed-forward layers and task head to extract useful structure from that mixed representation.',
+        'FNet exists because self-attention is powerful but expensive. In a Transformer encoder, each layer can build an n by n token-routing table. That table lets token 3 read token 97 strongly in one sentence and ignore it in the next sentence. The cost is that sequence length appears twice: longer inputs create many more pairwise scores, more memory traffic, and more intermediate state.',
+        'Lee-Thorp, Ainslie, Eckstein, and Ontanon asked whether every encoder workload needs learned token routing. Their answer was FNet: replace the self-attention sublayer with an unparameterized Fourier transform that mixes tokens globally. The rest of the block stays familiar. Embeddings, position information, residual paths, normalization, feed-forward layers, and task heads still learn. The mixer is the part that becomes fixed.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is to keep attention and optimize it. Use faster kernels, local windows, sparse patterns, lower precision, padding tricks, distillation, or smaller hidden sizes. These are reasonable moves. Attention is expressive, well-supported, and easy to adapt to masks, cross-attention, and decoder generation.',
+        'The wall is that optimized attention is still attention. A full encoder attention layer is built around input-specific all-pairs routing. If the task mostly needs broad evidence from across the sequence, an n by n table can be more machinery than the problem requires. FNet attacks the table directly: remove learned routing from the mixer and ask the learned feed-forward layers to make use of a fixed global blend.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is a separation of jobs. Token mixing does not always have to be learned and content-dependent. A fixed linear transform can spread information across the sequence, and learned nonlinear layers can then decide which mixed features matter for the task. That gives up exact input-specific lookup, but it keeps a cheap path for global communication.',
+        'The Fourier transform is useful here because it is a structured global linear mixer. It combines positions through sinusoidal frequency bases rather than through learned query-key scores. FNet is therefore not a parameter-free model. It is a model where the token mixer has no learned routing weights while the surrounding layers still carry learned representations.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The Fourier sublayer treats the hidden states as a tokens-by-dimensions array. In the standard version, it applies a discrete Fourier transform along the hidden dimension and along the sequence dimension, then returns the real part to keep the surrounding Transformer block real-valued. The operation is fixed: it has no learned query, key, value, or attention-weight parameters.',
-        'This gives every token access to a cheap global blend of the sequence. The feed-forward network then supplies nonlinear processing. That combination is enough for many encoder-style tasks, but it is not the same as learned retrieval. A token cannot decide, input by input, to read exactly one other token the way attention can.',
+        'The hidden state entering an encoder layer is a tokens-by-hidden-dimension array. A standard attention block projects that array into queries, keys, and values, computes token-to-token scores, normalizes them, and forms weighted sums. FNet removes that sublayer. In the standard version, it applies a discrete Fourier transform along the hidden dimension and along the sequence dimension, then sends the real component back into the Transformer block.',
+        'Residual connections, normalization, embeddings, and feed-forward layers still matter. The fixed mixer spreads information, but it does not classify, decode, or understand by itself. The feed-forward network supplies learned nonlinear processing at each position. Across layers, fixed global mixing and learned local processing alternate.',
+        'This is why FNet is best read as an encoder design point, not as a universal replacement for attention. It is well matched to tasks where a broad global blend is often enough. It is weaker when a token must choose a specific other token, when the model must attend from a decoder to an encoder, or when a causal mask must strictly hide future tokens.',
       ],
     },
     {
-      heading: 'Complete case study: long document encoder',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Imagine a moderation or legal-triage classifier that reads long documents and predicts a small set of labels. A BERT-style encoder uses attention to build an n by n routing table in each layer. That can be expensive when the document grows and the task mostly needs broad global evidence rather than precise token-level extraction. An FNet-style encoder replaces that routing table with fixed Fourier mixing, reducing the mixer cost and memory footprint.',
-        'The adoption gate is still empirical. The team should compare against the attention baseline on short and long documents, check rare-label recall, inspect failure cases that require exact phrase lookup, profile FFT kernels on the deployment hardware, and measure p95 latency and memory at production batch sizes. FNet is attractive only if the saved mixer cost is larger than the quality and kernel-integration cost.',
+        'The attention grid shows the baseline: every token can route to every other token, and the routing table changes with the input. The Fourier graph shows the FNet tradeoff: the mixer is fixed, global, and cheap enough to avoid the learned n by n table. The cost plot is the reason this topic belongs in a data-structures course: layout and growth rate shape model architecture.',
+        'The last frames show what remains trainable. If the visual makes FNet look like magic signal processing, read the feed-forward and task-head nodes as the correction. Fourier mixing provides communication. The learned layers still decide which mixed features become useful predictions.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Attention has a quadratic sequence-length term because every token scores every other token. FFT-style mixing has a much gentler growth rate and a smaller parameter footprint in the mixer. The FNet paper reports 92-97 percent of BERT counterpart accuracy on GLUE while training much faster at 512-token inputs, and reports stronger speed advantages for longer inputs in Long Range Arena comparisons.',
-        'The systems caveat is that complexity notation is not the same as product speed. FFT kernels, padding, sequence lengths, accelerator libraries, batching, and memory movement decide the actual roofline point. For small sequences or highly optimized attention kernels, the measured win may be smaller than the asymptotic story suggests.',
+        'FNet works when the task can tolerate a lossy division of labor. The Fourier transform is a deterministic global mixing operation, so information from many positions can influence each position after the transform. It is not selecting the best source token. It is making the sequence globally entangled in a structured way, then letting learned nonlinear layers extract patterns from that entangled representation.',
+        'The proof idea is not a theorem that Fourier beats attention. It is an architectural hypothesis supported by benchmarks: for many encoder classification and long-range tasks, full content-dependent routing is not always necessary. The paper reports that FNet kept a large fraction of BERT counterpart accuracy on GLUE while training faster at 512-token inputs, and showed stronger speed advantages on longer Long Range Arena inputs.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'FNet does not prove attention is useless. It proves that some encoder workloads can tolerate a fixed global mixer with limited accuracy loss. Exact lookup, causal generation, cross-attention, selective reading, and tasks that depend on sharp token-to-token routing still favor attention or hybrid designs.',
-        'Do not call the Fourier layer learned memory. It is fixed signal-processing structure inserted into a neural block. Also do not ignore masks: Hugging Face notes that FNet was trained without an attention mask, because the model is based on Fourier transforms. That matters when porting the idea to padded, causal, or encoder-decoder settings.',
+        'The headline cost difference is sequence-length behavior. Full attention has a quadratic token-routing term because each token scores every other token. FFT-style mixing grows more gently and removes learned query, key, value, and attention-weight machinery from the mixer. It can also reduce memory pressure because it does not store the same kind of attention table.',
+        'The engineering caveat is that asymptotic notation is not a benchmark. FFT kernels, padding, sequence lengths, batch shape, accelerator libraries, precision, memory movement, and compiler support decide the measured speed. Highly optimized attention kernels can be hard to beat on short inputs. FNet also has a masking tax: Hugging Face notes that the model was trained without an attention mask and recommends using the same maximum sequence length for fine-tuning and inference.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: the ACL Anthology paper page at https://aclanthology.org/2022.naacl-main.319/, the arXiv page at https://arxiv.org/abs/2105.03824, and the Hugging Face FNet documentation at https://huggingface.co/docs/transformers/en/model_doc/fnet. Study Attention Mechanism, The Transformer Block, Transformer Inference Roofline, Complex-Valued Neural Networks, MatMul-Free Language Modeling, Hybrid Attention State Budget Case Study, Titans Test-Time Neural Memory Case Study, RWKV Recurrent Transformer, Selective State Space Models: Mamba, and Kimi Linear Attention next.',
+        'FNet is most attractive for encoder workloads where the product needs classification, ranking, retrieval scoring, moderation, routing, or triage over text, and the answer depends on broad document evidence rather than exact token lookup. A long legal-triage classifier, for example, may need signals from across the document but may not need each token to choose a custom source token in every layer.',
+        'It also fits small-model and memory-constrained settings. The paper argues that FNet has a light memory footprint and is efficient at smaller model sizes. A deployment team should still run a matched bake-off: same data, same sequence lengths, same metric slices, same hardware, and same latency and memory budget.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'FNet does not prove attention is useless. It shows that some encoder workloads can trade content-dependent routing for fixed global mixing with limited quality loss. Exact lookup, copying, span extraction, cross-attention, causal generation, retrieval-heavy reasoning, and tasks that need sharp token-to-token routing still favor attention or hybrid designs.',
+        'The common mistake is to call the Fourier layer learned memory. It is fixed signal-processing structure inserted into a neural block. Another mistake is to port the idea into a decoder or padded production pipeline without checking masks and padding behavior. A speed claim is not portable until the exact task, sequence length, kernel path, and quality regressions have been measured.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: the ACL Anthology paper page at https://aclanthology.org/2022.naacl-main.319/, the arXiv page at https://arxiv.org/abs/2105.03824, and the Hugging Face FNet documentation at https://huggingface.co/docs/transformers/en/model_doc/fnet. Study Attention Mechanism for the baseline routing table, The Transformer Block for residual and feed-forward anatomy, Transformer Inference Roofline for memory and compute limits, Complex-Valued Neural Networks for Fourier representations, MatMul-Free Language Modeling for another architecture tradeoff, Hybrid Attention State Budget Case Study for mixed designs, Titans Test-Time Neural Memory Case Study for learned memory, RWKV Recurrent Transformer for recurrent state, Selective State Space Models: Mamba for state-space sequence modeling, and Kimi Linear Attention for newer efficient-attention work.',
       ],
     },
   ],

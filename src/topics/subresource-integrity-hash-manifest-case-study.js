@@ -182,38 +182,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Subresource Integrity lets a page declare the expected cryptographic hash of a script or stylesheet. The browser downloads the resource, computes a digest of the bytes, and refuses to execute or apply the resource if the digest does not match the integrity metadata.',
-        'The data structure is a release manifest: asset URL to allowed digest values, plus HTML tags that carry those values into the browser. It turns a CDN or proxy byte change into a detectable load failure.',
+        `Web pages often load scripts and styles from build output, CDNs, package mirrors, analytics vendors, and third-party widgets. If those bytes change unexpectedly, the browser may run code the site owner did not intend to ship. HTTPS protects the connection to the host, but it does not prove that the host served the same artifact the release pipeline produced.`,
+        `Subresource Integrity exists to let the page declare the expected digest of a script or stylesheet. The browser downloads the resource, hashes the actual bytes, compares the result with the integrity metadata, and only then executes the script or applies the stylesheet. The decision happens inside the browser before the resource is trusted.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'At build time, compute a sha256, sha384, or sha512 digest of the final bytes. At render time, put the digest in integrity on the script or stylesheet tag. For cross-origin resources, use CORS by adding crossorigin and serving an appropriate Access-Control-Allow-Origin header.',
-        'At load time, the browser fetches the resource, selects the strongest hash set available in the attribute, hashes the response, and compares. A match loads. No match blocks.',
+        `The obvious approach is to trust HTTPS, cache-busting filenames, and the CDN. A file named app.8f3a.js looks content-addressed, and a TLS connection to the CDN looks secure. Those layers help, but they do not catch every supply-chain or deployment mistake. The wrong bytes can still be uploaded to the right path, rewritten by a proxy, or served by a compromised edge after the HTML was generated.`,
+        `Another tempting approach is to treat integrity attributes as hand-written markup. That fails because the hash must match the final emitted bytes exactly. A small minifier change, line-ending change, banner insertion, or CDN transform can change the digest. Integrity metadata belongs in the build and release manifest, not in a developer's memory.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Naive failure modes',
       paragraphs: [
-        'A web app loads vendor.js from a CDN. The build produces vendor.abcd.js and a manifest entry with sha384. The HTML template writes script src, integrity, and crossorigin. The CDN serves CORS-readable bytes. If a misconfigured minifier, compromised edge, or stale upload changes the bytes, the browser blocks the script instead of executing the unexpected file.',
-        'SRI pairs naturally with CSP Nonce & Hash Policy. CSP decides which sources and inline scripts are allowed. SRI verifies that an allowed external resource has the exact bytes the publisher expected.',
+        `Hashed filenames and SRI solve different problems. A hashed filename helps caches distinguish versions. SRI verifies the bytes fetched for a particular tag. If the HTML points to a trusted URL but the response body changed, the filename alone may not save you. If the HTML itself is compromised and the attacker can change both URL and hash, SRI cannot save you either.`,
+        `CORS is another place naive deployments fail. Cross-origin SRI needs the browser to be allowed to read the response for integrity checking. A tag may have the right integrity value but still fail because the CDN does not return the expected Access-Control-Allow-Origin header or because the crossorigin mode is missing or wrong.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Core model',
       paragraphs: [
-        'SRI does not protect a compromised HTML document that can replace both the URL and the hash. It does not decide whether a CDN is allowed by policy. It does not fix a missing CORS response. It only verifies that the fetched bytes match the declared hash.',
-        'Do not generate integrity before the final minification, compression-independent content, or bundling step. The hash must match the actual resource bytes the browser checks.',
+        `The data structure is a release manifest: asset URL or logical asset id to one or more allowed digest values. At build time, after bundling and minification produce final files, the pipeline computes a sha256, sha384, or sha512 digest. At render time, the HTML tag includes that digest in the integrity attribute.`,
+        `The invariant is simple: the hash names the expected bytes. If the browser fetches different bytes, the hash comparison fails. A matching script loads. A mismatching script is treated as a load failure instead of being executed. That turns silent mutation into an explicit block.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How the browser check works',
       paragraphs: [
-        'Primary sources: MDN Subresource Integrity at https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Subresource_Integrity, W3C Subresource Integrity at https://www.w3.org/TR/sri-2/, MDN SRI implementation guide at https://developer.mozilla.org/en-US/docs/Web/Security/Practical_implementation_guides/SRI, and MDN CORS guide at https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS. Study CSP Nonce & Hash Policy, CORS Preflight Cache, HTTP Cache ETag Revalidation, Resource Hints: Preload & Preconnect, and Software Supply Chain Provenance Graph next.',
-        'Cross-Origin Isolation: COOP, COEP & CORP is the next browser-resource policy layer: SRI verifies bytes, while COEP/CORP decide whether cross-origin resources are allowed into an isolated document at all.',
+        `The HTML parser discovers a script or stylesheet tag with src or href plus integrity metadata. The browser fetches the resource using the tag's CORS mode. For cross-origin resources, crossorigin="anonymous" is common because it asks for a CORS-readable response without credentials. The CDN must return headers that make the response eligible.`,
+        `Before execution or application, the browser hashes the fetched bytes and compares the digest with the allowed values on the tag. If more than one hash strength is present, browsers use the strongest supported candidates. If none match, the browser refuses the resource. From the page's point of view, it looks like a network load failure.`,
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        `The hash-check view proves the provenance chain: build artifact to manifest, manifest to HTML tag, HTML tag to CDN fetch, CDN bytes to browser digest, browser digest to load-or-block decision. The important security moment is after download but before execution. The browser is not trusting the CDN response merely because it arrived.`,
+        `The deployment-policy view proves that SRI is one layer in a larger resource policy. Hashed filenames protect cache identity. SRI verifies fetched bytes. CORS makes the cross-origin bytes visible enough for checking. Content Security Policy decides which script sources are allowed at all. These layers overlap, but they are not substitutes for one another.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `Cryptographic hashes are designed so that changing the input bytes changes the digest unpredictably. If the release pipeline recorded the digest of the intended file, an attacker or broken deployment step cannot serve altered bytes that still match without finding a practical hash collision. Using sha384 or sha512 leaves a comfortable security margin for modern browsers.`,
+        `The browser is the right place for the final check because it sees the actual bytes that would execute. A build system can record intent, and a CDN can promise delivery, but only the browser can compare the declared digest with the exact response body it received for that page load.`,
+      ],
+    },
+    {
+      heading: 'Build manifest design',
+      paragraphs: [
+        `A practical SRI deployment treats the manifest as release evidence. Each emitted asset gets a digest computed from final bytes. The template or server-side renderer reads that manifest and writes the integrity attribute into script and link tags. The HTML should not invent hashes independently, and engineers should not paste digests by hand during normal releases.`,
+        `The manifest also needs consistency rules. If filenames are content-hashed, the digest should agree with the same artifact. If a CDN upload rewrites files, the digest must be computed after the rewrite or the rewrite must be disabled. If a release can serve old HTML with new assets, retention and cache rules must keep old digest-to-byte pairs available long enough for users with cached pages.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `The runtime cost is usually small: hashing happens during resource loading, and large scripts are already expensive to download and parse. The operational cost is higher. Every script and stylesheet that needs integrity must have stable final bytes, a correct manifest entry, matching HTML, and compatible CORS headers.`,
+        `Strict enforcement can break pages. If one required script lacks integrity, has a stale digest, or is served with bad CORS headers, the browser blocks it. That is exactly the safety behavior, but users experience it as a broken application. Report-only rollout, staging checks, and release gates reduce the chance that the first strict deployment discovers missing coverage in production.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `SRI wins for stable external scripts and styles where the publisher knows the expected bytes. Vendor bundles on a CDN, framework files, analytics libraries, font stylesheets, and shared assets across many pages are natural targets. It is especially useful when the asset host is operationally separate from the HTML host.`,
+        `A concrete incident pattern is a CDN rewrite or stale upload. The HTML says vendor.js should have digest H, but an edge serves bytes with digest H2. Without SRI, the browser may execute the changed file and the incident becomes a behavioral mystery. With SRI, the browser blocks the file and the failure points directly at asset provenance.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `SRI does not protect a compromised HTML document that can change the integrity value. It does not decide whether a URL is allowed. It does not prove that the code is safe, only that the bytes match the publisher-declared digest. It also does not fix runtime attacks after a valid script starts executing.`,
+        `The common deployment failures are stale manifests, templates that omit integrity on some tags, CDN transformations after hashing, missing CORS headers, mixed credential modes, and strict policy before coverage is complete. Debugging should compare the final served bytes, the manifest digest, the HTML attribute, and the response headers rather than guessing from the console error alone.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study CSP Nonce & Hash Policy to understand source allowlists, nonces, and inline-script hashing. Study CORS Preflight Cache for the cross-origin rules that make browser reads safe. HTTP Cache ETag Revalidation explains a nearby validation mechanism for freshness, while Resource Hints: Preload & Preconnect shows how resource loading is optimized without changing trust.`,
+        `For the supply-chain side, study Software Supply Chain Provenance Graph, Transparency Log Witnessing Case Study, Merkle Tree, Package Lockfile Dependency Resolution, and Sigstore Fulcio Rekor Case Study. SRI is a browser-side byte check; those topics show how artifacts can be built, signed, logged, resolved, and audited before the browser ever asks for them.`,
       ],
     },
   ],

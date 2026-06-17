@@ -214,11 +214,76 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: ['Adaptive bitrate streaming splits media into segments and publishes a manifest that describes multiple playable renditions. The player chooses which rendition to fetch next based on measured throughput, buffer health, device support, and presentation rules.', 'HLS uses Multivariant Playlists and Media Playlists. MPEG-DASH uses an MPD with periods, adaptation sets, representations, and segment addressing. The shared data-structure idea is a manifest-backed ladder plus a time-indexed segment catalog.'] },
-    { heading: 'How it works', paragraphs: ['The client loads the manifest, filters renditions by codec, resolution, DRM, captions, and device constraints, then fetches media segments. After each fetch it updates throughput estimates and buffer occupancy before choosing the next segment.', 'For live streams, the manifest can change as the live window advances. Sequence numbers, target duration, gaps, discontinuities, and period boundaries become correctness facts, not just text tags.'] },
-    { heading: 'Cost and complexity', paragraphs: ['The ladder trades storage and encoding cost for playback resilience. More variants can improve quality matching, but they increase encoding work, CDN footprint, manifest complexity, and testing matrix size. Smaller segments reduce latency but raise request overhead.'] },
-    { heading: 'Complete case study', paragraphs: ['A player starts at 720p, measures a throughput drop, and chooses 540p for the next segment before the buffer drains. Later the network recovers; the player waits for buffer health and stable estimates before returning to 720p. If one variant has a gap, it tries another variant for the same rendition instead of stalling on a known-missing segment.', 'The trace records manifest version, variant id, bandwidth label, measured bytes per second, selected segment, buffer seconds, dropped frames, stall events, and switch reason.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not let the manifest lie. Bad BANDWIDTH or average bandwidth values can cause stalls or unnecessarily low quality. Do not switch on instantaneous throughput alone. Do not assume every variant is interchangeable unless segment timing, codec support, captions, encryption, and discontinuities line up.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: RFC 8216 HTTP Live Streaming at https://datatracker.ietf.org/doc/html/rfc8216, current HLS 2nd Edition draft at https://datatracker.ietf.org/doc/html/draft-pantos-hls-rfc8216bis-22, Apple HLS authoring specification at https://developer.apple.com/documentation/http-live-streaming/hls-authoring-specification-for-apple-devices, and DASH-IF timing model guidelines at https://dashif.org/Guidelines-TimingModel/. Study CDN Request Flow, HTTP/3 QUIC Stream Multiplexing Case Study, Backpressure, Video Codec Reference Frame DAG Case Study, AV1 Tile OBU Superblock Case Study, and RTP Jitter Buffer Packet Reorder Case Study next.'] },
+    {
+      heading: 'Why This Exists',
+      paragraphs: [
+        'Video playback wants a steady timeline, but the network does not provide one. Throughput changes as a phone moves between cells, Wi-Fi competes with other devices, a CDN cache misses, or a browser shares bandwidth with other tabs. The viewer experiences time continuously: if the next two seconds of video do not arrive before playback reaches them, the player stalls. Adaptive bitrate streaming exists to turn an unstable network into a mostly steady viewing experience.',
+        'The system does that by publishing several encoded versions of the same content and letting the player choose segment by segment. A manifest describes the ladder of renditions, the codecs and resolutions they require, and the playlists or templates that address the media segments. The player then becomes a small controller. It observes download speed, buffer seconds, device limits, and manifest facts, then chooses the representation for the next segment.',
+      ],
+    },
+    {
+      heading: 'The Obvious Approach',
+      paragraphs: [
+        'The simplest server design is one video file at one bitrate. That worked when content was downloaded before playback or when the audience had predictable connections. It is still a reasonable first thought: one file is easy to cache, easy to test, and easy to reason about. The server does not need a ladder, and the player does not need a switching policy.',
+        'The wall is heterogeneity. A bitrate that looks fine on fiber can stall on a train. A bitrate that is safe on a weak connection wastes quality on a large screen with enough bandwidth. A single file also leaves the player with no local move when the network changes mid-session. It can wait, pause, or fail, but it cannot trade resolution for time. Internet video needs multiple valid futures at each point on the timeline.',
+      ],
+    },
+    {
+      heading: 'The Core Insight',
+      paragraphs: [
+        'The core insight is to divide video into aligned segments across a bitrate ladder. Every rendition describes the same timeline, but at different quality, size, codec, or frame-rate choices. If segment 101 is the next two seconds of the movie, the player can request the 360p, 720p, or 1080p version of segment 101 and still continue the same playback timeline. The manifest is the routing table that makes those choices visible.',
+        'The invariant is timeline compatibility. Switchable renditions must line up closely enough that the player can move between them without a visible jump, audio drift, missing frames, or decoder break. ABR is not only picking the highest bitrate below the last speed sample. It is maintaining a buffer while moving through a constrained graph of playable segment choices.',
+      ],
+    },
+    {
+      heading: 'How It Works',
+      paragraphs: [
+        'A top-level HLS or DASH manifest lists variants. Each variant carries facts such as nominal bandwidth, resolution, codecs, frame rate, audio group, subtitles, DRM requirements, and the URL of a media playlist or segment template. A media playlist then lists segment sequence numbers, durations, URIs, discontinuities, and live-window markers. The player uses those lists as indexes into CDN objects.',
+        'At startup, the player chooses an initial rendition, often conservatively, because it has little evidence. After each segment download, it measures bytes over time, updates a throughput estimate such as an EWMA, and updates buffer occupancy. It filters variants the device cannot decode, the screen cannot use, the DRM session cannot play, or the manifest marks as unavailable. Then it chooses the next segment representation.',
+        'A stable switch policy is asymmetric. It should switch down quickly when buffer is at risk because a stall is worse than a temporary quality drop. It should switch up more cautiously because one good sample may be noise. Many controllers combine throughput estimates, buffer thresholds, hysteresis, startup rules, and quality caps. The best choice is not the highest row in the ladder; it is the row most likely to keep future playback smooth.',
+      ],
+    },
+    {
+      heading: 'What the Visual Proves',
+      paragraphs: [
+        'The variant-ladder visual shows the manifest as a routing table. One manifest fans out to 360p, 720p, and 1080p renditions, each leading to segment lists. The lesson is that a rendition is not just a prettier file. It is a compatible route through the same timeline. The bandwidth labels, codec strings, and segment indexes are control data the player needs for safe switching.',
+        'The switch-policy visual shows the feedback loop. Network throughput moves up and down, while the chosen bitrate changes more slowly. That gap is deliberate. The controller is trying to absorb variance with buffer, not mirror every measurement. The failure ledger then connects visual behavior to operations: zero buffer means stall, flip-flopping means missing hysteresis, gaps need alternate segments or variants, and DRM or codec filters can remove rows from the ladder.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The correctness argument is a timing argument. Playback consumes media seconds at a fixed rate. Download adds media seconds to the buffer at a rate determined by segment size and network throughput. If the player keeps choosing segments that download before the buffer reaches zero, playback continues. If a rendition switch preserves the media timeline and decoder constraints, the viewer sees a quality change instead of a discontinuity.',
+        'The controller works because it uses buffer as slack. A short throughput drop does not have to cause a stall if the buffer already contains enough future media. A cautious upswitch protects that slack. A fast downshift rebuilds it. The manifest works because it offers precomputed alternatives, so the player can respond locally without asking the server to re-encode video during playback.',
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        'ABR moves cost from playback time to packaging time. The publisher has to encode multiple renditions, store more objects, generate manifests, align segments, test codec combinations, and monitor a larger CDN footprint. More ladder rungs improve matching to devices and networks, but every rung adds encoding cost, cache pressure, QA cases, and observability work. A ladder with too few rungs causes either stalls or visible quality waste.',
+        'Segment duration is another tradeoff. Shorter segments reduce live latency and let the player react sooner, but they increase HTTP request overhead and make throughput samples noisier. Longer segments are easier to cache and estimate, but the player reacts more slowly and live latency grows. Low-latency modes add partial segments and preload hints, which reduce delay but make timing, cache behavior, and failure handling tighter.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'ABR wins for internet video because it matches one catalog to many devices and networks. A phone on cellular, a TV on fiber, a laptop on hotel Wi-Fi, and a live viewer near the edge of the window can all use the same logical stream while selecting different renditions. CDNs like it because segments are ordinary HTTP objects. Players like it because the next decision is local.',
+        'It also wins as an operational model. Startup delay, rebuffering, low quality, oscillation, and live-edge drift can be traced through manifest metadata, segment fetches, buffer health, and switch reasons. A useful ABR event log records manifest version, selected variant, bandwidth label, measured throughput, buffer seconds, dropped frames, gap handling, device filters, and the reason for each switch.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'ABR fails when the ladder lies. Inaccurate BANDWIDTH values can push the player into a rendition it cannot sustain or keep it below quality it could have played. Misaligned segments make switching visible. Codec mismatches, DRM differences, discontinuities, missing segments, and live-window gaps can make variants non-interchangeable even though they appear in the same manifest.',
+        'It also fails when the controller chases noise. Instantaneous throughput is a bad sole signal because each segment download includes CDN behavior, TCP or QUIC dynamics, cache misses, device scheduling, and competing traffic. A controller with no hysteresis can bounce between qualities and annoy the viewer without improving stall risk. ABR needs smoothing, guardrails, fallback behavior, and telemetry that explains bad choices after the fact.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary sources: RFC 8216 HLS at https://datatracker.ietf.org/doc/html/rfc8216, the HLS 2nd Edition draft at https://datatracker.ietf.org/doc/html/draft-pantos-hls-rfc8216bis-22, Apple HLS authoring guidance at https://developer.apple.com/documentation/http-live-streaming/hls-authoring-specification-for-apple-devices, and DASH-IF timing model guidelines at https://dashif.org/Guidelines-TimingModel/.',
+        'Study CDN Request Flow for object fetch behavior, HTTP/3 QUIC Stream Multiplexing for transport effects, Backpressure for flow-control intuition, Video Codec Reference Frame DAG for why segments and decoder state must align, AV1 Tile OBU Superblock for codec structure, RTP Jitter Buffer for real-time packet smoothing, and Cache Status HTTP Observability for the CDN evidence behind segment fetches.',
+      ],
+    },
   ],
 };

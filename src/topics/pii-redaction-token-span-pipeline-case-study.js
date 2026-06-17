@@ -288,31 +288,107 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A PII redaction token-span pipeline detects sensitive spans, resolves overlaps, applies policy-specific transformations, and records lineage. It is a data structure problem as much as an NLP problem: every span needs offsets, entity type, confidence, recognizer, transform, purpose, and audit evidence.',
-        'NIST SP 800-122 gives practical guidance for identifying and protecting PII: https://csrc.nist.gov/pubs/sp/800/122/final. NIST SP 800-188 defines de-identification as removing or reducing association between data and subjects while managing disclosure risk: https://csrc.nist.gov/pubs/sp/800/188/final.',
+        'PII leaks because useful systems copy text everywhere. Logs, traces, tickets, analytics exports, search indexes, training corpora, support tools, and incident bundles all want the same raw events. Once direct identifiers spread into those surfaces, cleanup becomes slow, incomplete, and hard to prove.',
+        'A token-span redaction pipeline creates one controlled transformation point before data leaves a trust boundary. It detects sensitive ranges, resolves conflicts, applies purpose-specific policy, and writes evidence that reviewers can inspect later. The data structure at the center is the span: start offset, end offset, type, confidence, recognizer, transform, and lineage.',
+        'The goal is not to make text harmless by magic. The goal is to turn a messy release decision into a recorded series of small decisions: what was found, which finding won when detectors disagreed, what action policy required, what output was released, and what risk remains.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious regex approach and its wall',
       paragraphs: [
-        'The pipeline starts with tokenization and offset preservation. Recognizers propose spans using patterns, dictionaries, checksums, NLP models, and context rules. A resolver chooses winners for overlapping spans. The policy engine transforms each span: replace, mask, drop, tokenize, salted hash, generalize, or leave unchanged with justification. The output writer produces clean text plus a redaction ledger.',
-        'Microsoft Presidio is a practical reference architecture for this split between detection and anonymization: https://microsoft.github.io/presidio/. The OpenTelemetry security docs call out sensitive-data handling for telemetry pipelines: https://opentelemetry.io/docs/security/handling-sensitive-data/.',
+        'The obvious approach is a pile of regex replacements. Remove anything that looks like an email, phone number, credit card, IP address, or account number. That catches some high-syntax identifiers and is often enough for a demo or a narrow log format.',
+        'The wall appears as soon as the text becomes free-form. Names, addresses, locations, patient references, employee ids, device ids, and incident notes do not always have rigid syntax. A number can be an order id in one field and harmless telemetry in another. A city can be safe in aggregate and sensitive inside a small population record.',
+        'Regex-only scrubbing also loses evidence. After replacement, it may be impossible to answer which detector fired, whether a partial span was left behind, which policy applied, and why a release was approved. That lack of lineage turns redaction into trust-me text rewriting.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core model and invariants',
       paragraphs: [
-        'A platform exports support logs for model training and observability. The raw logs include names, emails, account ids, IP addresses, free-text descriptions, and trace ids. The redaction pipeline detects spans, hashes account ids with a rotating salt so debugging joins still work, replaces emails, masks names, generalizes locations, and blocks raw logs from leaving the internal vault. The release gate samples transformed records, checks detector recall, stores span lineage, and links the release to a purpose and retention policy.',
-        'This module connects the privacy attack pages to operations. Membership Inference, Model Inversion, and Training Data Extraction all get worse when raw PII or secret-like strings are collected casually. Redaction reduces the blast radius before training, logging, and sharing create new copies.',
+        'The core model is an interval set over the original text. Each candidate span has offsets, type, score, detector name, context, and suggested action. The resolved span set is the non-overlapping set that policy will transform. The ledger records the bridge from raw text to clean text.',
+        'The first invariant is boundary control: raw input stays restricted, and only policy-approved transforms cross the boundary. Every released byte should be explainable from a resolved span set and a release policy. If output cannot be tied back to typed spans and decisions, it is hard to audit and hard to improve.',
+        'The second invariant is deterministic overlap handling. Two recognizers may claim the same characters. The pipeline must choose, merge, split, or drop spans by stable rules before applying transforms. Otherwise one run may mask a whole phone number while another masks only the last four digits and leaves a linkable prefix.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Do not confuse redaction with a formal privacy guarantee. It reduces direct exposure but does not automatically prevent re-identification, linkage, or inference. Do not hash without a salt policy. Do not log raw data through a side path. Do not over-redact without measuring utility, because unusable data creates pressure to bypass the system. Do not run redaction after export; enforce it before data leaves the trust boundary.',
-        'Study OpenTelemetry Collector Case Study, Log Template Drain Parser, LLM Guardrail Policy Engine, OPA Rego Policy Decision Graph, Claim Graph & Source Ledger, Differential Privacy SGD, Membership Inference, Model Inversion, and LLM Training Data Extraction next.',
+        'The span-detection view is a left-to-right contract. Ingest preserves the raw text inside the restricted zone. Tokenization preserves offsets. Detectors propose spans. The resolver turns overlapping proposals into a stable set. Policy decides whether each resolved span becomes a replacement token, mask, salted hash, generalized value, or full suppression.',
+        'The detected-span table teaches why type and confidence matter. An email, account id, person name, and location often need different actions. The overlap table teaches why intervals must be resolved before text is edited. A contained span may be dropped, merged, or replaced by a larger structured entity.',
+        'The release-gate view shows that clean text and ledger are both outputs. Clean text alone is not enough. The gate needs the raw-to-clean mapping, residual risk, release purpose, detector versions, policy ids, and audit trail. The telemetry frame is a warning: collectors and background exporters often become bypass paths unless redaction runs before export.',
+      ],
+    },
+    {
+      heading: 'Span detection mechanics',
+      paragraphs: [
+        'The pipeline first normalizes input into tokens or character ranges while preserving source offsets. Offset preservation is not bookkeeping trivia. It lets the system transform the original text exactly and lets auditors compare raw and clean views without guessing which characters were changed.',
+        'Recognizers propose spans from regular expressions, checksum validators, dictionaries, named-entity models, field metadata, allowlists, deny lists, and context rules. A strong span record includes detector name, detector version, entity type, score, supporting context, and source field. Without that metadata, later review cannot separate detector failure from policy failure.',
+        'Good detectors also use negative evidence. An allowlisted service account should not be treated like a customer email. A known test phone number should not pollute privacy metrics. A field named `customer_email` should raise confidence for email-like text, while a field named `build_sha` should lower confidence for hex-looking strings.',
+      ],
+    },
+    {
+      heading: 'Overlap resolution and policy',
+      paragraphs: [
+        'Candidate spans often overlap. A phone recognizer may claim characters 12..24 while an account recognizer claims 18..24. An address recognizer may claim a whole address while a zip-code recognizer claims the final five characters. Applying transforms independently can corrupt text or leave partial identifiers behind.',
+        'A resolver sorts spans and applies precedence. Common rules include severity before confidence, longer span before contained span, structured entity before generic entity, and domain type before broad named-entity type. Some overlaps should merge, such as a street address plus zip code. Others should drop, such as a generic number inside a validated phone number.',
+        'Policy maps resolved entity type and release purpose to action. An email in a public export may become `[EMAIL]`. An account id in an internal debugging export may become a salted hash. A location in analytics may become a region. A high-risk note may be suppressed. Redaction is not always deletion; it is controlled transformation.',
+      ],
+    },
+    {
+      heading: 'Why it works and governance',
+      paragraphs: [
+        'Correctness starts with coverage. Every export path must go through the processor or through an explicit allowlisted alternative. A strong detector in the application path does not protect data if background jobs, log collectors, trace exporters, database dumps, or support scripts ship raw attributes around it.',
+        'Transform correctness is interval correctness. Apply transforms to the resolved span set, preserve offsets in the ledger, and avoid producing partial identifiers by masking only the middle of a larger entity. Many implementations apply replacements from the end of the string backward so earlier edits do not shift later offsets.',
+        'Governance adds a release model. NIST SP 800-122 gives practical guidance for identifying and protecting PII: https://csrc.nist.gov/pubs/sp/800/122/final. NIST SP 800-188 frames de-identification as a disclosure-risk decision, not a single algorithm: https://csrc.nist.gov/pubs/sp/800/188/final.',
+        'A release gate should know purpose, audience, retention period, allowed entity types, detector thresholds, review requirements, and residual risk. The same clean text may be acceptable for internal debugging and unacceptable for public release. Purpose is part of the contract.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The main tradeoff is recall versus utility. High recall reduces the chance that direct identifiers escape, but it can remove useful text and increase reviewer workload. High precision preserves more utility, but missed spans become privacy incidents. High-risk releases usually bias toward recall and manual review for ambiguous spans.',
+        'The operational cost includes latency, detector maintenance, multilingual support, evaluation datasets, salt management, ledger storage, reviewer tooling, and policy drift. Redaction also changes downstream analytics: hashes preserve joins, replacement tokens preserve rough shape, suppression reduces leakage but can bias measurements.',
+        'Threshold tuning must be tied to the release product. A public dataset should usually accept more over-redaction and more review. A narrow internal operational log may need stable pseudonyms for incident response. A dashboard may need only aggregate counts and should not receive record-level text at all.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A support log says: `Ava Li reported account 88319 from Boston. Email ava@example.com failed login twice.` Detectors propose PERSON for `Ava Li`, ACCOUNT for `88319`, LOCATION for `Boston`, and EMAIL for `ava@example.com`. A context recognizer may also label the login failure as sensitive security context.',
+        'For a model-training export, policy might replace the email, mask the person name, hash the account id with a training-scope salt, and generalize Boston to a region. The clean text and ledger leave together: output text for training, span records for audit, detector scores for evaluation, and policy ids for later review.',
+        'For a debugging export inside the production trust boundary, policy may keep the salted account hash stable so engineers can join events across services. That is a different release product, so it needs a different policy, retention period, and reviewer expectation. Reusing the model-training policy would either remove too much operational value or preserve too much for training.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins for logs, support tickets, trace attributes, search indexing, dataset preparation, and governed internal exports where text must remain useful but direct identifiers should not spread. It gives teams a shared vocabulary: candidate span, resolved span, action, release purpose, ledger, and residual risk.',
+        'It also helps evaluation. False negatives can be traced to detector gaps. False positives can be traced to type rules or thresholds. Partial masks can be traced to overlap logic. Policy surprises can be traced to purpose mapping. The pipeline makes improvement local instead of turning every redaction issue into a full-system mystery.',
+        'Microsoft Presidio is a practical reference for separating detection from anonymization: https://microsoft.github.io/presidio/. OpenTelemetry documents sensitive-data handling for telemetry pipelines: https://opentelemetry.io/docs/security/handling-sensitive-data/.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'A span pipeline is not a complete privacy proof. It can miss contextual PII, nicknames, rare names, unusual address formats, multilingual text, screenshots, identifiers embedded in base64 blobs, or sensitive facts that do not look like identifiers. It can also over-mask so aggressively that the resulting data is not useful.',
+        'Linkage risk remains after many direct identifiers are removed. A record with age, zip code, employer, timestamp, and incident details may still identify a person when joined with outside data. Stable salted hashes preserve joins, which is useful, but they also preserve linkability inside the salt scope. Salt rotation and purpose-scoped salts are policy tools, not proof of anonymity.',
+        'Operational bypasses are often worse than detector errors. A service may redact application logs but forget trace attributes. A batch export may bypass the collector. A debug dump may store raw payloads in object storage. A reviewer may approve a sample but miss a long-tail format. Coverage tests need to include every path that can move text across a boundary.',
+        'Formal releases may need aggregation, differential privacy, synthetic-data evaluation, k-anonymity style risk checks, secure query interfaces, or legal review instead of record-level redacted text. The pipeline reduces risk and records decisions; it does not erase all disclosure risk.',
+      ],
+    },
+    {
+      heading: 'Operational checklist',
+      paragraphs: [
+        'Start by mapping data flows. List every place raw text can leave the trust boundary: API responses, queues, logs, traces, metrics attributes, tickets, search indexes, warehouse tables, model-training files, and incident bundles. Put the processor before each exit or document why an exit is forbidden.',
+        'Build a gold dataset with real edge cases, not only obvious emails. Include names without capitalization, addresses split across fields, non-English text, internal ids, false positives, and overlapping spans. Track recall, precision, partial-redaction rate, bypass coverage, and reviewer disagreement.',
+        'Treat the ledger as sensitive. It may contain offsets, entity types, hashes, and enough information to reconstruct risk. Store it with access controls, retention limits, detector versions, policy versions, and sampling rules. The audit path should be useful without becoming a new leak path.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study OpenTelemetry Collector Case Study for telemetry enforcement, Log Template Drain Parser for structured log extraction, LLM Guardrail Policy Engine for policy-time blocking, OPA Rego Policy Decision Graph for explicit authorization, Claim Graph & Source Ledger for audit lineage, Differential Privacy SGD for formal noise-based protection, Membership Inference and Model Inversion for residual attack paths, and LLM Training Data Extraction for why raw training text is dangerous.',
       ],
     },
   ],

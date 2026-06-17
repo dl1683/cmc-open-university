@@ -210,42 +210,72 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem RotatE solves',
       paragraphs: [
-        'RotatE is a knowledge-graph embedding model from "RotatE: Knowledge Graph Embedding by Relational Rotation in Complex Space." A knowledge graph stores triples such as (Paris, located_in, France) or (Marie Curie, won, Nobel Prize). Link prediction asks which missing triples are likely true. RotatE embeds entities as complex vectors and embeds each relation as a rotation.',
-        'The scoring rule is the core idea: a triple is plausible when h * r is close to t, where h is the head entity, r is the relation, and t is the tail entity. In complex space, multiplication rotates and scales. RotatE constrains relations to unit-modulus rotations, so relation semantics become phase changes.',
+        `A knowledge graph stores facts as triples: head entity, relation, tail entity. Paris located_in France is a triple. Marie Curie won Nobel Prize is a triple. A product belongs_to category, a drug treats disease, and a person works_at company are all triples. Real graphs are incomplete, so the central machine-learning task is link prediction: given a partial graph, rank which missing triples are likely true.`,
+        `The naive way to solve this is to memorize neighborhoods or write symbolic rules. If a city is located in a country and that country is part of a continent, maybe the city is located in the continent. If one relation is the inverse of another, use that rule directly. Rules are interpretable, but they are brittle when facts are sparse, noisy, or too numerous to hand encode. Pure neighborhood counting also struggles when new links require generalizing across many similar patterns.`,
+        `RotatE is a knowledge-graph embedding model that turns this symbolic problem into geometry. It represents entities as vectors in complex space and represents each relation as a rotation. A triple is plausible when applying the relation rotation to the head entity lands near the tail entity. This design is memorable because important relational patterns become simple phase algebra: inversion, symmetry, antisymmetry, and composition all have natural forms in complex multiplication.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Core insight',
       paragraphs: [
-        'Training uses known triples as positives and generated false triples as negatives. The model moves entity and relation embeddings so positives receive high scores and negatives receive low scores. The paper also proposes self-adversarial negative sampling: hard negative examples receive more attention because they are the ones most likely to confuse the model.',
-        'The elegant part is pattern modeling. Symmetric relations can be represented by rotations that equal their own inverse. Antisymmetric relations use phases that do not. Inverse relations are conjugate rotations. Relation composition becomes multiplication of rotations, which adds phases. That gives the model a compact way to represent common graph regularities without hand-written rules.',
+        `RotatE's central idea is that a relation can be a transformation instead of a label. If applying the relation to the head entity rotates it near the tail entity, the triple is plausible. That one choice makes relation patterns visible as geometry.`,
+        `This is not symbolic proof. The model does not derive facts from rules. It learns a space where common graph regularities become cheap to represent, then uses distance to rank which missing links fit those regularities best.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'From translations to rotations',
       paragraphs: [
-        'RotatE stores an embedding for each entity and relation, so memory is O((entities + relations) * dimensions). Training cost depends heavily on negative sampling and graph size. Large production graphs also need entity freshness, relation typing, incremental updates, and careful candidate generation. At query time, ranking every possible tail is expensive, so systems use filtered candidate sets, approximate nearest-neighbor search, or precomputed recommendations.',
-        'The evaluation cost is subtle. Random edge splits can leak structure because the same entities and near-identical paths appear in train and test. Easy negative samples can make a model look better than it is. A serious link-prediction evaluation reports filtered metrics, relation types, split policy, negative sampling strategy, and failure cases.',
+        `Earlier embedding models often used translations. In a translation model, a relation is a vector offset: head plus relation should land near tail. That works for some patterns. If Paris plus located_in lands near France, and Berlin plus located_in lands near Germany, the relation vector captures a common offset. But translations have trouble with several relation types. Symmetric relations, inverse relations, and composed paths do not always behave like one fixed displacement.`,
+        `RotatE changes the operation. Instead of adding a relation vector, it multiplies the head embedding by a relation embedding whose components have unit modulus. In complex numbers, multiplying by a unit complex number rotates the point around the origin without changing its radius. In multiple dimensions, each component can rotate by its own phase. The scoring rule is simple: compute the distance between h * r and t. Small distance means a high score for the triple.`,
+        `This makes relation semantics phase changes. If a relation has an inverse, the inverse relation can be represented by the conjugate rotation. If two relations compose, their rotations multiply, which adds their phase angles. If a relation is symmetric, applying it forward and backward should be compatible with the same relation. If it is antisymmetric, the phase should not equal its own inverse. The model does not receive these rules as code; the geometry makes them easy to learn.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Training mechanics',
       paragraphs: [
-        'Knowledge-graph embeddings support entity completion, product graph recommendations, biomedical relation discovery, fraud graph features, search ranking, question answering, and graph-enriched RAG. They connect directly to Graph Neural Networks because both learn representations over graph structure. RotatE is especially useful as a clean case study for how a representation choice - complex rotation - can encode a domain assumption.',
+        `Training starts from known graph triples as positives. For each positive triple, the learner creates negative triples by corrupting the head or tail: replace Paris with Nobel Prize, or replace France with Physics, while keeping the relation. Most corrupted triples are assumed false or at least unknown. The model is optimized so real triples receive better scores than negatives.`,
+        `Negative sampling is not a detail. If negatives are too easy, the model can look strong without learning useful boundaries. A type-ignorant negative such as Paris won Physics is obviously wrong, while Paris located_in Europe may be a harder case depending on the graph schema. RotatE's paper introduced self-adversarial negative sampling, which gives more weight to negatives that the current model scores as plausible. The goal is to train on examples near the decision boundary instead of wasting updates on nonsense triples.`,
+        `After training, link prediction becomes ranking. For a query like Marie Curie won ?, the system scores many candidate tails and returns the highest ranked entities. For a query like ? located_in France, it scores candidate heads. Evaluation often uses filtered ranking metrics, where other known true triples are removed from the negative candidate set so the model is not penalized for ranking an alternative true fact highly.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'RotatE is not a symbolic theorem prover. It learns statistical geometry from graph facts and can reproduce graph bias, missingness, and staleness. It can infer plausible links, not guaranteed truth. Another misconception is that knowledge-graph embeddings replace graph databases. In practice they complement explicit graph storage: the database stores facts and permissions, while embeddings rank plausible candidates or features.',
+        `Complex numbers give RotatE a compact way to encode direction and reversible structure. A real-valued scalar can say larger or smaller. A complex value has an angle. Multiplication by a unit complex number changes that angle while preserving magnitude. Relations in knowledge graphs often behave more like transformations than attributes, so representing a relation as an angle change can be more expressive than treating it as a simple offset.`,
+        `Inversion is the easiest example. If parent_of and child_of are inverse relations, moving from parent to child should be undone by moving from child to parent. In complex space, the inverse of a unit rotation is its conjugate. Composition is also natural. If city_to_country followed by country_to_region implies city_to_region, the composed relation corresponds to multiplying the first two rotations. Multiplication of complex rotations adds phases, so path composition has a clean geometric analogue.`,
+        `Symmetry and antisymmetry are both important because many graph relations have direction. Similar_to is symmetric: if x is similar to y, y is similar to x. Born_before is antisymmetric: if x was born before y, y was not born before x. A good knowledge-graph model should represent both without changing architecture. RotatE's phase constraints make those cases easier to express than a single translation scheme.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it is used',
       paragraphs: [
-        'Primary sources: the arXiv paper at https://arxiv.org/abs/1902.10197 and the ICLR/OpenReview PDF at https://openreview.net/pdf?id=HkgEQnRqYQ. Study Graph BFS, PageRank, Graph Neural Networks, Embeddings & Similarity, Complex-Valued Neural Networks, HNSW (Vector Search at Scale), and Data Leakage & Contamination next.',
+        `Knowledge-graph embeddings are used when explicit graph facts are valuable but incomplete. In commerce, they can suggest product-category links, substitute products, compatible accessories, or brand-entity relationships. In biomedical graphs, they can rank plausible drug-disease, protein-protein, or gene-pathway links for expert review. In security and fraud systems, they can turn account, device, transaction, and merchant graphs into features or suspicious-link candidates. In search and question answering, they can fill entity relations that improve retrieval and ranking.`,
+        `RotatE is also useful as a case study in representation design. It shows that an embedding model is not only a compression method. Its geometry encodes assumptions about the domain. If relations in a graph often have inverses and compositional paths, a rotational geometry gives the learner a helpful bias. If the graph is dominated by hierarchical types, literals, text descriptions, or rich node attributes, a pure triple embedding may need to be combined with text encoders, graph neural networks, or rule systems.`,
+        `In retrieval-augmented generation, knowledge-graph embeddings can help rank candidate entities or missing links before a language model writes an answer. They should not be treated as truth by themselves. They are better viewed as a recall and ranking layer that proposes plausible structured facts for downstream verification.`,
+      ],
+    },
+    {
+      heading: 'Evaluation traps',
+      paragraphs: [
+        `Knowledge-graph embedding benchmarks are easy to overstate. A random edge split can leak information because the same entities, relation neighborhoods, and near-duplicate paths appear in both training and test. If the task is to predict new facts about already-seen entities, that may be acceptable. If the real task is to generalize to new entities or future graph snapshots, the split must reflect that. Time-based splits and entity-disjoint splits are harder but often more honest.`,
+        `Negative construction also changes the meaning of the score. Replacing a tail with a random entity often creates absurd negatives, especially in typed graphs. A model that separates country entities from award entities may do well without learning the relation deeply. Harder typed negatives ask whether Paris is located in France rather than Germany, or whether a drug treats disease A rather than disease B. Those negatives are more expensive and sometimes ambiguous, but they better test useful reasoning.`,
+        `Filtered metrics need careful interpretation. Mean reciprocal rank and Hits@K summarize ranking quality, but they do not prove that top-ranked missing links are true in the world. A graph is incomplete, so some "negative" candidates may actually be unrecorded positives. The right production loop often routes high-scoring predictions to human review, external evidence retrieval, or delayed validation against future graph updates.`,
+      ],
+    },
+    {
+      heading: 'Limits and tradeoffs',
+      paragraphs: [
+        `RotatE is not a symbolic theorem prover. It learns statistical regularities from observed triples. If the graph is biased, stale, or missing whole classes of facts, the embeddings inherit those problems. If the graph records social or institutional patterns, the model can reproduce inequities in recommendations or risk scores. If facts change over time, a stale embedding table can rank obsolete links confidently.`,
+        `It also does not replace a graph database. A database stores explicit facts, provenance, permissions, and queryable structure. RotatE stores dense vectors that rank plausibility. In a serious system, the database remains the source of truth, while embeddings support candidate generation, ranking, completion, or features for another model. That division matters because vector similarity is not an audit trail.`,
+        `The main tradeoff is between expressive bias and operational simplicity. RotatE's geometry is elegant and cheap compared with large neural encoders, but it uses learned embeddings for entities. New entities need embeddings, retraining, or an inductive extension. Text-rich or attribute-rich graphs may benefit from models that read descriptions rather than only IDs. Very large graphs need approximate retrieval, sharding, refresh pipelines, and monitoring for drift.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study the original paper at https://arxiv.org/abs/1902.10197 and its OpenReview version at https://openreview.net/pdf?id=HkgEQnRqYQ. Then study Embeddings and Similarity, Graph BFS, PageRank, Graph Neural Networks, Complex-Valued Neural Networks, HNSW for vector search, and Data Leakage and Contamination. Together they explain the full stack: graph structure, representation geometry, retrieval infrastructure, and the evaluation discipline needed before link-prediction numbers should be trusted.`,
       ],
     },
   ],

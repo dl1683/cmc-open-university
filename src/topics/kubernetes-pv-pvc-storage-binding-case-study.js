@@ -63,7 +63,7 @@ function* claimBinding() {
   yield {
     state: storageGraph('StorageClass chooses the provisioner and policy', { sc: 'fast SSD', prov: 'csi driver' }),
     highlight: { active: ['pvc', 'sc', 'prov', 'e-pvc-sc', 'e-sc-prov'], found: ['pv'] },
-    explanation: 'A StorageClass names the storage flavor and provisioner. It can carry parameters, reclaim policy, expansion support, mount options, and volumeBindingMode.',
+    explanation: 'A StorageClass is the policy edge in the binding graph. It chooses the provisioner and sets reclaim, expansion, mount, topology, and binding-time behavior.',
   };
 
   yield {
@@ -150,7 +150,7 @@ function* topologyBinding() {
       ],
     ),
     highlight: { active: ['wait:benefit', 'local:risk'], compare: ['imm:risk'] },
-    explanation: 'The storage class is an operational policy object. It expresses whether fast provisioning, topology alignment, retention, expansion, or cost control matters more for this workload class.',
+    explanation: 'Binding mode chooses when the system commits to a volume location. Immediate is fast but can pick the wrong zone; WaitForFirstConsumer delays that choice until Pod placement is known.',
   };
 
   yield {
@@ -170,30 +170,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Kubernetes PersistentVolume subsystem separates storage requests from storage implementation. A PersistentVolumeClaim is a user request for storage. A PersistentVolume is a cluster storage resource. A StorageClass describes provisioner and policy for dynamic provisioning.',
-        'The official Persistent Volumes documentation explains that PV and PVC abstract how storage is provided from how it is consumed and that PV lifecycle is independent of any individual Pod: https://kubernetes.io/docs/concepts/storage/persistent-volumes/. The StorageClass documentation describes provisioner, parameters, reclaimPolicy, allowVolumeExpansion, mountOptions, and volumeBindingMode: https://kubernetes.io/docs/concepts/storage/storage-classes/. Dynamic provisioning documentation explains that a PVC can trigger on-demand volume creation through a StorageClass: https://kubernetes.io/docs/concepts/storage/dynamic-provisioning/.',
+        'Kubernetes is good at replacing Pods. That is exactly why storage needs a separate contract. If a database Pod dies, the replacement should not get a fresh empty directory just because the compute object was disposable.',
+        'PersistentVolumeClaims give workloads a stable storage request. PersistentVolumes represent the concrete durable asset. StorageClasses describe the provisioning policy: which driver creates the volume, which parameters it uses, how deletion is handled, whether expansion is allowed, and when topology is chosen.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The useful data structure is a binding graph. Pod points to PVC. PVC points to StorageClass and eventually PV. StorageClass points to a provisioner and policy fields. PV points to the underlying volume handle, reclaim behavior, access modes, capacity, and topology. Scheduler and CSI components use that graph to decide when and where storage can attach.',
-        'For stateless workloads this graph is incidental. For databases, queues, search indexes, model checkpoints, and local caches, the graph is part of correctness. Losing the claim-to-volume relationship can mean data loss even when Kubernetes reports that replacement Pods are healthy.',
+        'A first Kubernetes storage demo often uses hostPath, emptyDir, a manually attached disk, or data baked into an image. Those choices are understandable. They remove the control-plane ceremony and make the first Pod run.',
+        'They break when the workload becomes real. A replacement Pod may land on another node. A disk may live in one zone while the scheduler picks another. A manually created volume may not match the requested capacity, access mode, retention rule, or backup policy. The cluster needs a durable identity for the request and a policy for satisfying it.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The hard part is not mounting a path into a container. The hard part is preserving the storage contract across scheduling, replacement, deletion, resizing, and zone constraints.',
+        'Two failures dominate. The first is identity failure: the new Pod does not get the same data. The second is placement failure: the volume is valid, but it cannot attach to the node where the Pod was scheduled. A storage system that ignores either one will look fine in a demo and fail during recovery.',
+      ],
+    },
+    {
+      heading: 'The core idea',
+      paragraphs: [
+        'PV/PVC binding turns storage into a small graph of contracts. A Pod references a PVC. The PVC records the requested capacity, access mode, class, and volume mode. The binder matches it to a PV or asks a provisioner to create one. The PV records the actual backing asset, claim reference, node affinity, reclaim policy, and lifecycle state.',
+        'The StorageClass is the policy node in that graph. Kubernetes does not need every application author to know a cloud provider disk API. The application asks for "fast-retain" or "standard-delete"; the class points to the provisioner and carries the cluster policy.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A workload declares a volume that points at a PVC. The PVC either binds to an existing compatible PV or triggers dynamic provisioning through its StorageClass. Once bound, the Pod can mount the claim. The Pod depends on the claim name, not on the provider-specific volume handle.',
+        'Binding is stateful. Pending means the request has not found or created usable supply. Bound means the claim and volume are paired. Mounted means the kubelet and storage driver have attached or mounted the backing asset for a Pod. Released means the claim is gone and the reclaim policy decides whether the underlying storage is retained or deleted.',
+        'The official Kubernetes docs describe the PV/PVC lifecycle, reclaim policy, node affinity, access modes, and dynamic provisioning through StorageClass. The StorageClass docs also define `volumeBindingMode`, including `Immediate` and `WaitForFirstConsumer`: https://kubernetes.io/docs/concepts/storage/persistent-volumes/, https://kubernetes.io/docs/concepts/storage/storage-classes/, https://kubernetes.io/docs/concepts/storage/dynamic-provisioning/.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the claim-binding view, follow the edge that becomes active. Pod to PVC is the workload contract. PVC to StorageClass is the policy choice. StorageClass to CSI is the provisioning path. PVC to PV is the durable binding that should survive Pod replacement.',
+        'The lifecycle matrix is not decoration. Pending, Bound, Mounted, and Released are different operational questions. A Running Pod is not enough; you need to know which claim it mounted, which PV backs it, whether the reclaim policy matches the data risk, and whether the volume can attach where the scheduler placed the Pod.',
+        'In the topology view, watch when the system commits to a zone. Immediate binding chooses storage before the scheduler has all placement facts. `WaitForFirstConsumer` delays binding or provisioning until a Pod exists, so scheduling constraints and storage topology can be solved together.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The stable object is the claim, not the Pod. If the Pod is replaced, the claim can remain bound to the same PV. For StatefulSets, a volumeClaimTemplate gives each ordinal its own claim identity, so db-0 can return to data-db-0 instead of silently starting with empty state.',
+        'Topology-aware binding works because it delays an irreversible choice. A zone-specific volume cannot always move to match a later scheduling decision. With `WaitForFirstConsumer`, the scheduler has the Pod constraints before the storage system selects or provisions the volume.',
+        'The correctness argument is a contract argument. If the claim is bound to a PV that satisfies class, capacity, access mode, volume mode, and topology constraints, then the Pod can depend on the claim without knowing the provider-specific storage handle. If any of those fields are wrong, the graph may still bind, but the workload contract is wrong.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'PV/PVC binding adds control-plane work. Dynamic provisioning may call a CSI driver and an external storage API. Attachment and mount can take much longer than creating a container. Expansion depends on the class, driver, filesystem, and whether the workload can tolerate the resize path.',
+        'The storage object also has cleanup behavior. `Delete` can remove the backing asset when the claim is deleted. `Retain` leaves manual recovery work, but it protects against accidental data loss. Neither choice is universally right; the workload risk decides.',
+        'Access modes are not a database concurrency protocol. They describe how the volume may be mounted. The application still needs its own locking, replication, write-ahead logging, backup, and recovery semantics.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'PV/PVC binding fits durable volumes attached to Kubernetes workloads: databases, queues, search indexes, model checkpoints, build caches, stateful operators, and systems that need stable per-replica storage identity.',
+        'StorageClass is valuable when platform teams want reusable policy. One namespace can request encrypted SSD with Retain, another can request cheap ephemeral-looking volumes with Delete, and neither application needs to call the provider API directly.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'A PVC is the wrong default for stateless services, rebuildable caches, static assets, large shared object datasets, cross-region data products, or anything better served by object storage and application-level replication.',
+        'It also does not solve backup, schema migration, quorum, failover, or corruption recovery. Kubernetes can preserve the volume. It cannot prove the bytes inside are correct or recoverable.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'A StatefulSet runs db-0, db-1, and db-2. Each ordinal has a claim created from a volumeClaimTemplate: data-db-0, data-db-1, and data-db-2. The fast-retain StorageClass uses a CSI driver, Retain reclaim policy, and WaitForFirstConsumer. When db-0 is recreated, it mounts data-db-0 again. When the cluster scales, new claims bind through the same class and topology policy.',
-        'The operational review checks more than Running Pods. It checks PVC Bound status, PV reclaim policy, access mode, zone, attachment, expansion support, backup coverage, and whether the storage class defaults match the workload. A wrong default StorageClass can quietly place critical state on disposable or slow storage.',
+        'A database StatefulSet has three replicas: db-0, db-1, and db-2. Its volumeClaimTemplate creates data-db-0, data-db-1, and data-db-2. The `fast-retain` StorageClass uses a CSI driver, SSD-backed parameters, `Retain` reclaim policy, expansion enabled, and `WaitForFirstConsumer`.',
+        'When db-0 is deleted, the replacement Pod still references data-db-0. That claim remains bound to pv-0, so the replacement mounts the same database files. If the cluster scales to db-3, a new claim is created through the same class and waits for scheduling facts before the volume is provisioned in a compatible zone.',
+        'The review checklist is concrete: PVC is Bound, PV points at the expected claim, reclaim policy is Retain for critical data, access mode matches the workload, node affinity and zone match placement, expansion is supported if the runbook needs it, and backups prove recovery outside Kubernetes object state.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The dangerous failures are often configuration choices that look harmless: a default StorageClass that points to slow or disposable storage, `Delete` reclaim policy on critical data, `Immediate` binding in a topology-constrained cluster, missing backups, unsupported expansion, or static pre-binding that bypasses the placement you expected.',
+        'Debug from the contract outward. Start with the PVC status and events. Check the bound PV, StorageClass, reclaim policy, access modes, capacity, node affinity, CSI provisioner events, attachment events, and the Pod scheduling decision. Do not stop at "the Pod is Pending"; find which edge in the graph could not be satisfied.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Kubernetes StatefulSet Ordinal Rollout for stable claim identities, Kubernetes ResourceQuota and LimitRange Admission for namespace resource policy, Kubernetes Scheduler PriorityQueue and Preemption for Pod placement, S3 Object Storage for object-store durability tradeoffs, and Write-Ahead Log for why durable state needs careful recovery semantics.',
+        'Study StatefulSets for stable Pod and claim identity, Kubernetes Scheduler PriorityQueue and Preemption for placement mechanics, ResourceQuota and LimitRange for namespace policy, S3 Object Storage for object durability without Pod attachment, and Write-Ahead Log for the application-level recovery layer a PVC does not provide.',
+        'For primary references, use the Kubernetes Persistent Volumes, Storage Classes, and Dynamic Volume Provisioning documentation. Those pages define the binding lifecycle, StorageClass fields, reclaim behavior, topology-aware binding, and dynamic provisioning path.',
       ],
     },
   ],

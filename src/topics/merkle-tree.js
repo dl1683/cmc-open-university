@@ -129,39 +129,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        `A Merkle Tree is a tree of hashes. Leaves hash data blocks; parents hash the concatenation of child hashes; the root commits to everything below it. Ralph Merkle proposed the idea in 1979. The visualization uses eight toy blocks, hashes each one, then hashes upward to one root. If replica B changes block 5 or block 2, the leaf hash changes, then every hash on the path to the root changes.`,
-        `The important word is "commits," not "compresses." A cryptographic hash such as SHA-256 is not a lossless fingerprint; collisions are theoretically possible. The security claim is that finding a collision is computationally infeasible. The demo uses a tiny teaching hash so the numbers fit on screen, but real systems rely on collision-resistant hashes.`,
+        `Replicas, peers, and light clients often need to compare or verify large data without transferring all of it. A database repair job should not ship terabytes just to discover one changed block. A light client should not download an entire log to check one entry.`,
+        `A Merkle tree gives one compact commitment to many pieces of data. If two roots match, the underlying data is equal for practical cryptographic purposes. If roots differ, the tree points to the changed region logarithmically.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        `Build bottom-up in pairs. To compare replicas, first compare roots. If roots match, the datasets are equal for practical cryptographic purposes. If roots differ, compare the two child hashes. A matching child hash prunes that entire subtree; a mismatching child hash points downward. With eight blocks, the demo finds the bad leaf in three levels. With about 8 billion blocks, log2(n) is roughly 33 levels, so the proof path is tiny compared with the dataset.`,
-        `Merkle proofs use the same path in the other direction. To prove a leaf belongs under a root, send the leaf plus the sibling hashes needed to recompute the root. That proof is O(log n) hashes. Updating one block also costs O(log n) hash recomputations up to the root, while building the whole tree costs O(n).`,
+        `The obvious approach is to hash or compare every block directly. That is fine for small files, but it is wasteful when most blocks already match or when a verifier only needs one membership proof.`,
+        `A single flat hash of the whole dataset helps equality checks, but it does not localize differences or prove one leaf. If the flat hash differs, you still have to search the whole data set to find the changed block.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        `Construction takes O(n) hash operations and O(n) space if the tree is stored. Equality checking is one root comparison when both roots are already known. Locating one differing block is O(log n) comparisons in a balanced tree, plus the network messages needed to exchange sibling hashes. A Hash Table also uses hashes, but for bucket lookup; a Merkle tree uses hashes to authenticate a hierarchy. Bloom Filter is another compact probabilistic structure, but it answers membership with false positives rather than proving data integrity.`,
+        `Hash the data at the leaves, then hash child hashes upward until one root remains. Each parent commits to the entire subtree below it. A matching subtree hash proves that every descendant can be skipped.`,
+        `The important word is "commits," not "compresses." A cryptographic hash is not lossless; it is collision-resistant enough that finding a different subtree with the same hash should be infeasible.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        `Git Internals is a Merkle-DAG story: blobs, trees, and commits are named by content hashes, so identical content has identical object IDs. Distributed databases use Merkle trees for anti-entropy repair after replicas diverge, a practical response to the tension described by CAP Theorem and Consistent Hashing. Blockchains put Merkle roots in block headers so light clients can verify transaction inclusion. Certificate Transparency logs use Merkle proofs for append-only auditability. BitTorrent v2 uses Merkle trees for piece verification; older torrents used flat piece-hash lists.`,
+        "Start at the root. If two replicas have the same trusted root hash, the comparison can stop because every descendant is committed by that root. If the roots differ, the animation descends only into child subtrees whose hashes differ.",
+        "A highlighted matching subtree is proof of work avoided. The algorithm is not checking every block and then drawing a tree; it is using parent hashes to rule out whole regions at once. A highlighted mismatching child is the next search interval.",
+        "When the animation reaches a leaf, it has localized the difference to one block. That is the core skill to learn: Merkle trees turn a large equality problem into repeated hash comparisons over smaller committed ranges.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked Example',
       paragraphs: [
-        `Merkle trees prove integrity, not privacy. Anyone who sees block hashes may learn patterns unless blocks are encrypted or salted appropriately. They also do not prove authorship; signatures or consensus rules do that. Block order matters: the same blocks in a different order produce a different root. Implementations must define odd-leaf handling, hash domain separation, and serialization carefully. A toy hash is fine for this visualization, but production systems use SHA-256, BLAKE3, or another vetted cryptographic hash.`,
+        `Imagine eight blocks. Replica A and Replica B differ only at block 5. A flat file hash can say "different," but it cannot say where. A Merkle comparison checks the root, then the two children of the root, then the two children of the mismatching half, then the two leaves in the final pair. The matching half of the data is never transferred.`,
+        `For inclusion, the proof is similarly small. To prove block 5 belongs to a root, a server sends block 5 plus the sibling hashes needed to recompute the path upward. The verifier does not need blocks 0 through 4 or 6 through 7. It only needs enough siblings to rebuild the trusted root.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'How It Works',
+      paragraphs: [
+        `Build bottom-up in pairs. To compare replicas, compare roots first. If roots match, stop. If roots differ, compare child hashes. A matching child prunes that whole subtree; a mismatching child tells you where to descend.`,
+        `To prove inclusion, send the leaf plus the sibling hashes along its path to the root. The verifier recomputes upward and checks whether the computed root equals the trusted root. Updating one leaf recomputes hashes only along that path.`,
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        `A changed leaf changes its leaf hash. That changes its parent hash, then every ancestor hash up to the root. So a root mismatch proves that at least one descendant differs, and a matching child hash lets the verifier skip that entire child subtree.`,
+        `An inclusion proof works because the verifier can recompute the only hashes that matter for one path. The server can omit all unrelated leaves and still provide enough siblings to rebuild the trusted root.`,
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        `Construction takes O(n) hash operations and O(n) space if the tree is stored. Equality checking is one root comparison when both roots are already known. A balanced inclusion proof or single-difference search uses O(log n) hashes.`,
+        `A Hash Table also uses hashes, but for bucket lookup. A Merkle tree uses hashes to authenticate a hierarchy. A Bloom Filter answers membership compactly with false positives; a Merkle proof verifies membership relative to a trusted root.`,
+        `Updates are local but not free. Changing one leaf recomputes every ancestor up to the root. That is O(log n) for a balanced tree, which is cheap compared with rebuilding the full tree, but still important in high-write systems. Append-only logs often use specialized variants such as Merkle mountain ranges so append proofs and consistency proofs stay efficient.`,
+      ],
+    },
+    {
+      heading: 'Design Choices',
+      paragraphs: [
+        `Production Merkle trees must specify serialization, leaf hashing, parent hashing, odd-leaf behavior, domain separation, and tree shape. Two systems can contain the same logical records and still produce different roots if they encode leaves or pair children differently.`,
+        `Domain separation is especially important. A leaf hash should not be confusable with an internal-node hash. Many systems prefix leaves and internal nodes differently before hashing so an attacker cannot reinterpret one kind of node as another in a proof.`,
+      ],
+    },
+    {
+      heading: 'Operational Uses',
+      paragraphs: [
+        `Anti-entropy repair is the cleanest operational use. Replicas exchange roots, then descend only into mismatching subtrees. The repair job transfers changed blocks instead of the full dataset, which is why the structure is useful when divergence is rare but data volume is huge.`,
+        `Transparency logs use a different angle. The log publishes a root, and clients ask for inclusion or consistency proofs. The proof does not make the log honest by itself; witnesses, monitors, signatures, and policy decide whether a suspicious root should be trusted.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `Git uses content hashes over objects and tree-shaped structure so identical content has identical object IDs. Distributed databases use Merkle trees for anti-entropy repair after replicas diverge. Blockchains put Merkle roots in headers so clients can verify transaction inclusion. Certificate Transparency logs use Merkle proofs for append-only auditability.`,
+        `The pattern is strongest when most data is unchanged or when small clients need selective proofs against a root supplied by another trust system.`,
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        `Merkle trees prove integrity, not privacy. Hashes can leak patterns unless the data and encoding are designed carefully. They also do not prove authorship; signatures, consensus, or policy decide who is allowed to produce the root.`,
+        `Implementation details matter: block order, odd-leaf handling, hash domain separation, and serialization must be specified. A toy hash is fine for the visualization, but production systems need vetted cryptographic hashes.`,
+        `They also do not solve availability by themselves. A proof can show that a block is part of a committed dataset, but someone still has to store and serve the block. That is why storage systems combine Merkle roots with replication, erasure coding, repair, or data-availability sampling.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
       paragraphs: [
         `Read Hash Table for hashing intuition, then Git Internals and Content-Addressed Merkle DAG Object Store for content-addressed storage. CAP Theorem and Consistent Hashing explain why replicas drift and how data is placed. Bloom Filter gives a contrasting probabilistic tool. Write-Ahead Log (WAL) shows a different durability mechanism: logs recover recent writes, while Merkle trees compare stored state after the fact. Merkle Mountain Range Append-Only Log and Transparency Log Witnessing Case Study extend the idea into append-only auditability. HotStuff BFT Quorum Certificate Case Study shows how signed consensus votes can authenticate ordered blocks and state roots. Data Availability Sampling & Erasure Coding Case Study shows commitments plus random samples in modular blockchain data layers, and Namespaced Merkle Tree Proof Case Study shows how range metadata proves a complete per-app slice. Software Supply Chain Provenance Graph shows how Merkle roots connect to signed build artifacts and attestations.`,
       ],

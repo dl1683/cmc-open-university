@@ -211,45 +211,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'COO, or coordinate format, stores sparse data as coordinate tuples plus values. For a matrix that means row indices, column indices, and values. For a tensor it means an index tuple per nonzero plus a value.',
-        'COO is the assembly-friendly sparse format. It is easy to append updates and tolerate duplicates. After assembly, the data is usually sorted, coalesced, and converted to CSR, CSC, BSR, or another compute-friendly layout.',
+        'COO, or coordinate format, exists because many sparse objects are built as a stream of contributions. A graph pipeline emits edges. A finite-element solver emits element-local matrix entries. A feature pipeline emits hashed feature coordinates. At construction time, the system often does not know row counts, column counts, block structure, or final ordering.',
+        'The obvious dense representation is wasteful because almost every coordinate is zero. The obvious compressed representation, such as CSR or CSC, is awkward because it needs offsets that are only easy to compute after the nonzeros are grouped.',
+        'COO solves the assembly problem by storing each contribution directly: coordinate tuple plus value. It is not the best format for every computation. It is the format that lets the system collect sparse updates without pretending the final layout is already known.',
+        'That distinction matters in real pipelines. Assembly is often parallel, unordered, and duplicate-heavy; compute is usually ordered, compressed, and kernel-specific. COO is the bridge between those phases.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Each nonzero contribution is appended as a triple. Duplicates are allowed while building. Canonical COO sorts coordinates and removes duplicates by combining values, commonly by summing duplicate coordinates.',
-        'The key invariant is that sparse data has two layers: logical coordinates and physical layout. COO makes logical coordinates explicit. Compressed formats trade that construction flexibility for faster arithmetic and scans.',
+        'In the assembly view, read each row as an event, not as a final matrix entry. Duplicate coordinates are allowed because two upstream contributions may legitimately target the same cell. The important transition is from append-friendly triples to canonical sparse data.',
+        'In the lowering view, watch COO move into the format the next kernel actually wants. CSR is natural for row operations. CSC is natural for column operations. BSR is useful when nonzeros appear in dense blocks. The animation is about phase separation: build in one layout, compute in another.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core model',
       paragraphs: [
-        'COO is excellent for construction but weak for repeated arithmetic because finding all entries in one row or column requires scanning or sorting. Conversion to CSR, CSC, or BSR is usually a linear pass after sorting or after coordinate grouping.',
-        'Sparse observability should include nnz, duplicate count, explicit zero count, format conversion time, and target kernel. Those often explain performance better than the dense shape alone.',
+        'For a matrix, COO stores three parallel arrays: rows, columns, and values. Entry k represents `A[rows[k], columns[k]] += values[k]` during assembly, or `A[rows[k], columns[k]] = values[k]` after canonicalization depending on the library contract.',
+        'For an N-dimensional tensor, the idea is the same. Each nonzero stores an index tuple such as `(batch, row, col)` plus a value. Some libraries store coordinates as a rank-by-nnz index matrix; others store one array per dimension. The invariant is that each physical value has enough coordinate information to say where it belongs in the logical tensor.',
+        'Canonical COO usually means sorted coordinates with duplicates coalesced. Coalescing combines repeated coordinates, often by summing values. Sorting and coalescing turn an event log into a stable sparse object.',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Why it works',
       paragraphs: [
-        'SciPy coo_matrix docs state that COO is a fast construction format and should be converted to CSR or CSC for fast arithmetic and matrix-vector operations: https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.coo_matrix.html.',
-        'PyTorch sparse docs describe sparse COO tensors as indices plus values and document COO, CSR, CSC, BSR, and BSC sparse layouts: https://docs.pytorch.org/docs/stable/sparse.html. MLIR sparse tensor docs describe sparse storage schemes in terms of positions, coordinates, and values: https://mlir.llvm.org/docs/Dialects/SparseTensorOps/.',
+        'COO works because it separates two concerns that compressed formats mix together. During assembly, correctness means recording every contribution with its coordinate. During computation, performance means arranging entries so the next kernel can walk them efficiently. COO optimizes the first job and then lowers to a format for the second.',
+        'Duplicate handling is part of the semantics. If two finite elements contribute to the same global matrix cell, both contributions are real. Dropping one is wrong. Coalescing by addition is correct for additive assembly because the mathematical operation is accumulation.',
+        'The format also makes sparse bugs visible. You can inspect repeated coordinates, explicit zeros, out-of-bounds indices, and unsorted entries before they disappear into compressed offsets.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Finite element assembly emits many element-local contributions before coalescing. Graph pipelines ingest edge events before building CSR. Sparse feature pipelines emit hashed coordinates before training. Recommendation and retrieval systems often build sparse matrices in COO and convert once per batch.',
-        'The design lesson is the same across these systems: append-friendly assembly is different from compute-friendly layout.',
+        'Appending a contribution is O(1) amortized if the coordinate and value arrays have capacity. Sorting is O(nnz log nnz) unless the data is already grouped or can be bucketed. Coalescing is usually a linear pass after sorting because equal coordinates become adjacent.',
+        'Raw COO storage is O(rank * nnz + nnz), because each nonzero carries all of its coordinates plus its value. For matrices, that means row index, column index, and value. CSR and CSC can be more compact because one dimension is compressed into offsets.',
+        'COO arithmetic is often poor because row or column access requires scanning or pre-sorted traversal. That is why many libraries describe COO as a construction format and recommend converting to CSR or CSC for repeated arithmetic.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Implementation checklist',
       paragraphs: [
-        'Do not forget duplicate coordinates. Some libraries sum duplicates on conversion; others require explicit coalescing for expected semantics. Do not leave explicit zeros in sparse data unless the downstream library treats them intentionally.',
-        'Do not assume COO is bad because arithmetic is slow. It is good at a different stage: assembly, ingestion, interchange, and debugging.',
+        'Validate coordinates before sorting. Check rank, shape bounds, integer type, duplicate policy, explicit-zero policy, and whether negative indexes are allowed. Sparse bugs are much cheaper to catch while the data is still a visible coordinate list.',
+        'Choose a canonical order and keep it consistent. Row-major sorting is common for CSR lowering; column-major sorting is natural for CSC. If different pipeline stages expect different orderings, record the order in the object metadata or convert explicitly.',
+        'Separate assembly counters from compute counters. Log raw triples, unique coordinates after coalescing, duplicate rate, explicit-zero count, conversion time, and final format. Those numbers explain sparse performance better than shape alone.',
+      ],
+    },
+    {
+      heading: 'Testing it',
+      paragraphs: [
+        'Compare against a dense reference on small shapes. Generate random triples with duplicates and explicit zeros, assemble COO, coalesce, lower to CSR or CSC, and compare matrix-vector products or indexed values with the dense result.',
+        'Include edge cases: empty tensors, one nonzero, all duplicates at one coordinate, unsorted input, out-of-bounds coordinates, negative values, cancellation to zero, and very high duplicate rates. Each case tests a different assumption about assembly semantics.',
+        'Round-trip tests should also verify that lowering and decoding preserve coordinate order where the API promises it.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'COO wins when data arrives as events. Finite element assembly emits local stiffness contributions. Graph ingestion emits source, destination, weight triples. Sparse feature pipelines emit example id, feature id, value triples. Recommendation systems assemble user-item interactions before building a training matrix.',
+        'It also wins as an interchange and debugging format. A list of coordinates is easier to print, inspect, sort, validate, and diff than compressed pointer arrays. When a sparse kernel returns the wrong answer, converting a small case to COO often makes the mistake obvious.',
+        'COO is especially useful before the final sparsity pattern is known. Once the pattern is stable and the workload is clear, the system can lower to CSR, CSC, BSR, or a domain-specific sparse layout.',
+        'It is also the right teaching format because every stored value remains attached to the coordinate that explains why it exists.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'COO fails when used as the hot compute layout for repeated row or column operations. If each matrix-vector multiply has to rediscover row boundaries, the program is paying construction costs during computation.',
+        'It also fails when duplicate semantics are vague. Some libraries sum duplicates during conversion. Some require an explicit coalesce call. Some operations behave differently on uncoalesced tensors. A production pipeline should state the duplicate rule and test it.',
+        'Explicit zeros are another trap. A stored zero still consumes index space and may participate in duplicate handling. If the zero is not meaningful, remove it before lowering. Sparse does not mean "nonzero by magic"; it means "only stored entries are represented."',
+      ],
+    },
+    {
+      heading: 'A worked case',
+      paragraphs: [
+        'Imagine building a 3 by 3 matrix from edge events: `(0, 2, 3)`, `(1, 0, 4)`, `(1, 2, 5)`, and `(1, 2, 7)`. COO can append all four. The duplicate at `(1, 2)` is not a bug yet; it means two contributions landed on the same coordinate.',
+        'Canonicalization sorts by coordinate and combines the duplicate: `(1, 2)` becomes value 12 if the combine rule is addition. From there, a CSR conversion can build row pointers for row-wise kernels, or a CSC conversion can build column pointers for column-wise kernels. The same logical sparse object moves through three different physical phases: event log, canonical coordinates, compressed compute layout.',
       ],
     },
     {

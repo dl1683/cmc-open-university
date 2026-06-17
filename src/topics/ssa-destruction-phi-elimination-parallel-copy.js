@@ -135,43 +135,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem SSA creates on purpose',
       paragraphs: [
-        'SSA form gives every definition a unique name and uses phi nodes to merge values at control-flow joins. Real machine code does not have phi instructions. SSA destruction is the backend step that compiles phi nodes into ordinary moves.',
-        'The key idea is that a phi node at a join block becomes a parallel copy on each incoming edge. The copy selected depends on which predecessor executed.',
+        'Static single assignment form gives every computed value a distinct name. That one rule makes many compiler questions easier. A constant propagation pass can ask where a value came from without worrying that a later assignment changed the same variable. A dead-code pass can count uses of a definition. A value-numbering pass can compare definitions instead of reconstructing all the stores that might have reached a source-level variable.',
+        'The price is the phi node. At a control-flow join, a value may have different definitions depending on which predecessor executed. SSA represents that choice explicitly: `x3 = phi [x1, then], [x2, else]`. The phi says that uses of `x3` in the join block should read `x1` when control arrived from `then`, and `x2` when control arrived from `else`.',
+        'That is a clean mathematical model, but real processors do not execute phi instructions. A machine has registers, stack slots, moves, calls that clobber registers, and branch instructions that arrive at labels. When the backend leaves SSA, it must replace the abstract edge-dependent choice with ordinary movement of values. SSA destruction is the compiler pass that does this without changing program meaning.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Why the naive lowering is wrong',
       paragraphs: [
-        'For x = phi [x1 from P1, x2 from P2], insert x = x1 on the edge from P1 and x = x2 on the edge from P2. If the edge is critical, meaning one predecessor branches to multiple successors and the join has multiple predecessors, the compiler may split the edge to create a safe block for the copy.',
-        'Parallel copies must be scheduled carefully. The copy set (a,b) := (b,a) is a swap, not two independent assignments. A naive a=b; b=a loses the original a. The resolver must use a temporary, a swap instruction, or an equivalent sequence.',
+        'The first tempting rewrite is to put assignments at the beginning of the join block. For `x3 = phi [x1, then], [x2, else]`, that means emitting both `x3 = x1` and `x3 = x2` in the join. This is not merely inefficient; it is semantically wrong. The join block no longer knows which predecessor was taken once both assignments are placed inside the common block. One of them will run on the wrong path.',
+        'The second tempting rewrite is to put moves in predecessor blocks. This is closer, but still incomplete. If a predecessor has several successors, a move needed only for one successor must not run before the branch to a different successor. The move belongs to the edge from a particular predecessor to a particular successor. When that edge is critical, meaning the predecessor has multiple successors and the successor has multiple predecessors, there may be no existing basic block where the edge-specific move can safely live. The compiler often has to split the edge by inserting a tiny block just for those copies.',
+        'The third tempting rewrite is to emit the moves in any sequential order. That fails because phi assignments are simultaneous at the top of the destination block. If the parallel copy is `(a, b) := (b, a)`, the sequence `a = b; b = a` loses the original value of `a`. If there are three values in a rotation, the same clobbering problem appears with a longer cycle. The pass must preserve the old source values until every destination that needs them has received them.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core insight: phis become edge copies',
       paragraphs: [
-        'Suppose an if statement assigns x1 in the then block and x2 in the else block. The join block uses x3 = phi(x1, x2). Before final code generation, the compiler inserts x3=x1 on the then edge and x3=x2 on the else edge. The join now reads an ordinary x3.',
-        'Now suppose two phi nodes swap values at a loop header. The parallel copy says a receives b while b receives a. The pass must detect the cycle and introduce tmp=a; a=b; b=tmp, or use a target swap instruction. That is why phi elimination is a data-structure problem over copy graphs, not a text replacement.',
+        'A phi node is best understood as a set of copies attached to incoming control-flow edges. For every phi in a join block, take each `(value, predecessor)` pair and emit a copy on that predecessor edge. After lowering, the join block reads an ordinary non-SSA location. The selected value has already been placed there before control arrives.',
+        'For one phi, this is easy to picture. Suppose `join` contains `x3 = phi [x1, left], [x2, right]`. The edge `left -> join` receives a copy `x3 = x1`; the edge `right -> join` receives `x3 = x2`. The use of `x3` inside `join` no longer needs to know anything about predecessors. It just reads `x3`.',
+        'Real blocks often contain several phis. Those phis are simultaneous. If `join` contains `a2 = phi [a1, p], [b1, q]` and `b2 = phi [b1, p], [a1, q]`, then on edge `q -> join` the compiler conceptually has `(a2, b2) := (b1, a1)`. This is a parallel copy, not a list. The lowering process usually has two stages: first collect the edge parallel copies, then schedule each parallel copy into a legal sequence of machine moves.',
+        'Critical-edge splitting is the placement side of the same idea. If the edge has no safe location for code that runs only for that edge, create one. That tiny block may look like clutter in the control-flow graph, but it is what makes the transformation path-sensitive instead of accidentally predecessor-wide or successor-wide.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'A concrete example',
       paragraphs: [
-        'The hard part is placement. Copies belong to edges, not merely to predecessor or successor blocks. If a predecessor has multiple successors, placing the copy at the end of the predecessor can run it on the wrong branch. If a successor has multiple predecessors, placing all copies at the start of the successor can mix paths. Splitting critical edges creates an unambiguous home.',
-        'Register coalescing interacts with this pass. If the phi destination and incoming value can share a physical register, the copy can disappear. If they cannot, the copy must remain, and the copy scheduler must still preserve parallel semantics.',
+        'Consider a simple absolute-value shape. The entry block branches to `neg` when `n < 0` and to `pos` otherwise. `neg` computes `v1 = -n`; `pos` computes `v2 = n`; the join computes `r = phi [v1, neg], [v2, pos]` and returns `r`. SSA makes the dataflow obvious: `r` is the value that came from the path that actually ran.',
+        'After phi elimination, the `neg -> join` edge copies `r = v1`, and the `pos -> join` edge copies `r = v2`. If the target machine returns values in a specific register, later register allocation may coalesce `r` with `v1` on one edge and `r` with `v2` on another, removing some moves. But the semantic obligation is present even if the final machine code has no visible copy because coalescing made the source and destination the same physical location.',
+        'Now consider a loop. The header may contain `i2 = phi [0, preheader], [i3, latch]`. On the preheader edge, `i2 = 0`. On the loop latch edge, `i2 = i3`. The phi describes loop-carried state. Destroying SSA does not remove the loop-carried dependency; it places the copy exactly where the previous iteration transfers control back to the header.',
+        'The cyclic-copy case is the example to keep in mind for correctness. A swap needs a temporary: `tmp = a; a = b; b = tmp`, unless the target provides a real swap instruction that fits the constraints. Longer cycles are broken the same way. Acyclic copies can be scheduled by repeatedly moving sources whose destination is no longer needed as a source. Cycles require saving one value before it is overwritten.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Why the transformation is correct',
       paragraphs: [
-        'The common bug is treating phi nodes as sequential assignments at the top of the join block. That changes behavior when multiple predecessors exist. Another bug is resolving parallel-copy cycles without a temporary, which overwrites values before all destinations have received the old source values.',
+        'The correctness argument has two parts. First, placement must match the phi selection rule. For each incoming edge, the inserted copy assigns exactly the value that the phi would choose for that edge. Because the copy executes only when that edge is taken, the destination location contains the same value the phi would have produced at block entry.',
+        'Second, scheduling must preserve parallel-copy meaning. At the moment the edge copy begins, each source name denotes an old value. At the moment it finishes, each destination must contain the corresponding old source value. Any sequential implementation is valid only if it does not overwrite a source before all destinations that need that old source have been filled. Temporaries, swaps, and careful dependency ordering are tools for meeting that obligation.',
+        'This is why phi elimination is often intertwined with register coalescing. If the source and destination can share a register without creating interference, the best move is no move at all. Coalescing improves code quality, but it must not blur the semantic distinction between simultaneous phi assignments and ordered machine instructions. The pass can remove copies only after proving that the chosen locations still deliver the same edge-specific values.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How it fits with register allocation',
       paragraphs: [
-        'Primary sources: LLVM phi instruction reference at https://llvm.org/docs/LangRef.html#phi-instruction, LLVM code generator overview at https://llvm.org/docs/CodeGenerator.html, SSA elimination after register allocation at https://homepages.dcc.ufmg.br/~fernando/publications/papers/CC09.pdf, and verified SSA destruction paper at https://hal.science/hal-01378393/document. Study Iterated Register Coalescing, Interference Graph Register Allocation, Static Single Assignment & Phi Nodes, Instruction Selection DAG & GlobalISel, Linear Scan Register Allocation, and Deoptimization Stack Maps & Safepoints next.',
+        'Some compilers destroy SSA before register allocation. Others keep SSA-like structure deeper into the backend and lower phis around allocation. Either way, the allocator must eventually assign virtual values to physical registers or stack slots, and phi-related copies become part of that location problem.',
+        'A phi copy is cheap when the source and destination can occupy the same location. It is expensive when the move crosses register classes, interacts with fixed instruction operands, or forces a spill. A well-designed backend uses coalescing to remove harmless copies and live-range splitting to avoid making one long merged range that increases pressure everywhere.',
+        'There is a tension here. If the compiler aggressively coalesces all phi-related values into one location, it may reduce moves but create a larger live range that overlaps more values and causes spills. If it refuses to coalesce, it preserves shorter ranges but may emit many copies at block boundaries. Good allocators treat phi elimination, coalescing, and spilling as connected decisions rather than isolated cleanup steps.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The obvious cost is extra move instructions and extra blocks from critical-edge splitting. A naive phi destruction pass can make the control-flow graph noisier and the generated code slower. A good backend then removes many of those copies through coalescing, but it must do so without creating new interference or hiding correctness constraints.',
+        'The deeper tradeoff is timing. Destroy SSA early and later backend passes see ordinary machine-like code, but some SSA structure that helped analysis is gone. Keep SSA longer and optimization remains cleaner, but the eventual lowering has to coordinate with register allocation, calling conventions, and target-specific move constraints.',
+      ],
+    },
+    {
+      heading: 'Failure modes and operational signals',
+      paragraphs: [
+        'The most dangerous failures are silent miscompiles. A copy placed in a predecessor block instead of on an edge can run before the wrong successor is chosen. A copy placed in the join can mix values from mutually exclusive paths. A cycle emitted as a naive list can overwrite a value before it is consumed. A backend that ignores register-class or calling-convention constraints can create code that is logically lowered but impossible for the target machine.',
+        'Useful compiler engineering signals include the number of critical edges split for phi lowering, the number of parallel copies emitted, the fraction of copies removed by coalescing, spill growth after coalescing, and verifier checks that no phi remains after the destruction point. Differential testing is also valuable: run optimized and unoptimized builds over the same randomized programs and look for output divergence. Phi bugs often appear only in branchy code, loops with carried state, exception edges, and blocks with several interacting phis.',
+        'SSA destruction is small compared with the optimizer around it, but it sits at the boundary where elegant IR semantics become concrete machine movement. Treat it as a correctness pass, not as formatting.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study static single assignment and phi nodes first, then dominance, liveness, interference graphs, iterated register coalescing, linear scan register allocation, SSA-based register allocation, calling conventions, and instruction selection. A useful exercise is to lower two interacting phi nodes by hand, then schedule the resulting parallel copy without clobbering any source value.',
       ],
     },
   ],

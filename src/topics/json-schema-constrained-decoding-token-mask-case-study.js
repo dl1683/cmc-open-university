@@ -84,7 +84,7 @@ function* schemaCompile() {
       ],
     ),
     highlight: { active: ['city:req', 'units:req', 'days:req'], compare: ['notes:req'], found: ['units:rule'] },
-    explanation: 'A structured-output schema is a set of parser obligations. Required fields, enum choices, numeric bounds, array limits, and object closure rules all become state that constrains the next token.',
+    explanation: 'Read each schema row as an obligation the decoder must remember. Required fields, enum choices, numeric bounds, array limits, and object-closure rules all become parser state that constrains the next token.',
     invariant: 'The schema controls shape; the model still chooses among legal values.',
   };
 
@@ -178,7 +178,7 @@ function* maskEngine() {
   yield {
     state: compileGraph('Mask generation sits in the decode hot path'),
     highlight: { active: ['trie', 'stack', 'mask', 'sample', 'e-trie-mask', 'e-stack-mask', 'e-mask-sample'], compare: ['schema', 'norm'] },
-    explanation: 'After compile time, every decode step needs a legal-token mask. The mask must be fast enough that structured output does not erase the inference engine gains from batching, KV cache reuse, and optimized kernels.',
+    explanation: 'After compile time, every decode step needs a legal-token mask. This is in the serving hot path, so the mask must be fast enough that structured output does not erase gains from batching, KV cache reuse, and optimized kernels.',
   };
 
   yield {
@@ -281,7 +281,7 @@ function* serveGate() {
   yield {
     state: compileGraph('Structured output still needs semantic validation'),
     highlight: { active: ['mask', 'sample', 'valid'], compare: ['schema'], found: ['stack'] },
-    explanation: 'A valid parse is not the same as a correct answer. The output can match JSON Schema and still contain unsupported facts, unsafe values, stale IDs, or an unauthorized tool argument.',
+    explanation: 'This frame is the boundary of the guarantee. A valid parse is not a correct answer: the JSON can match the schema and still contain unsupported facts, unsafe values, stale IDs, or an unauthorized tool argument.',
   };
 
   yield {
@@ -401,45 +401,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Structured outputs turn a schema into a decode-time contract. Instead of asking a model to please emit parseable JSON, the serving engine constrains each next token so the partial output remains a valid prefix of the schema language. The model still supplies probabilities, but illegal tokens are masked before sampling.',
-        'The key distinction is enforcement versus repair. A repair prompt fixes malformed output after the model has already failed. Constrained decoding prevents malformed structure from being emitted. That is why structured outputs matter for APIs, tool calls, extraction systems, workflow commands, and agent action plans.',
+        'JSON is the boundary where many LLM systems stop being chat and start acting like software. Tool calls, extraction jobs, workflow commands, agent plans, and typed API requests all need values in predictable fields. If the output is malformed, the caller either retries, repairs, drops the request, or lets a bad argument reach another system.',
+        'JSON Schema constrained decoding exists because instruction-following is not the same as enforcement. A prompt can ask for valid JSON, but the sampler can still choose a quote, comma, key, or value that makes the object unparsable or incomplete. A constrained decoder turns the schema into a decode-time contract: at each step, illegal tokens receive probability zero before sampling.',
       ],
     },
     {
-      heading: 'Schema compilation',
+      heading: 'The naive approach and wall',
       paragraphs: [
-        'A JSON Schema compile artifact resolves references, normalizes object and array rules, builds grammar transitions, records required-field bitsets, maps vocabulary tokens into grammar actions, and stores limits for depth, size, and enum expansion. The schema hash becomes a cache key so repeated requests do not pay compile cost.',
-        'Required fields are a good example of why parser state matters. The grammar can allow object closure only after required bits are set. That is stronger than merely producing syntactically valid JSON because it enforces field presence during generation, not after the fact.',
+        'The reasonable first attempt is prompt-and-parse. Ask the model for JSON, parse the response, retry if parsing fails, and maybe run a repair prompt. This works well enough for demos and low-volume scripts because many modern models usually follow simple formatting instructions.',
+        'The wall appears in production. Retries add latency and cost. Repair prompts can change meaning while fixing syntax. Streaming becomes awkward because a client can receive an invalid prefix before the final repair. More important, parse success is a late signal: the model has already spent tokens on an output that the system might reject. A tool-calling route with strict latency and audit requirements needs invalid structure prevented during generation, not cleaned up after failure.',
       ],
     },
     {
-      heading: 'Mask engine',
+      heading: 'Core insight',
       paragraphs: [
-        'At runtime the model produces logits over the vocabulary. The grammar engine computes a legal-token set from the current stack, required-field bits, and token-prefix trie. Illegal logits are suppressed, probabilities are renormalized over the legal set, and the sampler chooses a token. If the legal set is empty, the system should log the schema ID and parser state because the problem is usually an impossible prefix or grammar-tokenization bug.',
-        'Efficient guided generation work shows that structured generation can be framed as transitions between finite-state-machine states with an index over the model vocabulary. XGrammar pushes the systems idea further for context-free grammars: split context-independent tokens that can be prechecked from context-dependent tokens that require runtime stack interpretation, use persistent stacks, and overlap grammar work with inference-engine execution.',
+        'The core insight is to treat output generation as language recognition in reverse. A JSON Schema describes a set of acceptable outputs. The decoder maintains parser state for the prefix already emitted, computes which tokens keep that prefix extendable to a valid object, masks everything else, and samples only from the legal set.',
+        'The model still chooses among legal options. The schema does not decide whether the city should be Boston or Tokyo. It decides that the next token must be a legal key, string byte, enum value, number fragment, comma, bracket, or close brace for the current parser state. This split is the key: the model supplies content probabilities, and the grammar supplies structural permission.',
       ],
     },
     {
-      heading: 'Serving and validation',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'A valid JSON object can still be wrong. A schema can require city, units, and days, but it cannot prove the city came from the user request, that the units are safe for the downstream service, or that a tool argument is authorized. A production gate should therefore separate parse validity, schema validity, policy validity, grounding, and trace coverage.',
-        'The trace should record schema ID, grammar state, legal-token count, chosen token, validation result, retry or block action, and semantic verifier outcome. This makes structured-output failures debuggable: compile latency, empty legal sets, streaming prefix bugs, tokenization mismatches, and valid-but-false answers are different incidents.',
+        'The schema-compile view shows that constrained decoding is not a prompt trick. The system first resolves references, normalizes rules, creates grammar transitions, records required-field bits, maps vocabulary tokens into grammar actions, and stores safety limits. The schema hash becomes a cache key so repeated requests do not rebuild the same machinery.',
+        'The mask-engine view shows the hot path. Logits arrive from the model. Parser state and token-prefix indexes produce a legal-token mask. The engine renormalizes probabilities over the legal set and emits one token. The serve-gate view shows the limit of the guarantee: valid parse and valid schema are early gates, not proof that the argument is true, authorized, grounded, or safe to execute.',
       ],
     },
     {
-      heading: 'Case study: tool arguments',
+      heading: 'How the algorithm works',
       paragraphs: [
-        'Suppose a weather tool requires {city: string, units: enum(C,F), days: integer 1..7}. The schema compiler turns that into object rules, required bits for city, units, and days, enum transitions for units, numeric transitions for days, and an object-close gate that stays masked until all required fields have appeared. The decoder can still choose Paris or Boston, but it cannot omit days, invent units K, or close early.',
-        'The downstream tool should still validate semantics. If the user asked for tomorrow in Tokyo and the model emits Paris, the JSON is valid but the answer is wrong. Structured decoding gives the tool a parseable payload; semantic guards decide whether that payload should execute.',
+        'Compilation turns schema features into runtime state. Object properties become grammar branches. Required fields become bitsets. Enums become a small set of allowed string paths. Arrays need item rules and length counters. Numeric ranges need lexical and semantic checks. Additional-property rules decide whether unseen keys are allowed. Depth and size limits protect the serving path from schemas or outputs that would make the mask engine too slow.',
+        'Runtime decoding repeats a short loop. First, the model produces logits for the whole vocabulary. Second, the grammar engine reads the current parser stack, required-field bits, array counters, and string or number lexer state. Third, a token trie maps vocabulary tokens to byte prefixes and grammar actions. Fourth, illegal logits are masked, the remaining probabilities are renormalized, and the sampler chooses one legal token. Finally, the parser state advances and the loop repeats.',
+        'Required fields show why this is stronger than JSON mode. A plain JSON generator can close an object after producing city and units while forgetting days. A constrained decoder can keep the close brace masked until the required-bit set says city, units, and days have all appeared. The object can still contain a wrong city, but it cannot close while missing a required field.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The proof sketch is a prefix invariant. After every emitted token, the current byte string is a prefix of at least one output allowed by the compiled schema language. The invariant is true before generation because the empty string is a valid prefix. Each step preserves it because the mask only allows tokens whose bytes can advance the parser to another extendable state.',
+        'When generation ends, the final state must satisfy both the grammar and the stored obligations such as required fields, closed arrays, closed objects, and completed strings or numbers. If the legal set becomes empty, the invariant has been broken by the compiler, tokenizer mapping, stream boundary, or a schema that cannot be satisfied under the current prefix. That is a systems bug to log, not a place to ask the model to be more creative.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost has two parts. Compile time grows with schema size, references, enum expansion, nesting, and the amount of vocabulary indexing needed. Decode time pays a mask cost on every generated token. If the mask engine is slow, structured output can erase gains from batching, KV cache reuse, and optimized attention kernels.',
+        'Systems reduce the tax with cached compile artifacts, token tries, precomputed tables for context-independent tokens, persistent parser stacks for beams, and careful overlap with inference execution. Efficient guided generation work frames many constraints as state transitions plus vocabulary indexes. XGrammar extends the idea for context-free grammars by separating tokens that can be prechecked from tokens that need runtime stack interpretation.',
+        'The tradeoff is strictness. A tight schema removes malformed output and narrows downstream validation, but it can also make useful answers impossible if the schema is wrong, underspecified, or too brittle. A loose schema is easier for the model but pushes risk back to validators. Production systems should version schemas and track empty-mask failures, retry causes, validation failures, and repair rates.',
+      ],
+    },
+    {
+      heading: 'Complete case',
+      paragraphs: [
+        'Suppose a weather tool requires an object with city as a string, units as enum C or F, and days as an integer from 1 through 7. The compiler creates object rules, required bits for city, units, and days, enum transitions for the units value, number-state checks for days, and an object-close gate that stays masked until all required bits are set.',
+        'During decoding, the model can choose Boston or Tokyo for city, but it cannot omit days, invent unit K, close the object early, or emit an array where the tool expects an object. The downstream tool still needs semantic validation. If the user asked for Tokyo and the model emits Boston, the payload is structured but wrong. Constrained decoding gives the caller a parseable object; policy, grounding, and authorization decide whether that object should execute.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This technique wins when invalid structure is expensive: tool calls, typed extraction, workflow state transitions, data-cleaning pipelines, form filling, agent action plans, and APIs that need stable contracts. It is also useful for streaming because each prefix can remain syntactically safe rather than waiting for a final repair pass.',
+        'It is a natural companion to schemas in larger systems. JSON Schema Parser Stack topics explain parsing. Trie and finite-state machine topics explain the indexing idea. Speculative decoding and prefix caching explain why the mask engine must be cheap enough to live beside optimized inference code.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Constrained decoding does not prove truth. A valid object can contain a hallucinated city, stale product id, unauthorized account number, unsupported citation, unsafe tool argument, or policy-violating value that still matches the schema. It also does not remove the need for rate limits, depth limits, tokenizer tests, schema review, and semantic validators.',
+        'It can fail operationally through tokenizer boundary bugs, malformed grammar compilation, legal sets that are too large to compute cheaply, schemas that allow dangerous strings, and streaming implementations that expose prefixes without enough context. Treat parse validity, schema validity, policy validity, grounding, and traceability as separate gates.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: Efficient Guided Generation for Large Language Models at https://arxiv.org/abs/2307.09702, XGrammar at https://arxiv.org/abs/2411.15100, XGrammar project page at https://catalyst.cs.cmu.edu/projects/xgrammar.html, OpenAI Structured Outputs documentation at https://developers.openai.com/api/docs/guides/structured-outputs, llama.cpp GBNF grammar guide at https://github.com/ggml-org/llama.cpp/blob/master/grammars/README.md, and JSON Schema at https://json-schema.org/.',
-        'Study Constrained Decoding, JSON Parser Stack Case Study, Parser Design Patterns Primer, Finite-State Machine, Trie (Prefix Tree), Tokenization (BPE), Softmax & Temperature, Beam Search vs Greedy, Speculative Decoding, LLM Guardrail Policy Engine, Prompt Injection Threat Model, and Model Context Protocol Case Study next.',
+        'Study next by layer. For language machinery, read Parser Design Patterns Primer, Finite-State Machine, Trie (Prefix Tree), Tokenization (BPE), and JSON Parser Stack Case Study. For inference behavior, read Softmax and Temperature, Beam Search vs Greedy, Speculative Decoding, and Prefix Caching. For safety boundaries, read LLM Guardrail Policy Engine, Prompt Injection Threat Model, RAG Claim Verification Support Ledger, and Model Context Protocol Case Study.',
       ],
     },
   ],

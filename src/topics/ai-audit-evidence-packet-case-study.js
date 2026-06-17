@@ -85,7 +85,7 @@ function* evidencePacket() {
   yield {
     state: packetGraph('An AI audit packet is an evidence graph'),
     highlight: { active: ['use', 'risk', 'data', 'model', 'eval', 'ctrl', 'e-use-risk', 'e-use-data', 'e-risk-model', 'e-data-eval'], found: ['file'] },
-    explanation: 'The audit artifact is a versioned graph linking intended use, risk register, data lineage, model version, eval proofs, controls, logs, and technical documentation.',
+    explanation: 'The graph starts with the product claim and follows every edge to a proof object. If a reviewer cannot trace intended use through risk, data, model, eval, and control evidence, the packet is only paperwork.',
     invariant: 'Auditable means traceable from claim to evidence.',
   };
 
@@ -118,7 +118,7 @@ function* evidencePacket() {
       ],
     ),
     highlight: { active: ['use:artifact', 'data:artifact', 'eval:artifact', 'risk:artifact'], found: ['inc:proof'] },
-    explanation: 'A useful packet is an index over evidence. Each row has an owner, version, source pointer, and freshness date so reviewers can sample instead of reading folklore.',
+    explanation: 'The matrix turns audit prose into lookup keys. Each row needs an owner, version, source pointer, and freshness date so a reviewer can sample evidence instead of trusting a narrative.',
   };
 
   yield {
@@ -146,13 +146,13 @@ function* evidencePacket() {
       ],
     ),
     highlight: { active: ['harm:value', 'ctrl:value', 'metric:value', 'state:value'], compare: ['cause:evidence'] },
-    explanation: 'A risk register is a table with teeth. It links a harm to a cause, control, metric, owner, status, review date, and evidence pointer.',
+    explanation: 'The register row is the control invariant: harm, cause, control, metric, owner, status, and evidence must travel together. A harm without an owner or metric cannot block a release.',
   };
 
   yield {
     state: packetGraph('Third parties sample evidence, not vibes'),
     highlight: { active: ['file', 'log', 'audit', 'e-file-audit', 'e-log-audit'], compare: ['model'], found: ['ctrl'] },
-    explanation: 'A third-party audit should be able to pick a claim, ask for the proof object, inspect the version, and trace it back to the system that produced it.',
+    explanation: 'The audit node samples the packet instead of trusting the dashboard. A claim is supported only when the sampled proof has the right version and can be traced back to the system that produced it.',
   };
 }
 
@@ -160,7 +160,7 @@ function* monitoringLoop() {
   yield {
     state: loopGraph('Post-release monitoring keeps the packet alive'),
     highlight: { active: ['ship', 'mon', 'slice', 'triage', 'e-ship-mon', 'e-ship-slice', 'e-mon-triage', 'e-slice-triage'], found: ['docs'] },
-    explanation: 'After release, live telemetry, user reports, drift checks, slice metrics, and guardrail logs feed back into the same evidence packet.',
+    explanation: 'Release is not the end of the graph. Live telemetry, complaints, drift checks, slice metrics, and guardrail logs feed back into the same packet so new evidence can change old risk decisions.',
     invariant: 'A pre-release audit is stale the day usage changes.',
   };
 
@@ -189,7 +189,7 @@ function* monitoringLoop() {
       ],
     ),
     highlight: { active: ['slo:route', 'eval:route', 'inc:route'], compare: ['human:signal'] },
-    explanation: 'Monitoring is not only latency dashboards. It includes eval drift, human complaints, abuse patterns, incidents, and signals from downstream deployers.',
+    explanation: 'The monitoring matrix separates signals by route. Latency pages are not enough; eval drift, complaints, abuse probes, incidents, and downstream reports all need a path into triage.',
   };
 
   yield {
@@ -205,13 +205,13 @@ function* monitoringLoop() {
       ],
     }),
     highlight: { active: ['open', 'spike'], found: ['closed', 'fixes'] },
-    explanation: 'A healthy monitoring loop can show risk discovery and closure over time. If open risks only accumulate, the packet documents liability rather than control.',
+    explanation: 'The plot compares discovery with closure. Rising open risk without matching fixes means the packet is documenting exposure, not controlling it.',
   };
 
   yield {
     state: loopGraph('Corrective action updates the next release gate'),
     highlight: { active: ['triage', 'risk', 'fix', 'gate', 'docs', 'e-triage-risk', 'e-triage-fix', 'e-risk-gate', 'e-fix-gate', 'e-gate-docs'], compare: ['ship'] },
-    explanation: 'Corrective and preventive action should update eval cases, policy gates, model cards, monitoring thresholds, and the release checklist before the next rollout.',
+    explanation: 'Corrective action flows back into gates and docs. A fix is not durable until eval cases, policy gates, model cards, monitoring thresholds, and release checklists inherit the lesson.',
   };
 }
 
@@ -219,7 +219,7 @@ function* thirdPartyAudit() {
   yield {
     state: packetGraph('A reviewer starts from use and risk'),
     highlight: { active: ['use', 'risk', 'file', 'audit', 'e-use-risk', 'e-file-audit'], compare: ['data'], found: ['eval'] },
-    explanation: 'A useful audit begins with intended use and harm model, then samples whether the technical file, evals, logs, and controls actually support the product claim.',
+    explanation: 'The reviewer begins at intended use because every later proof depends on scope. The audit then samples whether the technical file, evals, logs, and controls support that claim.',
   };
 
   yield {
@@ -245,7 +245,7 @@ function* thirdPartyAudit() {
       ],
     ),
     highlight: { active: ['domain:risk', 'decision:risk', 'human:evidence'], removed: ['appeal:risk'] },
-    explanation: 'Case study: a hiring-rank assistant needs evidence for intended use, data representativeness, bias slices, human oversight, appeal paths, and live monitoring.',
+    explanation: 'The hiring sample shows why high-impact domains need linked evidence. Data representativeness, bias slices, human oversight, appeal records, and live monitoring are separate rows because each can fail alone.',
   };
 
   yield {
@@ -273,7 +273,7 @@ function* thirdPartyAudit() {
       ],
     ),
     highlight: { active: ['eval:test', 'logs:test', 'inc:test', 'fix:test'], compare: ['docs:sample'] },
-    explanation: 'Third-party review is sampling plus traceability. The reviewer should not trust the dashboard until a sampled event can be replayed back to evidence.',
+    explanation: 'The sample plan turns review into replay. A dashboard is credible only when a sampled eval, log, incident, or corrective action can be followed back to its source artifact.',
   };
 
   yield {
@@ -297,7 +297,7 @@ function* thirdPartyAudit() {
       ],
     ),
     highlight: { found: ['ok:next', 'minor:next'], removed: ['major:next', 'stop:next'] },
-    explanation: 'The best audit output is operational: supported, minor gap, major proof gap, or live harm. Each state has a concrete next action.',
+    explanation: 'The verdict table keeps audit output operational. Supported claims can ship, minor gaps need dated fixes, proof gaps block, and live harm pauses the system.',
   };
 }
 
@@ -312,43 +312,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An AI audit evidence packet is a versioned data structure for reviewing an AI system. It links intended use, risk register, data lineage, model version, evaluation proof, guardrail decisions, monitoring signals, incident records, corrective actions, and technical documentation.',
-        'This is engineering guidance, not legal advice. The local regulation notes in the provided corpus argue for process-specific third-party audits rather than abstract debates about AI safety. The practical version is an evidence graph: every claim about safety, fairness, robustness, privacy, or human oversight should point to a reproducible artifact.',
+        'An AI audit evidence packet exists because AI risk is easy to describe and hard to inspect. A team can say that a model is fair, safe, monitored, and human-reviewed, but a reviewer needs to know which release, which data, which eval suite, which slices, which controls, which incident queue, and which owner support that claim. Without that trail, governance becomes memory plus meetings.',
+        'The packet is a versioned data structure for that trail. It links intended use, risk register rows, data lineage, model versions, evaluation results, guardrail decisions, monitoring signals, incident records, corrective actions, and technical documentation. This page is engineering guidance, not legal advice. The durable software lesson is that auditability comes from traceable evidence, not from a nicer dashboard.',
       ],
     },
     {
-      heading: 'Core structures',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The risk register stores harm, cause, affected group, likelihood, severity, control, metric, owner, status, due date, and evidence id. The technical file stores purpose, architecture, model versions, data sources, deployment form, interface, dependencies, performance metrics, change history, and monitoring plan. The eval ledger stores cases, slices, scorers, scorecards, seeds, prompt versions, retrieval index versions, and human-audit samples.',
+        'The reasonable first attempt is a folder of governance artifacts: a model card, an eval spreadsheet, a data sheet, a risk register, a monitoring dashboard, and an incident tracker. Each document has value. A model card can explain purpose. An eval report can show measurements. A dashboard can expose drift. A ticket queue can track fixes.',
+        'The wall appears when someone asks a release-specific question. Why was model version 23 allowed into hiring triage on May 14? Which protected-slice failures were still open? Which data source changed? Which complaints later proved the assumption wrong? Separate documents answer fragments. They do not preserve the join between claim, artifact, owner, version, decision, and live outcome.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to treat audit evidence as a graph with typed rows, not as a narrative. Each claim points to proof. Each proof has a source, owner, timestamp, version, and freshness rule. Each risk row keeps harm, cause, control, metric, owner, status, due date, and evidence id together. If any of those fields are missing, the row cannot safely block or approve a release.',
+        'This changes the review question from "does the team sound prepared?" to "can this sampled claim be replayed?" A useful packet lets an auditor start from intended use, follow edges through risk and data, inspect the model and eval evidence, check the deployed controls, and verify whether later incidents changed the next gate.',
+      ],
+    },
+    {
+      heading: 'How the packet works',
+      paragraphs: [
+        'Start with scope. The intended-use record says what the system is for, what it must not be used for, who depends on it, and what decision it influences. That scope feeds the risk register. A chatbot that drafts marketing copy, a medical triage model, and a resume-ranking assistant should not share the same risk rows just because all three use machine learning.',
+        'Next attach evidence to every risk. Data lineage says where training, evaluation, retrieval, and feedback data came from. The model record names the architecture, checkpoint, prompt or policy version, retrieval index, dependency versions, and release hash. The eval ledger stores cases, slices, scorers, scorecards, seeds, thresholds, and human-audit samples. Controls record guardrails, human review, fallback paths, policy checks, and release approvals.',
+        'After launch, the packet stays alive. Monitoring adds live SLO failures, drift checks, complaints, abuse probes, near misses, serious incidents, and downstream reports. Triage updates risk rows. Corrective action updates eval cases, guardrail rules, release checklists, model cards, and monitoring thresholds. The point is not to collect more paperwork; the point is to keep the next decision tied to the last failure.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The graph view shows the main invariant: auditable means traceable from claim to evidence. The use node is not decoration. It determines which risks matter. The risk, data, model, eval, and control nodes are not independent documents. Their edges show whether a reviewer can move from a product claim to the artifacts that would prove or weaken it.',
+        'The matrix views show why an audit packet needs indexes. A reviewer cannot sample vague prose. They need rows with artifact names, proof pointers, owners, versions, source systems, and freshness dates. The plot adds the operational test: if open risks rise while fixes lag, the packet is documenting exposure rather than controlling it.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The packet works when it preserves three invariants. First, every high-level claim has a proof path. Second, every proof path is versioned enough to replay the decision that used it. Third, post-release evidence can change future gates. If those invariants hold, audit review becomes sampling and replay instead of trust in a slide deck.',
+        'Correctness here is not mathematical correctness of the AI model. It is process correctness. A release decision is inspectable when the inputs to that decision are still available, tied to the right system version, and connected to the risk they were meant to control. A finding is closed only when the corrective action has evidence, not when a meeting note says someone will handle it.',
+      ],
+    },
+    {
+      heading: 'Standards and regulatory shape',
+      paragraphs: [
         'NIST AI RMF frames AI risk management around trustworthiness across design, development, use, and evaluation: https://www.nist.gov/itl/ai-risk-management-framework. NIST AI 600-1 adapts the AI RMF to generative AI and emphasizes governance, content provenance, testing, and incident disclosure: https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf. ISO/IEC 42001 describes an AI management system for establishing, implementing, maintaining, and continually improving AI governance: https://www.iso.org/standard/42001.',
+        'The EU AI Act is useful as a concrete evidence model even outside Europe. The European Commission AI Act Service Desk summarizes Article 11 as requiring technical documentation for high-risk AI systems before market release and keeping it up to date: https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-11. Article 72 covers post-market monitoring plans: https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-72. Article 73 covers serious-incident reporting: https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-73. The engineering pattern is stable: owners, versions, evidence pointers, monitoring hooks, and corrective-action state belong in one queryable packet.',
       ],
     },
     {
-      heading: 'Regulatory shape',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'The EU AI Act is useful as a concrete evidence model even outside Europe. The European Commission AI Act Service Desk summarizes Article 11 as requiring high-risk AI systems to have up-to-date technical documentation before market release, with elements specified in Annex IV: https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-11. Article 72 describes post-market monitoring for high-risk systems: https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-72. Article 73 covers reporting serious incidents: https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-73.',
-        'The engineering lesson is stable across frameworks: do not make governance a meeting. Make it a queryable packet with owners, versions, evidence pointers, sampling rules, monitoring hooks, and corrective-action state.',
+        'The cost is maintenance. Evidence pointers rot, owners change teams, eval suites drift away from real use, and monitoring can collect more data than anyone reviews. A good packet needs schema discipline, access control, retention rules, tamper-evident logs, privacy boundaries, and enough automation that updates happen during normal engineering work.',
+        'There is also a product tradeoff. If the gate is too heavy, teams route around it. If it is too light, it approves systems on averages and promises. The packet should focus on decisions with real risk: release approval, model replacement, data refresh, threshold change, incident closure, and vendor acceptance. Low-risk experiments can use a lighter version of the same structure.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Where it wins',
       paragraphs: [
-        'A hiring-rank assistant scores resumes for recruiter review. The packet records intended use, prohibited uses, training data lineage, protected-slice evals, score thresholds, human-review workflow, appeal process, monitoring slices, model card, incident queue, and corrective-action log. A reviewer samples a rejected candidate, traces the score to model version and data slice, inspects whether human review happened, and checks whether any related incident changed the next release gate.',
-        'The same structure applies to credit, medical triage, education, public benefits, legal research, and enterprise agents. The domain changes the risks and controls, but the data structure stays recognizable: risk register plus evidence ledger plus live monitoring loop.',
+        'Evidence packets are useful for high-impact domains such as hiring, credit, medical triage, education, public benefits, legal research, safety tooling, and enterprise agents that act across sensitive data. They also help internal platform teams because model releases, guardrail changes, eval regressions, feature flags, and incidents all become part of one operational record.',
+        'They are especially useful when third parties sample evidence. A vendor review, regulator, security team, procurement team, or customer auditor should not need private tribal knowledge. They should be able to pick a claim, sample a proof, check its version, and see whether later monitoring changed the risk decision.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Where it fails',
       paragraphs: [
-        'Do not mistake a model card for the whole audit. Do not report only average eval scores when protected or high-impact slices can regress. Do not handpick logs for review. Do not close findings with promises instead of evidence. Do not let incidents live outside the risk register. Do not freeze the packet after launch; post-release monitoring is part of the system.',
+        'A packet does not make a bad system safe. It can expose missing evidence, stale controls, weak evals, or unowned risks, but it cannot create competence after the fact. Common failures include treating a model card as the whole audit, hiding slice failures behind averages, handpicking logs, closing findings with promises, keeping incidents outside the risk register, and freezing the packet after launch.',
+        'It also fails when the risk taxonomy is copied from another domain. A resume-ranking assistant, a code-generation tool, and a clinical summarizer need different harms, thresholds, human review rules, and monitoring signals. The packet structure can be shared; the risk content must match the system.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study LLM Evaluation Harnesses, Human Evaluation Labeling Queue, LLM Judge Calibration & Drift Monitor, LLM Guardrail Policy Engine, Prompt Injection Threat Model, AI Engineering Stack: Five Parts Primer, Training-Serving Skew Replay Diff, Benchmark Variance & Model Selection, Data Leakage & Contamination, PII Redaction Token Span Pipeline, Claim Graph Source Ledger, Distributed Tracing, Feature Flag Control Plane, SLO Error Budget Burn Rate Alert, OPA Rego Policy Decision Graph, Software Supply Chain Provenance Graph, and AIOps Incident Response next.',
+        'Study LLM Evaluation Harnesses for reproducible eval ledgers, Human Evaluation Labeling Queue for reviewer workflows, LLM Judge Calibration and Drift Monitor for score reliability, LLM Guardrail Policy Engine for control evidence, Prompt Injection Threat Model for adversarial risk, Training-Serving Skew Replay Diff for release replay, Benchmark Variance and Model Selection for uncertainty, Data Leakage and Contamination for data evidence, PII Redaction Token Span Pipeline for privacy controls, Claim Graph Source Ledger for provenance, Distributed Tracing for runtime evidence, Feature Flag Control Plane for gated releases, SLO Error Budget Burn Rate Alert for live monitoring, OPA Rego Policy Decision Graph for policy checks, Software Supply Chain Provenance Graph for dependency evidence, and AIOps Incident Response for corrective-action loops.',
       ],
     },
   ],

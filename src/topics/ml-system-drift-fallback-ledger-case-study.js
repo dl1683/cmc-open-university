@@ -245,51 +245,110 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An ML system drift and fallback ledger is the production record for model health. It tracks live input distributions, prediction changes, retrieval logs, embedding shifts, latency, cost per query, quality feedback, fallback routing, and incident response actions.',
-        'This module is grounded in the repo-local AIOps thesis: production AI systems are never done after the model ships. The boring systems work is the product surface: monitoring, versioning, fallbacks, drift response, and on-call protocols.',
+        `An offline model score is a snapshot. Production is a stream. User behavior changes, products launch, policies change, prompts move, retrieval indexes age, embeddings get rebuilt, vendors update models, latency shifts, prices move, and the system keeps answering users while all of that happens.`,
+        `A drift and fallback ledger exists because a shipped ML product is not only a model. It is a monitored service with inputs, outputs, retrieval, routing, cost, quality feedback, fallbacks, owners, and recovery actions. The ledger makes those moving parts visible in one operational record so decay is detected, routed, and explained instead of discovered through customer pain.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The baseline and the wall',
       paragraphs: [
-        'The ledger stores versioned snapshots. Each snapshot includes model version, feature schema, baseline pointer, serving slice, histograms, top categorical values, embedding centroid or index stats, retrieval hit metrics, prediction distribution, latency, cost, fallback rate, alert state, owner, and incident link.',
-        'TensorFlow Data Validation supports computing statistics and checking skew or drift across data spans: https://www.tensorflow.org/tfx/data_validation/get_started. Cloud model-monitoring systems make the same contract operational by comparing production inputs against training or previous serving windows.',
+        `The baseline approach is to deploy the model, monitor uptime and error rate, and rerun an offline evaluation set before major releases. That catches crashes, broken deployments, and some obvious regressions. It is necessary, but it is not enough for a live ML system.`,
+        `The wall is silent quality decay. A support agent can keep returning HTTP 200 while its answers get worse because users are asking about a new product. A RAG system can keep producing fluent responses while retrieval hit rate falls. A classifier can keep meeting average accuracy while one region, language, plan tier, or product slice fails. The service looks alive, but the product promise is eroding.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Delayed truth and attribution',
       paragraphs: [
-        'The serving path samples requests and responses, joins them with trace ids and model metadata, updates online summaries, compares current windows against baselines, and emits drift events when thresholds breach. The fallback router then decides whether to keep primary traffic, route a slice to a previous model, switch retrieval indexes, cap expensive paths, or degrade safely.',
-        'Amazon SageMaker Model Monitor documents the production pattern directly: monitor deployed models, detect drift or quality issues, and alert when rules trigger: https://docs.aws.amazon.com/sagemaker/latest/dg/model-monitor.html. Google model monitoring similarly tracks feature skew and drift in production inputs: https://docs.cloud.google.com/gemini-enterprise-agent-platform/machine-learning/model-monitoring/overview.',
+        `The first hard problem is delayed truth. Ground-truth labels, thumbs-down feedback, refunds, escalations, support reviews, and human audits often arrive late or sparsely. By the time the quality metric is undeniable, the system may have served weak answers for days or weeks.`,
+        `The second hard problem is attribution. A quality drop can come from input drift, training-serving skew, prompt changes, model version changes, retrieval index decay, embedding shift, feature freshness problems, latency timeouts, guardrail blocks, or budget routing to smaller models. One aggregate dashboard cannot explain which part of the system changed. The ledger exists to keep enough context to separate these causes.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core ledger invariant',
       paragraphs: [
-        'A support agent is trained before a new product launch. After launch, user questions shift, retrieval hit rate drops, embedding centroids move, token usage rises, and answer feedback declines. Offline evals from release day still look fine because they do not contain the new questions. The live ledger catches the shift.',
-        'The fallback router moves high-risk support categories to a previous rules-backed answer flow, caps expensive long-context calls, opens an incident for the agent owner, and triggers a reindex job. The post-incident ledger records which slices drifted, which fallback routes were used, what users saw, and when quality recovered.',
+        `The invariant is traceable degradation. Every drift event and fallback decision must be tied to a serving slice, model version, prompt version, feature schema, retrieval index, baseline, current window, metric, threshold, route, owner, and recovery condition. If a team cannot answer "what changed, compared with what, for which users, and what route did we serve instead," the ledger is incomplete.`,
+        `This invariant is stronger than ordinary monitoring. Monitoring may show that p99 latency rose or answer feedback fell. The ledger connects that signal to a versioned production context and an operational response. It records not just that the system degraded, but which policy decided to degrade gracefully and who owns returning to the primary path.`,
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'State model',
       paragraphs: [
-        'Drift thresholds are not universal. Highly seasonal products need different baselines than stable internal tools. Slice-level drift catches minority failures but increases alert volume. Aggressive fallback protects users but can hide model degradation if teams do not review the ledger.',
-        'For LLM and RAG systems, quality signals are often delayed or partial. Retrieval hit rate, citation coverage, guardrail blocks, response length, tool error rate, token cost, and fallback rate can be early operational proxies before human labels arrive.',
+        `A useful snapshot stores model version, prompt version, feature schema version, retrieval index version, embedding model version, guardrail policy version, serving slice, trace ids, request features, prediction distribution, top categorical values, numeric histograms, embedding centroid or distance statistics, retrieval hit metrics, latency, cost, feedback, fallback rate, alert state, owner, and incident link.`,
+        `The baseline pointer is essential because drift is always a comparison. The current window may be compared with training data, a previous serving window, a release candidate, a gold slice, a seasonally matched period, or a human-approved production interval. A drift score without a baseline is hard to interpret and easy to overreact to.`,
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Mechanism',
       paragraphs: [
-        'Do not rely only on offline benchmark scores. Production distribution, retrieval corpus, prompt templates, latency budgets, price, and user behavior all move after launch. The system needs live monitoring tied to exact model and data versions.',
-        'Do not route fallbacks silently. Users, support teams, and post-incident reviewers need to know whether the primary model, previous model, smaller model, rules fallback, or safe error path handled a request.',
+        `The serving path samples requests and responses, joins them with trace ids and version metadata, updates rolling summaries, and compares the current window with the chosen baseline. It records both data signals and system signals because either can break the user experience. Input drift, prediction drift, retrieval drift, embedding drift, latency, cost, and guardrail behavior all belong in the same operational view.`,
+        `When a threshold or policy condition breaches, the ledger emits an event with slice, metric, baseline, current value, severity, owner, and suggested action. The fallback router then applies an explicit route: keep primary traffic, send a slice to a previous model, switch retrieval indexes, reduce context length, cap expensive calls, use a rules fallback, require human review, or return an honest unavailable response.`,
+        `The route itself is recorded. That matters because a fallback can be the correct customer-protection action and still become a product problem if it remains in place. The ledger should show when degraded behavior started, how much traffic it touched, why it was chosen, and what condition will end it.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Correctness and reliability',
       paragraphs: [
-        'Study AIOps Incident Response, Training-Serving Skew Replay Diff, Feature Freshness SLO Monitor, GenAI Trace Token Cost Ledger, LLM Response Cache Safety Ledger, LLM Guardrail Policy Engine, SLO Error Budget Burn Rate Alert, and Runbook Automation Approval Ledger next.',
+        `The ledger does not prove that every answer is correct. It proves a narrower but important property: monitoring, fallback, and incident decisions are connected to specific evidence and versions. In production ML, that traceability is part of reliability because teams need to know what users received during uncertainty.`,
+        `Correctness of the operational loop means that the trigger, route, user-visible behavior, owner, and recovery rule match the policy. Silent fallback is dangerous because it can protect uptime dashboards while hiding product decay. A good ledger makes degraded service visible, bounded, and reviewable.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `Monitoring costs compute, storage, labels, and attention. Fine-grained slices catch minority failures but increase metric volume and alert noise. Wide sampling reduces cost but can miss rare high-impact drift. Retaining prompts, traces, and responses may create privacy and compliance duties, so sampling and redaction rules must be designed with the product's risk model.`,
+        `Thresholds are product decisions. A seasonal ecommerce recommender needs different baselines than a stable internal classifier. A medical triage assistant should fallback earlier than a movie recommender because the cost of a false negative is higher. A customer-support bot may route uncertain answers to human review, while a low-risk suggestion model may tolerate more drift before intervention.`,
+      ],
+    },
+    {
+      heading: 'Concrete case study',
+      paragraphs: [
+        `A support agent is evaluated before a new product launch. The offline set covers existing products well, and the release looks safe. After launch, users start asking about the new product. The input distribution shifts toward new terms, retrieval hit@5 falls because the documentation index is stale, embedding distances move away from the old centroid, long-context calls increase, token cost rises, answer feedback drops, and fallback traffic climbs.`,
+        `The offline release score still looks fine because the old test set lacks the new questions. The live ledger catches the slice shift, opens an incident for the agent owner, routes high-risk new-product questions to a rules-backed support flow, starts a reindex job, caps expensive retrieval paths, and records when hit rate and answer feedback recover. The important point is not one metric. It is the connected story across input, retrieval, cost, quality, route, and recovery.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `A drift and fallback ledger wins in systems where labels are late, user behavior moves, or the ML path has several failure sources. Support agents, search systems, recommenders, fraud models, risk scorers, ranking systems, document extraction pipelines, and RAG products all benefit from joining data drift with operational routing.`,
+        `It is especially valuable for AI products that can fail softly. A generated answer can be fluent and wrong. A retrieval system can cite weak documents. A guardrail can block too much traffic. A budget router can silently lower answer quality. The ledger gives teams a way to see these soft failures before they become invisible normal behavior.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `The ledger can fail by creating false confidence. Drift signals are proxies. A distribution shift does not automatically mean quality is bad, and stable inputs do not guarantee quality is good. The ledger must be connected to human review, labels, business outcomes, or carefully chosen proxy metrics.`,
+        `It can also fail through bad baselines. If the baseline already contains a degraded week, the system learns decay as normal. If the baseline ignores seasonality, ordinary traffic can look like an incident. If slice definitions are too broad, minority failures disappear into averages. If slice definitions are too narrow, alert volume can overwhelm responders.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `Averages hide slice failures. Overall quality can stay flat while one region, language, product line, plan tier, or user segment breaks. Cost averages can also hide a small slice that burns budget through long contexts or repeated retries.`,
+        `Fallbacks can become permanent. If the degraded route is not visible, teams may stop noticing that users are getting a smaller model, stale rules, human handoff, or safe errors instead of the intended product. Another failure mode is alert-only monitoring: the system pages someone but has no approved route to protect users while the owner investigates.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Start with a small set of high-signal slices and routes. Define the baseline for each metric before defining thresholds. Attach every alert to an owner and a recovery condition. Record the model, prompt, feature, retrieval, and guardrail versions in the same trace so incidents do not turn into archaeology.`,
+        `Treat fallback as product behavior, not just infrastructure. Users should receive the safest honest behavior the product can provide: previous model, reduced feature set, rules-backed answer, human review, or clear unavailability. Measure fallback rate as a first-class metric because it tells you how much of the product is operating outside the intended path.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `The drift ledger view shows why monitoring has to collect several families of signals before deciding what to do. Inputs, retrieval, embeddings, latency, cost, quality, and fallback rate are not separate stories. They are different lenses on the same production system.`,
+        `The fallback router view shows that detection is only half of the design. A drift event must connect to a route, and the route must connect to an incident owner. The visual model is useful because it keeps the model from looking like the whole system. The model is one node inside a larger operational contract.`,
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        `TensorFlow Data Validation supports schema-based statistics plus skew and drift checks across spans: https://www.tensorflow.org/tfx/data_validation/get_started. Amazon SageMaker Model Monitor covers data quality, model quality, bias drift, and feature-attribution drift: https://docs.aws.amazon.com/sagemaker/latest/dg/model-monitor.html.`,
+        `Google Model Monitoring describes threshold-based alerts, model-version monitoring, input-feature drift, output-inference drift, and training-serving skew: https://docs.cloud.google.com/gemini-enterprise-agent-platform/machine-learning/model-monitoring/overview. Evidently describes comparing current data to reference data, column drift, prediction drift, and drift as a proxy when ground truth is missing: https://docs.evidentlyai.com/metrics/preset_data_drift.`,
+        `Study AIOps Incident Response for ownership, Training-Serving Skew Replay Diff for baseline comparisons, Feature Freshness SLO Monitor for upstream data decay, GenAI Trace Token Cost Ledger for spend drift, LLM Response Cache Safety Ledger for stale outputs, LLM Guardrail Policy Engine for routed failures, SLO Error Budget Burn Rate Alert for alert policy, and Runbook Automation Approval Ledger for controlled recovery.`,
       ],
     },
   ],

@@ -66,7 +66,7 @@ function* hybridRetrieval() {
   yield {
     state: pipeline('Production RAG fans out to multiple indexes'),
     highlight: { active: ['query', 'bm25', 'splade', 'vector', 'meta', 'e-q-bm25', 'e-q-splade', 'e-q-vector', 'e-q-meta'], compare: ['fusion', 'rerank'] },
-    explanation: 'A single retriever sees one kind of evidence. Lexical search catches exact names and rare terms. SPLADE adds learned sparse expansion on postings. Vector search catches paraphrase. Metadata filters enforce scope. Graph hops recover relationships. Production RAG fans out, then reconciles.',
+    explanation: 'Read the fanout as a refusal to bet the whole answer on one geometry. Terms, embeddings, metadata, and graph links each catch a different kind of evidence, then the system reconciles them.',
   };
 
   yield {
@@ -99,7 +99,7 @@ function* hybridRetrieval() {
   yield {
     state: pipeline('Candidates are merged before the expensive judge'),
     highlight: { active: ['fusion', 'e-bm25-fusion', 'e-vector-fusion', 'e-graph-fusion'], found: ['rerank', 'prompt'] },
-    explanation: 'Rank fusion builds a candidate pool that is broader than any single index. The reranker then spends a slower cross-encoder or LLM judgment only on a small top-k list.',
+    explanation: 'Fusion is the handoff between recall and precision. It keeps candidates from several indexes alive long enough for the slower reranker to make a better judgment.',
   };
 
   yield {
@@ -225,7 +225,7 @@ function* fusionAndRerank() {
       ],
     ),
     highlight: { active: ['stale:fix', 'dup:fix', 'acl:fix', 'budget:fix'] },
-    explanation: 'Multi-index systems fail quietly if ingestion, authorization, dedupe, and context packing are weak. Retrieval quality is a data pipeline property, not just a vector database setting.',
+    explanation: 'The warning frame is the production lesson: a multi-index stack inherits every upstream data problem. Bad ACLs, stale chunks, duplicate copies, and weak packing can erase the benefit of better retrieval.',
   };
 }
 
@@ -239,44 +239,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Multi-Index RAG is the production version of RAG Pipeline. Instead of embedding the question once and trusting a single vector index, the system can first use Query Expansion: HyDE and RAG-Fusion to create several query views, then query several retrieval surfaces: an Inverted Index for exact terms, SPLADE Learned Sparse Retrieval for neural term expansion on postings, HNSW (Vector Search at Scale) or ScaNN-style compressed ANN for semantic similarity, metadata filters for scope and freshness, graph expansion for linked entities, and sometimes a late-interaction or cross-encoder reranker. The goal is to combine high recall with precise final context.',
-        'This pattern exists because real user questions are mixed. Some hinge on exact identifiers, product names, dates, or error codes. Others are paraphrases. Some require access-control filters before search. Others require a hop from a person to a team, repository, ticket, policy, or account. One index rarely handles all of those well.',
+        'Multi-Index RAG exists because real retrieval questions do not come in one shape. Some questions hinge on exact identifiers, policy names, dates, error codes, or quoted phrases. Some are paraphrases that share meaning but not vocabulary. Some require access-control filters before any text is eligible. Others require a relationship hop from a person to a team, repository, account, ticket, product, or legal authority.',
+        'A single vector index is a useful component, not a complete evidence system. Production RAG needs high recall before generation, precise context before prompting, and strict filtering before unauthorized evidence can enter the model. Multi-index retrieval fans a query out across complementary search surfaces, then fuses and reranks the candidates into a smaller evidence set.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Single-Index Trap',
       paragraphs: [
-        'The query is normalized into several forms: raw text for lexical search, generated variants for query expansion, a HyDE-style pseudo-document when useful, an embedding for vector search, metadata constraints for filtering, and entity mentions for graph expansion. Each index returns a ranked list. Because their scores are not on the same scale, systems often fuse by rank rather than score. Reciprocal Rank Fusion is the simple baseline: a document gets credit for appearing high in any list and extra credit for appearing in several lists.',
-        'After fusion, a reranker spends more compute on the smaller candidate pool. ColBERT-style late interaction, Cross-Encoder Reranker models, or LLM rerankers compare the query and candidate chunks more directly than a single vector dot product. Maximal Marginal Relevance can then diversify near-duplicate chunks, and RAG Context Packing Token Budget decides what fits into the final prompt.',
+        'The obvious approach is to embed every chunk, embed the user question, retrieve nearest neighbors, and stuff the top results into the prompt. It is simple and often impressive in demos. It fails when the answer depends on an exact ID, a rare token, a recent document, a permission boundary, a table cell, or an entity relationship that the embedding space blurs.',
+        'A pure keyword index has the opposite problem. It can find exact tokens and identifiers, but it misses paraphrases and conceptual matches. A graph can capture relationships, but it may miss the passage that actually states the answer. Metadata filters protect scope and freshness, but they do not rank meaning. The core mistake is asking one geometry to solve every retrieval failure mode.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight',
       paragraphs: [
-        'The extra indexes improve coverage but add ingest cost, storage cost, latency, and evaluation complexity. Lexical segments need tokenization and postings. Vector indexes need embedding refresh, Product Quantization for Vector Search or other compression at scale, and deletion handling. Metadata filters must be applied before unauthorized text reaches the model. Graph expansion needs entity resolution and limits to avoid exploding the candidate set.',
-        'Evaluation must split retrieval recall from rerank precision and answer faithfulness. A generator can only answer from evidence that retrieval found. A reranker can only choose among candidates it receives. A citation can still be decorative if the model did not actually use the cited passage. Cross-Validation & Honest Evaluation is the right discipline: maintain held-out questions with known supporting documents.',
+        'The core insight is to separate coverage from judgment. First-stage retrievers are cheap, broad, and specialized. They should bring back plausible evidence from different angles. Fusion keeps enough of that evidence alive without pretending that BM25 scores, cosine similarities, learned sparse scores, and graph distances are directly comparable.',
+        'Only after this recall phase should the system spend expensive computation on precision. A cross-encoder, late-interaction model, or LLM reranker can compare the query and candidate text more deeply than a vector dot product. Context packing then decides which selected chunks fit the prompt budget without burying the strongest evidence.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Query Planning',
       paragraphs: [
-        'Enterprise assistants over Slack, Google Drive, GitHub, Zendesk, Confluence, databases, and document stores usually become multi-index systems. Legal search combines exact citations, semantic passages, date filters, and authority graphs. Customer-support search combines keyword product names with semantic issue descriptions. Code RAG combines lexical symbol search, embeddings, call graphs, and repository metadata.',
-        'Visually rich documents add another retrieval surface. PDFs, slides, forms, charts, and tables can encode answers in layout rather than text order. Multimodal RAG & ColPali Case Study extends this same fanout-and-fusion pattern to page images, OCR, table cells, visual patches, and region-level grounding.',
-        'Long and relational documents add a different pressure. RAPTOR Hierarchical Retrieval Case Study builds a tree of cluster summaries above raw chunks. GraphRAG Community Summary Case Study builds entity and community structure. LightRAG Dual-Level Retrieval Case Study keeps graph records and vector records active together so local entity questions and global relationship questions can share the same retrieval fabric.',
+        'A mature pipeline turns one user query into several retrieval requests. The raw text goes to lexical search. Expanded terms or learned sparse representations go to SPLADE-style search. An embedding goes to HNSW, ScaNN, DiskANN, FAISS, or another approximate nearest-neighbor index. Extracted entities can trigger graph expansion. Metadata becomes a filter for tenant, source, timestamp, document type, language, region, or access policy.',
+        'Query planning also decides what not to do. A simple exact citation question may not need graph expansion. A private HR question must apply permissions before semantic search returns text. A fresh incident question may weight recent documents higher. The plan should be explainable enough that a failed answer can be traced to the retriever that missed the supporting evidence.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Retrieval Surfaces',
       paragraphs: [
-        'More retrievers do not automatically improve answers. They can add duplicate chunks, stale documents, unauthorized evidence, and longer prompts that bury the useful passage. Another mistake is normalizing raw scores from different systems as if they meant the same thing. Rank fusion is often more robust because it avoids comparing BM25 scores to cosine similarities directly. The largest pitfall is skipping layer-by-layer evaluation and only scoring final answers.',
+        'Lexical search protects rare words, quoted phrases, symbols, identifiers, and exact policy labels. Learned sparse retrieval protects vocabulary mismatch while keeping an inverted-index style execution model. Dense vector search protects semantic paraphrase. Metadata filters protect scope, freshness, tenancy, and compliance. Graph retrieval protects relationships that are not local to one chunk.',
+        'Some systems add more surfaces. Code assistants use symbol tables, call graphs, file paths, imports, and commit metadata. Legal systems use citation graphs and authority levels. Document systems use OCR, tables, page regions, captions, and layout. The point is not to add every index. The point is to use each index for a failure class it can actually cover.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Fusion',
       paragraphs: [
-        'Primary sources: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks at https://arxiv.org/abs/2005.11401, Reciprocal Rank Fusion at https://research.google/pubs/reciprocal-rank-fusion-outperforms-condorcet-and-individual-rank-learning-methods/, the RRF PDF at https://cormack.uwaterloo.ca/cormacksigir09-rrf.pdf, and ColBERTv2 at https://arxiv.org/abs/2112.01488. Study RAG Pipeline, Query Expansion: HyDE and RAG-Fusion, Reciprocal Rank Fusion, SPLADE Learned Sparse Retrieval, Maximal Marginal Relevance, RAG Context Packing Token Budget, Inverted Index, RAG Index Lifecycle and Alias Swap, RAG Dedup, MinHash, and Chunk Canonicalization, RAG Citation Span Index Case Study, Filtered Vector Search and Bitset Gates, HNSW (Vector Search at Scale), Product Quantization for Vector Search, ScaNN Vector Search Case Study, ANN Recall-Latency Pareto Ledger, Cross-Encoder Reranker, ColBERT Late-Interaction Retrieval, LightRAG Dual-Level Retrieval Case Study, Embeddings & Similarity, and Tokenization (BPE) next.',
+        'Fusion combines the ranked lists returned by first-stage retrievers. Raw score normalization is fragile because the scales mean different things. BM25 score, embedding cosine, graph distance, and sparse neural score are not measurements from one ruler. Rank-based fusion avoids much of that problem by rewarding high positions in each list.',
+        'Reciprocal Rank Fusion is a strong baseline. Each candidate receives credit based on its rank in each list, often with a constant that softens the top positions. A document that appears near the top of several retrievers can beat a document that is first in only one retriever. That is a practical way to preserve broad agreement without hand-tuning score scales.',
+      ],
+    },
+    {
+      heading: 'Reranking',
+      paragraphs: [
+        'Reranking is where the pipeline trades speed for precision. The fused pool might contain 50, 100, or 200 candidates. A cross-encoder can jointly read the query and candidate and assign a more reliable relevance score. ColBERT-style late interaction keeps token-level matching signals that a single embedding would compress away. An LLM reranker can help when relevance depends on instructions, but it is slower and must be evaluated carefully.',
+        'Reranking should feed context packing, not replace it. The final prompt needs enough diversity to answer multi-part questions, enough locality to preserve citations, and enough budget left for the generator. Maximal Marginal Relevance, source grouping, citation-span selection, and token-budget packing all matter after the top candidates have been chosen.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Multi-index RAG works because each layer has a narrower contract than "find the answer." Lexical search protects exact terms. Dense search protects paraphrase. Metadata protects scope. Graph expansion protects relationships. Fusion protects candidates that several weak signals agree on. Reranking protects precision after recall has done its job.',
+        'The correctness intuition is not that more indexes are automatically better. It is that different retrieval failures have different causes. A single embedding can miss an invoice number; a keyword index can miss a paraphrase; a graph can miss the paragraph that states the answer. A layered system is safer when every added surface covers a real failure class and the logs can show which surface found the supporting evidence.',
+      ],
+    },
+    {
+      heading: 'What The Visual Proves',
+      paragraphs: [
+        'The visual fanout shows that the branches are complementary, not decorative. Terms catch exact labels. Learned sparse search catches related wording. Dense vectors catch paraphrase. Metadata keeps the search inside the allowed scope. Graph expansion follows relationships that chunk-local search may not see.',
+        'The fusion-and-rerank view shows the contract between layers. First-stage indexes optimize recall under constraints. Fusion builds a candidate pool without comparing incompatible raw scores. Reranking spends heavier compute on a smaller set. Prompt packing turns final candidates into usable evidence. When an answer fails, this layering tells you where to debug.',
+      ],
+    },
+    {
+      heading: 'Evaluation',
+      paragraphs: [
+        'Multi-index RAG must be evaluated in layers. Retrieval recall asks whether the system found the supporting document at all. Fusion and reranking precision ask whether the right evidence rose near the top. Context packing asks whether the evidence survived into the prompt. Generation faithfulness asks whether the answer actually used the evidence instead of inventing support.',
+        'A final-answer score alone is not enough. If the answer is wrong, you need to know whether the missing fact was absent from the index, filtered out, ranked too low, dropped by packing, or ignored by the model. Build held-out questions with known supporting passages and log which retriever found each passage.',
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        'Extra indexes add ingestion work, storage, refresh complexity, observability burden, and tail latency. Lexical indexes need tokenization and postings. Vector indexes need embedding generation, compression, deletion handling, and recall tuning. Metadata filters need strict authorization semantics. Graph indexes need entity resolution and expansion limits so a query does not explode into the whole knowledge graph.',
+        'The runtime path also gets harder to reason about. A slow index can dominate p95 latency. A stale index can beat the fresh one if fusion weights are wrong. Duplicate chunks can crowd out diverse evidence. The tradeoff is worthwhile only when the measured recall and answer quality gains justify the operational complexity.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Enterprise assistants over Slack, Google Drive, GitHub, Zendesk, Confluence, databases, and document stores usually become multi-index systems. The user may mention a ticket number, describe an issue in natural language, ask about a policy, or refer to a team relationship. No single index handles that mix well.',
+        'Legal search combines exact citations, semantic passages, date filters, and authority graphs. Customer support combines product names with issue descriptions and entitlement filters. Code RAG combines lexical symbol search, embeddings, call graphs, and repository metadata. Multimodal document RAG adds layout, tables, OCR, and page-region grounding.',
+      ],
+    },
+    {
+      heading: 'Failure Modes',
+      paragraphs: [
+        'More retrievers do not automatically improve answers. They can add stale documents, duplicate chunks, unauthorized evidence, and long prompts that bury the useful passage. Rank fusion can also hide problems: a document that appears moderately high everywhere may outrank the one precise source if the index plan is poorly tuned.',
+        'The most dangerous failure is applying permissions too late. Unauthorized evidence should not be retrieved and merely hidden after generation. Another common failure is skipping deletion and freshness handling. RAG systems are often trusted because they feel grounded, but old or forbidden grounding can be worse than no grounding at all.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study RAG Pipeline first, then Query Expansion: HyDE and RAG-Fusion, Reciprocal Rank Fusion, SPLADE Learned Sparse Retrieval, Inverted Index, Embeddings and Similarity, HNSW Search, Product Quantization, ScaNN Vector Search, Filtered Vector Search and Bitset Gates, Cross-Encoder Reranker, ColBERT Late-Interaction Retrieval, Maximal Marginal Relevance, and RAG Context Packing Token Budget.',
+        'For production depth, continue with RAG Index Lifecycle and Alias Swap, RAG Dedup MinHash Chunk Canonicalization, RAG Citation Span Index, GraphRAG Community Summary, RAPTOR Hierarchical Retrieval, LightRAG Dual-Level Retrieval, ANN Recall-Latency Pareto Ledger, and RAG Evaluation with RAGAS and ARES. The main habit is to score the retrieval stack before blaming the generator.',
       ],
     },
   ],

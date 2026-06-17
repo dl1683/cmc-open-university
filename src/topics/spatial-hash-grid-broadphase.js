@@ -89,7 +89,7 @@ function* hashCells() {
   yield {
     state: hashGridGraph('A spatial hash maps grid cells to hash buckets'),
     highlight: { active: ['objA', 'cellA', 'hash', 'bucket1', 'e-a-cell', 'e-cellA-hash', 'e-hash-b1'], found: ['near', 'pairs'] },
-    explanation: 'A spatial hash grid overlays space with fixed-size cells. Each object maps its position or bounding box to one or more cell coordinates, and each coordinate hashes into a table bucket.',
+    explanation: 'The highlighted path is the whole index operation: object bounds become integer cell coordinates, and those coordinates become hash keys. The bucket stores candidates, not proof of contact.',
     invariant: 'Same bucket means candidate, not guaranteed overlap.',
   };
 
@@ -120,7 +120,7 @@ function* hashCells() {
   yield {
     state: hashGridGraph('Nearby lookup checks same and neighboring cells'),
     highlight: { active: ['cellA', 'cellB', 'bucket1', 'bucket2', 'near', 'e-b1-near', 'e-near-pairs'], compare: ['hash'], found: ['pairs'] },
-    explanation: 'A proximity query reads the cell containing the query and nearby cells. Cell size determines how many neighbors must be checked and how many irrelevant objects appear in each bucket.',
+    explanation: 'A proximity query reads the query cell and enough neighbor cells to cover the search radius. Cell size decides both sides of the cost: more neighbor buckets when cells are tiny, more false candidates when cells are huge.',
   };
 
   yield {
@@ -152,7 +152,7 @@ function* collisionBroadPhase() {
   yield {
     state: broadPhaseGraph('Broad phase filters possible collision pairs'),
     highlight: { active: ['move', 'clear', 'insert', 'query', 'e-move-clear', 'e-move-insert'], found: ['narrow', 'contacts'] },
-    explanation: 'A physics step updates object positions, rebuilds or updates grid buckets, enumerates nearby candidates, deduplicates pairs, and sends the small candidate list to exact narrow-phase collision checks.',
+    explanation: 'A physics step updates positions, rebuilds or updates buckets, emits nearby candidate pairs, deduplicates them, and sends only those candidates to exact geometry. The broad phase saves work by being conservative.',
     invariant: 'Broad phase may return false positives; it must not miss true overlaps.',
   };
 
@@ -228,10 +228,40 @@ export const article = {
       ],
     },
     {
+      heading: 'Why it exists',
+      paragraphs: [
+        'The naive collision broad phase tests every object against every other object. That gives O(n^2) candidate pairs before exact geometry even starts. A tree index can help, but for many similarly sized moving objects, rebuilding or updating a tree every frame can be unnecessary ceremony.',
+        'A spatial hash grid makes locality a hash-table problem. Objects that can collide must share a cell or a neighboring cell under the chosen cell-size rule, so the broad phase inspects only local buckets. It is correct only if insertion covers every cell an object can overlap and neighbor checks cover every possible cross-cell contact.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that a broad phase does not need exact geometry. It needs a cheap, conservative test that never drops a real collision. The grid cell is that test: if the object bounds and neighbor rule are chosen correctly, any true overlap will appear in at least one checked bucket.',
+        'The invariant is coverage. Every object must be inserted into every cell its current or swept bounds can touch, and every query must inspect every neighboring cell that could contain an overlapping object. Hashing only makes sparse storage cheap. Correctness comes from the coverage rule, not from the hash function.',
+      ],
+    },
+    {
+      heading: 'What the visual shows',
+      paragraphs: [
+        "In the hash-cells view, the coordinate transform is the point. The object is not being placed into a visual grid for decoration; its world-space bounds are being converted into integer cell coordinates, and those coordinates become hash keys.",
+        "In the collision broad-phase view, the important mark is a candidate pair. Objects in unrelated cells are ruled out before exact geometry runs. Objects in the same or neighboring cells are only candidates, not confirmed collisions, because the grid is a conservative filter.",
+        "The useful question is which real collision would be missed if the object were inserted into fewer cells or if fewer neighbors were checked. That question exposes the correctness rule: the broad phase may produce extra work, but it cannot drop a real overlap.",
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'Insertion maps an object to every cell overlapped by its bounding box, or sometimes just the cell containing its center if the cell-size rule makes that safe. A nearby query reads the object ids in the same cell and neighboring cells. Collision broad phase enumerates candidate pairs from those buckets, deduplicates repeated pairs, and passes candidates to exact narrow-phase checks.',
         'The hash function must combine integer cell coordinates into a stable key. For bounded worlds, a dense grid array can be faster. For unbounded or sparse worlds, hashing avoids allocating millions of empty cells. Negative coordinates, pair deduplication, object removal, and frame-to-frame bucket cleanup are usually where bugs appear.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine 10,000 bullets and particles in a large game arena. An all-pairs broad phase would consider about 50 million unordered pairs before it even asks whether two circles overlap. If each particle has a radius near 4 pixels and the grid cell is 16 pixels wide, each particle usually touches one to four cells. Most buckets stay small, so the broad phase spends its time on nearby objects.',
+        'For a particle at x=130, y=77 with cell size 16, the base cell is (8, 4). If its bounding box crosses the right cell boundary, insertion also touches (9, 4). If it crosses both axes, insertion touches four cells. During candidate generation, a pair discovered in multiple buckets is emitted once, often by storing a canonical pair key such as minId:maxId.',
+        'The narrow phase still owns the exact answer. The spatial hash only says, "these two are close enough to deserve a real test." That separation is why the structure is so common: cheap locality first, precise geometry second.',
       ],
     },
     {
@@ -242,10 +272,25 @@ export const article = {
       ],
     },
     {
+      heading: 'Choosing cell size',
+      paragraphs: [
+        'Cell size is the main design decision. If all objects have roughly the same diameter, a cell size near that diameter or a small multiple of it often works well. If cells are much smaller than objects, each object is inserted into many buckets. If cells are much larger, bucket contents grow and the structure drifts back toward all-pairs testing inside each bucket.',
+        'Mixed-size worlds often need more than one layer. A uniform grid can handle small dynamic objects while large static geometry lives in a quadtree, BVH, or hand-authored spatial partition. Another option is a hierarchical hash grid, where object size chooses the grid level. The point is not to worship one data structure; it is to keep local density bounded.',
+      ],
+    },
+    {
       heading: 'Complete case study',
       paragraphs: [
         'A pinball-style game with hundreds of similarly sized balls can rebuild a spatial hash every frame. Clear buckets, insert each ball into its cell, inspect same and adjacent cells, deduplicate candidate pairs, and run circle-circle or shape tests only for those candidates. This replaces an O(n^2) all-pairs loop with work proportional to local density.',
         'GPU particle simulations use the same broad idea at larger scale. A common CUDA-style pipeline computes cell ids for particles, sorts particles by cell, finds cell ranges, and then checks neighboring cell ranges in parallel. The data structure becomes a sorted spatial hash grid rather than a pointer-heavy tree, which fits GPU memory access better.',
+        'Robotics and mapping systems use the same mental model when they bucket observations by local region before doing expensive geometric work. The implementation details differ, but the principle is the same: first create a cheap locality index, then reserve exact math for objects that survived that locality test.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'Spatial hashing wins in dynamic scenes with many similarly sized objects and lots of empty space. Games, particle systems, simple physics engines, and map interaction layers often prefer it because it is easy to rebuild, easy to parallelize, and does not require rotations, tree rebalancing, or complex update logic.',
+        'It fails when scale varies wildly, density is highly clustered, or the world has important long thin shapes that cross many cells. In those cases the grid may produce too many duplicate insertions or too many false candidates. BVHs, quadtrees, sweep-and-prune, or hybrid indexes can be better because they adapt to shape, size, or axis ordering.',
       ],
     },
     {
@@ -253,6 +298,7 @@ export const article = {
       paragraphs: [
         'The main misconception is that hashing solves spatial indexing by itself. Cell size is the structure. The hash table only stores the cells. If the cell size is wrong for the workload, performance collapses into too many duplicated insertions or too many false pairs.',
         'Another mistake is forgetting pair deduplication. If object A overlaps four cells and object B overlaps the same four cells, the broad phase can discover A-B four times. Candidate-pair ids or per-frame stamps are needed before expensive narrow-phase work.',
+        'A third mistake is using the current position only for fast movers. If an object can travel through another object between frames, a spatial hash built from the endpoint can miss the crossing. The broad phase must index swept bounds, shrink the timestep, or hand the case to continuous collision detection.',
       ],
     },
     {

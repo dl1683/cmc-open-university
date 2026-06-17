@@ -207,43 +207,65 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A streaming watermark is an event-time progress signal. It tells a stream processor how far through event time the input appears to have advanced, even though records arrive out of order. Watermarks let systems close windows, fire results, and decide how to handle late data without pretending that processing time equals event time.',
-        'Apache Flink documentation says watermarks measure progress in event time and that a Watermark(t) declares event time has reached t in that stream: https://nightlies.apache.org/flink/flink-docs-stable/docs/concepts/time/. Apache Beam describes watermarks as estimates of input completeness and triggers as the mechanism that governs when results emit: https://beam.apache.org/documentation/basics/.',
+        `Streaming systems exist because useful facts arrive continuously: clicks, payments, sensor readings, logs, fraud signals, location updates, and device events. The hard part is that arrival order is not the same as event order. A phone can go offline and upload an hour of events later. A broker partition can lag. A retry can deliver an older message after a newer one. If a pipeline uses processing time as truth, it will count records in the hour they arrived, not the hour they happened.`,
+        `A watermark is the system's event-time progress signal. It says that, for a stream or partition, the processor believes event time has advanced to a particular timestamp. That signal lets windowed computations decide when to emit an answer, when to accept a correction, and when to clean up state. Apache Flink describes watermarks as measuring progress in event time, and Apache Beam frames them as estimates of input completeness. The key word is estimate: a watermark is operational evidence, not a law of nature.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The reasonable first attempt',
       paragraphs: [
-        'Each event carries or receives an event timestamp. The source or timestamp assigner emits watermarks based on observed progress and expected disorder. A window operator groups events by event time. When the watermark passes the end of a window, the operator can emit an on-time pane. Triggers may also emit early panes for freshness and late panes for corrections.',
-        'The Dataflow model made this separation explicit: what results are computed, where in event time they belong, when they are emitted, and how refinements are handled. The Google Dataflow paper frames the tradeoff as correctness, latency, and cost for unbounded out-of-order data: https://research.google.com/pubs/archive/43864.pdf.',
+        `The first attempt is to process each event as soon as it arrives and group it by the current clock time. That is simple and often good enough for operational counters such as "requests processed in the last minute." It fails for questions whose meaning belongs to event time: revenue for 2:00-3:00, rides that started before midnight, sensor readings during a storm cell, or ad conversions within seven days of an impression. Those answers should not change just because a device uploaded late.`,
+        `A second attempt is to wait until the system is sure no late data can appear. For an unbounded stream, certainty may never arrive. Waiting forever gives perfect completeness and no product. Emitting immediately gives freshness and wrong finality. The wall is the missing progress contract: the system needs a disciplined way to say "this window is complete enough to publish now, and here is what we will do if older data still arrives."`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'A slow watermark delays output because windows wait. A fast watermark emits sooner but creates more late data. Idle partitions can hold back global progress. Skewed sources can make one shard define latency for everyone. Allowed lateness keeps state around so late corrections can be processed, but that state costs memory and checkpoint storage.',
-        'Flink has APIs for generating watermarks and assigning timestamps: https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/event-time/generating_watermarks/. Beam triggers can fire after the watermark, early by processing time, or late when delayed data arrives: https://beam.apache.org/documentation/programming-guide/.',
+        `The core insight is to separate three clocks that beginners often collapse: event time, processing time, and output time. Event time is when the fact happened. Processing time is when the machine sees it. Output time is when the system chooses to publish a pane. Watermarks connect these clocks without pretending they are identical. A Watermark(t) means the system is prepared to treat event times up to t as mostly observed, subject to its lateness policy.`,
+        `This turns streaming from a vague "handle data as it comes" loop into a contract. Windows define where records belong in event time. Watermarks define when ordinary completion has advanced far enough. Triggers define when panes emit, including early estimates and late corrections. Allowed lateness defines how long state remains open for older records. The Dataflow model made these dimensions explicit: what is computed, where in event time it belongs, when it emits, and how refinements are handled.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Mechanism',
       paragraphs: [
-        'Consider hourly billing from mobile events. Users go offline, devices batch uploads, and records arrive late. The pipeline groups by account and hour using event time. It emits early estimates every minute for dashboards, an on-time bill when the watermark passes the hour, and correction panes for events arriving within a two-hour lateness horizon. After that horizon, late events go to a side output for manual reconciliation or next-cycle adjustment.',
-        'That design is explicit about user-visible behavior. It does not hide late data. It chooses how much state to retain, how quickly to emit, and how downstream sinks merge corrections.',
+        `A typical pipeline assigns an event timestamp to each record, either from the payload or from source metadata. A watermark generator watches source progress and disorder, then emits increasing watermark values. Operators group records into windows by event time. When the watermark passes a window end, the operator can produce an on-time pane. If the system allows lateness, a later record for that already-emitted window can produce a correction pane or be routed to a side output.`,
+        `In a partitioned stream, the global watermark is often limited by the slowest active input because a lagging partition may still contain old event-time data. That is why idle-source detection matters: a quiet partition should not hold the entire job hostage forever. State cleanup also follows the contract. The operator cannot drop a window's state at the first on-time firing if late corrections are allowed. It can drop that state only after the lateness horizon has passed, or after a domain-specific reconciliation path takes over.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual proves',
       paragraphs: [
-        'A watermark is not a guarantee from the universe. It is a progress estimate produced by the system. If it is wrong, late data happens. Another misconception is that exactly-once checkpointing solves event-time correctness. Checkpointing protects state recovery; watermarks and triggers define when event-time results are considered complete enough to emit.',
+        `The event-time progress view proves why arrival order is not enough. Records arrive in one sequence but land in earlier or later event-time windows. The watermark line advances more carefully than the processing clock. A window does not become eligible because the wall clock moved past its end; it becomes eligible because the watermark crossed its event-time boundary. That distinction is the whole idea.`,
+        `The late-data policy view proves that watermarking is not just a timestamp calculation. It is a product and storage decision. Early panes give dashboards freshness but may be revised. On-time panes give the ordinary answer when the watermark passes the window. Late panes preserve correctness within a declared horizon. Final cleanup releases memory and checkpoint load. The visual makes the trade explicit: a faster watermark lowers latency, while a slower watermark buys completeness at the cost of waiting.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: Flink timely stream processing at https://nightlies.apache.org/flink/flink-docs-stable/docs/concepts/time/, Flink watermark generation at https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/event-time/generating_watermarks/, Beam basics at https://beam.apache.org/documentation/basics/, Beam programming guide triggers at https://beam.apache.org/documentation/programming-guide/, and the Dataflow paper at https://research.google.com/pubs/archive/43864.pdf. Study Feature Freshness SLO Monitor, Delayed Feedback Attribution Window Case Study, Point-in-Time Feature Join Index, Flink Checkpointing Case Study, Google Dataflow Model Case Study, MillWheel Streaming Case Study, Kafka Log Case Study, and Backpressure next.',
+        `Watermarks work because they give every event-time window a monotonic progress test. As long as watermarks move forward, a fixed window will eventually be behind the watermark or remain open because the system has not yet claimed enough progress. Operators can make local decisions from that shared signal: fire this window, hold that one, accept this late update, or clean up state. The output policy becomes reproducible instead of depending on accidental arrival timing.`,
+        `The correctness is conditional on the chosen semantics. If the pipeline promises "final after two hours of allowed lateness," then a record five hours late is not part of the final result unless it flows through a separate correction channel. That is not a bug in the watermark; it is the published contract. Exactly-once checkpointing protects recovery of state and outputs, but it does not decide event-time completeness. Watermarks, triggers, accumulation mode, and lateness do that job.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `The main cost is state. Every open window needs stored aggregates, timers, metadata, and checkpointed recovery data. Allowed lateness extends that lifetime. More keys, longer windows, and longer lateness horizons multiply memory and checkpoint pressure. If a pipeline keeps two hours of late correction state for millions of accounts, the cost is not abstract; it appears as heap, RocksDB state, checkpoint duration, restore time, and downstream correction traffic.`,
+        `The main tradeoff is freshness against completeness. Conservative watermarks reduce late corrections but increase latency. Aggressive watermarks improve time-to-answer but produce more late records, more corrections, or more dropped data. Skewed partitions and idle sources can delay global progress. Backpressure can blur processing-time expectations even when event-time semantics are sound. Downstream systems must also be designed for panes: replacing, accumulating, retracting, or merging corrections is part of the architecture.`,
+      ],
+    },
+    {
+      heading: 'Uses and failure modes',
+      paragraphs: [
+        `Watermarks are central in stream analytics, billing, fraud detection, feature pipelines, monitoring, IoT aggregation, ad attribution, mobile telemetry, and CDC-derived materialized views. They are useful whenever the business question belongs to when the event happened rather than when it arrived. In an hourly billing pipeline, early panes can power dashboards, on-time panes can issue ordinary bills, and late panes can adjust accounts within a declared reconciliation window.`,
+        `They fail when teams mistake estimates for guarantees. Bad timestamp extraction can put records in the wrong window. A source watermark that ignores offline clients can close windows too early. A global watermark can stall behind one idle partition if idleness is not configured. Late-data policies can be legally or financially wrong if they silently drop records that should trigger correction. The biggest conceptual failure is hiding the contract from users: if numbers can revise, dashboards, alerts, and invoices need to say so through their behavior.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources to read are Flink's event-time and watermark documentation, Flink watermark generation APIs, Beam basics and trigger documentation, and the Google Dataflow paper at https://research.google.com/pubs/archive/43864.pdf. In this curriculum, study Backpressure to understand why processing speed and event-time completeness are different, Flink Checkpointing Case Study for recovery semantics, Google Dataflow Case Study for the model behind panes and triggers, Feature Freshness SLO Monitor for operational freshness, Point-in-Time Feature Join Index for historical correctness, and Delayed Feedback Attribution Window Case Study for late outcomes in machine-learning systems.`,
       ],
     },
   ],

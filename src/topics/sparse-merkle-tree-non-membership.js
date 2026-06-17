@@ -221,43 +221,114 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A sparse Merkle tree is an authenticated key-value map over an enormous fixed universe. Instead of packing only existing records into consecutive leaves, it assigns every possible key a deterministic leaf slot, usually by hashing the key and reading the digest bits as a path. Missing keys are represented by default empty leaves and default empty subtrees.',
-        'That design makes non-membership proofs natural. In an ordinary unsorted Merkle tree, proving that a value is absent is awkward because the tree only commits to what is present. In a sparse Merkle tree, every possible key has a place. If the path for key k opens to the default empty value and recomputes the root, k is absent relative to that root.',
+        'A Merkle root is a compact commitment. If the verifier trusts the root, an untrusted server can prove that a particular leaf is part of the committed data by sending sibling hashes along the path to the root. That is enough for a list, but many real systems need an authenticated map: account id to balance, nullifier to spent status, document id to digest, or key to value.',
+        'Maps need two kinds of claims. The first is membership: this key has this value. The second is non-membership: this key is absent. Non-membership is harder because a dishonest server can always say it did not find a key unless the verifier knows exactly where that key would have been.',
+        'A sparse Merkle tree solves that by giving every possible key a deterministic slot in an enormous logical tree. Missing keys are represented by default empty leaves and default empty subtrees. Absence becomes an opening to a known empty location, not a promise from storage.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is to put only present keys into a normal Merkle tree and send membership proofs. That proves inclusion, but it does not prove absence. If the server is malicious or stale, it can simply omit a key from the response and claim the key was not there.',
+        'A sorted authenticated structure can prove absence by showing neighboring keys. If the committed order contains A, C, and D, then a proof for missing B can show the gap between A and C. That is a valid design, but it exposes neighbors and requires an order-aware proof format.',
+        'Sparse Merkle trees choose a different tradeoff. Hash the query key, read the digest bits as a path, and verify the exact logical slot for that key. The full tree might have 2^256 leaves, but the implementation stores only the non-empty structure and uses known default hashes for everything else.',
+      ],
+    },
+    {
+      heading: 'The core invariant',
+      paragraphs: [
+        'The invariant is that each key maps to one path, and only that path can contain the key value. If the key hashes to bits 0101..., the verifier will accept only a proof that follows 0101... from the root. A proof for a different path is irrelevant.',
+        'The second invariant is that every all-empty subtree has a deterministic hash. The empty leaf hash is z0. The empty subtree one level up is z1 = hash(z0, z0). The next is z2 = hash(z1, z1), and so on. A verifier can use these constants without seeing every empty leaf.',
+        'Together, these invariants make absence checkable. The verifier knows where the key belongs, knows what an empty region should hash to, and can recompute the committed root from the provided path data.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the empty-leaf proof view, follow the query key through hashing, bit-path selection, leaf slot, and root commitment. The important idea is determinism: the key has one logical address. A server that claims absence must open that address or show a compact proof that the address falls inside an empty branch.',
+        'The proof flow is the verifier side. Start with the claimed leaf, combine it with sibling hashes in the order dictated by the key bits, and recompute upward. If the final digest equals the trusted root, the statement is true for that root.',
+        'In the compressed sparse paths view, focus on the default hashes. The logical tree is huge, but most of it is empty. Production implementations store live branches, compact leaves, version metadata, and a table of default hashes rather than materializing the tree.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The empty tree has a known stack of default hashes: z0 for an empty leaf, z1 = hash(z0,z0), z2 = hash(z1,z1), continuing up to the root depth. Inserting a key replaces one empty leaf with a value leaf and recomputes hashes on the path to the root. Membership proof sends the value leaf plus sibling hashes. Non-membership proof sends an empty leaf opening, or in compact forms, a neighboring compact leaf proving that the requested path diverges.',
-        'No implementation materializes 2^256 leaves. Practical trees store only non-empty branches and enough metadata to reconstruct default siblings. Variants such as Jellyfish Merkle Tree use sparse-tree semantics with storage-engine-aware node layout, compact leaf handling, and versioned node keys so old roots can remain queryable.',
+        'Start with an empty logical tree of fixed depth, usually the output size of a cryptographic hash. No implementation allocates 2^256 leaves. It precomputes default hashes for empty subtrees and stores a root that represents the empty map.',
+        'To insert a key, hash the key into a bit string. The bits choose left or right at each level. At the leaf, store a hash of the key and value, using domain separation so leaf hashes cannot be confused with internal-node hashes. Then recompute each ancestor on the path back to the root.',
+        'To verify a membership proof, the verifier hashes the leaf, applies each sibling hash at the correct side, and compares the final digest with the trusted root. To verify an empty-leaf non-membership proof, the verifier starts with the empty leaf hash for the query path and performs the same recomputation.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Compact non-membership proofs',
       paragraphs: [
-        'The clean logical cost is O(depth) for lookup, update, and proof verification. With 256-bit keys, depth can be 256, which is acceptable for some systems but expensive in zero-knowledge circuits or high-throughput storage engines. Optimizations compress empty paths, cache default hashes, batch updates, choose wider radix nodes, and design proof formats that do not repeat predictable empty siblings.',
+        'The simplest absence proof opens the query path to an empty leaf. In a depth-256 tree, that can require many sibling hashes unless the proof format compresses default siblings. This is conceptually clean, but not always the most efficient wire format.',
+        'Many sparse tree variants use compact leaves or path compression. If only one live key exists under a long prefix, the implementation stores that key and the remaining suffix rather than every single branch. A non-membership proof can then show that the query path diverges from the stored compact leaf before it could reach an occupied slot.',
+        'The verifier must still enforce the same invariant: the shown leaf or empty branch must be on the query path, and the recomputed hash must match the trusted root. Compression changes the encoding, not the security claim.',
       ],
     },
     {
-      heading: 'Real-world case studies',
+      heading: 'Why it works',
       paragraphs: [
-        'Diem introduced Jellyfish Merkle Tree as a sparse Merkle tree optimized for LSM-tree-backed blockchain state. Its paper describes a space-and-computation-efficient authenticated state tree inspired by Ethereum-style Patricia Merkle designs but adapted for versioned storage.',
-        'Rollup and privacy systems use the idea for nullifier and state trees because they need to prove both membership and non-membership. Aztec documentation explains why naive sparse nullifier trees are conceptually simple but costly in circuits, motivating indexed Merkle trees and batch insertion techniques. Ethereum research discussions similarly explore sparse-tree optimization for huge key spaces.',
+        'The verifier does not trust the server statement about absence. It trusts a root hash. The proof is just enough data to recompute that root under a specific interpretation of key path, leaf hash, default hashes, and sibling order.',
+        'If the server opens the wrong path, the proof fails because the path bits do not match hash(key). If the server lies about an empty leaf where a value exists, the recomputed root changes. If the server changes a sibling, the recomputed root changes. If the server tries to make two different maps share one root, it needs a hash collision or a domain-separation break.',
+        'This is why serialization is security-critical. Keys, values, empty leaves, internal nodes, compact leaves, and versioned nodes should have unambiguous encodings and domain tags. Ambiguous encodings can turn a strong tree into a weak commitment.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Sparse does not mean small by itself. The logical tree is enormous; the implementation is small only because it compresses default subtrees. Sparse Merkle trees also do not replace consensus. A proof is meaningful only relative to a root that the verifier already trusts. Finally, absence is not a global truth; it means absent from the committed map at that exact root version.',
-        'Hash-domain separation matters. Leaves, internal nodes, empty values, and compact nodes should be encoded so one kind cannot be confused for another. Poor serialization can break the security story even when the tree shape is mathematically sound.',
+        'Suppose a toy tree has four-bit paths and the query key hashes to 0101. The verifier trusts root R. To prove absence, the server shows that the leaf at 0101 is the default empty leaf, plus the sibling hashes needed at each level to recompute R.',
+        'If the server instead opens 0111, the verifier rejects because the path does not match the query. If the server changes one sibling hash, the recomputed root differs from R. If a value is present at 0101 in the committed map, the server cannot show an empty leaf at 0101 without changing the root.',
+        'In a compact variant, the server might show a neighboring compact leaf with path 0110 and prove that the query path 0101 diverges before that leaf. The verifier checks both the divergence and the recomputed root.',
+      ],
+    },
+    {
+      heading: 'Updates and versions',
+      paragraphs: [
+        'Updating a key rewrites the nodes on that key path. In an immutable or versioned tree, the implementation writes new nodes for the updated path and keeps old nodes reachable from older roots. This lets clients verify historical proofs against historical roots.',
+        'Versioning is powerful and expensive. Every update can create O(depth) new logical nodes unless the implementation compresses paths, batches writes, or stores nodes in a database layout tuned for locality. Garbage collection must know which old roots still matter.',
+        'Diem Jellyfish Merkle Tree is one example of a storage-engine-aware sparse Merkle design. It uses a sparse authenticated map shape while paying close attention to node layout, versioned state, and practical proof generation.',
+      ],
+    },
+    {
+      heading: 'Cost model',
+      paragraphs: [
+        'The clean logical cost is O(depth) for lookup, update, proof generation, and verification. With 256-bit keys, depth is 256 in a binary tree. That is predictable and simple, but it can be heavy in storage engines, network proofs, and zero-knowledge circuits.',
+        'Optimizations compress empty paths, cache default hashes, batch updates, use wider branching factors, store compact leaves, avoid sending predictable default siblings, and choose proof formats that match the verifier. These optimizations should be treated as format decisions, not cosmetic details.',
+        'Sparse does not mean small automatically. The logical tree is enormous. The practical tree is small only because empty regions are implicit or compressed. Poor node layout can turn a theoretically simple update into many random database reads and writes.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Sparse Merkle trees fit authenticated key-value state, account maps, package registries, transparency systems, rollup state, credential revocation maps, and nullifier sets. They are especially useful when clients need to verify storage responses from a server they do not fully trust.',
+        'Privacy and rollup systems often need absence as much as presence. A nullifier set, for example, needs to prove that a note has not already been spent. The absence proof must be tied to a committed root, or double-spend prevention becomes a database promise instead of a cryptographic statement.',
+        'They also compose well with light clients. A light client can keep a root and verify short proofs without downloading the whole map. The server does the storage work; the client does bounded cryptographic checking.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A proof is meaningful only relative to a root the verifier already trusts. Absence is not global truth. It means absent from this committed map at this exact root version. If the verifier accepts the wrong root, the proof can be perfectly valid and still answer the wrong question.',
+        'The design also fails when key hashing, serialization, or domain separation is sloppy. Leaf and branch encodings must not collide. Empty values must be distinguishable from real values. Key hashes must be stable across implementations. Versioned storage must not mix nodes from incompatible formats.',
+        'Binary sparse trees can be expensive in circuits because every proof may imply many hash computations. They can also be expensive in databases if node reads are scattered. Indexed Merkle trees, Verkle trees, Patricia tries, and wider sparse trees are alternative points in the design space.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Define the proof format before optimizing storage. A verifier needs key, value or absence marker, path information, sibling hashes, compact-leaf metadata if used, hash function id, and root version. The format should reject extra ambiguity rather than relying on implementation folklore.',
+        'Use explicit domain separation for empty leaves, value leaves, compact leaves, and internal nodes. Precompute default hashes once per tree depth and make them part of the implementation contract. Test membership and non-membership against independent fixtures, including wrong path, wrong sibling order, wrong key, stale root, and malformed compact proof cases.',
+        'For JavaScript implementations, be careful with byte arrays and hex strings. Hash functions operate on bytes, not on display encodings. Normalize keys at the boundary, then hash the canonical bytes. A tree that signs one encoding and verifies another is not an authenticated map; it is a bug farm.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary references: Ethereum research on sparse Merkle optimization at https://ethresear.ch/t/optimizing-sparse-merkle-trees/3751, Diem Jellyfish Merkle Tree paper at https://developers.diem.com/papers/jellyfish-merkle-tree/2021-01-14.pdf, JMT docs at https://docs.rs/jmt, Aztec indexed Merkle tree notes at https://docs.aztec.network/developers/docs/foundational-topics/advanced/storage/indexed_merkle_tree, and Efficient Sparse Merkle Trees at https://eprint.iacr.org/2016/683. Study Merkle Tree, Namespaced Merkle Tree Proof Case Study, Merkle Mountain Range Append-Only Log, Ethereum Merkle-Patricia Trie Case Study, Verkle Trees & Stateless Clients, and Hash Table next.',
+        'Primary references: Ethereum research on sparse Merkle optimization at https://ethresear.ch/t/optimizing-sparse-merkle-trees/3751, the Diem Jellyfish Merkle Tree paper at https://developers.diem.com/papers/jellyfish-merkle-tree/2021-01-14.pdf, JMT docs at https://docs.rs/jmt, Aztec indexed Merkle tree notes at https://docs.aztec.network/developers/docs/foundational-topics/advanced/storage/indexed_merkle_tree, and Efficient Sparse Merkle Trees at https://eprint.iacr.org/2016/683.',
+        'Study Merkle Tree, Namespaced Merkle Tree Proof Case Study, Merkle Mountain Range Append-Only Log, Ethereum Merkle-Patricia Trie Case Study, Verkle Trees and Stateless Clients, KZG Polynomial Commitment Opening Case Study, Hash Table, and Persistent Segment Tree next.',
       ],
     },
   ],

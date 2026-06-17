@@ -432,45 +432,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An LLM response-cache safety ledger is the application-layer control plane that decides whether a previous full answer can be reused. It combines a canonical exact key, optional semantic nearest-neighbor candidates, policy gates, version clocks, admission rules, eviction rules, and an audit record for every hit, miss, denial, and store decision.',
-        'This is distinct from provider prompt caching. Prompt caching reuses repeated prompt prefixes or internal key/value tensors to reduce prefill work. Prompt Cache-Key Canonicalization Ledger covers that exact-prefix identity layer. A response cache reuses the finished application answer. OpenAI documents prompt-cache retention for cached prefixes and key/value tensors at https://developers.openai.com/api/docs/guides/prompt-caching, while Anthropic documents automatic and explicit prompt cache breakpoints at https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching. Those provider caches reduce compute; they do not by themselves authorize replaying an old answer.',
+        'A response cache can save the most expensive thing in an LLM product: a full model call that produces an answer the system has already produced before. The same cache can also replay a private, stale, policy-invalid, or tool-authorized answer in the wrong context. The safety ledger exists because a cached LLM response is product behavior, not just bytes behind a key.',
+        'The ledger is the application-layer control plane for exact keys, semantic candidates, policy gates, version clocks, admission rules, eviction rules, and audit rows. It decides whether a previous full answer may be reused, whether a candidate must be denied, and whether a new response may be stored. That decision has to preserve tenant boundaries, model contracts, retrieval freshness, tool permissions, and risk policy.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The naive approach and wall',
       paragraphs: [
-        'The exact cache key should bind the stable parts of the request contract: tenant or privacy boundary, model id and revision, system prompt digest, normalized user prompt, tool permission mask, retrieval corpus version, safety-policy version, temperature and sampling settings, and output schema. HTTP Vary Cache-Key Normalization and No-Vary-Search Query Key teach the same lesson for web caches: cache keys need the dimensions that change the representation, while noisy dimensions should be normalized into bounded buckets.',
-        'The semantic side adds an embedding vector and an approximate nearest-neighbor index. RedisVL describes a semantic cache as Redis caching plus vector search for previously answered questions, reducing LLM requests and tokens: https://docs.redisvl.com/en/0.4.1/user_guide/03_llmcache.html. The semantic candidate is only a lookup result. The policy gate still checks tenant, permissions, corpus version, system-prompt digest, TTL, risk class, and similarity threshold before returning a response.',
+        'The reasonable first attempt is to key by normalized prompt text and return the old answer on a hit. That works for a narrow FAQ bot where every user sees the same public answer and the system prompt rarely changes. It breaks once the prompt depends on tenant, role, model revision, system digest, tool mask, retrieval corpus, policy version, sampling settings, or output schema.',
+        'The semantic version of the mistake is more dangerous. A nearby vector match feels intelligent because it catches paraphrases, but vector distance cannot see authorization, freshness, tenant scope, or tool permissions. The wall is that similarity is not permission. A semantic candidate is only a proposed route to the policy gate.',
       ],
     },
     {
-      heading: 'Ledger and policy model',
+      heading: 'Core insight',
       paragraphs: [
-        'A useful cache record stores exact_hash, embedding_id, answer_pointer, model_revision, system_digest, tool_mask, corpus_version, policy_version, tenant_scope, created_at, expires_at, hit_count, quality_label, route_reason, and audit_id. The audit row stores the candidate ids considered, the gate that allowed or denied them, latency saved or spent, estimated token savings, and why the final route shipped, missed, or refused to cache.',
-        'Version clocks avoid brittle deletion jobs. If the RAG corpus, tool schema, policy rules, model revision, or system prompt changes, the gate can declare old records ineligible by comparing version metadata. Later compaction can clean them up, but correctness does not depend on immediate physical deletion.',
+        'The core insight is to split lookup from reuse. Exact and semantic indexes find possible answers. The policy gate decides whether a candidate is eligible under the current request contract. A hit is not a fact; it is a proposal that must pass boundary checks before the product can answer from cache.',
+        'The invariant is that similarity cannot override authorization or freshness. Version clocks make this practical. If the RAG corpus, tool schema, policy rules, model revision, or system prompt changes, the gate can declare old records ineligible without racing to delete every row. Old data can remain stored while becoming impossible to serve.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Consider a customer-support assistant. Password reset, shipping-window, and setup questions have repeated intents with stable answers, so they can use exact and semantic response caching. Refund status and account troubleshooting are stateful and tenant-specific, so they usually route to a fresh model/tool call. RAG-backed documentation answers can cache only when the evidence digest or corpus version matches. Legal-risk language routes to a stronger model and writes an audit row even if it does not store a reusable response.',
-        'On a request, the service canonicalizes the prompt, checks the exact key, searches the semantic index, and sends every candidate through the policy gate. If a record passes, it returns the cached answer and logs the route. If the candidate is stale or unauthorized, the system logs a deny, calls the model, and stores a new record only if admission rules permit it. This gives the product a measurable cost lever without turning cache hits into silent data leaks.',
+        'The key-ledger view shows the request moving through canonicalization, exact lookup, semantic lookup, and gate before a hit is allowed. The cache is not just a hash table. It is a route planner with a denial path, a model-call path, and an audit path.',
+        'The policy-gates view is the correctness surface. Tenant, authorization, corpus version, system prompt, tools, TTL, and risk all sit between a candidate and reuse. The support-case view shows where this pays: stable FAQ and versioned RAG answers can cache, while private account answers and secret-bearing responses should miss or no-store. The animation proves that the cache is useful only when the gate is part of the data structure.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'How the system works',
       paragraphs: [
-        'The most common failure is cross-boundary reuse: an answer generated under one tenant, permission set, system prompt, tool schema, or RAG corpus is replayed under another. Vector distance cannot detect that. A second failure is cache poisoning: an adversarial prompt causes the system to store a misleading answer that future semantically similar prompts retrieve. A third failure is stale authority: a cached answer cites evidence that was corrected or removed after the record was created.',
-        'The operational failure is false economics. A cache can reduce token calls while adding embedding cost, ANN latency, audit overhead, quality incidents, or p99 regressions. LLM Unit Economics Ledger Case Study is the companion topic: count accepted-answer cost and protected quality slices, not only cache hit rate.',
+        'The exact side starts with canonicalization. It normalizes harmless noise while binding fields that can change the answer: tenant scope, user role, model revision, system prompt digest, tool mask, output schema, retrieval corpus version, policy version, locale, and sampling mode. The exact key is narrow, but its correctness story is simple because every contract field matches.',
+        'The semantic side embeds the user request or an intent representation and searches an approximate nearest-neighbor index for similar past requests. That finds paraphrases, but it also creates false-hit risk. The gate checks that the candidate answer was produced under compatible boundaries, is still fresh, has acceptable quality labels, is allowed for this risk class, and has not expired.',
+        'Misses call the model. The response is admitted only if the route is cacheable. Personalized, secret-bearing, high-risk, one-off, or policy-sensitive outputs can still write audit rows without writing reusable answer records. A useful cache record stores exact_hash, embedding_id, answer_pointer, model_revision, system_digest, tool_mask, corpus_version, policy_version, tenant_scope, created_at, expires_at, hit_count, quality_label, route_reason, and audit_id.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary and official sources: OpenAI prompt caching at https://developers.openai.com/api/docs/guides/prompt-caching, Anthropic prompt caching at https://platform.claude.com/docs/en/build-with-claude/prompt-caching, RedisVL Semantic Caching for LLMs at https://docs.redisvl.com/en/0.4.1/user_guide/03_llmcache.html, LiteLLM cache docs and custom cache keys at https://docs.litellm.ai/docs/caching/all_caches, GPTCache at https://github.com/zilliztech/gptcache, and GPT Semantic Cache at https://arxiv.org/abs/2411.05276. Local corpus anchors: Inference Scaling.txt for response-cache placement in the inference playbook and Cost_of_Transformers_full.txt for why avoiding repeated prefill/decode work matters.',
-        'Study next: Semantic Cache for LLMs, Prompt Cache-Key Canonicalization Ledger, Prefix Caching & RadixAttention, LLM Inference Cost Stack Case Study, LLM Unit Economics Ledger Case Study, LLM Model Rollout Shadow Canary Ledger, HTTP Vary Cache-Key Normalization, No-Vary-Search Query Key, Cache Invalidation & Versioning, LRU Cache, W-TinyLFU Cache Admission, RAG Pipeline, RAG Context Packing Token Budget, RAG Index Lifecycle Alias Swap, Prompt Injection Threat Model, LLM Guardrail Policy Engine, Distributed Tracing, and Tail Latency.',
+        'The correctness argument is the same as a web cache with stricter dimensions. If every field that can change the representation is either in the key or checked by the gate, then a reused answer is eligible for the current request contract. If any boundary differs, the candidate must miss or be denied.',
+        'Version clocks are what make this manageable. A corpus update, policy update, tool-schema update, model rollout, or system-prompt change increments a small clock. The gate compares the record metadata to current clocks and denies old records. The system does not need immediate global deletion to be safe because eligibility is checked at read time.',
+      ],
+    },
+    {
+      heading: 'Where it fits',
+      paragraphs: [
+        'A response cache is distinct from provider prompt caching. Prompt caching reuses repeated prompt prefixes or internal key/value state to reduce prefill work. Prompt Cache-Key Canonicalization Ledger covers that exact-prefix identity layer. A response cache reuses the finished application answer. OpenAI and Anthropic prompt-caching docs are useful lower-layer references, but they do not by themselves prove that a full answer is safe to replay.',
+        'Runtime prefix caching and RadixAttention-style KV reuse are lower still. They save model-state computation while the current request continues to generate. Retrieval caches are another layer that reuse document results under index versions. The response-cache ledger sits above all of these because it decides whether the user should receive an already-written answer.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The first cost is key design. If the key binds too little, unsafe reuse becomes possible. If it binds too much, hit rate collapses and the cache becomes a write-only expense. Semantic caching improves hit rate on paraphrases but adds ANN lookup cost, threshold tuning, false-hit review, and cache-poisoning risk.',
+        'The second cost is operations. The cache needs admission policy, TTLs, hit counters, eviction, offline replay tests, canary rollout, abuse controls, p99 latency tracking, and cost accounting. A cache that saves tokens but adds tail latency or worsens accepted-answer quality is not a win. The animation plot makes this visible: lower similarity thresholds save more calls and create more bad-hit risk; stricter thresholds reduce risk but capture fewer repeats.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The main failure is cross-boundary reuse: an answer generated under one tenant, permission set, system prompt, tool schema, or RAG corpus is replayed under another. Vector distance cannot detect that. Other failures are cache poisoning, stale authority, slow ANN lookup, p99 regression, and false economics where token calls fall but accepted-answer cost or quality worsens.',
+        'The audit row is what makes the cache operable. It stores the candidates considered, gates that allowed or denied them, latency saved or spent, estimated token savings, and why the final route hit, missed, denied, stored, or refused to cache. Without this row, a bad hit becomes hard to explain and a good miss looks like wasted money.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins in products with repeated intents and stable public answers: support FAQs, setup instructions, billing explanations, policy summaries with versioned sources, and high-volume assistant flows where many users ask the same thing in different words. It also helps when cost accounting needs to separate saved model calls from lower-layer prompt-cache savings.',
+        'It is weaker for stateful, private, highly personalized, adversarial, or rapidly changing requests. Account status, secrets, medical advice, legal advice, one-off analysis, and tool actions often need no-store defaults or very narrow exact keys. The ledger should make those defaults explicit.',
+      ],
+    },
+    {
+      heading: 'Sources',
+      paragraphs: [
+        'Primary and official sources: OpenAI prompt caching at https://developers.openai.com/api/docs/guides/prompt-caching, Anthropic prompt caching at https://platform.claude.com/docs/en/build-with-claude/prompt-caching, RedisVL Semantic Caching for LLMs at https://docs.redisvl.com/en/0.4.1/user_guide/03_llmcache.html, LiteLLM cache docs and custom cache keys at https://docs.litellm.ai/docs/caching/all_caches, GPTCache at https://github.com/zilliztech/gptcache, and GPT Semantic Cache at https://arxiv.org/abs/2411.05276.',
+        'Local corpus anchors: Inference Scaling.txt for response-cache placement in the inference playbook and Cost_of_Transformers_full.txt for why avoiding repeated prefill and decode work matters. HTTP Vary Cache-Key Normalization and No-Vary-Search Query Key teach the same key-design lesson for web caches: include dimensions that change the representation, and normalize noise only when it cannot change the answer.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Semantic Cache for LLMs, Prompt Cache-Key Canonicalization Ledger, and Prefix Caching and RadixAttention to separate answer reuse from prompt-state reuse. Then read LLM Inference Cost Stack Case Study, LLM Unit Economics Ledger Case Study, LLM Model Rollout Shadow Canary Ledger, HTTP Vary Cache-Key Normalization, No-Vary-Search Query Key, Cache Invalidation and Versioning, LRU Cache, W-TinyLFU Cache Admission, RAG Pipeline, RAG Context Packing Token Budget, RAG Index Lifecycle Alias Swap, Prompt Injection Threat Model, LLM Guardrail Policy Engine, Distributed Tracing, and Tail Latency.',
       ],
     },
   ],

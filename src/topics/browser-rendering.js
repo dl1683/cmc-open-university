@@ -177,48 +177,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'The problem',
       paragraphs: [
-        `A browser turns bytes into pixels through a pipeline: parse HTML into the DOM, parse CSS into style rules, build the render tree, compute layout, paint draw commands, and composite layers onto the screen. The visualization starts after How DNS Works and TCP: Handshake & Congestion Control have delivered the bytes. From there, every performance trick is about skipping stages or batching work so the browser does not repeat an expensive pass.`,
+        'A browser has to turn a stream of HTML, CSS, images, fonts, and JavaScript into pixels while the user is waiting. The hard part is that the page is not static. JavaScript can change the DOM, CSS can change which nodes are visible, text can wrap differently after a font arrives, and the user expects scrolling and animation to keep running at frame rate.',
+        'The rendering pipeline is the browser answer to that problem. It breaks the work into parse, style, layout, paint, and composite stages. Frontend performance is mostly the art of avoiding repeated work in the expensive stages, especially layout and paint.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'Context',
       paragraphs: [
-        `Parsing is a Stack-shaped tree builder: opening tags push, closing tags pop, and the DOM forms as tokens stream in. Tree Traversals explains the later walks over that structure. CSS is matched against the DOM to compute final styles; in the demo, .hidden gets display:none, so it is dropped from the render tree. By contrast, visibility:hidden would still reserve layout space.`,
-        `Layout assigns every visible box x, y, width, and height. The demo uses a 400px viewport and a 300px card, so 16px padding on both sides leaves the paragraph 268px wide. Text wrapping changes height, which can move later boxes. Paint turns boxes into draw commands, and compositing blends layers. At 60 fps the whole page has about 16.7 ms for The Event Loop, style, layout, paint, and composite together.`,
+        'This topic starts after the network topics have delivered bytes to the browser. How DNS Works, TCP: Handshake & Congestion Control, CDN Request Flow, and Resource Hints explain how resources arrive. Browser rendering explains what the engine does once it has enough input to begin building a page.',
+        'The same pipeline also explains UI jank. The Event Loop decides when JavaScript runs. requestAnimationFrame gives code a chance to update before a frame. PerformanceObserver Long Task Attribution tells you when code blocks the main thread. But a page can still stutter even when JavaScript is short if style, layout, paint, or compositing work exceeds the frame budget.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core idea',
       paragraphs: [
-        `Parsing is roughly O(bytes). Style and layout scale with the number of affected nodes and rules, but layout can become global because one changed size can move everything after it. Paint scales with draw commands and pixels. The second visualization shows the classic footgun: write style.height, then read offsetHeight, then write again. A geometry read while layout is dirty forces synchronous layout inside your JavaScript loop. Three read-write iterations create three layouts where one batched pass would do.`,
+        'The core idea is a dependency graph from document structure to pixels. HTML creates the DOM tree. CSS creates style rules and computed values. The render tree keeps the visible styled boxes. Layout assigns geometry. Paint records drawing commands. Compositing blends painted layers into the final frame.',
+        'Each later stage depends on some earlier stage, but not every change invalidates the whole pipeline. Changing text content can require layout and paint. Changing `background-color` can usually skip layout but still paint. Changing `transform` or `opacity` on a composited layer can often skip layout and paint and only ask the compositor to blend layers differently.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Mechanism',
       paragraphs: [
-        `Smooth animation usually means changing transform or opacity, because those properties can be handled by the compositor without rerunning layout or paint. Animating height does the opposite. Virtual DOM Reconciliation and other UI libraries batch DOM writes so layout happens once. Virtual scrolling keeps huge lists from becoming huge DOMs. CSS containment and content-visibility can fence off parts of a page so unrelated layout work does not spread as far. Web Workers: A Second Thread helps when the slow part is CPU work, but workers cannot touch the DOM, so final visual updates still return to the main thread.`,
+        'Parsing is a stack-shaped tree-building process. Opening tags push, closing tags pop, and DOM nodes become parents and children. CSS parsing and selector matching compute styles for those nodes. The engine then filters out nodes that produce no boxes, such as `display: none`, before layout assigns each remaining box an exact position and size.',
+        'Layout is where relative declarations become geometry: percentages become pixels, text wraps, children influence parent height, and later boxes may move. Paint converts geometry and style into drawing commands such as fill this background, draw this border, and rasterize these glyphs. Compositing takes painted layers, often including GPU-backed layers, and produces the final screen image.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Worked example',
       paragraphs: [
-        `Do not assume JavaScript is the only bottleneck. A page can have fast code and still stall in layout or paint. Do not treat display:none and visibility:hidden as equivalent. Do not read geometry after every write. Batch reads first, then writes; or choose compositor-only properties. DevTools Performance traces make this visible by marking forced layout, paint, and long tasks separately. Measure the stage that is slow before optimizing the wrong layer.`,
-        `Service Workers & Offline-First and CDN Request Flow can make bytes arrive faster, but they cannot rescue a page that spends 80 ms laying itself out after the file arrives. Frontend performance is the full path from URL to pixels, not just network latency.`,
+        'The demo page contains `<html>`, `<head>`, `<style>`, `<body>`, an `<h1>`, a card `<div>`, a paragraph, and a hidden span. The DOM includes all of them because the DOM is document structure, not only visible output. The render tree drops `<head>`, `<style>`, and the `display: none` span because they do not create visible boxes.',
+        'In the layout frame, the viewport is 400px wide. The card is 300px wide with 16px padding on both sides, so the paragraph has 268px of content width. If the paragraph wraps onto more lines, the paragraph becomes taller, the card becomes taller, and everything below the card may move. That is why a small style change can become a page-wide geometry update.',
       ],
     },
     {
-      heading: `Sources and browser details`,
+      heading: 'Why it works',
       paragraphs: [
-        `MDN's critical rendering path guide defines the browser path from HTML, CSS, and JavaScript to pixels, including DOM, CSSOM, render tree, and layout: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path. MDN's "How browsers work" guide adds the broader navigation-to-rendering context: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/How_browsers_work.`,
-        `web.dev's rendering performance guide explains the 60 fps frame budget and the need to profile rendering work: https://web.dev/articles/rendering-performance. web.dev's animation guide recommends restricting animations to transform and opacity when possible so animation stays at the compositing stage: https://web.dev/articles/animations-guide. Chrome's forced reflow insight documents the layout-thrashing pattern where geometric reads after DOM/style writes force immediate layout: https://developer.chrome.com/docs/performance/insights/forced-reflow.`,
+        'The pipeline works because each stage gives the next stage a more concrete representation. Bytes become tokens. Tokens become nodes. Rules become computed styles. Styled boxes become geometry. Geometry and style become draw commands. Draw commands become pixels.',
+        'The performance model works because invalidation can be narrower than a full reload. The browser can batch many DOM writes and run layout once before the next frame. It can repaint only damaged regions in some cases. It can animate compositor-friendly properties without recalculating layout. Good UI code cooperates with those boundaries instead of forcing the engine to cross them repeatedly.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Animation guide',
       paragraphs: [
-        `Study Tree Traversals and Stack for the parser and DOM walks, then The Event Loop, Promise Microtask Queue, requestAnimationFrame Frame Budget, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, and PerformanceObserver Long Task Attribution for when rendering gets a turn and how stalls are measured. URL Parser & Origin Tuple explains the navigation input before bytes arrive, History API Session Stack explains same-document navigation, and BFCache Page Lifecycle explains why Back can restore a whole rendered page without re-running this pipeline. DOM Event Propagation & Path explains how input events travel through the DOM before handlers mutate UI state. How DNS Works, TCP: Handshake & Congestion Control, CDN Request Flow, and Resource Hints: Preload & Preconnect cover the network path before parsing. Virtual DOM Reconciliation shows why UI libraries batch writes against this exact pipeline. Dirty Rectangle Damage Tracking, OffscreenCanvas Worker Renderer, WebGPU Swapchain Frame Pacing, and Render Graph Framegraph Resource Lifetimes continue the path from changed UI state to bounded paint and GPU work.`,
+        'In the page-load view, read left to right as a pipeline. The first array is the incoming HTML token stream. The tree frames show DOM construction, including nodes that will never paint. The CSS matrix shows computed values, and the removed `display: none` row explains why the render tree is smaller than the DOM. The layout matrix is the first moment where boxes get exact coordinates.',
+        'In the layout-thrash view, watch the dirty-layout flag even though it is not drawn as a separate variable. A style write marks layout dirty. A later geometry read such as `offsetHeight` needs a correct answer immediately, so the browser synchronously runs layout inside the JavaScript loop. The fix frames show the two real remedies: batch reads before writes, or choose properties such as `transform` and `opacity` that enter late in the pipeline.',
+      ],
+    },
+    {
+      heading: 'Tradeoffs',
+      paragraphs: [
+        'The browser pipeline is a huge win because it separates concerns and lets engines skip work. The cost is that performance is now stage-specific. A program can have efficient JavaScript and still be slow because it forces layout, paints too many pixels, creates too many layers, or invalidates style across a large subtree.',
+        'Compositor-only animation is also a tradeoff, not a universal rule. Extra layers consume memory and can increase upload or blending cost. CSS containment and `content-visibility` can fence work, but they also change how the browser reasons about layout and visibility. The right optimization depends on the stage that profiling shows is actually slow.',
+      ],
+    },
+    {
+      heading: 'Limits',
+      paragraphs: [
+        'The five-stage model is a teaching model. Real engines have preload scanners, style sharing, incremental layout, display lists, damage tracking, raster worker threads, GPU processes, font loading rules, async scrolling paths, and many heuristics. The stages are still useful, but browser internals are not one simple function call per stage.',
+        'The model also does not erase main-thread constraints. Web Workers can move CPU work away from the main thread, but they cannot directly mutate the DOM. Eventually visual changes return to the rendering pipeline. Service workers and CDNs can make resources arrive faster, but they cannot rescue a page that spends too long laying itself out after arrival.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The classic failure mode is layout thrashing: code alternates writes that dirty layout with reads that demand fresh geometry. The browser cannot safely return an old `getBoundingClientRect` or `offsetHeight`, so it does the expensive work immediately and repeatedly.',
+        'Other failures include animating layout properties such as `height`, inserting thousands of DOM nodes instead of virtualizing, using selectors or style invalidations that touch too much of the tree, loading fonts in a way that shifts layout, and treating `display: none` and `visibility: hidden` as equivalent. They diverge exactly because one removes a box from layout and the other leaves the box in place.',
+      ],
+    },
+    {
+      heading: 'Practical use',
+      paragraphs: [
+        'When a page janks, profile first. If the trace shows long JavaScript tasks, reduce work or move safe computation off-thread. If it shows forced layout, batch reads before writes. If it shows paint cost, reduce invalidated pixels, expensive effects, and overdraw. If animation is the problem, prefer `transform` and `opacity` where the visual design allows it.',
+        'UI frameworks, virtual DOM reconciliation, requestAnimationFrame scheduling, virtual scrolling, CSS containment, and image lazy-loading are all practical ways of cooperating with the same pipeline. The goal is not to memorize one trick. The goal is to know which stage you are making the browser repeat.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        "MDN's critical rendering path guide covers the path from HTML, CSS, and JavaScript to pixels: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/Critical_rendering_path. MDN's browser overview adds the broader navigation-to-rendering context: https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/How_browsers_work. web.dev covers rendering performance and compositor-friendly animations at https://web.dev/articles/rendering-performance and https://web.dev/articles/animations-guide. Chrome documents forced reflow at https://developer.chrome.com/docs/performance/insights/forced-reflow.",
+        'Study Tree Traversals and Stack for parsing, then The Event Loop, Promise Microtask Queue, requestAnimationFrame Frame Budget, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, and PerformanceObserver Long Task Attribution for when rendering work gets a turn. Virtual DOM Reconciliation, Dirty Rectangle Damage Tracking, OffscreenCanvas Worker Renderer, WebGPU Swapchain Frame Pacing, and Render Graph Framegraph Resource Lifetimes continue the path from changed UI state to bounded paint and GPU work.',
       ],
     },
   ],

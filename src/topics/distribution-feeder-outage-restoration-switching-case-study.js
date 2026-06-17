@@ -214,11 +214,97 @@ export const article = {
     { title: 'PNNL 9500-Node Distribution Test System', url: 'https://www.pnnl.gov/main/publications/external/technical_reports/PNNL-33471.pdf' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['Distribution outage restoration is the control problem of isolating a fault and restoring as much safe load as possible through feeder switching, alternate sources, DER control, and crew actions.', 'The data structure is a constrained feeder graph: sources, load blocks, protective devices, normally-open ties, faulted sections, switch statuses, ratings, voltage constraints, and crew clearance.'] },
-    { heading: 'How it works', paragraphs: ['The outage engine localizes the likely faulted section, opens devices to isolate it, verifies that the fault is not energized, searches candidate tie-switch plans, checks radiality and limits, and emits an ordered switching sequence.', 'The graph changes after each step, so the planner evaluates sequences rather than independent edge choices.'] },
-    { heading: 'Cost and complexity', paragraphs: ['Restoration mixes graph algorithms with electrical constraints. A plan that connects more nodes can violate ampacity, voltage, protection, or crew safety. DERs, microgrids, and uncertain sensor reports add more state.'] },
-    { heading: 'Complete case study', paragraphs: ['A storm faults a feeder section downstream of a critical load. The system keeps the upstream critical load served, isolates the faulted section, closes a normally-open tie from a neighboring feeder to restore an unfaulted island, and dispatches a crew to repair the locked-out section.', 'The restoration record stores fault hypothesis, switch steps, operator approvals, load restored, loads still out, constraint checks, crew clearance, and rollback path.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not close a tie only because a graph path exists. Electrical limits and safety rules dominate pure reachability. Do not optimize for immediate megawatts restored if it creates a later dead end. Do not let stale SCADA or topology state drive automated switching.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: EPRI OpenDSS documentation at https://opendss.epri.com/, OpenDSS tutorial overview at https://wzy.ece.iastate.edu/PPT/EE653%20OpenDSS%20Tutorial%20and%20Cases.pdf, and PNNL 9500-node distribution test system report at https://www.pnnl.gov/main/publications/external/technical_reports/PNNL-33471.pdf. Study SCADA State Estimation Bad Data Residual Case Study, Graph BFS, Dijkstra, Min-Cost Max-Flow, and Finite State Machine next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        `A distribution outage is not solved by finding any path from a source to a dark load. The utility must isolate the fault, avoid energizing unsafe equipment, preserve protection assumptions, respect crews in the field, and restore as much priority load as possible. Reachability is only the first layer.`,
+        `That makes restoration a constrained graph-control problem. The graph contains substations, feeder sections, load blocks, protective devices, normally-open ties, switches, faulted sections, DERs, ratings, voltage constraints, telemetry confidence, and crew clearance. A useful planner has to reason about topology and electrical state at the same time.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The obvious algorithm marks the faulted edge, searches for alternate paths, and reconnects the disconnected customers. This is a good sketch for the graph part of the problem. It identifies islands, possible ties, and candidate paths from healthy sources to unfaulted load blocks.`,
+        `It fails as an operating procedure because a feeder switch is not just a graph edge. Closing it can create an unintended loop, overload a line, violate voltage limits, defeat protection coordination, backfeed a work zone, or energize the fault again. Electrical safety dominates pure graph reachability.`,
+      ],
+    },
+    {
+      heading: 'Why the naive plan fails',
+      paragraphs: [
+        `Distribution feeders are commonly operated radially even when the physical network has tie points. The open ties give operators flexibility during restoration, but they are open for a reason. A restoration path that looks valid on paper can be invalid because it would parallel sources, exceed feeder capacity, or change fault-current paths.`,
+        `The action sequence matters too. A switch close that is safe after one isolating device opens may be unsafe before that opening. Crew location, lockout tags, SCADA confidence, field reports, and operator approval can change which transitions are allowed at a given moment.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `Model restoration as state-space search over guarded switching actions. Each action changes the network state: a device opens, a tie closes, a section becomes isolated, a load block becomes energized, or a crew clearance changes. After each action, constraints decide whether the state is allowed.`,
+        `The objective is multi-criteria rather than a single shortest path. A good plan serves critical loads, maximizes safe restored load, minimizes switching operations, preserves repair access, avoids fragile temporary configurations, respects DER behavior, and leaves a defensible rollback path if a later step is rejected.`,
+      ],
+    },
+    {
+      heading: 'How the system works',
+      paragraphs: [
+        `A restoration engine usually starts with an outage hypothesis from protection operations, SCADA alarms, smart-meter pings, calls, and field reports. It partitions the feeder graph into energized sections, suspected faulted sections, isolated sections, and dark but restorable islands.`,
+        `Then it generates candidate switch sequences. For each candidate, topology checks enforce radiality and isolation, load-flow checks estimate voltage and thermal limits, protection checks look for unsafe coordination changes, and operating checks confirm crews, permissions, switching order, and source capacity. Candidates that fail any guard are discarded.`,
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        `The fault-isolate view proves the first priority: cut the graph so the faulted section is not energized. The upstream critical load can remain served, but the downstream dark section is only a restoration candidate after the fault is isolated and the relevant devices are in safe states.`,
+        `The restore-sequence view proves why normally-open ties matter. They are alternate graph edges held in reserve. The plotted plans show that a fast first restoration step is not always the best plan. Operators care about the whole sequence because early choices can block safer or larger restoration later.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The method works because it couples graph search with physics and operating rules. The graph proposes candidates quickly. Electrical validation rejects candidates that violate ampacity, voltage, source capacity, radiality, or protection assumptions. Human and field constraints reject candidates that are not operationally legal.`,
+        `The sequence ledger makes the recommendation auditable. Operators do not only need the final switch state. They need to know why step 1 made step 2 safe, which measurements supported the plan, which constraints passed, which loads remain out, and how to reverse or stop the sequence safely.`,
+      ],
+    },
+    {
+      heading: 'Case study sequence',
+      paragraphs: [
+        `A storm faults a feeder section downstream of a critical load. Protection opens a device, alarms arrive, and the outage engine marks the suspected section. The planner keeps the upstream critical load served, opens isolating devices around the suspected fault, verifies the faulted block is not in the restoration path, and marks the downstream unfaulted island as restorable.`,
+        `Next it evaluates a normally-open tie from a neighboring feeder. Plan A restores less load at first but stays within thermal and voltage limits after a later step. Plan B restores more load immediately but overloads the neighboring feeder if the next island is added. The safer sequence wins because the planner scores the full plan, not only the next close.`,
+      ],
+    },
+    {
+      heading: 'Operator record',
+      paragraphs: [
+        `A restoration recommendation should leave a clear record. The record should include the fault hypothesis, switch steps, operator approvals, crews and clearances, load restored, load still out, constraints checked, DER assumptions, rollback path, and the measurement and topology version used by the plan.`,
+        `That record matters during the outage and after it. During the outage, it helps the operator decide whether a recommendation is still valid when a new alarm or field report arrives. After the outage, it lets engineers compare the recommended sequence with what actually happened and improve the model without guessing.`,
+        `The record also protects against stale automation. If a crew reports a changed field condition, the planner can invalidate only the affected recommendation instead of treating every previous calculation as equally current.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `The computational cost depends on how many switch states and candidate sequences the planner explores. Exhaustively trying every combination can grow too quickly. Practical systems prune impossible actions, prioritize high-value loads, use feeder sections rather than every conductor span, and run electrical checks only on promising candidates.`,
+        `The engineering cost is model quality. A beautiful optimizer is dangerous if the topology is stale, device states are wrong, load estimates are poor, DER behavior is unknown, or field crew status is missing. Restoration planning is only as good as the measurements and operating data it is allowed to trust.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `This model is useful for outage management systems, distribution management systems, storm restoration planning, DER-aware switching studies, operator training simulators, and post-event review. It gives operators a structured way to compare restoration sequences instead of relying on one-step intuition.`,
+        `It is also a strong curriculum bridge from algorithms to real systems. BFS and Dijkstra teach reachability and path cost. Restoration adds constraints, finite state transitions, physical validation, human approval, and consequences. The result is a graph problem where the legal move set matters as much as the graph itself.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `A graph-only restoration planner is unsafe. Common mistakes include closing a tie because a path exists, trusting stale SCADA, ignoring voltage and thermal limits, failing to model crew clearance, forgetting DER backfeed, optimizing immediate megawatts restored, or assuming protection still behaves correctly after topology changes.`,
+        `Another failure mode is unauditable automation. If the system recommends a switch without recording the fault hypothesis, topology version, measurements, constraints, approvals, and rollback path, operators cannot defend the action later. Restoration recommendations must be explainable enough for real-time control and after-action review.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: EPRI OpenDSS documentation at https://opendss.epri.com/, the OpenDSS tutorial overview at https://wzy.ece.iastate.edu/PPT/EE653%20OpenDSS%20Tutorial%20and%20Cases.pdf, and the PNNL 9500-node distribution test system report at https://www.pnnl.gov/main/publications/external/technical_reports/PNNL-33471.pdf.`,
+        `Next topics: SCADA State Estimation for visibility, Graph BFS and Dijkstra for topology search, Finite State Machine for guarded switching sequences, Min-Cost Max-Flow for optimization framing, Constraint Satisfaction for legal action filtering, and Ybus Power Flow for the electrical checks behind the graph plan.`,
+      ],
+    },
   ],
 };

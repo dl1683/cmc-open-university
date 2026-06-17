@@ -291,44 +291,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why Exact Cover Exists',
       paragraphs: [
-        'Dancing Links, usually called DLX, is Donald Knuth\'s efficient representation for Algorithm X, a backtracking algorithm for exact cover. Exact cover starts with a 0-1 matrix and asks for a subset of rows such that every column contains exactly one selected 1. This form captures Sudoku, polyomino tiling, N-Queens variants, word-square searches, and many constraint puzzles.',
-        'The data-structure idea is sharper than the puzzle examples. Exact-cover matrices are usually sparse, so DLX stores only the 1s. Each 1 is a node in a toroidal circular doubly linked structure: left and right across its row, up and down through its column. Covering a constraint removes a column and all conflicting rows through local pointer edits. Uncovering restores those edits in exact reverse order.',
+        `Exact cover is the problem of choosing rows from a 0-1 matrix so every required column has exactly one selected 1. The matrix is a way to write constraints. A row is a possible choice. A column is a rule that must be satisfied once, not zero times and not twice.`,
+        `This form is useful because many puzzles and search problems have the same hidden shape. A Sudoku candidate, a polyomino placement, and a queen placement can all be written as rows that satisfy several constraints at once. Exact cover gives one common search language for all of them.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Matrix Search',
       paragraphs: [
-        'Algorithm X repeatedly chooses an uncovered column, usually the one with the fewest candidate rows. For every row that can cover that column, it tentatively selects the row, covers every column touched by that row, and recurses on the smaller matrix. If no columns remain, the selected rows are a solution. If a chosen column has no rows, the branch is impossible and the algorithm backtracks.',
-        'DLX makes the backtracking cheap. Removing a node x from a doubly linked list is local: link x.left to x.right and x.right to x.left. Because x keeps its old neighbor pointers, restoration is also local. Cover and uncover are just structured versions of that move applied across column and row lists. The rule is strict: uncover must reverse cover in the opposite order so every pointer returns to its previous value.',
+        `A direct solver can keep a matrix of active rows and active columns. Pick an uncovered column, try each row that has a 1 in that column, delete columns covered by that row, delete conflicting rows, then recurse. If the active matrix has no required columns left, the chosen rows are a solution.`,
+        `That approach is easy to understand and can work for small examples. It is also a good first implementation because it separates the search rule from the representation. The problem is not the logic of the search. The problem is how much state the solver must copy, rebuild, and scan while it explores a deep tree.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Wall',
       paragraphs: [
-        'Exact cover is NP-complete, so DLX is not a polynomial-time escape hatch. Its value is constant-factor and search-tree discipline. It avoids copying a matrix at every recursive branch, skips zeros entirely, keeps column sizes available for the fewest-candidates heuristic, and restores state with pointer edits instead of rebuilding data structures.',
-        'The memory cost is one node per 1 plus headers for columns. For 9x9 Sudoku, the exact-cover matrix has 729 candidate rows and 324 constraint columns, but each candidate row has only four 1s. That sparsity is exactly what DLX exploits. The search cost still depends on puzzle difficulty and branching, but each cover/uncover step is proportional to the affected sparse nodes rather than the dense matrix area.',
+        `Backtracking does not just move forward. It moves forward, discovers a contradiction, and then must restore the previous state exactly. A copied-matrix solver can do that by throwing away the failed copy, but every branch pays for a new matrix or a set of fresh row and column sets.`,
+        `The cost becomes painful because exact-cover matrices are usually sparse. Most cells are zero, yet a dense copy touches them anyway. Even a set-based solver spends time allocating, hashing, and restoring sets. The search wants to change only the small number of 1s affected by a choice.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Sudoku becomes exact cover cleanly. A candidate such as row 2, column 3, digit 4 covers four constraints: the cell r2c3 is filled, row 2 contains digit 4, column 3 contains digit 4, and the containing box has digit 4. A full solution chooses 81 candidate rows, one per filled cell, and covers all 324 constraints exactly once.',
-        'Given clues simply pre-cover rows and their conflicts before search begins. Then the fewest-candidates heuristic often picks a heavily constrained cell or digit rule, reducing branching. The same translation works for polyomino tiling: each possible placement is a row, each board square is a primary column, and each physical piece can be represented as a column saying the piece is used once.',
+        `Dancing Links, or DLX, stores only the 1s and makes deletion reversible. Each 1-cell is a node with four links: left and right within its row, up and down within its column. Column headers are linked too, so the live matrix is a set of circular doubly linked lists.`,
+        `Removing a node from a doubly linked list is local pointer surgery. Its neighbors point around it, but the removed node still remembers the neighbors it used to have. If the solver later backtracks, it can splice the same node back into the same place. DLX turns search-state restoration into reversing pointer edits.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Algorithm X',
       paragraphs: [
-        'DLX is not a general-purpose linked-list trick to use everywhere. It is specialized for reversible sparse-state search. A normal array or bitset can beat it for dense problems or small cases because pointer-heavy structures have cache costs. The technique earns its keep when the search repeatedly removes and restores sparse constraints.',
-        'Also separate Algorithm X from DLX. Algorithm X is the recursive exact-cover search. Dancing Links is the data structure that makes the matrix updates cheap. You can implement Algorithm X with sets, bitsets, or copied matrices; DLX is the pointer-based implementation Knuth made famous. Finally, exact cover is exact: every primary column must be covered once. Optional or secondary constraints, such as N-Queens diagonals, need explicit modeling.',
+        `Algorithm X is the recursive search procedure. If no primary columns remain, the chosen rows form an exact cover. Otherwise choose a column, usually the one with the fewest candidate rows. For each row in that column, select the row, cover every column touched by that row, recurse, and uncover if the branch fails.`,
+        `The fewest-candidates heuristic does not change correctness. It changes the shape of the search tree. A column with one legal row forces the branch. A column with two rows splits the tree in two. A column with many rows is expensive, so Algorithm X tries to postpone those broad choices until tighter constraints have removed options.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Dancing Links State',
       paragraphs: [
-        'Primary source: Knuth, "Dancing Links", at https://arxiv.org/abs/cs/0011047 and PDF mirror at https://www.rose-hulman.edu/class/cs/csse313/assignments/csp/DancingLinks.pdf. For compact Algorithm X code, see https://www.cs.mcgill.ca/~aassaf9/python/algorithm_x.html. Study Linked List for the pointer model, Recursion for the search tree, Compressed Sparse Row Graph for sparse representation instincts, Graph BFS and Hopcroft-Karp Bipartite Matching for contrasting graph search, and Memoization (Dynamic Programming) for the opposite strategy: caching results rather than reversible mutation.',
+        `Covering a column removes the column header from the header list. Then the solver walks down that column. For each row that contains a 1 in the covered column, it walks across the other 1s in the row and removes those nodes from their own columns. Those removals erase rows that would conflict with the selected row.`,
+        `Uncovering runs the same structure backward. It walks rows and columns in reverse order and restores each node by reconnecting its saved up, down, left, and right neighbors. The order matters. If cover is a stack of local edits, uncover must pop that stack backward so every pointer sees the surrounding structure it had before.`,
+      ],
+    },
+    {
+      heading: 'What The Visual Proves',
+      paragraphs: [
+        `The matrix view proves the exact-cover contract. The chosen rows do not merely cover many columns; they partition the required columns. One overlap breaks the solution because some constraint is satisfied twice. One missing column breaks the solution because a constraint is not satisfied at all.`,
+        `The linked-node view proves why DLX is a state-management technique. Highlighted nodes disappear from active lists, but they are not destroyed. They keep their old neighbor pointers, which is why the same branch can be undone without rebuilding the matrix from scratch.`,
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        `The correctness argument has two parts. First, Algorithm X is exhaustive over legal choices: for the chosen column, any exact cover must include exactly one row containing a 1 in that column. Branching over those rows therefore considers every possible solution for that column.`,
+        `Second, covering preserves the exact-cover meaning. Once a row is selected, all columns touched by that row are already satisfied. Any other row touching one of those columns would create a duplicate cover, so removing it cannot remove a legal continuation. If a branch fails, reverse uncover restores the prior search state exactly, so no sibling branch is contaminated.`,
+      ],
+    },
+    {
+      heading: 'Cost And Tradeoffs',
+      paragraphs: [
+        `Exact cover is NP-complete, so DLX does not remove exponential search. It improves the cost of each search step. The memory cost is one node per 1 plus column headers. A cover or uncover operation costs time proportional to the sparse nodes it touches, not to the full row count times column count.`,
+        `The tradeoff is pointer-heavy code. DLX has poor locality compared with arrays or bitsets, and bugs are easy because one wrong pointer corrupts future branches. For dense matrices or tiny puzzles, bitsets can be faster and simpler. DLX earns its keep when the matrix is sparse and the solver will mutate and restore it many times.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `Sudoku is the classic case study. A 9x9 puzzle has 729 candidate rows and 324 constraint columns: cell filled, row has digit, column has digit, and box has digit. Each candidate row contains only four 1s. Given clues pre-cover rows, and the remaining search often becomes a tight sparse exact-cover problem.`,
+        `Polyomino tiling has the same shape. Each possible placement is a row. Board squares and piece-usage requirements are columns. DLX also fits exact placement, word, and combinatorial design problems where choices satisfy several all-or-nothing constraints and most possible row-column pairs are zero.`,
+      ],
+    },
+    {
+      heading: 'Failure Modes',
+      paragraphs: [
+        `DLX is the wrong tool when constraints are weighted, soft, or best-effort. Exact cover wants every primary column covered exactly once. If a problem asks for the cheapest cover, the maximum satisfied constraints, or a probabilistic score, it needs a different model or extra machinery around the exact-cover core.`,
+        `It is also easy to confuse Algorithm X with DLX. Algorithm X is the search rule. Dancing Links is one representation of the active matrix. A clear set-based Algorithm X solver is often better for teaching, testing, or small inputs. DLX is a performance representation for serious sparse backtracking.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        `Study linked lists for the pointer operations, recursion for the search tree, and sparse matrix formats for the reason zeros should not dominate storage. Then compare DLX with bitset backtracking, constraint propagation, and SAT solving. Those alternatives attack the same pressure from different directions.`,
+        `The primary source is Donald Knuth's "Dancing Links": https://arxiv.org/abs/cs/0011047. For contrast, study memoization and dynamic programming, where repeated subproblems are cached instead of undone. DLX is the opposite instinct: keep one mutable state, change it locally, and restore it exactly.`,
       ],
     },
   ],

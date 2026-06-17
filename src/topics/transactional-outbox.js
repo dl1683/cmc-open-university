@@ -227,39 +227,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The transactional outbox pattern solves the dual-write problem between a service database and a message broker. Instead of updating business state and publishing an event as two independent operations, the service writes business rows and an outbox event row in the same database transaction.',
-        'A relay or CDC connector later publishes the outbox row to Kafka or another broker. If the service crashes after commit, the event is still durable. If the transaction rolls back, no event exists.',
-        'The pattern is about moving the reliability boundary. The database transaction becomes the source of truth for both the state change and the intent to publish. The broker is still asynchronous, but the event can no longer disappear in the gap between commit and publish.',
+        'A service often has to change local state and tell the rest of the system what happened. An order service creates an order and inventory needs to reserve stock. A billing service records a charge and email needs to send a receipt. The database update and the message are part of one business fact, but they usually live in two different systems.',
+        'The transactional outbox exists because that split creates a crash window. If the service commits the database row and dies before publishing the event, downstream systems never hear about a real change. If it publishes first and the database transaction rolls back, downstream systems react to a change that never existed.',
+        'The pattern is not mainly about cleaner code. It is about choosing one durable source of truth for the decision that an event should exist. Once the event intent is a database row, a later worker can retry publication without asking the original request handler to still be alive.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is a dual write: update the database, then publish to Kafka, RabbitMQ, SNS, or another broker. Retrying the publish makes the happy path more reliable, but it does not remove the moment between database commit and broker acknowledgement.',
+        'Publishing before the commit has the opposite bug. A consumer can observe an event for a transaction that later aborts. Wrapping the database and broker in a distributed transaction is often unavailable, operationally heavy, or not worth the coupling. The wall is simple: there is no single durable decision record shared by the database and the broker.',
+        'Timeouts make the wall worse. The service may not know whether a broker publish succeeded, whether the broker accepted the event but the acknowledgement was lost, or whether the database commit completed after the client disconnected. Without a durable outbox row, retries can create either missing events or duplicates with no stable dedupe key.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Put the message intent in the same database transaction as the business change. The service writes the order row and an outbox row together. If the transaction commits, both records are durable. If it rolls back, neither record exists.',
+        'The broker publish becomes a consequence of committed state, not a second decision made in the request path. A relay or CDC connector can publish later, retry after crashes, and resume from durable database state. The pattern does not create global exactly-once delivery. It makes the event recoverable from the same commit that made the business fact true.',
+        'The invariant is local atomicity: for every committed business change that should emit an event, a committed outbox row exists in the same database. Publication may lag, repeat, or fail temporarily, but it is no longer lost when the request process dies.',
+      ],
+    },
+    {
+      heading: 'Animation Meaning',
+      paragraphs: [
+        'In the dual-write failure view, the matrix shows the four crash windows a service creates when it treats database state and event publication as separate effects. The broken cells are not rare corner cases. They are exactly what happens when a process dies, a network call times out, or a broker acknowledgement is lost.',
+        'In the outbox CDC view, the graph shows the durable handoff: command handler, database transaction, domain table, outbox table, relay, broker, consumer. The important boundary is the database commit. Everything before that is atomic local state. Everything after that is asynchronous delivery that must tolerate retries.',
+        'The consumer node is marked idempotent for a reason. The outbox removes the lost-event gap, but the relay can still publish the same event more than once after a retry or restart. Safe consumers are part of the design.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A command handler begins a database transaction, updates domain tables, inserts an outbox row with event id and payload, and commits. A poller or CDC system reads committed outbox rows and publishes them. Consumers process events idempotently because delivery is at least once.',
-        'Debezium support commonly uses the database transaction log. Its outbox event router can transform outbox rows into routed Kafka events, mapping fields such as aggregate type, aggregate id, event type, and payload.',
-        'A robust event row usually carries an event id, aggregate type, aggregate id, event type, payload, schema version, and creation timestamp. The aggregate id often becomes the broker partitioning key so all events for one order, account, or invoice preserve order for that entity.',
+        'A command handler starts a database transaction, validates the command, updates domain tables, inserts an outbox row, and commits. The outbox row is a message envelope: event id, aggregate type, aggregate id, event type, schema version, payload, creation time, and often a sequence number.',
+        'A relay publishes committed rows. It can be a polling worker that selects unpublished rows in batches, or a CDC pipeline that reads the database log and turns outbox inserts into broker records. The aggregate id is commonly used as the broker key so all events for one order, account, or invoice land in the same partition.',
+        'Consumers must assume at-least-once delivery. They dedupe by event id, use idempotent writes, and keep enough state to recover from repeated messages. The outbox prevents lost events; it does not make every downstream side effect magically safe.',
+        'Polling relays usually mark rows as published, reserve rows with skip-locked queries, or move rows through states such as pending, publishing, published, and failed. CDC relays usually avoid polling locks by reading the database log, but they add connector operations, offset management, and transformation rules.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'The pattern adds a table, relay, retention policy, event schema, dedupe strategy, and operational monitoring. It guarantees atomic local persistence of event intent, not global exactly-once effects. Ordering must be designed around aggregate ids or broker partitions.',
+        'The database is already good at one thing this problem needs: making a local transaction durable or making it disappear. By storing event intent inside that transaction, the outbox borrows the database commit protocol instead of inventing a new one.',
+        'Crash cases become recoverable. If the service dies before commit, there is no order and no outbox row. If it dies after commit, the relay can still find the outbox row. If the relay publishes and crashes before marking the row complete, it may publish again, which is why consumer idempotency is part of the pattern rather than an optional polish.',
+        'Ordering also becomes reasoned rather than hoped for. If rows carry an aggregate id and sequence number, consumers can detect gaps, ignore older duplicates, and apply updates in the order that matters for that aggregate. The pattern does not promise one total order for the entire company.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Operational guidance',
       paragraphs: [
-        'Transactional outbox is used in microservices, payment workflows, order management, inventory updates, audit streams, CQRS projections, and Saga Pattern implementations. It is one of the most practical ways to connect relational transactions to asynchronous event streams.',
-        'A complete case study is order checkout. The service stores the order and an OrderPlaced event in one transaction. A CDC relay publishes the event. Inventory, email, billing, and analytics consumers each dedupe by event id. If the relay restarts or Kafka retries delivery, downstream side effects stay controlled.',
+        'Treat the outbox as a production queue that happens to live in the service database. Monitor oldest unpublished row age, publish lag, row growth, retry counts, dead-letter volume, connector offsets, and consumer dedupe hits.',
+        'Keep retention explicit. Rows may be deleted after a safe publish window, archived for audit, or compacted into a separate history table. Leaving every published row forever can turn an integration pattern into a database bloat problem.',
+        'Make event schemas boring and versioned. Include an event id, event type, aggregate id, schema version, and creation time. Prefer facts that consumers need over leaking internal table shapes that will make future migrations harder.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not delete outbox rows before the relay has durably published them or before retention policy allows replay. Do not assume consumers see each event once. Do not put arbitrary side effects inside the database transaction. The outbox records intent; idempotent consumers complete the reliability story.',
-        'The most common misconception is that the outbox gives global exactly-once behavior. It does not. It gives atomic local persistence of a publishable fact. Delivery can repeat, ordering can be per partition rather than global, and schema changes still need compatibility rules.',
+        'A checkout request creates order 721. Inside one transaction, the service inserts the order, records the initial payment state, and inserts an outbox row with event id evt-991, aggregate id order-721, type OrderPlaced, schema version 3, and a payload containing the order facts consumers need.',
+        'The request can return once the transaction commits. A Debezium connector or relay sees the committed outbox row and publishes OrderPlaced to the broker with order-721 as the key. Inventory reserves stock, email sends a confirmation, billing starts payment capture, and analytics updates a projection. If email receives evt-991 twice, it records that event id and avoids sending a duplicate receipt.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The pattern adds a table, relay, retry policy, retention policy, schema contract, monitoring, and consumer dedupe. It also adds latency: downstream work happens after the local commit, not inside the request transaction.',
+        'Ordering is scoped. Per-aggregate ordering is practical with aggregate ids, sequence numbers, and broker partitions. Global ordering across every event is usually unnecessary and expensive. Backpressure also moves: if the broker is down, the outbox grows and the database now carries a queue-like workload.',
+        'The payload design has a cost as well. A small event that only carries ids forces consumers to call back into the service, which can create coupling and thundering herds. A large event can become stale or expose data that subscribers should not need. The right envelope depends on the read models and privacy boundaries.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Transactional outbox wins when one service owns a local database but other services need to react after commit. It fits order management, payments, inventory, audit streams, CQRS projections, cache invalidation, search indexing, and Saga Pattern steps.',
+        'It is especially useful when the database is the authoritative record and the broker is the distribution mechanism. The service does not need to block on every downstream system, and downstream systems can rebuild state by replaying events.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when teams treat it as exactly-once magic. Non-idempotent consumers can still charge twice, send duplicate emails, or corrupt projections. Bad schema evolution can still break subscribers. A relay with no lag alerts can silently stop publishing.',
+        'It is also the wrong shape for a synchronous invariant that must be confirmed before commit. If the order cannot be accepted unless an external service has already guaranteed stock, the outbox is not a substitute for that reservation protocol. It is a reliable notification pattern, not a universal distributed transaction.',
       ],
     },
     {

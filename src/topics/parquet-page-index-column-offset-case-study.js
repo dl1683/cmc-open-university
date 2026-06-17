@@ -220,44 +220,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Parquet page indexes are optional metadata structures inside a column chunk. ColumnIndex stores statistics such as page-level min and max values. OffsetIndex stores page locations and row ranges. Together they let readers skip individual data pages rather than only entire row groups.',
-        'This fills the gap between Block Range Index Zone Maps and Parquet Columnar Format Case Study. Row-group metadata is coarse. Page indexes make the same pruning idea more precise when the file is sorted or clustered well.',
+        'Parquet already helps analytical queries by storing columns separately and by recording row-group metadata in the footer. That is enough to skip large regions when a predicate cannot match a whole row group. The problem is that row groups are deliberately large. A row group may hold hundreds of thousands or millions of rows so scans are efficient, but a selective query may need only a few pages inside it.',
+        'The Parquet page index exists to make pruning smaller than a row group. It gives a reader page-level statistics and page byte locations before the reader walks the data pages. The result is not a database index. It is a compact skip map inside a column chunk.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is row-group pruning. Read the Parquet footer, inspect min and max values for each column chunk, skip row groups that cannot match, then scan the selected row groups. This is simple and often effective. If a file is partitioned and sorted well, row-group statistics can remove most data.',
+        'The next obvious approach is to inspect page headers while scanning. Older page-level statistics live close to individual pages, so a reader can decode page headers and decide whether the page can match. That is correct, but it still forces the reader to touch each page location to learn whether the page should have been skipped.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is seek planning. If the reader has to process every page header to discover page statistics, it has already done much of the navigation work. On object storage, remote filesystems, or compressed column chunks, touching many small page regions can be slower than the saved decoding work.',
+        'The second wall is projected columns. A filter on event_time may decide that only pages 12 and 13 of the event_time column can match. The query still needs amount and merchant columns for the same rows. The reader needs row-range and byte-location metadata to fetch corresponding pages in other columns without scanning the whole row group.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Move page-level decision metadata out of the page stream and into index structures that can be read up front. ColumnIndex answers the question which pages might match this predicate. OffsetIndex answers where are those pages and which row ranges do they cover.',
+        'Those two structures have to work together. ColumnIndex without OffsetIndex can identify candidate pages but cannot cheaply jump to them. OffsetIndex without ColumnIndex can locate pages but does not know which pages are worth reading. The pair turns metadata pruning into actual byte avoidance.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A writer emits data pages for a column chunk. It may also write ColumnIndex metadata with per-page bounds and OffsetIndex metadata with byte offsets and first-row indexes. A reader checks the page index before reading page bytes.',
-        'For a selective range predicate, the reader uses ColumnIndex to identify candidate pages. It then uses OffsetIndex to seek to the selected pages and to map matching row ranges into the other projected columns.',
+        'A Parquet writer divides a column chunk into data pages. When page indexes are written, the ColumnIndex stores arrays of page-level metadata: minimum values, maximum values, null counts, null-page markers, and boundary-order information. The OffsetIndex stores page locations, compressed page sizes, and first-row indexes.',
+        'A reader starts from the footer, discovers the row groups and column chunks, then reads the page index metadata for relevant columns. For a predicate such as event_time between 10:00 and 10:05, it compares the predicate with the min and max values for each event_time page. Pages whose max is before 10:00 or whose min is after 10:05 cannot match.',
+        'After ColumnIndex leaves a candidate set, OffsetIndex turns page numbers into byte ranges. If the query projects other columns, the first-row indexes help the reader find corresponding ranges in those columns. The scan becomes a set of selected page reads instead of a full column-chunk walk.',
       ],
     },
     {
       heading: 'Data structures',
       paragraphs: [
-        'The important structures are page arrays, page min/max arrays, null-count metadata, boundary order markers, byte-offset tables, compressed-page lengths, and row-range mappings. They are compact enough to read before the data pages themselves.',
-        'A page index is not a general secondary index over arbitrary data. It is a physical skip index. Its value depends on clustering, sorting, page size, and predicate selectivity.',
+        'ColumnIndex is an array-aligned structure. Entry i describes data page i for one column chunk. Its min and max values summarize the page; null metadata handles pages that are all null or contain nulls; boundary order tells whether page boundaries are ordered, descending, unordered, or unknown.',
+        'OffsetIndex is also page-aligned. Entry i gives the physical location and compressed size of page i, plus the row index where that page begins. This is what lets a reader issue range requests or seeks for selected pages rather than discovering page positions by scanning headers.',
+        'The page index sits below table-format metadata. Iceberg, Delta Lake, Hudi, and catalogs can prune snapshots, partitions, manifests, and files. Row-group statistics prune inside a file. Page indexes prune inside a selected row group. Each layer removes work at a different granularity.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A payments table is sorted by event_time inside each row group. A dashboard asks for one five-minute interval and three projected columns. Row-group stats keep the reader inside one row group. ColumnIndex picks only two event_time pages. OffsetIndex tells the reader which byte ranges to fetch for those pages and matching projected-column row ranges.',
-        'If the file were randomly ordered, page-level min/max ranges would overlap widely. The page index would still be correct, but most pages would survive pruning and the benefit would collapse.',
+        'The correctness argument is conservative pruning. A page may be skipped only when metadata proves the predicate cannot be true for any value in that page. If the proof is missing, ambiguous, or weakened by null and NaN behavior, the reader must keep the page as a candidate.',
+        'For range predicates, min and max give a simple impossibility test. If page_max is less than the lower bound, every non-null value is too small. If page_min is greater than the upper bound, every non-null value is too large. All other pages survive because they might contain a matching value.',
+        'The mechanism is safe because false positives are allowed and false negatives are not. Reading an extra page costs time. Skipping a page that contains a match changes the query result. Page-index pruning is therefore designed as a maybe-match filter, not as proof of membership.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'The common misconception is that page indexes make Parquet behave like a B-tree. They do not. They are metadata for skipping pages in a column chunk, not a separately sorted lookup structure for all values.',
-        'Another pitfall is enabling metadata without write-time layout discipline. If pages have broad ranges, null-heavy statistics, or inconsistent sort order, the reader spends metadata work and still reads most of the file.',
+        'The cost is extra metadata written with the file and extra metadata reads during planning. That cost is worth paying when it avoids data-page IO, decompression, decoding, and vector filtering. It is not worth much when almost every page survives the predicate.',
+        'Page size matters. Smaller pages give finer pruning but more metadata and more page-management overhead. Larger pages reduce metadata but make each surviving page cover more rows. Row-group size, page size, sort order, and clustering decide whether the page index has sharp boundaries or broad overlapping ranges.',
+        'When data is sorted or clustered by the filtered column, page min/max ranges are tight. A time-window query over a file sorted by event_time may read only a few pages. When data is randomly ordered, every page may span the full time range, and the index cannot remove much.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Parquet page-index documentation at https://parquet.apache.org/docs/file-format/pageindex/, column-chunk documentation at https://parquet.apache.org/docs/file-format/data-pages/columnchunks/, and parquet-format repository at https://github.com/apache/parquet-format/. Study Parquet Columnar Format Case Study, Block Range Index Zone Maps, Apache Iceberg Table Format Case Study, Delta Lake Case Study, and Dremel Query Engine Case Study next.',
+        'Page indexes win for selective scans inside large row groups. Time-series tables, event logs sorted by timestamp, clustered IDs, partition files with local ordering, and dashboards that query narrow ranges are good fits.',
+        'They also help when object storage range reads are expensive enough that planning exact byte ranges pays off. A query engine can avoid downloading and decoding pages that metadata rules out. The benefit appears as lower scanned bytes, fewer decoded values, and less CPU in filters.',
+        'The pattern is useful in lakehouse stacks because it complements higher-level pruning. A table format may choose a small file set for a snapshot, Parquet row-group statistics may choose a row group inside those files, and page indexes may choose a handful of pages inside the row group.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A page index does not make Parquet behave like a B-tree. There is no global search tree over all values. The reader still starts with selected files and row groups. Page indexes only help choose data pages within a column chunk.',
+        'It fails when writers do not preserve useful locality. If pages have overlapping min/max ranges, if sort order is unknown, if statistics are missing, or if predicates use expressions the reader cannot compare to stored bounds, most pages remain candidates.',
+        'It can also disappoint when the query projects many columns and the selected row ranges fan out across many pages in each projected column. Filtering one column narrowly does not guarantee all other columns can be read as one neat contiguous range.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track row groups skipped, pages skipped, selected pages per column, scanned bytes versus file bytes, decoded rows versus total rows, predicate pushdown success, and object-store range-read counts. These numbers show whether the index is reducing work or only adding planning overhead.',
+        'Inspect write-time layout when pruning is weak. Check sort columns, clustering keys, row-group size, page size, null distribution, NaN behavior, and whether writers actually emitted page indexes. A reader cannot exploit metadata that was never written.',
+        'For correctness, treat page-index bugs as high risk. A bad skip can silently drop rows. Engines should fall back to scanning when metadata is unsupported or inconsistent, and validation jobs should compare indexed and non-indexed scans on representative files.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Parquet Columnar Format first for row groups, column chunks, pages, encodings, compression, and footer metadata. Study Block Range Index Zone Maps for the general min/max pruning pattern. Then study Delta Lake, Apache Iceberg, Apache Hudi, Dremel Query Engine, DuckDB Vectorized Execution, and Polars LazyFrame Query Optimizer.',
+        'Official sources: Parquet page-index documentation at https://parquet.apache.org/docs/file-format/pageindex/, column-chunk documentation at https://parquet.apache.org/docs/file-format/data-pages/columnchunks/, and the Apache parquet-format repository at https://github.com/apache/parquet-format/.',
       ],
     },
   ],

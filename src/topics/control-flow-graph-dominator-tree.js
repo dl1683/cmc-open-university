@@ -156,42 +156,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A control-flow graph represents a program as basic blocks connected by possible transfers of control. A dominator tree summarizes which blocks must execute before other blocks. These two structures are the skeleton underneath compiler optimization.',
-        'The CFG answers may-flow questions: where can execution go next? The dominator tree answers must-pass questions: which block is unavoidable before this point? Together they support SSA construction, loop detection, code motion, dead-code elimination, and register allocation.',
+        'A compiler cannot optimize real code safely from a flat list of instructions. Branches, loops, early returns, exceptions, switches, and short-circuit expressions mean textual order is not the same as possible execution order. Before the compiler can move code, merge values, remove dead work, or reason about loops, it needs a graph of control.',
+        'The control-flow graph answers the may-flow question: where can execution go next? The dominator tree answers the must-pass question: which block is unavoidable before another block? Together they are the skeleton for SSA construction, loop detection, code motion, dead-code elimination, profiling, symbolic execution, and register allocation.',
+        'This is one of the places where graph theory becomes ordinary engineering. A bug in CFG construction or dominance maintenance can make an optimizer move code above a required check, place a phi node in the wrong block, or prove a fact on a path where it is not true.',
+        'The idea also explains why compilers keep rebuilding facts that seem redundant to a human reader. Humans see an if statement, a loop, and an early return. The optimizer sees blocks, edges, reachability, dominance, and invalidation boundaries. That lower-level view is what lets many independent passes share the same proof language.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'A first attempt is to scan the source or IR in order and remember the last assignment, last branch, or last condition. That works for straight-line code because program order is execution order.',
+        'The wall appears at joins and loops. In `if (c) x = a; else x = b; return x`, neither assignment dominates the return. In a loop, the value entering the header may come from the preheader or from the backedge. A linear scan loses the path structure needed to answer those questions.',
+        'Another tempting shortcut is to keep branch syntax around and reason from the abstract syntax tree. That fails after lowering. Optimizers work on intermediate representations with explicit jumps, split blocks, critical edges, exception paths, and machine-level control transfers. The CFG is the representation that survives those transformations.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Break the program into basic blocks and make control transfers explicit edges. A block A dominates block B if every path from entry to B passes through A. The immediate dominator is the nearest strict dominator, and those links form a tree.',
+        'Dominance is a proof about availability. If a definition is in a block that dominates a use, every execution reaching the use has passed the definition. If it does not dominate the use, the compiler must treat the value as path-dependent.',
+        'Dominance frontiers add the complementary idea: where does a definition stop dominating all incoming paths? That boundary is where SSA phi nodes are usually needed. Loops add another key pattern: a backedge to a dominator marks a natural loop header, giving optimizers a structured region to analyze.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'Read CFG edges as possible transfers, not as the order the blocks are drawn. The join block is interesting precisely because multiple paths arrive there. The dominator tree removes optional paths and keeps only unavoidable ancestry.',
+        'When the animation marks a dominance frontier, it is showing where a definition stops being guaranteed on every incoming path. That is the bridge into Static Single Assignment & Phi Nodes: values that meet there need an explicit merge.',
+        'The loop view proves why a backedge is more than an ordinary cycle. A natural loop has a header that dominates the loop body. That dominance fact lets later passes identify preheaders, loop-invariant code, induction variables, and exits without guessing from syntax.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A basic block has one entry point and usually one terminator such as branch, jump, return, or throw. Edges represent possible next blocks. A block A dominates block B if every path from entry to B passes through A. The immediate dominator of B is the nearest strict dominator of B, and immediate-dominator links form the dominator tree.',
-        'Dominance frontiers identify where definitions from different paths meet. That makes them the bridge from control flow into Static Single Assignment & Phi Nodes. Loops also appear naturally: a backedge to a dominator creates a loop header and loop body.',
+        'A compiler first cuts instructions into basic blocks. A basic block has one entry, one exit, and no internal branch target. The terminator instruction at the end of each block creates outgoing CFG edges to successors. Predecessor lists are the inverse edges.',
+        'Dominators can be computed iteratively as sets: entry dominates itself, and every other block initially has all blocks as possible dominators. Repeatedly intersect predecessor dominator sets and add the block itself until the sets stop changing. Production compilers use faster algorithms, but the fixed-point idea is the same: a dominator is what survives all incoming paths.',
+        'Immediate dominators compress the relation into a tree. Dominance frontiers are computed from join points and dominator relationships. Loop analysis looks for backedges from a block to a dominator and collects the natural loop by walking predecessors back to the header.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Consider if (cond) x = G; else x = H; return x. The CFG has entry, test, then, else, join, and exit blocks. test dominates then, else, and join. then does not dominate join because the else path reaches join without passing through then. Since two definitions of x meet at join, the join block is in the dominance frontier and needs a merge value in SSA.',
-        'For a loop, the header often dominates the loop body, and a body-to-header edge is a backedge. Values updated each iteration need loop phis at the header, because the first iteration value and the backedge value meet there.',
+        'A useful CFG record stores block id, instruction range, predecessor list, successor list, terminator kind, and optional source span. A useful dominator record stores immediate dominator, tree children, dominance-query support, and frontier sets when SSA placement needs them.',
+        'The structure is cheap compared with later optimization, but it is easy to invalidate. A pass that deletes a block, splits a critical edge, folds a branch, or rotates a loop must update CFG and dominance data or force recomputation before the next pass trusts it.',
+        'The tradeoff is precision versus maintenance. More exact CFGs include exceptional edges, indirect branches, deoptimization exits, and abnormal control flow. That precision makes analyses safer but increases graph size and invalidation complexity. A simplified CFG may be faster to compute but unsafe for transformations that depend on all paths.',
       ],
     },
     {
-      heading: 'Cost and pitfalls',
+      heading: 'Where it wins',
       paragraphs: [
-        'The CFG is cheap to store but expensive to get subtly right. Exceptional control flow, short-circuit boolean operators, switch lowering, early returns, break and continue, and unreachable blocks can all change the edge set. A dominance result is only as correct as the CFG it was computed from.',
-        'Practical compilers cache analysis results and invalidate them when passes rewrite blocks or edges. A pass that deletes a block, splits a critical edge, or rotates a loop must either preserve dominance information carefully or force it to be recomputed before the next pass asks dominance questions.',
+        'CFGs and dominators win anywhere program behavior depends on paths: compiler optimization, coverage, profilers, static analyzers, symbolic execution, visualizers, and security scans. They prevent bugs where a pass moves code above a check, assumes a value exists on every path, or places a merge in the wrong block.',
+        'They are especially important for SSA construction. A value defined in two branches needs a phi at the join where the definitions meet. A value carried around a loop needs a phi at the loop header. Dominance frontiers tell the compiler where those merges belong.',
+        'They also make optimizations explainable. Loop-invariant code motion needs to know a block is inside a loop and whether moving an instruction is safe. Common-subexpression elimination needs to know a value is available before a use. Dead-code elimination needs reachability and use facts. The CFG is the shared map those passes use.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'Failure modes',
       paragraphs: [
-        'A useful CFG record stores block id, instruction range, predecessor list, successor list, terminator kind, and optional source span. A useful dominator record stores immediate dominator, children in the dominator tree, dominance queries, and dominance-frontier sets when SSA placement needs them.',
-        'These structures also support developer tooling. Coverage tools, profilers, static analyzers, code visualizers, and security scanners all benefit from knowing which paths can execute and which blocks control later blocks.',
+        'CFG and dominance analysis fail when the edge set is wrong. Exceptions, short-circuit booleans, switch lowering, early returns, break and continue, indirect branches, abnormal exits, and unreachable blocks all matter. A perfect dominator algorithm over a bad CFG gives confidently wrong answers.',
+        'Incremental invalidation is another failure mode. If a pass rewrites edges but leaves stale dominator data behind, later passes can miscompile. Many compiler bugs come from trusting analysis results after the IR shape changed.',
+        'A third failure is treating dominance as probability. A block dominates another only if every path passes through it. Hot paths, likely branches, and profile weights do not make a block dominate. Profile-guided optimization uses probabilities; dominance uses certainty.',
+        'Irreducible control flow is another stress case. Gotos, lowered switches, or transformed loops can create regions with multiple entries. Dominance still exists, but natural-loop assumptions become less clean, so production compilers need conservative fallbacks.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Cytron et al., Efficiently Computing Static Single Assignment Form and the Control Dependence Graph, at https://www.cs.utexas.edu/~pingali/CS380C/2010/papers/ssaCytron.pdf, LLVM dominator pass references in https://llvm.org/docs/WritingAnLLVMPass.html, and LLVM pass documentation at https://github.com/llvm/llvm-project/blob/main/llvm/docs/Passes.rst. Study Dominance Frontier SSA Construction, Static Single Assignment & Phi Nodes, Data-Flow Worklist Analysis, Interference Graph Register Allocation, Symbolic Execution Path Constraints, PGO Edge Counters & Block Frequencies, Graph BFS, Tree Traversals, and Topological Sort next.',
       ],

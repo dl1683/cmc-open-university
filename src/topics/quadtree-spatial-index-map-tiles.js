@@ -221,44 +221,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'A quadtree is a tree for two-dimensional space. Each internal node has four children, usually named northwest, northeast, southwest, and southeast. Instead of sorting records by one key, the structure recursively partitions a region into smaller rectangular regions. A leaf stores points, objects, pixels, aggregate values, or tile metadata for its own subregion.',
-        'This topic builds on R-Tree Spatial Index, Hierarchical Geospatial Cells, Recursion, and Tree Traversals. R-trees organize the object boxes in a dataset. Quadtrees organize the coordinate space itself. That makes them especially natural for sparse maps, image compression, collision broad phases, occupancy grids, terrain, and zoomable map tile pyramids.',
+        'A quadtree is a tree whose nodes represent regions of a two-dimensional space. The root represents the whole world, image, game board, or map extent. Each internal node splits its rectangle into four child rectangles, usually named northwest, northeast, southwest, and southeast. Leaves hold the actual payload for their regions: points, object references, pixels, occupancy values, tile metadata, or summary statistics.',
+        'The structure exists because spatial data is rarely uniform. A city map has dense downtown streets and empty ocean. A game level has crowded rooms and blank walls. A satellite image has smooth fields and detailed urban blocks. One fixed grid either wastes memory on empty regions or loses detail in crowded regions. A quadtree lets the representation spend detail where the data demands detail.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approaches',
       paragraphs: [
-        'The recursive rule is simple: inspect a region, decide whether the leaf is simple enough, and otherwise split it into four children. Point quadtrees often split when a bucket exceeds a capacity. Region quadtrees split when a raster block is not uniform. Map tile pyramids split every tile at every zoom level, creating a complete quadtree even if some tiles have no interesting objects.',
-        'Search uses bounds. A range query descends into children whose rectangles intersect the query window and skips the rest. A nearest-object query can visit promising cells first and prune cells whose minimum possible distance is already worse than the best candidate. As with R-trees and geospatial cells, the quadtree is a candidate generator; exact geometry or distance checks still decide the answer.',
+        'The first naive approach is a flat list. To find every restaurant in a viewport, every collision candidate in a rectangle, or every pixel block that differs from its neighbor, scan every object and test it. This is simple and exact, but it becomes linear in the whole dataset. It ignores the fact that most objects are obviously outside a small query window.',
+        'The second naive approach is a uniform grid. A grid is much better than a flat list when density is steady, but it has a hard resolution choice. Small cells make empty regions expensive. Large cells make dense regions overloaded. If the data changes scale from one area to another, the grid has no way to adapt except by using many levels, which is the direction that leads to a quadtree.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'Quadtrees are excellent when space is sparse or clustered, but they can become deep when points are extremely close together. Practical implementations set max depth, bucket capacity, and sometimes minimum cell size. A badly chosen depth wastes memory on empty cells or forces too many objects into one leaf. Insert and delete logic must also handle rebalancing or lazy cleanup if the workload is dynamic.',
-        'The comparison with other indexes is workload-specific. k-d trees split by point coordinates and are common for point nearest-neighbor search. R-trees group bounding boxes and work well for rectangles and polygons. Geohash, S2, and H3 use global cell IDs that are convenient for sharding and aggregation. Quadtrees sit between those ideas: local recursive decomposition with a very direct spatial interpretation.',
+        'The wall is uneven spatial detail. The index needs to describe both broad empty areas and small dense areas without paying the same price for both. It also needs to reject unrelated regions cheaply. A query for a downtown viewport should not inspect rural tiles. A collision pass for one room should not inspect objects on the other side of the map.',
+        'There is a second wall in map rendering: zoom. A world map cannot be one huge image sent to every browser. Users pan and zoom through small viewports, and the renderer needs only the tiles that overlap the screen at the chosen zoom level. The data structure has to support local replacement: swap parent tiles for child tiles on zoom-in, reuse neighboring tiles on pan, and cache stable tile addresses.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core insight',
       paragraphs: [
-        'A slippy web map is the everyday quadtree case study. At zoom 0, the map has one tile. At zoom 1, that tile splits into four. At zoom z, the grid has 2^z by 2^z tiles, and a viewport requests only the z/x/y tiles that overlap the screen. Panning changes a small band of tiles. Zooming swaps to parent or child tiles. The hierarchy turns a planet-sized map into cacheable rectangular images or vector payloads.',
-        'Bing Maps quadkeys encode the child choices along that path as a string. The same tile can be addressed as z/x/y coordinates or as a quadkey. That string is useful as a database, file, or CDN key because nearby tiles often share prefixes. The application still has hard product choices: raster tiles versus vector tiles, geometry simplification by zoom, cache invalidation after map edits, attribution, and how to handle tile seams.',
+        'The core insight is to divide space, not the objects. A quadtree chooses a region, asks whether that region is simple enough, and either stores it as a leaf or splits it into four child regions. The split is geometric and deterministic. Every child covers a disjoint quarter of the parent, and the four children exactly cover the parent rectangle.',
+        'That invariant gives the structure its power. A query can compare its own rectangle with a node rectangle. If they do not intersect, the entire subtree is irrelevant. If they do intersect, the search descends only into the possible children. The same rule works for points, rectangles, pixels, occupancy grids, and map tiles, although each use case chooses a different stopping condition.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism',
       paragraphs: [
-        'The main misconception is that a quadtree automatically means balanced or compact. It does not. If many points cluster in a tiny region, repeated quadrant splits can produce a long skinny path. Production indexes cap depth, store multiple objects per leaf, bulk-load static data, or switch to another spatial index when the distribution is hostile.',
-        'Another mistake is treating tile coordinates as exact geography. Web map tiles are a rendering and caching scheme. They are extremely useful for display, but exact distance, route time, polygon containment, and search ranking still need geometry algorithms and domain-specific logic outside the tile pyramid.',
+        'Insertion into a point quadtree starts at the root. If the current leaf has room, store the point there. If the leaf exceeds capacity and the maximum depth has not been reached, split the leaf into four children and redistribute its points by quadrant. Future inserts descend according to coordinates. Production variants usually keep a small bucket in each leaf rather than forcing one point per node.',
+        'Range search is the mirror operation. Start at the root with a query rectangle. If the query misses the node rectangle, return immediately. If the node is a leaf and intersects the query, test the leaf payload exactly. If the node has children, repeat the same intersection test on each child. The quadtree does not replace exact geometry checks; it reduces the candidate set that reaches them.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Stop rules',
       paragraphs: [
-        'Primary sources: OpenStreetMap slippy map tilenames at https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames, Microsoft Bing Maps tile system and quadkeys at https://learn.microsoft.com/en-us/bingmaps/articles/bing-maps-tile-system, and Hanan Samet quadtree survey at https://www.cs.umd.edu/~hjs/pubs/SameCSUR84-ocr.pdf. Study R-Tree Spatial Index, k-d Tree, Hierarchical Geospatial Cells, Delaunay Triangulation & Voronoi Dual, Trie, Recursion, and Tree Traversals next.',
+        'A quadtree is a family of structures, not one fixed implementation. A point index may split when a leaf contains more than eight objects. An image compression quadtree may split only when the pixels inside a block are not uniform enough. An occupancy grid may split when sensor evidence inside a cell is mixed. A map tile pyramid may split all tiles down to a configured zoom whether or not a tile contains interesting objects.',
+        'Stop rules are correctness and performance decisions. A max depth prevents infinite subdivision when many points have nearly identical coordinates. A bucket capacity prevents pathologically tiny leaves. A minimum cell size makes the index match the precision of the data. Without those limits, a quadtree can become deep, memory-heavy, and slower than the flat list it was meant to replace.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a delivery app stores courier positions in a 1024 by 1024 city square. The root covers the whole city. A quiet suburb leaf contains three couriers and stays unsplit. Downtown contains hundreds, so it splits into four quadrants. The northeast downtown quadrant is still crowded, so it splits again. After a few levels, each busy block has a small leaf bucket while empty parks and water remain large leaves.',
+        'Now the app asks for couriers inside a 60 by 60 viewport. The search starts at the root, rejects any top-level quadrant that does not intersect the viewport, descends through the overlapping downtown branch, and finally tests only the courier points in intersecting leaves. The answer is still exact because every skipped subtree is geometrically disjoint from the viewport.',
+      ],
+    },
+    {
+      heading: 'Map tiles',
+      paragraphs: [
+        'A web map tile pyramid is a complete quadtree organized by zoom level. At zoom 0, the whole world is one tile. At zoom 1, it becomes a 2 by 2 grid. At zoom z, it becomes a 2^z by 2^z grid. A tile address such as z/x/y says which depth to use and which column and row to fetch at that depth.',
+        'Quadkeys encode the same path as a string of child choices. Each digit records which quadrant was selected at the next zoom level. That makes prefixes meaningful: nearby or ancestor-descendant tiles share address prefixes. The property is useful for caches, databases, object storage, and CDN keys because the spatial hierarchy is present in the key itself.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'The subdivide view shows the most important invariant: the parent region is replaced by four children whose coverage is complete and non-overlapping. The active nodes are not just boxes on a diagram; they are the only regions that can still matter to the current insertion or query. Removed regions are safe to ignore because their bounds cannot intersect the query.',
+        'The map tile view shows the same structure in product form. Zoom is tree depth. The viewport is a query rectangle. The cache key is a path through the tree. When the viewport moves, most old tiles remain valid and only a strip of new tiles must be fetched. When the zoom changes, parent and child tiles replace one another in a controlled way.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The best-case behavior is excellent on sparse or clustered data: queries visit a small number of relevant cells instead of every object. The worst case is less pleasant. If many objects lie very close together, subdivision can create a long branch. If large objects span many cells, they may need references in multiple leaves or a separate overflow policy. If the workload changes constantly, split and merge maintenance costs matter.',
+        'Memory cost depends on how many internal nodes and empty leaves the implementation materializes. A sparse pointer-based quadtree allocates only nodes that exist, which is good for irregular data. A complete tile pyramid has predictable addresses but many possible cells, so storage systems usually materialize only generated tiles and let missing tiles be cache misses or inherited from lower detail.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Quadtrees win when the data is two-dimensional, the coordinate space is meaningful, and density varies across the plane. They are strong for map viewports, broad-phase collision culling, image compression, terrain level of detail, occupancy maps, sparse heatmaps, and any system where rectangular rejection removes large parts of the search.',
+        'They are also easy to explain and debug. A bounding box either intersects another bounding box or it does not. That direct geometry makes quadtrees useful educationally before moving to R-trees, BVHs, k-d trees, geohashes, S2 cells, H3 cells, or more specialized spatial databases.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A quadtree is not automatically balanced. It follows data distribution. Highly clustered points, adversarial coordinates, or repeated points can drive depth up unless the implementation caps depth or keeps buckets. It is also not ideal for high-dimensional nearest-neighbor search; the four-way spatial split is specific to two dimensions.',
+        'For moving objects, repeated delete and insert operations can churn. Many engines use loose quadtrees, spatial hash grids, sweep-and-prune, or dynamic AABB trees for moving collision objects. For complex polygons and rectangles, an R-tree may be a better fit because it groups object bounds rather than forcing every object into fixed quadrant cells.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Common failures include using too small a bucket capacity, forgetting max depth, treating objects on quadrant boundaries inconsistently, duplicating large objects into too many leaves, and relying on the index result without the final exact geometry check. The index should produce candidates; the domain logic should still prove the result.',
+        'Map tile systems add their own failures. Tiles can show seams if neighboring tiles simplify geometry differently. Cache invalidation can serve old roads beside new roads. Different projections distort area and distance. Tile coordinates are a display and caching convention, not a replacement for precise geodesic calculations.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study R-Tree Spatial Index next to see the alternative of grouping object rectangles instead of dividing space. Study k-d Tree for axis-aligned point splitting, Hierarchical Geospatial Cells for global cell identifiers, Bounding Volume Hierarchy for ray tracing and collision culling, and Spatial Hash Grid Broadphase for a simpler dynamic-object baseline.',
+        'Primary references worth reading are Hanan Samet survey work on quadtrees, OpenStreetMap slippy map tile documentation, and Microsoft Bing Maps tile system documentation for quadkeys. After those, implement a small quadtree with bucket capacity, max depth, rectangle search, and a test that compares every query against a slow flat scan.',
       ],
     },
   ],

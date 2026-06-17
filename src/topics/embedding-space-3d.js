@@ -99,11 +99,32 @@ export const article = {
       ],
     },
     {
+      heading: `The obvious wall`,
+      paragraphs: [
+        `The old way to search text was to match tokens. That fails as soon as two people use different words for the same need, or the same word in different contexts. Keyword matching can find exact overlap, but it does not know that puppy belongs near dog, that physician belongs near doctor, or that refund policy and return rules may answer the same question.`,
+        `Embeddings solve that wall by turning meaning into geometry. Once text becomes coordinates, search can ask for nearby meaning instead of identical spelling. This is why embeddings sit under semantic search, RAG, recommendations, clustering, and many modern agent memory systems.`,
+      ],
+    },
+    {
       heading: `How it works`,
       paragraphs: [
         `Start with raw text: millions or billions of sentences from books, web pages, and code. The training loop is deceptively simple — predict the next word given the context words around it, or predict context given a target word. During this prediction, the model learns to map each word to a coordinate in an N-dimensional space (N = 512, 768, or larger for modern LLMs). The objective is to make the model's guesses right: if the model predicts "cat" when it sees "kitten, the small furry," it adjusts the embeddings so that "kitten" and "cat" sit closer in space (because they appeared in overlapping contexts). Run this process over billions of examples, and neighborhoods crystallize: animals cluster together, foods cluster together, not because anyone declared it, but because the training signal pulled similar-context words toward similar coordinates.`,
         `Relationships emerge the same way. "King" and "queen" appear in similar contexts (royalty, authority), but they also have a systematic difference: king appears with male pronouns, queen with female. During training, the model learns that swapping the gender axis (a consistent direction in space) transforms king into queen, man into woman, prince into princess. These vectors are not stored explicitly; they fall out of the geometry. When you compute king − man + woman, you are removing the "maleness" signal and adding the "femaleness" signal, walking through space along a learned direction. The model never saw the equation; it simply learned a space where that arithmetic makes sense.`,
         `The visualization you just saw is a faithful 3-D slice: a real embedding space in 768 dimensions looks identical in principle, just with 765 more axes. You cannot see those directions, so a 2-D projection like t-SNE or UMAP squashes the space onto paper (Embeddings & Similarity and t-SNE & UMAP: Seeing Embeddings show how). Searching in the space is efficient: to find the nearest neighbors (most similar embeddings), you compute distances using Euclidean distance, dot product, or cosine similarity. A full brute-force search is O(N) — expensive for billions of words — so production systems use approximate nearest neighbor indexes like HNSW: Approximate Nearest Neighbors to speed it up.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `Read the point cloud before the equations. Nearby points share context, colors mark rough semantic neighborhoods, and empty space is meaningful separation. The 3D view is only a slice of a much larger space, but the rule is the same: similarity search is distance search over learned coordinates.`,
+        `Then read the arrows as relationships. Parallel arrows mean the same kind of change appears in different neighborhoods. The king - man + woman step is nearest-neighbor arithmetic, not symbolic reasoning. It is powerful because the training data organized relationships geometrically, and risky because the same geometry can encode social bias.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `The training objective forces useful geometry. Words, passages, or images that help solve similar prediction tasks are nudged toward similar coordinates, while mismatched examples are pushed apart. Over many examples, local neighborhoods become semantic neighborhoods because that arrangement makes prediction easier.`,
+        `The same pressure also creates directions. If many pairs share a relationship, the model can reduce loss by encoding that relationship as a reusable displacement. The result is not symbolic reasoning, but it is structured enough that nearest-neighbor search and vector arithmetic become useful tools.`,
       ],
     },
     {
@@ -136,4 +157,3 @@ export const article = {
     },
   ],
 };
-

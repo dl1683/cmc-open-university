@@ -366,59 +366,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'Perceiver IO is a transformer-family architecture built around a fixed latent array. The original Perceiver uses cross-attention to distill very large inputs into a smaller set of latent slots; Perceiver IO adds an output-query interface so the same latent memory can produce many different output structures.',
-        'The core data-structure idea is simple and powerful: keep raw input size, latent memory size, and output schema as separate arrays. Input embeddings can be enormous, the latent array can stay fixed, and output queries can be shaped for the task.',
+        `Perceiver IO exists because many real inputs are not polite token sequences. Images contain grids, video contains frames, audio contains long time streams, point clouds contain unordered sets, and multimodal examples can mix several of those forms at once. A transformer can process any of these after an adapter turns them into vectors, but the raw number of positions can become much larger than the model can afford to mix at full depth.`,
+        `There is also an output problem. Classification wants one label. Optical flow wants a dense grid. Audio generation wants many time samples. A control policy may want a small set of action slots. Perceiver IO treats input size, internal working memory, and output shape as separate design choices instead of forcing one token array to play every role.`,
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'A Perceiver-style implementation has an input embedding buffer, modality and position metadata, a learned latent array of M slots, cross-attention maps from latents to inputs, latent self-attention blocks, optional masks, output-query arrays, and task heads. The latent array is the bounded working memory.',
-        'This matters because dense transformers make every input position communicate with every other input position. Perceiver reads many input elements through cross-attention into a smaller memory, then spends depth inside that memory. Perceiver IO decodes through output queries that attend back to the latent memory.',
+        `The obvious approach is to tokenize every input position and run ordinary self-attention over the full set. This is attractive because it keeps the model simple: every token can attend to every other token, and every layer can revise every position using global context.`,
+        `The wall is the cost curve. Full self-attention over N input positions costs O(N^2) attention work per layer, and that cost repeats through depth. A 224 by 224 image, a long audio clip, or a dense video sample can produce far more positions than a plain transformer can process economically. Domain-specific encoders reduce cost, but then the architecture becomes less general.`,
+        `The output wall is different but just as real. A classifier head is cheap, but it does not describe dense reconstruction or structured prediction. Building a different decoder for every task hides the common pattern and makes it harder to reuse the same internal representation across tasks.`,
       ],
     },
     {
-      heading: 'Case study: Perceiver',
+      heading: 'Core insight',
       paragraphs: [
-        'The Perceiver paper frames the architecture as general perception with iterative attention. It avoids strong modality-specific assumptions and reports competitive results across images, point clouds, audio, video, and audio-plus-video. Its key mechanism is asymmetric attention: inputs are read into a tight latent bottleneck, and repeated processing happens in latent space.',
-        'For data-structure intuition, treat the latent array like a fixed-size scratch buffer. It does not store every pixel, point, frame, or byte separately. It stores the model state that repeated attention blocks can refine after reading from the raw input.',
+        `The core insight is to separate three arrays that a standard transformer often blends together: the input array of size N, a learned latent array of size M, and an output-query array of size Q. N can be huge, M can stay bounded, and Q can match the shape of the task.`,
+        `The latent array is the working memory. Input embeddings provide keys and values. Latent slots provide queries and read from the input through cross-attention. After that read, the model spends most of its depth inside the latent array, where self-attention costs O(M^2) rather than O(N^2).`,
       ],
     },
     {
-      heading: 'Case study: Perceiver IO',
+      heading: 'The invariant',
       paragraphs: [
-        'Perceiver IO generalizes the output side. Output queries make the readout explicit: one query can request a class label, a grid of queries can request optical flow or pixels, and a sequence of queries can request structured language or time outputs. This is why the architecture can target very different domains without a separate custom decoder for each one.',
-        'The design also clarifies cost. Input cost is controlled by N times M cross-attention plus M squared latent processing. Output cost is controlled by Q times M decoding. Production systems should therefore track N, M, and Q separately instead of hiding all three under one token count.',
+        `The invariant is that the expensive repeated computation is tied to M, not directly to N. The model may still read all input positions, but it does not repeatedly run full self-attention over them. If M is chosen well, the internal state remains small enough for deep processing while still carrying the evidence the task needs.`,
+        `The second invariant is that the output interface is explicit. Output queries are not an afterthought; they are a schema. One query can ask for a class, a grid of queries can ask for pixel values or flow vectors, and a sequence of queries can ask for samples or future tokens. The decoder cost is tied to Q times M.`,
       ],
     },
     {
-      heading: 'Case study: Perceiver AR',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Perceiver AR applies the latent-array bottleneck to long-context autoregressive modeling. It maps long-range inputs to a small number of latents while preserving causal masking, so predictions cannot see the future. The reported examples include long-context density estimation over images, music, and books.',
-        'The subtle implementation risk is masking. In a classifier, the latent array can read the whole input. In an autoregressive model, each prediction must read only legal prefix information. That turns masks and alignment between latents and predicted positions into first-class data structures.',
+        `The latent-array view shows the main cost move. Inputs feed an adapter, the cross-attention block writes into learned latent slots, and the later transformer blocks refine those slots rather than revisiting every raw input position at full quadratic cost. The graph is meant to make the latent array feel like a bounded data structure, not just a model component.`,
+        `The cost plot separates three quantities that are easy to blur together. Dense attention grows like N squared. The input read grows like N times M. The latent loop stays tied to M. The output-query view then adds the Q times M decode budget, so dense outputs are visible as their own cost rather than being confused with input encoding.`,
       ],
     },
     {
-      heading: 'How it connects',
+      heading: 'Mechanism',
       paragraphs: [
-        'Perceiver IO connects directly to Set Transformer, Vision Transformer registers, AdaTape, and memory-token designs. Set Transformer uses learned inducing points to process unordered sets through a smaller attention bottleneck. ViT registers provide explicit scratch tokens so background patches do not become accidental memory. AdaTape adapts compute by appending selected tape tokens to the input sequence. Perceiver uses a fixed latent array as internal working memory. RAG retrieves external chunks. All of these are ways to decide what memory the model is allowed to spend computation on.',
-        'It also connects to Byte Latent Transformer. BLT changes the input interface by grouping bytes into dynamic patches. Perceiver changes the internal interface by projecting arbitrary inputs into latent slots. Together they show a broader lesson: many modern architectures are won or lost at the boundary between raw data, tokenization, latent memory, and decoding.',
+        `The first stage is an adapter. It turns raw modality data into embeddings and position information. For images, that may be pixel or patch features plus coordinates. For audio, it may be time-window features. For point clouds, it may include coordinates and per-point attributes. The adapter must preserve enough structure for attention to make sense.`,
+        `The second stage is cross-attention from latents to inputs. The latent slots are queries, and the input embeddings are keys and values. Each latent slot learns what to read from the input buffer. This is the compression step, but it is learned and content-dependent rather than a fixed pooling rule.`,
+        `The third stage is latent processing. Several transformer blocks run over the M latent slots. Perceiver IO then uses output queries as a decoder. Those queries attend to the latent memory and produce the requested structure. Autoregressive variants add masks so a prediction cannot read future positions.`,
       ],
     },
     {
-      heading: 'Production pitfalls',
+      heading: 'Why it works',
       paragraphs: [
-        'A latent bottleneck can lose information. If M is too small, important details vanish before the decoder can ask for them. If M is too large, the model drifts back toward expensive transformer behavior. The right M depends on the task, input size, output shape, latency target, and acceptable error modes.',
-        'Output queries are also an API contract. Their order, position encoding, task meaning, and loss alignment must be stable. For dense outputs, Q can be large enough to dominate decode cost. For autoregressive outputs, causal masks need direct tests because a mask bug turns a long-context model into a leakage benchmark.',
+        `Perceiver IO works when the task does not need every layer to maintain a separate state for every raw input position. The cross-attention read builds a task-useful summary in the latent array, and the model spends its depth improving that summary. This is a good fit when global evidence matters more than preserving all local detail at every layer.`,
+        `The correctness story is not a formal proof like a sorting algorithm. It is an interface argument. If the adapter encodes the input, the latent array has enough capacity, and the output queries ask the right questions, then the architecture can represent functions from arbitrary input shapes to arbitrary output shapes while keeping the repeated attention work bounded by M.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary sources: Perceiver at https://arxiv.org/abs/2103.03206, Perceiver IO at https://arxiv.org/abs/2107.14795, the Perceiver IO OpenReview page at https://openreview.net/forum?id=fILj7WpI-g, Perceiver AR at https://arxiv.org/abs/2202.07765, DeepMind Perceiver AR overview at https://deepmind.google/blog/perceiver-ar-general-purpose-long-context-autoregressive-generation/, Set Transformer at https://arxiv.org/abs/1810.00825, and DeepMind research code at https://github.com/google-deepmind/deepmind-research/blob/master/perceiver/perceiver.py.',
-        'Study Attention Mechanism, Multi-Head Attention, Transformer Block, Set Transformer Inducing Points, Vision Transformer Register Tokens, AdaTape Adaptive Token Bank, Adaptive Computation Time Halting, Mixture-of-Depths Token Routing, Byte Latent Transformer, Tokenization BPE, RAG Pipeline, KV Cache, and Transformer Inference Roofline next.',
+        `Consider a model that sees a short video clip plus audio and predicts both a class label and a dense per-frame map. The input adapter emits video patch embeddings and audio-window embeddings, so N may be large. A plain transformer would mix all of those positions in every layer. A Perceiver-style model reads them into a few hundred latent slots, then runs most depth over those slots.`,
+        `For the class label, Q can be one learned query. For the dense map, Q can be one query per output coordinate. The same latent memory supports both outputs, but the decode cost changes with the number of queries. This example shows why Perceiver IO is an input-output architecture, not only an encoder trick.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `The pattern is useful for large and awkward inputs: high-resolution perception, long audio, video, point clouds, multimodal records, byte streams, and settings where input length changes widely from example to example. It gives the engineer a direct knob, M, for internal capacity and cost.`,
+        `It also wins when one encoded memory must serve several output formats. A model can classify, reconstruct, localize, or predict sequences through different query schemas. That makes the interface clean for multitask learning because the encoder does not have to be redesigned every time the output shape changes.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `The bottleneck can throw information away. If a small object, rare sound, or fine spatial boundary never gets copied into the latent memory, the decoder cannot recover it later. Increasing M helps, but it also raises the cost of the latent loop and can reduce the original advantage.`,
+        `Dense outputs are still expensive. A segmentation, optical-flow, or audio reconstruction task can need many output queries, and each query attends to the latent memory. Perceiver IO separates input cost from output cost; it does not make either one vanish.`,
+        `Mask and schema bugs are serious. In autoregressive use, future-visible attention creates leakage. In dense prediction, output-query order and coordinates must match the loss. In serving, a schema mismatch between training and deployment can produce silently wrong outputs.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Choose M as a capacity budget, not as a magic constant. Start from a value that fits latency and memory limits, then measure accuracy loss as M shrinks and cost growth as M expands. Log N, M, Q, latent depth, cross-attention frequency, activation memory, and p99 latency together.`,
+        `Treat adapters as part of the model contract. Normalize each modality, preserve positions, keep coordinate systems stable, and test that padding and masks do not change real examples. A weak adapter can make the latent bottleneck look bad even when the attention design is sound.`,
+        `Version output-query schemas. A query can represent a class slot, a grid coordinate, an audio frame, or an action slot. Training code, evaluation code, and serving code must agree on that meaning. If the query layout changes, the model artifact and downstream consumers need to know.`,
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        `Study the original Perceiver paper at https://arxiv.org/abs/2103.03206, Perceiver IO at https://arxiv.org/abs/2107.14795, the OpenReview page at https://openreview.net/forum?id=fILj7WpI-g, Perceiver AR at https://arxiv.org/abs/2202.07765, Set Transformer at https://arxiv.org/abs/1810.00825, and the DeepMind research code at https://github.com/google-deepmind/deepmind-research/blob/master/perceiver/perceiver.py.`,
+        `Inside this curriculum, study Attention, Transformer Block, Set Transformer Induced Points, Vision Transformer Register Tokens, AdaTape Adaptive Token Bank, Adaptive Computation Time Halting, Byte Latent Transformer, Tokenization BPE, RAG Pipeline, KV Cache, and Transformer Inference Roofline.`,
       ],
     },
   ],

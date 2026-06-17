@@ -215,41 +215,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Block-Max WAND is a dynamic-pruning algorithm for ranked retrieval over inverted indexes. A normal inverted index can find documents that match query terms, but a search engine usually needs the top k highest-scoring documents. Exhaustively scoring every candidate is often wasteful. WAND-style algorithms use score upper bounds to skip documents that cannot enter the top-k result heap.',
-        'The data-structure idea is simple and powerful: store extra maximum-score metadata beside postings. WAND uses term-level maxima. Block-Max WAND makes the bound local by storing a maximum impact per postings block. A local bound is tighter, so the engine can skip more blocks without changing the exact top-k answer.',
+        'Block-Max WAND exists because ranked search usually asks for the best k results, not the full score for every matching document. An inverted index can enumerate candidates quickly, but broad queries still create long postings lists and many documents that will never reach the result page.',
+        'The retrieval engine needs a way to keep exact top-k semantics while refusing to spend scorer time on candidates that are mathematically unable to beat the current heap threshold.',
+        'This sits at the boundary between data structures and ranking systems. The inverted index supplies postings, block metadata supplies score ceilings, and the top-k heap supplies the live threshold. The algorithm is useful because those parts exchange enough information to skip work without changing the answer.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive baseline and wall',
       paragraphs: [
-        'The query evaluator keeps a postings pointer for each term and a heap of the current top-k hits. Once the heap is full, its smallest score becomes the minimum competitive score. For a candidate document or block, the evaluator sums the maximum remaining contributions from relevant terms. If that upper bound is below the threshold, full scoring cannot change the top k, so the evaluator advances pointers instead of decoding and scoring every posting.',
-        'Block-Max WAND divides a postings list into blocks such as fixed ranges of document ids. Each block stores the maximum possible score contribution for that term inside the block. This matters because a term-wide max may be dominated by one outlier document. Local maxima let the scorer prove that many ordinary blocks cannot win.',
+        'The naive baseline is document-at-a-time scoring. Advance postings pointers, compute the full BM25 or impact score for each candidate document, and keep the best k scores in a heap. This is easy to reason about and returns exact results.',
+        'The wall appears after the heap fills. The lowest score in the heap becomes a minimum competitive score, but a plain evaluator may still decode postings and score documents whose best possible score is already below that threshold. It lacks a proof that the work is useless.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'The index pays extra storage for block metadata and the query path pays control-flow overhead to maintain bounds, pivots, and heap thresholds. The payoff is fewer full score computations, fewer postings decoded, and lower latency for top-k queries. It is especially useful when queries are disjunctive, postings are long, and top results become competitive early.',
-        'The savings are workload-dependent. If k is huge, scores are flat, terms are rare, or the heap threshold stays low, there may be less to skip. The algorithm is exact only when the bounds are valid upper bounds for the scoring function being used.',
+        'Store score upper bounds beside the postings. WAND uses term-level maxima to ask whether a candidate could beat the current top-k threshold. Block-Max WAND makes the bound tighter by storing a maximum impact for each postings block, so the possible score changes as pointers move through the index.',
+        'The invariant is that every pruning bound must be a true upper bound for the scoring function over the candidate or block it covers. If the upper bound cannot beat the heap minimum, then no skipped document can enter the exact top k.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'The original WAND work by Broder, Carmel, Herscovici, Soffer, and Zien framed efficient query evaluation as a two-level retrieval process: identify promising candidates with partial information, then fully score them. Ding and Suel introduced block-max indexes and Block-Max WAND-style algorithms for faster top-k retrieval. Lucene 8 incorporated block-max indexes and Block-Max WAND query evaluation, and Elastic documented how it improved top-hit retrieval in Elasticsearch.',
+        'In the "WAND pruning" view, watch the heap threshold become the decision line. Term pointers and max-score cells describe the best score a candidate could still achieve. When that possible score is too low, the skip node is justified by arithmetic, not by a guess.',
+        'In the "block max skipping" view, each block carries its own local maximum. Low-impact blocks can be jumped over because their local maxima are tighter than a term-wide bound. The final plot shows the intended shape: as the threshold rises, WAND scores fewer documents, and Block-Max WAND scores fewer still.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'Block-Max WAND is not approximate by default. Safe dynamic pruning should return the same top-k as exhaustive document-at-a-time scoring. If an implementation uses approximate shortcuts or invalid bounds, that is a product choice, not the core guarantee.',
-        'It is also not a ranking model. BM25, learned ranking, field boosts, recency boosts, and rerankers decide scores. WAND and Block-Max WAND decide which candidates need full evaluation under those scoring upper bounds. The clean separation is: postings find possible matches, ranking defines score, pruning avoids hopeless work.',
+        'For each query term, the scorer has a postings pointer and a maximum contribution. WAND orders current document ids, chooses a pivot, sums upper bounds for terms that could contribute before the pivot, and decides whether the pivot can be competitive. If not, pointers advance toward a more promising document.',
+        'Block-Max WAND adds per-block impact metadata. A postings block covers a range of document ids and stores the largest contribution that term can make inside the block. During query evaluation, the scorer can replace loose term-wide bounds with these local bounds and skip entire low-impact ranges.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Correctness',
+      paragraphs: [
+        'The correctness proof is an upper-bound argument. Suppose the heap already holds k documents and its minimum score is T. If a candidate document or block has maximum possible score U, and U is less than T under the engine tie policy, then the candidate cannot displace any current top-k result.',
+        'Safe pruning depends on conservative metadata. Bounds may be loose and still safe, just less useful. Bounds that are too low are dangerous because they can hide a true winner. Production systems therefore tie the pruning code closely to the scoring formula, segment metadata, and tie-breaking rules.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'The animation uses a heap minimum of 5.4 in the candidate table. Doc 12 has an upper bound of 6.2, so it must be scored fully; it could still enter the top k. Doc 19 has an upper bound of 4.7, so it is skipped because even its best case cannot reach 5.4.',
+        'In the block view, docs 1..128 have max impact 0.6 and docs 257..384 have max impact 0.4, so those blocks are poor candidates once the threshold is high. Docs 129..256 carry max impact 3.2, so the scorer may need to scan that block before it can safely decide.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The index pays extra storage for block metadata, and indexing must compute impact maxima that remain valid for the scorer. The query path pays control-flow overhead for pivots, block checks, threshold updates, and iterator jumps.',
+        'The payoff is fewer full score computations, fewer decoded postings, and lower tail latency for the right workloads. Savings shrink when k is large, scores are flat, good results arrive late, queries are very selective already, or bounds are too loose to cut much work.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'A practical implementation starts with the scoring contract. The scorer must expose conservative per-term or per-block upper bounds, the collector must publish the current minimum competitive score, and the iterator layer must be able to advance across postings ranges without decoding every posting in the skipped block.',
+        'The ranking team should measure docs visited, docs fully scored, blocks skipped, bound tightness, heap-threshold growth, and latency by query class. A broad query with strong early hits should show aggressive pruning. A narrow query or a query with weak bounds may show little benefit, and that is a signal to tune metadata rather than assume the algorithm failed.',
+      ],
+    },
+    {
+      heading: 'Why search teams care',
+      paragraphs: [
+        'Top-k pruning sits in the first-stage retrieval budget. Every document fully scored by the lexical engine is a candidate that consumes CPU before reranking, blending, personalization, or business rules even begin. Saving work here can lower p95 latency, reduce fleet size, or leave more budget for a stronger reranker.',
+        'The exactness matters. A product team can adopt safe Block-Max WAND without changing the meaning of top-k BM25 results, because skipped documents are skipped only under valid upper bounds. That is different from approximate retrieval, where recall tradeoffs must be exposed as a product and evaluation choice.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins in top-k lexical retrieval over long postings lists, broad disjunctive queries, BM25-style decomposable scores, impact metadata, and Lucene-family engines where the collector can raise the minimum competitive score during evaluation.',
+        'It is strongest when block-local maxima are much tighter than term-wide maxima. That means the metadata tells the scorer that specific document ranges are weak even though the overall term can be strong somewhere else.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Block-Max WAND is not itself a ranker. BM25, field boosts, recency, learned ranking, and rerankers define scores; WAND decides which candidates need exact first-stage evaluation under valid bounds.',
+        'It is a poor fit when the scoring function cannot provide decomposable upper bounds, when approximate vector search is the main retrieval path, when post-retrieval business rules dominate, or when invalid metadata would make exact pruning unsafe. Approximate variants can be useful, but they are a separate product contract.',
+        'It can also disappoint on small indexes or very selective queries. If there are few candidate documents, exhaustive scoring is already cheap. The algorithm is most valuable when postings lists are long enough that proving non-competitiveness saves real scorer work.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: IBM WAND paper page at https://research.ibm.com/publications/efficient-query-evaluation-using-a-two-level-retrieval-process, Google Research listing at https://research.google/pubs/efficient-query-evaluation-using-a-two-level-retrieval-process/, Ding and Suel Block-Max WAND paper PDF at https://research.engineering.nyu.edu/~suel/papers/bmw.pdf, Elastic Block-Max WAND article at https://www.elastic.co/blog/faster-retrieval-of-top-hits-in-elasticsearch-with-block-max-wand, and the Lucene implementation issue at https://issues.apache.org/jira/browse/LUCENE-8135. Study Inverted Index, Lucene Segments Case Study, Binary Heap, Elias-Fano Encoding, Roaring Bitmaps, and Multi-Index RAG next.',
       ],

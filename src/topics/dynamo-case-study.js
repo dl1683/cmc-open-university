@@ -66,7 +66,7 @@ function* writeWithSloppyQuorum() {
   yield {
     state: ring('Dynamo places keys with a consistent-hash ring'),
     highlight: { active: ['coord', 'a', 'b', 'c'], compare: ['d'] },
-    explanation: 'Dynamo maps keys to a preference list using Consistent Hashing. A write for key k is coordinated by a node and sent to the first N healthy replicas for that key. In the normal case, A, B, and C store the value.',
+    explanation: 'Read the ring as a placement function. The coordinator hashes the key to a preference list and sends the write to the first healthy replicas for that key. In the normal case, A, B, and C store the value.',
     invariant: 'Placement is deterministic from ring membership and the key hash.',
   };
 
@@ -97,7 +97,7 @@ function* writeWithSloppyQuorum() {
   yield {
     state: ring('Node C is down: use D as a temporary holder'),
     highlight: { removed: ['c'], active: ['a', 'b', 'd', 'e-coord-a', 'e-coord-b', 'e-coord-d'], compare: ['e-coord-c'] },
-    explanation: 'If C is unavailable, Dynamo can still accept the write by storing a hinted replica on D. D remembers that the value belongs to C and hands it back when C recovers. This is hinted handoff: availability first, repair later.',
+    explanation: 'If C is unavailable, Dynamo can still accept the write by storing a hinted replica on D. D remembers that the value belongs to C and hands it back later. This is the core bargain: availability now, repair work later.',
     invariant: 'Failure handling is normal-case behavior, not an exceptional path.',
   };
 
@@ -173,7 +173,7 @@ function* conflictAndRepair() {
       ],
     ),
     highlight: { active: ['merkle:fixes', 'handoff:fixes'], found: ['merkle:link'] },
-    explanation: 'Availability-first systems accumulate divergence. Dynamo repairs it with multiple mechanisms: reads can update stale replicas, hinted handoff returns writes to recovered nodes, and Merkle trees compare replica ranges without sending every key.',
+    explanation: 'Availability-first systems accumulate divergence. Dynamo repairs it with several local mechanisms: reads update stale replicas, hinted handoff returns fallback writes, and Merkle trees compare ranges without sending every key.',
   };
 
   yield {
@@ -217,37 +217,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The availability problem',
       paragraphs: [
-        'Amazon Dynamo is a highly available key-value store described in the 2007 SOSP paper. It was designed for services where rejecting writes during failures was worse than temporarily accepting divergent versions. Instead of a single leader enforcing one serial order, Dynamo composes consistent hashing, replication, tunable quorums, vector clocks, hinted handoff, gossip membership, and Merkle-tree repair.',
-        'The paper is one of the cleanest examples of production distributed-systems design because every mechanism serves the availability goal. It does not pretend partitions are rare. It treats failure handling as normal-case behavior.',
+        'Amazon Dynamo is a highly available key-value store described in the 2007 SOSP paper. It was built for Amazon services where rejecting a write during a failure could be worse than accepting temporary inconsistency. A shopping cart is the usual intuition: if the system is uncertain during a partition, preserving the user\'s intent and reconciling later can be better than refusing the update.',
+        'The paper is useful because it does not treat failure as a rare exception. It designs the normal path and the failure path together. Machines fail, network partitions happen, membership views lag, and replicas diverge. Dynamo composes several mechanisms so the system can keep accepting reads and writes while continuously repairing disagreement.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive designs and why they fail',
       paragraphs: [
-        'A key is placed on a preference list using Consistent Hashing. With replication factor N, the value is stored on multiple successors in the ring. A write can succeed after W acknowledgments; a read can return after R responses. Operators choose R and W to trade latency, availability, and consistency.',
-        'During failures, Dynamo uses sloppy quorum: it may write to healthy fallback nodes outside the ideal replica set. Those fallback nodes store hints so they can hand the data back to the intended replica later. Membership and failure information spreads through gossip or SWIM-like membership systems in related designs. Replica divergence is repaired through read repair and Merkle-tree anti-entropy.',
+        'The first naive design is a single primary replica that serializes every write. That gives a simple consistency story, but the primary becomes a bottleneck and a failure boundary. If the primary or its network path is unavailable, writes stop. For workloads where availability is the product promise, that is unacceptable.',
+        'The second naive design is to replicate data everywhere and require all replicas to agree before returning. That improves durability but makes latency and availability terrible under failures. The slowest or unreachable replica controls progress. In a wide distributed system, waiting for everyone is often the same as waiting forever.',
+        'Dynamo chooses a different bargain. It gives operators tunable quorums, accepts that replicas can diverge, stores causality metadata, and runs repair processes. The design does not remove the hard problem; it moves conflict handling into an explicit part of the application and storage contract.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core mechanisms',
       paragraphs: [
-        'The cost of high availability is conflict management. Concurrent writes can create siblings. Vector clocks detect whether versions are causally ordered or concurrent, but the application often has to decide how to merge them. Reads and writes are usually low latency, but the background system must continuously repair, reconcile, and monitor divergence.',
-        'Dynamo also makes operational tradeoffs explicit. Increasing W improves write durability but hurts write availability and latency. Increasing R improves read freshness but hurts read latency. Setting R + W greater than N helps, but sloppy quorum and partitions mean the exact consistency story depends on failure modes.',
+        'A key is placed on a ring using consistent hashing. The first N suitable nodes on the ring form the preference list for that key. N is the replication factor. A write can succeed after W acknowledgments. A read can return after R responses. Operators choose N, R, and W to trade latency, availability, durability, and freshness.',
+        'The quorum idea is only the beginning. In the clean case, if R plus W is greater than N, reads and writes should overlap on at least one replica. In the real system, failures complicate that story. Dynamo uses sloppy quorum: if an intended replica is unavailable, the coordinator may write to another healthy node. That fallback node stores a hint saying which replica should eventually receive the data. Hinted handoff later transfers the write back.',
+        'Vector clocks track causality between versions. If one version descends from another, the older version can be discarded. If two versions are concurrent, Dynamo may return siblings to the application. Read repair and Merkle-tree anti-entropy help replicas converge. Gossip spreads membership and failure information. Each mechanism handles a different kind of drift.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'The Dynamo paper shaped the NoSQL era and influenced systems including Riak, Cassandra-style architectures, and many tunable-consistency stores. It is especially relevant for carts, session data, user preferences, metadata, and other workloads where availability is central and conflicts can be reconciled.',
-        'It should not be confused with modern DynamoDB as an identical architecture. DynamoDB is a managed cloud database that evolved through different operational and architectural choices. The 2007 Dynamo paper remains valuable because it exposes the primitive design tradeoffs clearly.',
+        'Dynamo works because it separates accepting work from fully reconciling work. A write can be accepted by enough currently reachable nodes to preserve availability. Later, repair paths move data back to intended replicas and reconcile divergence. This is a production pattern: keep the user-facing path available, then pay background work to converge.',
+        'It also works because the data model is simple. Key-value storage with application-visible conflicts is much easier to make highly available than arbitrary multi-row transactions. The application may know how to merge carts, preferences, sessions, or metadata. Dynamo exposes siblings instead of pretending it can always choose the right winner.',
+        'The design makes tradeoffs explicit. Increasing W improves write durability but hurts write availability and latency. Increasing R improves read freshness but hurts read latency. Lower values improve responsiveness but increase the chance of stale reads or divergent versions. There is no magic setting that satisfies every workload.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fits',
       paragraphs: [
-        'Dynamo-style design is not "eventual consistency makes everything okay." Eventual convergence requires repair mechanisms, stable membership, bounded operational chaos, and application semantics that can tolerate or merge conflicts. Another misconception is that quorum math alone proves safety. Quorums interact with sloppy placement, stale membership, timeouts, retries, and background repair.',
+        'Dynamo-style ideas fit workloads where availability is central and conflicts are mergeable or tolerable. Shopping carts, sessions, user preferences, feature flags, metadata, and some service state can often handle temporary divergence. The application may prefer two versions to no version.',
+        'The paper shaped the NoSQL era and influenced Riak, Cassandra-style architectures, tunable-consistency stores, anti-entropy repair, and many discussions of eventual consistency. It should not be confused with modern DynamoDB as an identical architecture. DynamoDB is a managed cloud database with its own evolution. The 2007 paper remains valuable because it exposes the primitive design tradeoffs clearly.',
+        'Dynamo is the wrong mental model for domains that require one serial truth at write time. Ledgers, inventory with hard constraints, strongly consistent indexes, and cross-record invariants need different machinery. Eventual convergence is not enough when the world cannot tolerate concurrent truths.',
+      ],
+    },
+    {
+      heading: 'Failure modes and misconceptions',
+      paragraphs: [
+        'The biggest misconception is that eventual consistency means the system will somehow become correct by itself. Convergence requires repair mechanisms, stable membership, bounded operational chaos, and application semantics that can tolerate or merge conflicts. If repair stops or conflict handling is weak, divergence can become durable.',
+        'Another misconception is that quorum math alone proves safety. Quorums interact with sloppy placement, stale membership, timeouts, retries, hinted handoff, and partitions. R plus W greater than N is a helpful intuition, not a full proof of application-level consistency under every failure mode.',
+        'Vector clocks also do not resolve conflicts. They classify causality. They can tell you that two versions are concurrent; they cannot decide whether two shopping-cart updates should be unioned, overwritten, or shown to a user. The merge rule is part of the product semantics.',
+      ],
+    },
+    {
+      heading: 'A worked example',
+      paragraphs: [
+        'Suppose replicas A, B, and C store a cart key, with N = 3 and W = 2. C is temporarily unreachable. A coordinator writes the updated cart to A and B, so the user sees success. If B later receives a concurrent update through a different coordinator, the replicas may hold versions that cannot be ordered by causality. A later read may return siblings.',
+        'The application then decides how to merge. For a cart, unioning items may preserve intent better than choosing the newest timestamp. For a bank transfer, that would be unacceptable. Dynamo makes this distinction impossible to ignore: storage can expose conflicts, but product semantics decide which conflicts are safe.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'A Dynamo-style system should be watched through the repair path, not only the foreground request path. Track read and write latency, failed quorum attempts, hinted-handoff queue size, age of hints, sibling counts, read-repair rate, anti-entropy backlog, replica divergence, membership churn, and timeout rates. These metrics tell you whether the system is merely accepting writes or actually converging.',
+        'A healthy service should also audit merge behavior. If sibling counts rise after a rollout, the application may be creating conflicts faster than it can resolve them. If hinted handoff queues age out, availability may be hiding durability risk. The educational point is that eventual consistency has an operational budget, and the budget can be exhausted.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Dynamo is a design for high availability under ordinary failure. Consistent hashing places keys, replication preserves copies, tunable quorums bound the foreground path, vector clocks expose causality, hinted handoff preserves writes during outages, and anti-entropy repair pushes the system toward convergence.',
+        'The deep lesson is that availability has a cost. Dynamo pays with conflict handling, repair complexity, and application-visible siblings. Use the pattern when that cost is lower than rejecting writes; avoid it when the domain needs immediate single-copy truth.',
+        'A useful comparison is Spanner. Spanner spends coordination to provide strong external consistency. Dynamo spends repair and merge work to preserve availability. Neither is universally superior. They are answers to different product promises.',
+        'In a course sequence, teach Dynamo after consistent hashing and quorums, then revisit it after CRDTs and Spanner. Students should see how the same replication vocabulary leads to different systems once the product promise changes.',
+        'The practical test is simple: if users can tolerate and merge concurrent versions, Dynamo-style storage is a candidate. If users need a single authoritative order before success is reported, choose a stronger coordination design.',
       ],
     },
     {

@@ -223,45 +223,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Apache Calcite is a dynamic data-management framework used to build SQL layers, query optimizers, and adapters. It provides a SQL parser, validator, relational algebra representation, planner rules, costing hooks, and adapter interfaces without forcing one storage engine underneath.',
-        'This topic links directly to Cascades Memo Query Optimizer, Selinger DP Join Order Optimizer, PostgreSQL Query Planner Case Study, SQL Join Algorithms Primer, and Substrait Query Plan Interchange Case Study. Calcite is the framework version of those ideas: a reusable planner substrate rather than one database product.',
+        `Many systems need SQL without wanting to become a full database. A file lake, stream processor, search index, federated query layer, metrics backend, or internal service may all need parsing, validation, relational algebra, rule rewriting, cost comparison, and pushdown into source systems. Rebuilding that stack from scratch is a long way to go just to answer queries over data the project already owns.`,
+        `Apache Calcite exists as reusable query-planning machinery. It gives a system the front half of a database: SQL parsing, schema validation, relational expression trees, planner rules, metadata, cost, and adapter hooks. The project using Calcite still decides what storage engines exist, what execution engine runs the final plan, and what source-specific operations are safe to push down.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'A query flows from SQL text to a parsed tree, through validation against schemas and types, into a RelNode tree. Planner rules transform that tree into equivalent alternatives. Implementation rules and converters introduce physical conventions. A planner then chooses a plan using costs, traits, and rule-produced alternatives.',
-        'Adapters provide schemas, tables, row types, and source-specific implementations. A basic adapter can expose a table as a scan. A stronger adapter can participate in planning so filters, projections, aggregates, limits, or joins run in the source system when that is semantically correct.',
+        `The tempting way to add SQL is to parse strings and hand-code a few query shapes. For a demo, this can work. SELECT a,b FROM file WHERE c > 10 becomes a scanner with a predicate. A dashboard query becomes a bespoke handler. The code feels direct because every case is visible.`,
+        `The approach collapses when users expect real SQL. Aliases need name resolution. Nulls use three-valued logic. Types need coercion. Joins need ordering choices. Aggregates need grouping state. Views need expansion. Pushdown into different sources needs semantic checks. The project starts with a parser and ends up accidentally building a fragile planner.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The core insight',
       paragraphs: [
-        'The important data structures are parse trees, validated namespaces, RelNode trees, RexNode expression trees, trait sets, planner rules, cost objects, converter nodes, schemas, tables, and adapter-specific relational nodes. Together they form a graph of alternatives over the same logical query.',
-        'RelNode is the backbone. A filter, projection, aggregate, join, sort, or table scan is an object with typed inputs and outputs. Rules match subtrees and replace them with equivalent subtrees, which is the same conceptual move as a Cascades memo rewrite even when the implementation is different.',
+        `Calcite turns SQL text into a typed relational expression tree. The central abstraction is RelNode: scans, filters, projects, joins, aggregates, sorts, windows, and adapter-specific operators become objects with row types, inputs, traits, and metadata. Once a query is a tree instead of a string, planner rules can match algebraic shapes and replace them with equivalent shapes.`,
+        `Adapters are the other half. An adapter makes an external source look like relational tables and, if it is strong enough, exposes source-native operators. A weak adapter can only scan rows. A better adapter can accept filters or projections. A strong adapter can translate larger pieces of relational algebra into a source convention so work happens where the data already lives.`,
       ],
     },
     {
-      heading: 'Why it matters',
+      heading: 'How the planner works',
       paragraphs: [
-        'Calcite makes query planning portable. A team can build a SQL layer over files, streams, indexes, search backends, or custom services without rebuilding parsing, validation, algebra, and every optimizer mechanism from scratch.',
-        'The adapter boundary is the practical teaching point. Data systems often fail by pulling too much data into the wrong layer. Calcite gives the system a disciplined way to decide which work belongs in the source, which work belongs in the planner, and which work belongs in the execution engine.',
+        `A Calcite pipeline starts by parsing SQL into syntax, then validating names and types against schemas. The SQL is converted into relational algebra. Planner rules then create alternatives: push a filter below a project, remove unused columns, commute or associate joins, split aggregates, or convert a logical operator into a physical convention. Cost and required traits decide which alternative is preferred.`,
+        `Rules are correctness tools before they are performance tools. A rule that pushes a filter through a join must preserve SQL null behavior. A projection trim must preserve aliases and expressions that later operators need. A converter must record the calling convention of the engine that will run the node. The planner can explore many alternatives only because each transformation promises semantic equivalence.`,
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'How adapters and pushdown work',
       paragraphs: [
-        'The main correctness risks are unsafe rewrites, dialect mismatches, null semantics, type coercion differences, stale statistics, missing trait propagation, and source pushdown that silently changes results. A pushdown rule that is fast but semantically wrong is worse than no pushdown.',
-        'The main performance risks are rule explosion, poor cost estimates, adapters that cannot expose useful metadata, and partial pushdown that hides expensive residual work. Mature systems need explain plans, rule tracing, cost debugging, and clear fallback paths.',
+        `An adapter starts with schemas, tables, and row types. Calcite's CSV tutorial shows the ladder: a simple table can enumerate all rows, a filterable table can accept simple predicates, and a translatable table can produce relational operators handled by planner rules. The same pattern extends to JDBC databases, search indexes, APIs, file formats, and custom engines.`,
+        `Pushdown is valuable because it can reduce data movement. A project can read fewer columns. A filter can fetch fewer rows. A limit can avoid scanning the whole source. An aggregate can shrink many rows into one result per group before data crosses a boundary. But pushdown is valid only when the source implements the same semantics as the relational expression being pushed.`,
       ],
     },
     {
-      heading: 'Sources and links',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Primary sources: Apache Calcite home page at https://calcite.apache.org/, Calcite tutorial at https://calcite.apache.org/docs/tutorial.html, and Calcite adapter documentation at https://calcite.apache.org/docs/adapter.html.',
-        'Study this with Cascades Memo Query Optimizer for rule search, PostgreSQL Query Planner Case Study for planner-visible statistics, Substrait Query Plan Interchange Case Study for portable plan serialization, and Apache DataFusion Arrow Query Engine Case Study for a modern embeddable execution stack.',
+        `The planner-rules view proves that SQL planning is a sequence of contracts. Text becomes parsed syntax. Syntax plus schema becomes typed meaning. Typed meaning becomes RelNode algebra. Rules create equivalent alternatives. Cost and traits choose an implementation. The important object is not a string of SQL; it is the relational tree the rest of the system can reason about.`,
+        `The adapter-pushdown view proves that a source boundary is a performance and correctness boundary at the same time. The project-filter-scan pattern is not just tree decoration. It is a chance to move work into the source, avoid unnecessary rows, and still leave a fallback path when the source cannot safely run the operator. The visual also shows why adapters need metadata and rules, not only a row iterator.`,
+      ],
+    },
+    {
+      heading: 'Why the method works',
+      paragraphs: [
+        `Calcite works because relational algebra gives the planner a smaller and more stable language than raw SQL text. Many different SQL strings can become similar relational shapes. Rules can then operate on those shapes without caring whether the query came from a user, a generated dashboard, a view expansion, or another planner layer.`,
+        `The invariant is equivalence under declared traits and types. A rule may improve a plan only if the replacement returns the same rows under the same SQL semantics. A converter may change the calling convention only if downstream operators understand that convention or another converter bridges it. Costing can be imperfect, but correctness cannot be optional. A slow correct fallback is better than a fast wrong pushdown.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `The main correctness failure is an unsafe rewrite. Null semantics, type coercions, collations, timestamp behavior, aliases, grouping state, dialect differences, and source-specific functions can all make a pushed expression subtly wrong. A planner rule is dangerous when it treats a performance opportunity as proof of equivalence.`,
+        `The main performance failures are rule explosion, weak metadata, bad row-count estimates, missing trait propagation, and adapters that hide expensive residual work. A few rules can generate a large search space. Poor metadata can make the chosen plan worse than the original. Mature Calcite systems need explain plans, rule tracing, cost debugging, and clear fallback behavior when a source cannot safely execute part of the algebra.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `Using Calcite saves years of planner infrastructure, but it moves complexity into integration. Teams must define schemas, row types, adapters, conventions, metadata, rules, and execution boundaries. They must also decide how much of Calcite's enumerable fallback to use and how much to hand off to a separate execution engine.`,
+        `The payoff is shared reuse. One correct filter-pushdown rule can improve many query shapes. One adapter convention can let the planner compare native execution with fallback execution. One metadata improvement can change join order, pushdown choice, and scan cost across the whole system. The tax is that planner bugs are often second-order: the wrong rule fires only after another rule creates the shape that made it possible.`,
+      ],
+    },
+    {
+      heading: 'Real use and study next',
+      paragraphs: [
+        `Calcite is useful for systems that need a query layer over data they do not own in one storage engine: federated SQL, embedded analytics, stream processors, custom warehouses, file-backed tools, data virtualization, and source adapters for existing engines. It is less attractive when the system only needs a tiny fixed query language or when the team cannot invest in semantic tests for rules and pushdown.`,
+        `Primary sources: Apache Calcite home page at https://calcite.apache.org/, the Calcite tutorial at https://calcite.apache.org/docs/tutorial.html, the adapter documentation at https://calcite.apache.org/docs/adapter.html, and the RelNode API documentation at https://calcite.apache.org/javadocAggregate/org/apache/calcite/rel/RelNode.html. Study Cascades Memo Query Optimizer for rule search, Selinger DP Join Order Optimizer for join planning, PostgreSQL Query Planner Case Study for statistics, Substrait Query Plan Interchange Case Study for portable plans, and Apache DataFusion Arrow Query Engine Case Study for an embeddable execution stack.`,
       ],
     },
   ],

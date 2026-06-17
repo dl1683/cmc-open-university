@@ -226,35 +226,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The measurement-data problem',
       paragraphs: [
-        'Mesa is Google\'s geo-replicated, near-real-time analytic data warehouse for critical measurement data. It ingests updates continuously, maintains materialized views, and serves consistent queries at large scale.',
-        'The case study matters because it shows the warehouse as a versioned distributed system, not only a columnar query engine. Freshness and consistency are explicit architecture concerns.',
+        'Mesa is Google\'s geo-replicated, near-real-time analytic data warehouse for critical measurement data. It was built for data that needs to be fresh enough for operational and business decisions, consistent enough for people to trust, and replicated enough to survive regional failures. Advertising and measurement data are a good mental model: new facts arrive continuously, corrections happen, dashboards must stay responsive, and inconsistent reports can directly affect decisions.',
+        'The case study matters because it teaches that a warehouse is not only a query engine. It is also a versioned distributed system. Mesa has to ingest updates, maintain materialized views, expose consistent versions to readers, compact data, replicate across regions, and support corrections. Freshness and correctness are not separate product features; they are architecture constraints.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approaches and why they fail',
       paragraphs: [
-        'Updates become committed versions. Queries pin a version so they do not observe partial updates. Data is stored in base and delta forms, then compacted and materialized into views for efficient repeated analytics.',
-        'Mesa replicates data across regions. The important contract is visibility: readers should know which committed version they are seeing even while newer data is still ingesting or replicating.',
+        'The first naive approach is to run a traditional batch warehouse and reload data periodically. That gives clean snapshots, but freshness suffers. If dashboards or measurement pipelines need recent data, waiting for a daily or multi-hour batch is not enough.',
+        'The second naive approach is to stream every update directly into queryable tables and let readers see whatever is present. That improves freshness but can expose partial updates, inconsistent aggregates, and corrections that have not propagated through all derived views. A dashboard that reads half of an update is worse than a dashboard that is slightly stale but coherent.',
+        'The third naive approach is to replicate data across regions without a strong visibility contract. Replication alone does not tell a reader which version is safe to query. A warehouse needs metadata that says which data is committed, which derived views include it, and which replicas have enough state to answer consistently.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core mechanism',
       paragraphs: [
-        'Mesa pays for version metadata, compaction, materialized view maintenance, replication, correction handling, and operational control. The payoff is consistent, fresh enough, highly available measurement data for critical business decisions.',
+        'Mesa treats updates as versioned batches. New data is ingested and incorporated into committed versions. Queries pin a version, so they do not observe half-applied updates. This is the same basic idea behind MVCC in databases and table snapshots in lakehouse systems: readers need a stable view while writers continue to advance the system.',
+        'Data is stored in base and delta forms. Base data represents compacted stable state. Deltas represent newer updates or corrections that have not yet been folded into the base. Compaction merges deltas into more efficient forms. Materialized views and indexes make repeated analytic queries fast enough for users who cannot wait for raw scans.',
+        'Geo-replication adds another layer. Mesa has to move committed updates across regions while preserving queryable consistency. The central contract is visibility: a reader should know which committed version it is seeing, even while newer versions are ingesting, compacting, or replicating elsewhere.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'Mesa-like ideas appear in data warehouses, lakehouses, metrics platforms, advertising analytics, financial reporting, and systems that separate immutable data files from coordinated visibility metadata.',
+        'Mesa works because it separates data arrival from data visibility. Updates can arrive continuously, but readers see only coherent committed versions. That lets the system be near-real-time without turning every query into a race against ingestion.',
+        'It also works because many warehouse queries are repeated aggregates over known dimensions. Materialized views are worth maintaining when the same business questions are asked constantly. Instead of recomputing everything from raw events, Mesa maintains derived structures that can be queried quickly while still respecting version boundaries.',
+        'The design is a reminder that analytics correctness is operational. A metric is only useful if users know what time range, version, correction set, and replication state it represents. Version metadata is part of the answer, not a hidden implementation detail.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it matters',
       paragraphs: [
-        'Near real-time does not mean every reader always sees the newest event. It means ingestion delay is bounded enough for the product need. Another misconception is that consistency is free once data is replicated; versioned metadata is what makes replicated data queryable.',
+        'Mesa-like ideas appear in data warehouses, lakehouses, advertising analytics, financial reporting, metrics platforms, feature stores, and any system that separates immutable or append-heavy data files from coordinated visibility metadata. Delta Lake, Iceberg, Hudi, and Snowflake all teach related lessons through different architectures.',
+        'The pattern is especially important when late data and corrections are normal. Measurement systems rarely receive perfect events in perfect order. They need ways to correct, compact, and expose new versions without making yesterday\'s report incoherent or silently changing the meaning of a dashboard.',
+        'Mesa also sits between OLTP and offline analytics. It is not a transactional application database, and it is not a slow offline batch warehouse. It is a warehouse designed for fresh, replicated, consistent aggregate views over critical measurement data.',
+      ],
+    },
+    {
+      heading: 'Costs and failure modes',
+      paragraphs: [
+        'Mesa pays for version metadata, compaction, materialized view maintenance, replication, correction handling, and operational control. Those are not side costs. They are the system. If compaction falls behind, query cost rises. If materialized views lag, dashboards go stale. If replication lags, regional queries may disagree or serve older versions.',
+        'Near real-time does not mean every reader always sees the newest event. It means ingestion delay is bounded enough for the product need and that users see a coherent version. Fresh but incoherent data can be worse than slightly stale data.',
+        'Another misconception is that consistency is free once data is replicated. Replicated files without coordinated metadata are just copies. Versioned metadata is what makes replicated data queryable, explainable, and safe for decisions.',
+      ],
+    },
+    {
+      heading: 'A worked dashboard example',
+      paragraphs: [
+        'Suppose an advertising dashboard reports clicks, impressions, and spend by region. New events arrive every minute, and late corrections arrive for the previous hour. Mesa ingests the update batch, creates a new committed version, updates materialized aggregates, and exposes that version only when the relevant pieces are coherent. A query pins version 104 rather than seeing impressions from version 105 and spend from version 103.',
+        'This version pinning is the educational point. The user may not care about the internal version number, but the warehouse must. Without it, two queries seconds apart could disagree for reasons no analyst can explain. With it, the system can say: this report is current through this committed version, and newer data is still becoming visible.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'A Mesa-like warehouse should track ingestion lag, commit lag, materialized-view lag, compaction debt, correction backlog, query version age, replication lag by region, and the cost of serving base-plus-delta queries. These signals tell operators whether the warehouse is fresh, coherent, and affordable.',
+        'The most dangerous failures are semantic. A dashboard may still load while silently serving an old version, missing corrections, or mixing data from incompatible visibility points. Good systems expose data freshness and version state to users or downstream jobs so stale but coherent reports are not mistaken for the newest truth.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Mesa is a warehouse built around versioned visibility. Ingest updates continuously, commit coherent versions, let readers pin a version, compact and materialize for speed, and replicate with an explicit contract about what is visible.',
+        'The deep lesson is that freshness and consistency must be designed together. A near-real-time warehouse is not just a faster batch system; it is a distributed system with user-facing semantics.',
+        'The useful comparison is a lakehouse table format. Iceberg, Delta, and Hudi also use metadata to decide which files belong to a snapshot. Mesa teaches the same general principle through a measurement warehouse: data files become trustworthy only when visibility is coordinated.',
+        'In a course sequence, teach Mesa after MVCC and before lakehouse table formats. It helps students see that snapshot metadata is not a database-only idea; it is also how analytics systems explain what a report means.',
+        'The practical test is whether users need fresh answers and coherent answers at the same time. If either can be sacrificed, a simpler batch or stream design may suffice. If both matter, versioned visibility becomes central.',
+        'Mesa is the wrong pattern when each event must trigger an immediate transactional decision. It is an analytics warehouse, not an OLTP database. Its strength is making aggregate measurement data fresh, consistent, and queryable at scale, not enforcing per-user business transactions.',
+        'The best mental shortcut is "fresh snapshots." Mesa is interesting because it does not choose between live data and coherent data; it builds machinery so new snapshots become visible in a controlled way.',
       ],
     },
     {

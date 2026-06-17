@@ -184,37 +184,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The browser URL parser turns an input string plus optional base into structured fields: scheme, host, port, path, query, fragment, credentials, and origin. Those fields feed navigation, fetch, service worker scope, CORS, cookies, storage, and app routers.',
-        'The WHATWG URL Standard is the living specification for URL parsing, special schemes, origin computation, and serialization: https://url.spec.whatwg.org/. MDN documents the JavaScript URL API that exposes this parser to applications: https://developer.mozilla.org/en-US/docs/Web/API/URL.',
+        `URLs look like strings, but browsers do not treat them as plain text. Before fetch, navigation, routing, storage, cookies, caches, service workers, and security policies can reason about a destination, the browser parses an input against a base URL and turns it into structured fields.`,
+        `This topic exists because many security bugs are interpretation bugs. Application code validates one spelling while the browser executes another parsed meaning. When those interpretations disagree, redirect allowlists, CORS checks, cache keys, service worker scopes, and storage boundaries can all become wrong.`,
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A parsed URL is not a bag of strings. It is a state-machine output with normalized host, optional port, path list, query string, fragment, and flags such as special scheme or opaque path. The origin tuple is usually scheme, host, and port; some schemes produce opaque origins.',
-        'This is why raw string comparison is brittle. HTTPS default ports can disappear, hosts can normalize, paths can resolve dot segments, and percent encodings can change representation while preserving or changing meaning depending on component.',
+        `The obvious approach is string work. Developers write prefix checks for redirects, regular expressions for host checks, split on slash for paths, and search substrings for query parameters. It is quick to write and often passes simple examples.`,
+        `That approach is tempting because many URLs are visually simple. The common case looks like scheme, host, path, and query. If every input were absolute, lowercase, unescaped, and already normalized, string checks might be tolerable for low-risk routing.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Where the obvious approach fails',
       paragraphs: [
-        'A login endpoint accepts a next parameter. The safe implementation constructs new URL(next, siteBase), checks that the resulting origin equals the site origin, and only then redirects. It also validates the path-level product rule, such as allowing /account and /checkout but rejecting administrative paths.',
-        'The unsafe implementation checks whether the raw string starts with /. That misses encoded, scheme-relative, backslash, host-confusion, and base-resolution edge cases. The platform parser should be the first authority, not an afterthought.',
+        `The wall is that a URL is structured state. Relative input needs a base. Hosts normalize differently from paths. Default ports can disappear. Percent encoding behaves differently by component. Backslashes, credentials, special schemes, fragments, and internationalized domain names can all change what the browser sees.`,
+        `A hand-written regular expression often becomes a second parser. The bug appears when that second parser disagrees with the platform parser. In security-sensitive code, the platform parser wins because it is the parser used by navigation, fetch, storage, and policy machinery.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Core invariant',
       paragraphs: [
-        'Origin is not the whole URL. Two pages on the same scheme, host, and port but different paths are same-origin. Cookie Domain and Path matching are related but not identical to origin. Site, origin, and host are different words because browser security needs different boundaries.',
-        'Do not parse security-sensitive URLs with regexes. Regexes usually fail around encoding, IDNA, default ports, special schemes, usernames, fragments, and relative resolution.',
+        `The invariant is parse first, then compare the structured field that matches the policy. If the policy is same origin, compare origin. If the policy is same host, compare host after parsing. If the policy is an application route, compare pathname only after the origin or host boundary is already approved.`,
+        `A URL object is not a policy by itself. It is a shared interpretation. It records scheme, credentials, host, port, path, query, fragment, special-scheme behavior, and serialization rules. Correctness comes from using that shared interpretation before enforcing product rules.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Mechanism',
       paragraphs: [
-        'Primary sources: WHATWG URL Standard at https://url.spec.whatwg.org/ and MDN URL API at https://developer.mozilla.org/en-US/docs/Web/API/URL. Study CORS Preflight Cache, SameSite Cookies & CSRF, Storage Access API, Service Workers & Offline-First, Resource Hints, Browser Message Channels, and History API Session Stack next.',
+        `The parser takes an input string and, when needed, a base URL. It resolves relative paths, identifies the scheme, parses authority fields, normalizes the host, handles default ports, processes dot segments, treats fragments separately, and exposes a canonical serialization.`,
+        `Origin computation is a second step over the parsed result. For ordinary http and https URLs, origin is scheme plus host plus port. Path and query can route application behavior, but they do not create separate origins. That single fact explains many browser security decisions.`,
+      ],
+    },
+    {
+      heading: 'Algorithmic shape',
+      paragraphs: [
+        `The WHATWG URL algorithm is a state machine because the meaning of a character depends on where the parser is. A colon can end a scheme. A question mark can begin a query. A hash starts a fragment. A percent escape in a path is not the same decision as a percent escape inside query data.`,
+        `Special schemes such as http, https, ws, wss, ftp, and file have extra rules. Non-network schemes, data URLs, sandboxed documents, and some generated documents can produce opaque origins instead of normal tuples. That is why visible string prefixes are not enough for origin reasoning.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `This works because later browser decisions consume the parsed representation. If application code compares the same fields the browser uses, validation and execution share one interpretation. The validation code stops guessing how the browser will read the destination.`,
+        `The proof obligation is choosing the right boundary. A same-origin check answers a different question from same-site, cookie Domain matching, service worker scope, cache partitioning, CORS policy, or an application path allowlist. Parsing solves interpretation, not authorization.`,
+      ],
+    },
+    {
+      heading: 'Origin, site, and scope',
+      paragraphs: [
+        `Origin is the tuple scheme, host, and port for ordinary network schemes. Same host over http and https is not same origin. Same scheme and host on a different explicit port is not same origin. Path and query do not split origins.`,
+        `Site, cookie scope, and service worker scope are nearby but different ideas. SameSite cookie checks reason about registrable domains and scheme. Cookie Domain and Path matching decide where cookies are sent. A service worker has a script URL and a scope path. CORS compares request origin to response policy. Do not collapse these into one mental model.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `A login endpoint accepts a next parameter. The safe implementation constructs new URL(next, siteBase), checks that the parsed origin equals the site origin, then checks that the parsed pathname is one of the allowed in-product destinations. Only after both checks does it redirect.`,
+        `The unsafe implementation asks whether the raw value starts with slash or contains the expected host text. That misses cases created by base resolution, scheme-relative input, default ports, encoded separators, credentials, host confusion, and parser differences around backslashes. The bug is not slow code. The bug is comparing before parsing.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `The runtime cost of using the URL API is usually irrelevant next to the cost of a boundary bug. The real cost is design discipline. The team must say whether a rule is about origin, site, host, serialized URL, pathname after origin approval, query keys, or a product-level authorization decision.`,
+        `Normalization is not cosmetic. Host casing, IDNA, default ports, dot segments, path separators, percent encoding, and fragments affect equality, routing, logging, and cache identity. A canonical serialized URL is useful, but only after the code has chosen the correct policy boundary.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Use new URL(input, base) for user-supplied navigation targets. Reject unexpected schemes before performing a side effect. Compare URL.origin for same-origin checks. Compare hostname only when host identity is the actual policy. Compare pathname only after origin or host has already been approved.`,
+        `Keep parsing and authorization separate in code. A helper named parseRedirectTarget should not silently decide whether a user may access a destination. A helper named isAllowedRedirect should parse, compare the origin, compare the route allowlist, and return an explicit decision with enough logging to debug rejected input.`,
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        `Use platform URL parsing for redirect allowlists, webhook callback validation, link rewriting, router matching, service worker registration checks, CORS reasoning, cache-key construction, CSP reviews, Fetch Metadata checks, and any user-supplied navigation target.`,
+        `The lesson also applies outside browser code. Proxies, API gateways, crawlers, test runners, security scanners, and link preview systems need to compare the same structured destination that the downstream runtime will use. If the upstream parser and downstream parser disagree, policy can be bypassed.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `A URL object does not decide product policy. It can tell you the parsed origin and path; it cannot know whether an admin export route is a valid post-login redirect for this user. Authorization must still happen at the application layer.`,
+        `URL parsing also cannot erase differences between browser concepts. Origin, site, cookie Domain and Path, storage partition key, service worker scope, CORS policy, CSP, and user authorization are related checks with different inputs. Many bugs come from using one boundary where another was required.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources are the WHATWG URL Standard and the MDN URL API documentation. For browser security boundaries, study CORS Preflight Cache, SameSite Cookies and CSRF, Storage Access API, Service Workers, Browser Cache Partitioning, Content Security Policy, Fetch Metadata, History API Session Stack, and Resource Hints.`,
+        `For parser discipline, study UTF-8 Decoder DFA, CSV Parser State Machine, Pratt Parser, Finite State Machine, and Trusted Types DOM XSS Sink Case Study. They all teach the same systems lesson: parse once with the correct grammar, keep structured state, and enforce policy on that structure.`,
       ],
     },
   ],

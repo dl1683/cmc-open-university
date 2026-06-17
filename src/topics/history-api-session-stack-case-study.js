@@ -164,37 +164,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The History API gives a page controlled access to a tab session history. pushState adds same-document entries, replaceState rewrites the current entry, and Back or Forward traversal can dispatch popstate with the stored state.',
-        'MDN documents pushState as adding an entry to the browser session history stack: https://developer.mozilla.org/en-US/docs/Web/API/History/pushState. MDN documents popstate as firing when the active history entry changes during traversal: https://developer.mozilla.org/en-US/docs/Web/API/Window/popstate_event.',
+        'Single-page apps can change screens without asking the browser to load a new document. That is useful, but it creates a contract problem: users still expect Back, Forward, refresh, links, bookmarks, scroll restoration, and accessibility semantics to behave like real navigation.',
+        'The History API is the bridge between app-rendered views and the browser-owned session history. Its job is not just changing the address bar. Its job is keeping a rendered view aligned with a stack the user, browser, and page can all move through.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'Context',
       paragraphs: [
-        'A session history is an ordered list plus a cursor. Entries carry URL, serialized state, scroll restoration data, and browser-managed document/session metadata. Same-document entries let SPAs change URL and view without a full document navigation.',
-        'The state object is structured-cloned and should be small. Durable route identity belongs in the URL so refresh, share, copy, and server fallback still work. history.state is for metadata like focus target, modal origin, or transition hints.',
+        'A browser tab has a session history: an ordered list of entries and a current index. Some entries represent full documents. Some represent same-document states created by `pushState` or `replaceState`. Traversal moves the index; it does not ask the app which entry it prefers.',
+        'Each entry has more than a URL string. It can carry a structured-cloned state object, browser-managed persisted user state such as scroll position, and document lifecycle details such as whether a page can be restored from cache.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Obvious approach and wall',
       paragraphs: [
-        'A documentation SPA shows search results for /search?q=raft. Opening a result calls pushState with /docs/42 and a small state object containing the result id. Back traverses to the search entry, fires popstate, and the app restores the result list and scroll position.',
-        'If the user then changes the search query, the router pushes a new /search?q=lease entry and the old forward branch is pruned. replaceState is used for canonical redirects and tab changes that should not add extra Back presses.',
+        'The obvious SPA approach is to keep the real route in memory and treat the URL as decoration. Clicking a result swaps components, but Back leaves the page, refresh loses the state, and a copied link cannot reconstruct the view.',
+        'That approach hits the wall when browser behavior becomes the test. The app may look correct during clicking, but the user can still enter from a bookmark, restore a tab, press Forward, reload after a crash, or share the address.',
+        'The opposite bug is to push a new history entry for every tiny UI movement. A dropdown toggle, a transient drawer, or every keystroke in a search box can turn the Back button into a replay of internal state instead of a navigation tool.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Core mechanism and invariant',
       paragraphs: [
-        'pushState does not fire popstate by itself. popstate is for traversal. Also, pushState URLs must be same-origin, so the URL parser and origin tuple still define the boundary.',
-        'Do not hide all route identity in history.state. Refresh, deep links, analytics, accessibility, server rendering, and error recovery need URL-level truth. Do not assume scroll restoration happens at the right time if the SPA renders asynchronously.',
+        'The core data structure is a stack-like list plus a cursor. `pushState(state, "", url)` appends a same-document entry after the current cursor and prunes any forward entries. `replaceState(state, "", url)` rewrites the current entry without adding another Back stop.',
+        'Back and Forward are traversal operations. They move the cursor to an existing entry. For same-document entries, the page can receive `popstate` with the stored state and render the view matching the new active URL.',
+        'The state object is structured-cloned. It is for small navigation hints, not live objects, caches, database rows, secrets, functions, DOM nodes, or the only copy of important route identity.',
+        'The invariant is simple: the current rendered screen must match the active history entry. A router may cache, prefetch, animate, and suspend work, but after traversal settles, the URL plus small entry state must be enough to rebuild the screen.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'URL versus state',
       paragraphs: [
-        'Primary sources: MDN History API at https://developer.mozilla.org/en-US/docs/Web/API/History_API, MDN pushState at https://developer.mozilla.org/en-US/docs/Web/API/History/pushState, and MDN popstate at https://developer.mozilla.org/en-US/docs/Web/API/Window/popstate_event. Study URL Parser & Origin Tuple, UI State Machine Workflow, DOM Event Propagation, BFCache Page Lifecycle, Service Workers, and React Suspense Resource Cache next.',
+        'The URL should identify the durable view: `/docs/42`, `/search?q=raft`, `/settings/billing`, or `/product/7?tab=reviews` when the tab is link-worthy. This is the part that must survive reload, sharing, bookmarking, server rendering, and recovery after a crash.',
+        'The `history.state` object should hold small context that improves restoration but is not the source of truth: the result id that opened a detail page, a previous scroll anchor, a modal origin, a focus target, or a flag saying that the route came from an in-app transition.',
+        'That split gives the app a clean fallback. If `history.state` is missing, stale, truncated, or from a restored session, the URL still tells the router what to show.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A documentation app renders `/search?q=raft`. The user scrolls to result 42 and opens it. The router calls `pushState({ from: "search", resultId: 42, scrollY: 840 }, "", "/docs/42")` and renders the document without loading a new page.',
+        'When the user presses Back, the browser moves the cursor to the search entry and dispatches `popstate`. The router reads the active URL, renders the search results for `q=raft`, waits until the list exists, and restores the old scroll position or result focus.',
+        'If the user then changes the query from that restored search page, the router pushes `/search?q=lease`. The old forward path to `/docs/42` is pruned because the user created a new branch from the middle of the stack.',
+      ],
+    },
+    {
+      heading: 'Animation and readouts',
+      paragraphs: [
+        'In the push-and-back view, the cursor is the main state variable. `pushState` adds `e2` after `e1`; `replaceState` changes the payload at the cursor; Back moves the cursor to `e1` and only then does `popstate` tell the app what became active.',
+        'In the router-state view, the URL, state, scroll, and document nodes are different layers of one entry. The URL is the durable route. The state object is a small clone. Scroll restoration is browser-managed unless the app takes manual control. The document reference is browser territory, especially when BFCache can preserve a previous page.',
+        'The readout is intentionally smaller than a real router. It does not show data loading races, focus repair, aborted transitions, route guards, analytics hooks, or BFCache eviction. Those policies sit above the stack model, but they still have to obey the active-entry invariant.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The model works because the browser remains the authority on traversal. The application can add and replace same-document entries, but user navigation moves the cursor and tells the page which entry is active.',
+        'Correct routing follows the invariant that a rendered view must be reconstructible from URL plus small state. If the URL cannot identify the view, refresh, share, and recovery paths are broken.',
+      ],
+    },
+    {
+      heading: 'Tradeoffs',
+      paragraphs: [
+        'The main cost is state discipline. History entries can outlive the JavaScript objects that created them, survive reload-like restoration paths, and be traversed in either direction. A router has to render from the active location, not from assumptions about the last click handler that ran.',
+        'Scroll restoration is a real tradeoff. Native restoration is simple for document navigations and static pages. In SPAs with async data, virtualization, or layout shifts, the browser may try to restore before the target content exists. Many routers set `history.scrollRestoration = "manual"` and restore after rendering is stable.',
+        'Entry volume also matters. Meaningful navigation deserves history entries. Ephemeral controls often belong in component state, `replaceState`, or the current URL only after a debounce.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        '`pushState` does not fire `popstate`. If a router waits for `popstate` after its own push, it will miss the render. The app should render the new route when it pushes, and handle `popstate` when traversal later happens.',
+        'The URL passed to `pushState` and `replaceState` must be same-origin. The API cannot be used to spoof another origin in the address bar.',
+        'History state is cloned, size-constrained by browsers, and not private storage. Putting large data, auth decisions, or secrets in it creates fragility and sometimes leakage through logs, crash dumps, or debugging surfaces.',
+      ],
+    },
+    {
+      heading: 'Practical use',
+      paragraphs: [
+        'Use `pushState` for user-visible route changes that deserve their own Back stop: opening a result, moving from cart to checkout, entering a document page, or applying a filter that users will want to share.',
+        'Use `replaceState` for canonicalization, redirects, default parameters, login return cleanup, and tab changes that should update the URL without adding another traversal step.',
+        'Keep the router idempotent: given the current URL plus optional `history.state`, it should be able to render the correct screen whether the entry came from a click, Back, Forward, reload, session restore, or a pasted link.',
+      ],
+    },
+    {
+      heading: 'Limits',
+      paragraphs: [
+        'The History API is not a full navigation framework. It does not fetch data, cancel stale route loads, manage focus, decide scroll policy, or synchronize server-rendered fallbacks. Routers build those policies on top.',
+        'It also cannot make a memory-only app durable. If a URL cannot reconstruct the important view, the browser stack will expose that weakness through refresh, sharing, restore, and direct entry.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: MDN History API at https://developer.mozilla.org/en-US/docs/Web/API/History_API, MDN pushState at https://developer.mozilla.org/en-US/docs/Web/API/History/pushState, MDN replaceState at https://developer.mozilla.org/en-US/docs/Web/API/History/replaceState, and MDN popstate at https://developer.mozilla.org/en-US/docs/Web/API/Window/popstate_event.',
+        'Then study URL Parser & Origin Tuple, UI State Machine Workflow, DOM Event Propagation, BFCache Page Lifecycle, Service Workers, React Suspense Resource Cache, and Browser Rendering Pipeline. Routing quality depends on all of those pieces, not just stack mutation.',
       ],
     },
   ],

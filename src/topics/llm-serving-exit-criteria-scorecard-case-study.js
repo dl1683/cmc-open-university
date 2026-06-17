@@ -229,10 +229,93 @@ export const article = {
     { title: 'NVIDIA CUDA Graphs Best Practices', url: 'https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/best-practices.html' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['An LLM serving exit scorecard is a release gate for inference optimizations. It stops teams from shipping a change because throughput improved while p99, quality, cache hit rate, graph capture, or rollback safety quietly regressed.', 'The local inference-scaling notes give examples of exit criteria: GPU utilization, CUDA graph use, quantization regression, cache hits, speculative speedups, invalid-output rate, and stable tail latency. This case study turns that into a reusable scorecard.'] },
-    { heading: 'How it works', paragraphs: ['Every serving lever gets a metric pair: what it should improve and what it might harm. Dynamic batching should improve utilization without p99 damage. CUDA graphs should show capture hit rates and eager fallback. Prefix caching should show hit rate and recompute saved. Quantization should show quality regression. Speculation should show acceptance rate and target-only fallback.', 'The scorecard joins load tests, offline quality evals, canaries, rollback paths, and cost per accepted answer. A release packet stores those artifacts so future teams can understand what changed.'] },
-    { heading: 'Complete case study', paragraphs: ['A team enables CUDA graph replay for hot decode shapes. Throughput rises in synthetic load tests, but canary p99 worsens on rare dynamic shapes because the system falls back unpredictably. The scorecard holds the release. The fix is a shape cache, better bucketing, and an explicit eager fallback path. Only after capture hit rate, quality, p99, and rollback pass does the feature ship.', 'The same pattern applies to prefix caching, quantization, dynamic batching, and speculative decoding. Each lever needs a gate and a rollback route.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not use average tokens per second as the release criterion. Do not ignore quality because the optimization is "only serving." Do not ship a cache or graph feature without a kill switch. Do not report cost per generated token when the product pays for accepted answers after retries and verifier work.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: vLLM prefix caching at https://docs.vllm.ai/en/stable/design/prefix_caching/, vLLM CUDA graphs at https://docs.vllm.ai/en/latest/design/cuda_graphs/, Triton dynamic batching at https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/batcher.html, and NVIDIA CUDA Graphs best practices at https://docs.nvidia.com/dl-cuda-graph/torch-cuda-graph/best-practices.html. Study LLM Inference Scaling Playbook, LLM Inference Cost Stack, CUDA Graph Shape Cache, Speculative Decoding Acceptance Ledger, SLO-Aware LLM Request Router, and Benchmark Variance & Model Selection next.'] },
+    {
+      heading: 'The problem',
+      paragraphs: [
+        'LLM serving optimization is full of partial wins. Dynamic batching can raise tokens per second while increasing queueing delay. CUDA graph replay can make hot shapes fast while rare shapes fall back unpredictably. Prefix caching can save prefill compute while increasing memory pressure or key-invalidation risk. Quantization can reduce cost while damaging a protected quality slice. Speculative decoding can look fast until acceptance rate falls.',
+        'The danger is shipping from the headline metric. A team sees higher throughput, lower average latency, or lower cost per generated token and treats the change as ready. Users experience something broader: time to first token, inter-token latency, p99, answer quality, invalid output rate, availability, routing correctness, and the ability to roll back quickly when a slice breaks.',
+        'An exit criteria scorecard is a release gate for serving changes. It turns the optimization into a set of pass/fail claims: what should improve, what must not regress, which slices were tested, how the canary behaved, and how rollback was proven. It is the difference between a promising benchmark and a production-ready change.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is lever-local benchmarking. If the team changed batching, measure throughput. If it enabled CUDA graphs, measure kernel overhead. If it added prefix caching, measure cache hit rate. If it quantized a model, measure cost. If it enabled speculation, measure generated tokens per second.',
+        'This is necessary but not sufficient. Every serving lever moves load somewhere else. Batching improves GPU occupancy by making requests wait for compatible neighbors. Graph capture speeds replay by constraining shapes and execution paths. Prefix caching saves recompute by spending memory and relying on key correctness. Quantization lowers memory and bandwidth cost by changing numerical behavior. Speculation reduces target-model work only when the draft path is accepted often enough.',
+        'A local benchmark usually runs in a cleaner world than production: controlled prompts, stable hardware, predictable routes, warm caches, and no angry tenants. The exit scorecard exists because production readiness is a joint property, not the maximum value on one chart.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core data structure is a multi-gate release packet. Each gate pairs the intended win with the failure mode that could invalidate it. Batching pairs utilization with p99 and queue caps. CUDA graphs pair capture hit rate with eager fallback. Prefix caching pairs hit rate with memory pressure and key correctness. Quantization pairs cost with protected evals. Speculation pairs speedup with acceptance rate and target-only fallback.',
+        'The invariant is that an optimization ships only when useful cost improves without violating latency, quality, reliability, or rollback constraints. Useful cost is important: a cheaper generated token is not a win if more answers are rejected, more verifier retries are needed, or more users abandon before the first token.',
+        'The packet should be durable. It stores load runs, eval reports, canary slices, route logs, cache statistics, graph capture coverage, cost calculations, rollback tests, and owner decisions. Future engineers need to know why the change shipped and which boundaries were considered safe.',
+      ],
+    },
+    {
+      heading: 'The scorecard shape',
+      paragraphs: [
+        'A useful scorecard starts with the hypothesis. Example: "enable larger dynamic batches for short prompts to raise GPU utilization without increasing p99 beyond 10 percent." That sentence names the lever, target slice, desired win, and guardrail. Vague goals such as "make serving faster" are not exit criteria.',
+        'The next layer is measurement by slice. Prompt length, output length, tenant, model version, GPU type, risk class, route, cache state, and traffic phase can all change the result. A change that is safe for short low-risk prompts on one GPU type may be unsafe for long regulated answers on another route.',
+        'The final layer is decision evidence. Each gate has a threshold, owner, artifact, and rollback path. A release packet should say not only "p99 passed" but which load run, which workload mix, which percentile window, which regression threshold, and which rollback flag was tested.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A proposed change enters the scorecard with a declared hypothesis and rollback plan. Before canary, load tests measure throughput, GPU utilization, TTFT, inter-token latency, p50, p95, p99, error rate, queue age, and cost per accepted answer. These tests should include realistic prompt and output distributions, not only the easiest hot path.',
+        'Quality gates run separately. They should check protected tasks, invalid-output rate, structured-output validity, refusal or safety behavior where relevant, and any product-specific verifier. A serving optimization is not allowed to buy speed by making the model worse on the slices that matter.',
+        'Lever-specific gates then check the mechanism. Dynamic batching needs queue caps, deadline-aware admission, and proof that tail latency is still inside budget. CUDA graph changes need shape coverage, capture hit rate, memory behavior, and eager fallback. Prefix caching needs key correctness, eviction behavior, memory pressure, and a disable switch. Quantization needs full-precision fallback and quality deltas by slice. Speculation needs acceptance rate, draft overhead, target-only fallback, and cost per accepted token.',
+        'Canary gates put the change into real traffic gradually. The canary should be sliced: tenant cohort, prompt length, model route, hardware, risk class, and traffic time. Rollout only widens if live metrics match the safe region. If a guardrail trips, the rollback path should be immediate, tested, and visible in the release packet.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The scorecard works because it forces every local win to pay rent at the product boundary. Throughput is checked against p99. Cost is checked against accepted-answer quality. Cache hit rate is checked against memory pressure and correctness. Graph speed is checked against fallback behavior. Canary success is checked against rollback readiness.',
+        'It also makes interactions visible. Serving levers compound. Larger batches can change graph shape distribution. Prefix caching can change memory headroom for batching. Quantization can change speculative acceptance. A scorecard that records the whole packet catches regressions that single-lever dashboards miss.',
+        'This is not a mathematical proof that future traffic will behave like the canary. It is a control loop. The packet defines the expected safe region. The rollout watches live slices for drift. Rollback turns a failed assumption into a contained incident instead of a platform-wide outage.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost is slower release velocity. Every gate needs instrumentation, thresholds, owners, artifacts, and a way to reproduce failures. Load tests require representative traffic. Quality gates require maintained evals. Canary gates require routing and observability. Rollback gates require engineering work that does not appear in the headline speedup.',
+        'The process can also become bureaucratic if every small experiment needs a full production packet. The right response is scaling the gate to the blast radius. A private experiment might need a simple hypothesis, load check, quality check, and flag. A shared inference platform serving many tenants needs the full packet.',
+        'The tradeoff is worthwhile because serving regressions are expensive and often nonlinear. A small p99 regression can trigger retries that increase load. A small quality regression can increase verifier retries or support tickets. A rollback path that was assumed but never tested can turn a five-minute bad canary into a long incident.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'The pattern wins for shared inference platforms, high-volume chat products, agent systems with tool deadlines, regulated answer domains, and any team operating several levers at once. It is most valuable when a serving change can affect many tenants or when quality failures are more expensive than raw latency failures.',
+        'It also wins as organizational memory. Six months after a change shipped, the packet explains which workload mix was tested, which GPU types were covered, which fallback exists, and which metric should page the owner. That matters when the next team changes batching, model version, cache policy, or hardware and accidentally moves outside the original safe region.',
+        'The scorecard is also useful for saying no. If a change improves a synthetic benchmark but fails long-context p99 or protected evals, the release decision is clear. The team can keep the branch as research without pretending it is production-ready.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The scorecard fails when gates become decorative. If thresholds are vague, owners are missing, artifacts are not reproducible, or rollback was never exercised, the packet is just a report. It creates the appearance of discipline without changing release risk.',
+        'It also fails when averages hide the slice that matters. A canary can pass overall while failing long prompts, one GPU generation, one tenant, one language, or one high-risk task class. The scorecard must force slice-level evidence where the product has slice-level risk.',
+        'Finally, it fails when teams freeze the scorecard while the platform changes. New models, new hardware, new routing, new safety policy, and new traffic distributions can invalidate old thresholds. Exit criteria should be versioned like any other production contract.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        'A team enables CUDA graph replay for hot decode shapes. The first synthetic test looks excellent: kernel overhead falls and throughput rises. The scorecard does not ship yet. It asks for capture hit rate by shape, TTFT, inter-token latency, p99 by prompt length, memory overhead, quality deltas, canary behavior, and eager fallback.',
+        'The canary exposes the problem. Short prompts on the dominant GPU type improve, but long prompts on a smaller route hit rare dynamic shapes and fall back unpredictably. Overall throughput is up, but p99 for that slice is worse. The scorecard holds the release rather than averaging the failure away.',
+        'The fix is better shape bucketing, a bounded shape cache, clearer fallback routing, and a flag that can disable graph replay per route. The second packet passes capture coverage, p99, quality, canary, and rollback. Now the feature ships with evidence, not just optimism.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'The references for this topic point to concrete mechanisms: vLLM prefix caching, vLLM CUDA graphs, Triton dynamic batching, and NVIDIA CUDA Graphs best practices. Read them with the scorecard question in mind: what does this mechanism improve, what slice can it hurt, what metric proves it, and how do you roll it back?',
+        'Study CUDA graph shape caches, speculative decoding acceptance ledgers, prompt-cache key canonicalization, SLO-aware request routing, GenAI token cost ledgers, continuous batching, prefix caching, quantization, and benchmark variance next. The recurring lesson is that serving optimization is not a single metric race. It is a release discipline around useful cost, quality, tail latency, and reversibility.',
+      ],
+    },
   ],
 };

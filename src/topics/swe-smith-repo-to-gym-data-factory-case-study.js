@@ -198,38 +198,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'SWE-smith is a case study in scaling software-engineering agent data. The reusable idea is repo-to-gym conversion: take a real codebase, construct an executable environment, synthesize tasks that break tests, roll out agents, verify repairs, and promote clean trajectories into training or evaluation datasets.',
-        'This topic overlaps intentionally with Synthetic Bug Mutation Oracle Case Study, but it is not the same lesson. The mutation module explains one oracle mechanism. SWE-smith is the larger factory pattern: repository readiness, gym construction, task generation, trajectory collection, promotion, model training, and split hygiene.',
+        'Coding agents do not become useful from static prompt-answer pairs alone. Real software work happens inside repositories with dependencies, build scripts, failing tests, hidden assumptions, style conventions, and years of accumulated design choices. A repo-to-gym factory exists because the training unit has to move closer to that real working environment.',
+        'SWE-smith is useful to study as a data factory, not just as a benchmark generator. It starts from repositories, wraps them as executable gyms, creates repair tasks, runs agents, verifies outcomes, and promotes only the artifacts that can be replayed and trusted. The output is not merely more examples. It is examples with environment state, proof, provenance, rejection reasons, and split discipline.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The Baseline Wall',
       paragraphs: [
-        'The factory uses repository manifests, executable images, baseline test ledgers, task generator configs, mutation or issue families, gym APIs, rollout traces, verifier proofs, promotion labels, dedupe fingerprints, split ledgers, and model-training manifests.',
-        'The split ledger is especially important. It should prevent near-duplicate task families, mutation operators, repositories, or proof traces from appearing on both training and evaluation sides. Otherwise benchmark gains may reflect leakage rather than general software-engineering skill.',
+        'The obvious baseline is scrape many repositories, ask a model to invent issues, and keep the repairs that pass tests. That creates volume, but volume is not the same as usable training data. Many repositories do not build cleanly. Many test suites are flaky or shallow. Some projects have licenses that block use. Some generated bugs are artificial in a way that teaches the model to satisfy the generator rather than maintain software.',
+        'The harder wall is trust. A synthetic task can be too local, too repetitive, too easy to reverse engineer from the failing test, or too far from realistic maintenance. A reported improvement can also be leakage if near-duplicate repositories, task families, mutation operators, or proof traces appear in both training and evaluation. The factory has to reject aggressively or the dataset becomes a mirror for its own shortcuts.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Core Insight',
       paragraphs: [
-        'A repository first passes readiness gates: build, baseline tests, oracle coverage, license, cost, and privacy. The factory wraps it as a gym with reset and test operations. Task generation creates candidate bugs or repair tasks. Verifiers reject invisible, flaky, duplicate, or unsafe tasks. Agents then produce trajectories that are labeled as success, failure, partial repair, rejected, or holdout.',
-        'At scale, the factory is a data platform. It needs job queues, image caches, test runners, artifact storage, provenance records, cost accounting, and periodic refresh. The model checkpoint is the visible output, but the repository gym fleet is the scarce asset.',
+        'The core insight is to treat coding-agent data as manufactured output. A task is not trusted because it was generated. It becomes trusted when the factory can show the repository version, image digest, baseline command, failing command, task source, repair diff, verifier result, dedupe fingerprint, cost, and split assignment.',
+        'The promotion ledger is the boundary between raw activity and usable data. It decides whether a task enters supervised training, reinforcement learning, critic training, process-reward modeling, evaluation, quarantine, or rejection. That ledger is the data structure that protects the rest of the pipeline from wishful thinking.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the Visual Model Teaches It',
       paragraphs: [
-        'A Python library enters the factory. Its baseline tests pass in a pinned image. The gym generator removes an edge-case guard, producing a failing test. An agent repair trajectory restores the guard and passes the verifier twice. The promotion ledger stores the image digest, bug family, failing command, repair diff, passing proof, cost, dedupe hash, and split assignment.',
-        'The same factory can collect positive repairs, negative failed attempts, partial repairs useful for process supervision, and clean holdouts for evaluation. That diversity matters because coding agents need both generation skill and verifier-aware search behavior.',
+        'The pipeline view separates source material from training material. The repository is only an input. The environment image, baseline tests, gym API, task generator, agent rollout, verifier, and split ledger are separate stations because each one can accept, transform, or reject the candidate. Dataset quality comes from gates, not from scale alone.',
+        'The promotion view puts the verifier in the center. A generated bug is raw material. A rollout is raw material. The factory earns trust only when it records why the task failed, what repair was attempted, what proof passed or failed, and where the resulting artifact may be used. The visual model is a manufacturing line with audit evidence at every handoff.',
       ],
     },
     {
-      heading: 'Pitfalls and sources',
+      heading: 'Mechanism',
       paragraphs: [
-        'Do not treat generated tasks as automatically realistic. Synthetic tasks can become repetitive, too local, too test-shaped, or too easy to reverse engineer. Do not train on every passing repair without dedupe and split gates. Do not ignore repository licensing and private data. Do not report model gains without naming whether evaluation held out repositories, task families, and mutation families.',
-        'Primary sources: SWE-smith paper at https://arxiv.org/abs/2504.21798, SWE-smith site at https://swesmith.com/, SWE-smith GitHub at https://github.com/SWE-bench/SWE-smith, CWM at https://arxiv.org/abs/2510.02387, SWE-bench at https://github.com/swe-bench/SWE-bench, and SWE-agent at https://arxiv.org/abs/2405.15793. Study Synthetic Bug Mutation Oracle Case Study, Executable Repository Image Build Cache Case Study, Verified Agent Trajectory Store, Agent Trajectory Dedupe & Provenance Hash, Coding Agent Edit Grammar Adapter Case Study, and Process Reward Models & Verifier Search next.',
+        'A repository first goes through readiness gates. The factory checks whether it can build, whether baseline tests pass, whether the oracle is strong enough to identify a meaningful failure, whether the project size is practical, whether the license permits use, and whether privacy filters can remove secrets or sensitive material. Repositories that fail these gates should not silently enter training.',
+        'Accepted repositories are wrapped as gyms with operations such as reset, inspect, edit, run, test, and score. The task generator then creates candidate repair problems through controlled mutations, issue transformations, or other task families. Agents run inside the same gym, producing trajectories that include tool calls, diffs, test output, error messages, and final verifier results.',
+      ],
+    },
+    {
+      heading: 'Verification',
+      paragraphs: [
+        'The verifier is not a decorative test runner. It proves that the baseline state was valid, the task introduced a target failure, the agent response changed the repository, and the final state satisfies the accepted oracle. It should rerun flaky-looking cases, record command output, and preserve enough information for another worker to replay the decision later.',
+        'Correctness is replayability plus separation. Replayability means the task can be reconstructed from the recorded repository version, image digest, setup commands, task generator configuration, failing command, repair proof, and environment variables. Separation means training and evaluation are split by repository, task family, mutation family, and proof family so the model cannot win by seeing near copies.',
+      ],
+    },
+    {
+      heading: 'What Counts as Data',
+      paragraphs: [
+        'A mature factory keeps more than successful repairs. A clean success can train patch generation. A verified failure can train a critic or search policy. A partial repair can teach process reward models where progress happened before the final answer failed. A quarantined task can reveal a flaky oracle or generator bug. A rejected task can still improve future generator filters.',
+        'This is why the promotion labels matter. Positive trajectories, negative traces, partial repairs, holdouts, flaky rejects, privacy rejects, license rejects, and duplicate rejects should be different states. Collapsing them into pass or fail throws away the structure that makes large-scale coding-agent training controllable.',
+      ],
+    },
+    {
+      heading: 'Costs and Metrics',
+      paragraphs: [
+        'The visible output is a model checkpoint or benchmark score, but the scarce asset is the repository gym fleet. Every promoted task consumes build time, image storage, runner time, network bandwidth, test time, verifier reruns, artifact storage, and human review for policy edge cases. Cost per promoted task is often a better metric than raw generated task count.',
+        'A healthy factory discards many candidates. That is not waste by itself. Repository gates, oracle gates, flake checks, privacy filters, dedupe, and split rules should shrink the pool. Factory metrics should include rejection reasons, proof pass rate, duplicate rate, repository diversity, task-family diversity, rerun disagreement, and evaluation leakage checks.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The approach works because runnable repositories provide state and executable feedback. The agent is trained against real files, real dependencies, real command output, and real tests. That gives the training data a texture that static examples cannot provide: navigation, hypothesis formation, failed commands, repair attempts, and final proof.',
+        'It also works because the factory can align several learning signals around the same environment. The same gym can produce supervised patches, reinforcement rollouts, verifier-labeled failures, process traces, and evaluation holdouts. The invariant tying them together is that every promoted item has a reproducible origin and a recorded reason for its label.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'A repo-to-gym factory wins when the goal is scalable, executable coding-agent data. It is useful for repair tasks, negative trajectories, partial solutions, benchmark refresh, curriculum construction, and controlled comparisons among agents. It is especially strong when the repository pool is diverse enough to teach navigation, dependency handling, test interpretation, and patch design across different project cultures.',
+        'It also wins when the organization needs a reliable training loop. The same factory can generate new tasks, evaluate regressions, measure verifier drift, inspect cost per promoted item, and refresh holdouts. That makes it a system for continuous data production rather than a one-time benchmark scrape.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'It fails when generated tasks are automatically treated as realistic. A mutation can be easy to detect, unlike real bugs. A failing test can over-specify the repair. A repository can be too small to require meaningful navigation. A generator can create thousands of tasks that all teach the same trick. Synthetic scale is only useful when diversity and proof stay visible.',
+        'It also fails when evaluation discipline is weak. If the model trains on near-duplicates of the holdout, the reported score is factory overfitting. Do not trust gains unless the report names how repositories, task families, mutation families, proof families, and generated traces were separated.',
+      ],
+    },
+    {
+      heading: 'Complete Case Study',
+      paragraphs: [
+        'A Python library enters the factory. The repository builds in a pinned image, baseline tests pass, the license gate permits use, and secret scanning finds nothing sensitive. The gym generator removes an edge-case guard from a parser. One existing test now fails, and a new generated check confirms the same behavior from a second angle.',
+        'An agent inspects the failing command, reads the parser, patches the guard, and reruns the tests. The verifier repeats the relevant commands, stores the diff, records the image digest, assigns a mutation-family fingerprint, and checks for near-duplicates. The promotion ledger can now place the success in training while reserving related tasks for evaluation or rejection.',
+      ],
+    },
+    {
+      heading: 'Operational Guidance',
+      paragraphs: [
+        'Run the factory like an evidence system. Track build pass rate, baseline flake rate, oracle strength, task promotion rate, duplicate rate, privacy reject rate, cost per promoted task, rerun disagreement, repository diversity, task-family diversity, and evaluation leakage checks. A dashboard that shows only total tasks generated is hiding the most important information.',
+        'Keep the split ledger conservative. Hold out whole repositories when possible. Hold out task families when repository holdout is not enough. Recompute dedupe fingerprints when the generator changes. Store failed verifier proofs, not only passing artifacts, because the failure distribution is often where generator debt first appears.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary sources: SWE-smith paper at https://arxiv.org/abs/2504.21798, SWE-smith site at https://swesmith.com/, SWE-smith GitHub at https://github.com/SWE-bench/SWE-smith, CWM at https://arxiv.org/abs/2510.02387, SWE-bench at https://github.com/swe-bench/SWE-bench, and SWE-agent at https://arxiv.org/abs/2405.15793.',
+        'Study Synthetic Bug Mutation Oracle Case Study, Executable Repository Image Build Cache Case Study, Verified Agent Trajectory Store, Agent Trajectory Dedupe & Provenance Hash, Coding Agent Edit Grammar Adapter Case Study, Process Reward Models & Verifier Search, and Evaluation Leakage Dedupe for the next layer of this curriculum.',
       ],
     },
   ],

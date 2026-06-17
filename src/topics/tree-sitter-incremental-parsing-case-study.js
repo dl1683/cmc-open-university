@@ -221,44 +221,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Tree-sitter is a parser generator and incremental parsing library for programming tools. It builds concrete syntax trees for source files and updates those trees efficiently as the source changes. The important data-structure idea is not just parsing. It is keeping a versioned, position-aware tree synchronized with an editor buffer.',
-        'This belongs after Parser Design Patterns Primer, Text Rope Data Structure, Piece Table Text Buffer, Pratt Parser Expression AST, and Zipper Focused Tree. Those topics explain inputs, edits, expression trees, and localized tree navigation. Tree-sitter combines them into a production editor substrate.',
+        `Tree-sitter exists because code editors need syntax information while the code is changing. A user types half a function, deletes a brace, pastes a block, or opens a file with mixed languages. The editor still has to highlight tokens, fold blocks, show local symbols, support structural selection, and keep diagnostics useful.`,
+        `A compiler-style parser is usually built for a different moment. It receives a complete file or compilation unit and can reject invalid input. An editor parser lives during the messy middle. Most source buffers are temporarily broken many times per minute, and the parser must recover quickly enough that the UI does not lag behind typing.`,
+        `Tree-sitter is a parser generator and incremental parsing library designed for that editor workload. It keeps a concrete syntax tree synchronized with an editable buffer, reuses unchanged subtrees after edits, and reports the ranges whose syntax actually changed. That makes syntax a maintained data structure rather than a full-file rebuild.`,
+      ],
+    },
+    {
+      heading: 'The naive approach',
+      paragraphs: [
+        `The naive editor pipeline reparses the entire file after every edit and repaints every syntax-dependent feature. This is easy to reason about. The current buffer goes in, a new tree comes out, and the editor throws away all old derived state. For small files and simple grammars, it may be fine.`,
+        `The wall appears when files grow, grammars become ambiguous, and editor features stack up. Syntax highlighting, folding, symbol extraction, code navigation, lint rules, semantic tokens, and language server requests all depend on the parse. If every keystroke invalidates everything, one local edit can create global work and visible jank.`,
+        `There is also a correctness problem. If the editor has cached node handles, query captures, symbol ranges, or diagnostic positions, a full reset must invalidate all of them exactly. A stale range can paint the wrong text. A stale symbol can point navigation to the wrong function. Reparse-everything sounds simple until the editor has many caches that must agree on the same source version.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `The core insight is that most edits do not change most of the syntax tree. Renaming a variable inside a function should not rebuild the parse of every other function. Inserting an argument should not force the editor to rediscover unrelated class declarations. If the old tree is adjusted into the new coordinate space, a parser can reuse large unchanged subtrees.`,
+        `Tree-sitter treats an edit as structured data. The edit records old byte positions, new byte positions, old row-column points, and new row-column points. The old tree is edited first so its node ranges match the new buffer coordinates. The parser then receives the new text plus the edited old tree and can search for reusable structure.`,
+        `The result is not only a new tree. The system can compute changed ranges. Those ranges are the bridge from parsing to tooling. Highlighting, folding, query captures, symbol indexes, and UI repaint can update locally instead of pretending the whole file became unknown.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'After an edit, the application records the changed byte span and row-column span. It applies that edit to the old tree so existing node positions shift into the new coordinate space. Then the parser reparses with the edited old tree, producing a new tree that can internally share unchanged structure.',
-        'The resulting old-versus-new comparison yields changed ranges: source regions whose syntax ancestry changed. Editors can use those ranges to refresh highlighting, folds, symbol indexes, diagnostics, and semantic caches without treating every keystroke as a whole-file reset.',
+        `The editor starts with a text buffer, often backed by a rope, piece table, or similar edit-friendly structure. When the user inserts or deletes text, the editor knows the span that changed. That span is translated into byte offsets and row-column points because parser nodes need both raw byte positions and human line-column positions.`,
+        `Before reparsing, the old syntax tree receives the same edit. This does not make the old tree correct. It shifts the old tree so unchanged nodes now point at their new positions. Without this step, a reusable subtree would have old coordinates and would corrupt every downstream cache.`,
+        `The parser then reads the new buffer and the edited old tree. Where grammar context still matches, it can keep old subtrees. Where the edit changed syntax, it reparses. The changed-ranges comparison identifies parts of the old and new trees whose structure differs. An editor can use those ranges to repaint only affected text and update local indexes.`,
+        `Queries turn the concrete tree into features. A query pattern matches nodes, fields, anonymous tokens, error nodes, or missing nodes and emits captures such as a function name, string literal, or fold boundary. The query layer is why Tree-sitter can support many editor features without writing a custom walker for every task.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The central structures are a source buffer, edit records, concrete syntax tree nodes, named and anonymous child relationships, field names, changed ranges, query patterns, and captures. The source buffer may be a rope or piece table; Tree-sitter can parse through a callback instead of requiring one flat string.',
-        'The tree is concrete because editors care about punctuation, delimiters, comments, and broken syntax. Named nodes provide AST-like semantic traversal, while anonymous nodes preserve token-level detail. Error and missing nodes let the tree remain useful while code is incomplete.',
+        `The edit-and-reuse visual proves that parsing is part of a cache pipeline. Buffer, old tree, edit record, parser, new tree, changed ranges, query results, and UI refresh must all refer to one source version. The important motion is not "parse again." The important motion is "repair the old structure enough to reuse what remains true."`,
+        `The queries-and-tooling visual proves why Tree-sitter keeps a concrete syntax tree rather than only a clean abstract syntax tree. Editors care about punctuation, anonymous tokens, error nodes, missing tokens, and field names. A formatter, highlighter, fold provider, symbol index, and diagnostic view all need slightly different slices of the same tree.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A developer renames a JavaScript variable inside one function. The editor updates the piece table, constructs a Tree-sitter edit with old and new byte/point positions, edits the old tree, reparses with that old tree, and asks for changed ranges. Highlighting, local symbols, folding ranges, and diagnostics are refreshed only in the affected function body.',
-        'A mixed HTML template adds a second layer. The outer grammar identifies embedded JavaScript or Ruby ranges. The application parses those included ranges with the inner-language parser, then merges query captures into one editor view. The key lesson is that language composition is coordinated by the application using ranges, not by pretending one grammar owns the whole file.',
+        `Incremental parsing works when the parser can preserve this invariant: reused nodes describe exactly the same source text and grammar structure as before, just at updated positions. The edit operation preserves coordinates. The parser's grammar checks preserve syntactic validity around the edit. Changed ranges expose the remaining uncertainty to downstream tools.`,
+        `The approach also works because concrete syntax is stable enough for editor features. A compiler may discard punctuation and recover a semantic AST later. An editor cannot. The user sees tokens, commas, braces, comments, and incomplete statements. Keeping named and anonymous nodes lets the same tree serve both AST-like walks and token-level features.`,
+        `Error and missing nodes are part of the correctness story. During editing, code is often invalid. Tree-sitter can represent unrecognized text as ERROR nodes and recovered absent tokens as MISSING nodes. That means tools can keep working around broken code instead of falling back to raw text until the file compiles again.`,
       ],
     },
     {
-      heading: 'Cost and pitfalls',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Incremental parsing is not magic. An edit inside an unclosed string, a missing brace, or an ambiguous grammar region can widen the changed range. Stored node handles can become stale unless they are edited or refetched. Query captures also need versioning so UI features do not mix old-tree results with new-buffer text.',
-        'The production failure mode is usually cache drift. The buffer, tree, changed ranges, query captures, symbol index, and painted UI must all refer to the same source version. If one layer updates while another layer lags, the editor shows wrong highlights, stale diagnostics, or broken refactors.',
+        `Incremental parsing is usually much cheaper than whole-file parsing, but it is not magic constant time. Some edits have a wide blast radius. An unclosed string can change how the rest of the file tokenizes. A deleted brace can move many statements into a different block. A grammar ambiguity can force wider repair. Embedded languages can require several trees and included ranges.`,
+        `The maintained tree also consumes memory. The editor keeps source text, syntax tree nodes, query caches, symbol indexes, diagnostics, and painted ranges. Each cache must be invalidated by version and range. A fast parser with sloppy cache discipline still produces wrong UI.`,
+        `Grammar quality matters. A grammar that is too permissive may recover quickly but hide real errors. A grammar that is too brittle may produce large ERROR regions and poor highlighting while users type. Good editor grammars are engineered for partial code, not just for final programs.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Tree-sitter repository at https://github.com/tree-sitter/tree-sitter, Tree-sitter basic parsing docs at https://tree-sitter.github.io/tree-sitter/using-parsers/2-basic-parsing.html, Tree-sitter advanced parsing docs at https://tree-sitter.github.io/tree-sitter/using-parsers/3-advanced-parsing.html, and Tree-sitter query syntax docs at https://tree-sitter.github.io/tree-sitter/using-parsers/queries/1-syntax.html. Study Parser Design Patterns Primer, Text Rope Data Structure, Piece Table Text Buffer, Pratt Parser Expression AST, Zipper Focused Tree, JSON Parser Stack, Yjs Struct Store Update Case Study, and Virtual DOM next.',
+        `Tree-sitter wins in code editors, code search, structural selection, syntax highlighting, folding, local symbol extraction, simple lint rules, refactoring helpers, and language-aware navigation. The common access pattern is local change followed by local refresh. That is exactly the workload incremental parsing is built for.`,
+        `It is also useful for tooling that wants consistent syntax across many languages. A query can capture functions, classes, calls, comments, or strings in a grammar-specific way while exposing a common matching model. This is why Tree-sitter is attractive for editor ecosystems and code intelligence tools that need broad language coverage.`,
+        `The curriculum bridge is clean. Text Rope or Piece Table explains editable buffers. Parser topics explain grammars. Tree-sitter shows how those ideas become an interactive system: edit positions, concrete syntax trees, query captures, changed ranges, and UI invalidation.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `Tree-sitter is not a full compiler. It does not solve type checking, cross-file symbol resolution, macro expansion, build-system configuration, module resolution, or semantic refactoring by itself. A language server may use Tree-sitter as a fast syntax layer, but deeper intelligence needs more context.`,
+        `Stored node references can go stale if code keeps them across edits without checking tree versions. Query captures can also go stale. Embedded languages add another risk: the host tree must identify included ranges correctly, and child parsers must parse the right spans. A bug in that boundary can make syntax features disappear or apply to the wrong language.`,
+        `The last failure mode is over-trusting changed ranges. They describe syntax structure changes, not every semantic consequence. Renaming a function may affect references elsewhere even if the syntax tree outside the local range did not change. Incremental syntax is a foundation, not the whole editor brain.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Text Rope and Piece Table for editable buffers, Pratt Parser and JSON Parser Stack for parsing basics, Zipper Focused Tree for localized tree updates, Virtual DOM for another changed-range rendering model, and Yjs Struct Store for collaborative text updates.`,
+        `For primary Tree-sitter references, read the basic parsing guide, advanced parsing guide, query syntax guide, and the Tree-sitter repository. Then build a small experiment: parse a file, apply one edit, update the old tree, reparse, print changed ranges, and rerun one query only inside those ranges. That exercise makes the cache contract concrete.`,
       ],
     },
   ],

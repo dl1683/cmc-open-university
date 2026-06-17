@@ -242,37 +242,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An interference graph is the conflict graph behind graph-coloring register allocation. Each node is a virtual register or live range. An edge means the two values are simultaneously live and cannot use the same physical register.',
-        'The connection to Data-Flow Worklist Analysis is direct: liveness computes where values may still be used. The allocator turns those live sets into conflicts, then tries to color the graph with the target machine registers.',
+        'Machine code wants operands in physical registers, but an optimizing compiler creates many more temporary values than the hardware can hold at once. Register allocation is the pass that decides which virtual values get real registers, which values can reuse the same register at different times, and which values must be stored in memory.',
+        'The hard constraint is not variable names or source order. It is liveness. If two values may both be needed in the future at the same program point, assigning them to the same register would overwrite one live value with another. The allocator needs a global view of those conflicts before it can make local instruction choices.',
+      ],
+    },
+    {
+      heading: 'Obvious approach and wall',
+      paragraphs: [
+        'A tempting allocator walks instructions forward, hands each new temporary the first available register, and spills when the set is full. That can work for tiny straight-line fragments where lifetimes start and end in a simple stack-like order.',
+        'Real programs have branches, joins, loops, calls, and values whose live ranges overlap in nonlocal ways. A greedy choice can waste a scarce register on a cold value while forcing a hot loop value into memory. It can also miss move coalescing opportunities that would remove copies entirely.',
+        'The wall is that register pressure is global. A choice that looks cheap at one instruction can make a later loop, join block, or call boundary more expensive. The allocator needs a conflict model before it can make local assignments responsibly.',
+      ],
+    },
+    {
+      heading: 'Core insight and invariant',
+      paragraphs: [
+        'An interference graph converts the register allocation problem into a graph coloring problem. Nodes are virtual registers or live ranges. An edge means the two nodes are simultaneously live somewhere, so they cannot share a physical register.',
+        'Colors are physical registers. A legal coloring assigns colors so every interference edge connects different colors. When the graph cannot be colored with the available register set, the compiler changes the program by spilling, splitting live ranges, rematerializing values, or choosing a different allocation strategy.',
+        'The invariant is direct: any two simultaneously live values must either occupy different registers or one of them must be moved somewhere else before the conflict matters.',
+      ],
+    },
+    {
+      heading: 'Animation and readouts',
+      paragraphs: [
+        'In the liveness view, treat each basic block and live-set row as evidence for edges. When the animation highlights a definition and the values live after it, it is showing the moment a storage conflict becomes a graph edge.',
+        'In the coloring view, the important motion is remove, stack, select, and possibly spill. Low-degree nodes are easy because there will be a color left when they return. High-pressure nodes are where heuristics enter: the allocator is betting that spilling or splitting one range will make the rest of the graph cheaper.',
+        'The pressure plot is a warning readout, not a complete allocator. It says how many values are live, but it does not show register classes, call clobbers, rematerialization cost, two-address instructions, or whether two move-related ranges should be coalesced.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A typical allocator computes live-in and live-out sets for machine blocks, then walks instructions backward. When an instruction defines v, every value live after that instruction interferes with v. Move instructions are treated specially because later coalescing may want the source and destination to share a register.',
-        'Coloring is a heuristic because general graph coloring is hard. Chaitin-style allocators simplify low-degree nodes, pick spill candidates for high-degree pressure, then pop nodes and assign colors. If coloring fails, the compiler rewrites the program with spill loads and stores and tries again.',
+        'The compiler first computes live-in and live-out sets over the control-flow graph. It then walks machine instructions, usually backward within blocks. When an instruction defines value v, every different value live after that instruction interferes with v, so the graph gets edges from v to those live values.',
+        'Move instructions receive special handling. If x is copied to y and x and y do not otherwise interfere, assigning them the same register can remove the copy. Coalescing tries to merge such nodes without making the graph too hard to color.',
+        'A Chaitin-style coloring allocator repeatedly simplifies the graph by removing nodes with degree lower than the number of available registers. It pushes removed nodes on a stack, picks spill candidates when pressure is too high, then pops nodes and selects colors. A node that cannot receive a legal color becomes a real spill, and the compiler inserts loads and stores, rebuilds liveness, and allocates again.',
+      ],
+    },
+    {
+      heading: 'Why coloring is sound',
+      paragraphs: [
+        'The graph is sound when every real simultaneous-liveness conflict has an edge. Then a legal coloring is enough to protect program values: adjacent nodes have different registers, so no live value is overwritten by another live value.',
+        'The simplification rule is the useful trick. If a node has fewer neighbors than there are registers, then after its neighbors are colored there must be at least one register left for it. Removing that node postpones the choice without losing a future legal color.',
+        'The hard cases are high-degree regions and machine constraints. Graph coloring is not magically solved by the model; the model gives the allocator a structure where spill cost, loop depth, register classes, and coalescing can be reasoned about explicitly.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Bad liveness produces either wrong code or slow code. Missing an interference edge can assign two live values to the same register, which is a correctness bug. Adding false edges can block legal sharing and create unnecessary spills.',
+        'Poor spill choices are a performance bug. Spilling a value used on every loop iteration can add loads and stores to the hottest path. Spilling a value that is cheap to recompute may be worse than rematerializing it. Spilling around calls must respect caller-saved registers, callee-saved registers, stack layout, and target ABI rules.',
+        'Coalescing can also backfire. Merging move-related nodes removes a copy, but it can raise degree and turn a colorable graph into one that spills. Production allocators constantly trade fewer moves against higher pressure.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The analysis cost starts with a data-flow fixed point for liveness. Graph construction can be heavy when many values are live together, because dense live sets create many interference edges. Coloring itself is heuristic because optimal coloring and optimal spilling are too expensive for normal compilation.',
+        'Compile-time cost is only half the story. Runtime cost comes from the generated code: spills, reloads, extra moves, missed coalescing, and register pressure around calls. A slower allocator can be worth it in an ahead-of-time compiler if it saves instructions in hot loops, while a JIT may choose a faster interval-based allocator.',
+      ],
+    },
+    {
+      heading: 'Where it wins and where it fits',
+      paragraphs: [
+        'Interference graphs are the cleanest teaching model for global register allocation. They explain why two live ranges can share a register, why two others cannot, why register pressure matters, and why spilling is a program rewrite rather than a bookkeeping note.',
+        'The model is less attractive when compile time dominates. Linear scan and greedy live-interval allocators are common in JITs and large production compilers because they are fast, incremental, and easier to adapt to engineering constraints. Even there, interference remains the underlying safety concept.',
+        'The graph model is also incomplete by itself. Real backends handle precolored registers, register classes, paired registers, subregister lanes, two-address instructions, calling conventions, inline assembly constraints, and late code changes. LLVM, for example, keeps machine code close to SSA until allocation, then lowers virtual registers into physical registers and stack slots.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'Suppose values a and b are live across a branch, c is produced on the left path, d is produced on the right path, and e is the value used after the join. a conflicts with b, c, and d. c conflicts with e if e must remain live while c is still needed. The resulting graph tells the allocator which pairs can safely share registers.',
-        'With only two physical registers, a wide value f that overlaps a and b may be too expensive to color. The allocator can spill f, insert a store after its definition and reloads before its uses, then rebuild smaller live ranges that fit the register budget.',
+        'Suppose values a and b are live across a branch. The left path computes c, the right path computes d, and a later join computes e. Liveness says a and b overlap with both branch temporaries, so the interference graph adds edges that prevent destructive sharing.',
+        'With only two registers, a wide value f that overlaps a and b may not color cheaply. The allocator can choose f as a spill candidate, insert a store after its definition and reloads before its uses, then run liveness again. The rewrite shortens live ranges so the new graph may fit the register budget.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'Practical guidance',
       paragraphs: [
-        'Real allocators also account for precolored registers, register classes, caller-saved and callee-saved registers, subregisters, two-address instructions, rematerialization, and split live intervals. The graph is the clean teaching object; the machine model adds constraints.',
-        'LLVM machine code is kept in SSA form until register allocation. After allocation, virtual registers disappear, physical registers and stack slots remain, and the program is no longer SSA. That transition is why phi elimination, coalescing, and register allocation are tightly linked.',
+        'When debugging allocator output, start with liveness. Check whether a suspicious spill is caused by true pressure, an overlong live range, a missed copy coalescing opportunity, or a target constraint such as a call-clobbered register.',
+        'When designing an allocator, keep the teaching model but do not stop there. Add spill weights based on use frequency and loop depth, split ranges around hot and cold regions, account for register classes, and rerun liveness after rewrite because the program changed.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
-        'Primary sources: Chaitin et al., Register Allocation & Spilling via Graph Coloring, at https://web.eecs.umich.edu/~mahlke/courses/583f12/reading/chaitin82.pdf and ACM DOI https://dl.acm.org/doi/10.1145/872726.806984; LLVM code generator documentation at https://llvm.org/docs/CodeGenerator.html; and UCLA register allocation reference at https://compilers.cs.ucla.edu/fernando/projects/soc/llvm_doc/regAlloc.html. Study Data-Flow Worklist Analysis, Linear Scan Register Allocation, Dominance Frontier SSA Construction, SSA Destruction Phi Elimination & Parallel Copy, Iterated Register Coalescing, Calling Convention & Stack Frame Layout, and Deoptimization Stack Maps & Safepoints next.',
+        'Primary sources: Chaitin et al., Register Allocation & Spilling via Graph Coloring, at https://web.eecs.umich.edu/~mahlke/courses/583f12/reading/chaitin82.pdf and ACM DOI https://dl.acm.org/doi/10.1145/872726.806984; LLVM code generator documentation at https://llvm.org/docs/CodeGenerator.html; and UCLA register allocation reference at https://compilers.cs.ucla.edu/fernando/projects/soc/llvm_doc/regAlloc.html.',
+        'Study Data-Flow Worklist Analysis for liveness, Linear Scan Register Allocation for the interval model, Dominance Frontier SSA Construction for SSA inputs, SSA Destruction Phi Elimination & Parallel Copy for lowering phis, Iterated Register Coalescing for move removal, and Calling Convention & Stack Frame Layout for ABI constraints.',
       ],
     },
   ],

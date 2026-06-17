@@ -383,54 +383,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why B+ trees exist',
       paragraphs: [
-        'A B+ tree is the page-oriented ordered index used by many database engines. It is closely related to the B-tree primer, but the production mental model is sharper: internal pages store separator keys and child pointers, while leaf pages store the actual index entries and links to adjacent leaves.',
-        'That leaf chain is the signature feature. A point lookup descends through high-fanout pages to one leaf. A range query descends once to the lower bound, then walks leaf siblings in key order. This is why the same index can support WHERE user_id = 42, ORDER BY created_at, and BETWEEN time windows.',
+        'A B+ tree is the ordered index shape that makes databases good at equality lookup, range lookup, and ordered traversal over page-sized storage. It exists because a binary search tree is the wrong mental model for disk and buffer pools. A binary tree makes one small decision per node. A database page can hold hundreds of keys, so one page read should narrow the search across hundreds of ranges.',
+        'The B+ tree separates routing from data. Internal pages store separator keys and child pointers. Leaf pages store the actual index entries. The leaves are linked to neighboring leaves in key order. That combination gives two important operations: a point lookup descends through a shallow high-fanout tree, and a range scan descends once then walks leaf siblings.',
+        'The leaf sibling chain is not a decorative addition. It is why an index can serve queries like customer_id = 17, created_at BETWEEN Monday and Friday, ORDER BY created_at LIMIT 50, and cursor-based pagination. After the first seek, the cursor can move through sorted leaf pages without returning to the root for every row.',
+      ],
+    },
+    {
+      heading: 'The naive approach and its wall',
+      paragraphs: [
+        'The naive way to support lookup is a sorted array. Binary search finds a key quickly, but insertion in the middle requires shifting entries, and the array does not naturally scale across pages. Another naive approach is a pointer-heavy binary search tree. It supports updates, but it wastes page locality and becomes too tall. A million entries should not require roughly twenty scattered node reads when a few page reads can do the job.',
+        'The naive way to support a range query is repeated point lookup: find the first key, then search again for the next key, and so on. That throws away the sorted-page advantage. A database range cursor should seek once, then advance through adjacent entries. B+ tree leaves make that possible because the next leaf pointer is part of the index structure.',
+        'The wall is page movement. A real database index lives in fixed-size pages under a buffer manager and write-ahead log. The structure must handle inserts, deletes, splits, recovery, and concurrent readers while preserving sorted order. The B+ tree is the practical answer to that page-level problem.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Search starts at the root. Each internal page uses the sorted separators to choose one child range. The engine repeats that decision until it reaches a leaf, then searches the leaf entries. In a secondary index, the leaf entry usually stores the indexed key plus a row pointer or primary-key value. In a covering index, the leaf can store enough columns to answer the query without visiting the table.',
-        'Range scans reuse the first descent. Once the cursor reaches the first matching leaf slot, it advances inside that leaf and then follows the next-leaf pointer. The upper tree is not revisited for every key. This is the practical advantage over a plain binary search tree drawing: database cursors move through pages, not isolated nodes.',
-        'Insertion descends to a leaf. If the page has room, the entry is inserted in sorted position. If it is full, the leaf splits: lower keys stay, upper keys move to a new right sibling, sibling links are repaired, and the first key of the new right page is copied into the parent as a separator. Parent pages can split too, and a root split adds a level.',
+        'Search begins at the root. Each internal page contains sorted separator keys. The engine compares the search key against those separators and chooses one child pointer. It repeats this decision until it reaches a leaf. In the leaf, it searches the entries and either finds a matching key or proves the key is absent from that leaf range.',
+        'All leaves stay at the same depth. This balance property gives predictable lookup cost. The cost is not O(log base 2 n) in practice. The base is page fanout. If an internal page can route among hundreds of child ranges, a very large table may need only a root page, one or two internal pages, and a leaf page. Buffer pools often keep upper levels hot, so many lookups pay mostly for the leaf and table row.',
+        'A secondary index leaf usually stores the indexed key plus a row locator. In PostgreSQL this might be a tuple identifier. In InnoDB secondary indexes, the leaf contains primary-key columns used to find the clustered row. A covering index stores enough selected columns in the leaf entry to answer a query without fetching the base row. That distinction often matters more than the tree height.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Leaf sibling scans',
       paragraphs: [
-        'Asymptotically, search is O(log_f n), where f is page fanout. In practice the important unit is page touches. A high-fanout page makes the tree shallow, so lookup cost is root page, a few internal pages, then a leaf. Range scans add mostly sequential leaf reads, which storage devices and buffer pools handle far better than scattered heap fetches.',
-        'The hidden costs are writes, recovery, and stale entries. Every secondary index adds work to INSERT and UPDATE. Splits create extra page writes and may cascade upward. MVCC systems can leave old index tuples behind until cleanup. Crash safety requires WAL or an equivalent protocol so a page split cannot leave an unreachable leaf or a parent separator pointing nowhere.',
+        'A range scan starts like a point lookup. For a predicate such as WHERE customer_id = 42 AND created_at >= June 1, the engine descends to the first leaf slot that can contain the lower bound. From there, it advances within the leaf, emits matching entries, and follows the next-leaf link when the current page ends. It stops when the key exceeds the upper bound or the prefix changes.',
+        'This is why key order matters. An index on (customer_id, created_at) is good for all invoices for one customer in a time window because matching entries are adjacent. An index on (created_at, customer_id) has a different order; it is better for time-window scans across customers. B+ trees do not magically solve ordering mistakes. They make the chosen order efficient.',
+        'The scan may still be slow if the index is not covering. The leaf walk can be sequential and cheap, while row fetches are scattered and expensive. A query that returns 50 rows may be fine. A query that returns 500,000 rows from a secondary index may become dominated by heap or clustered-row lookups. The B+ tree solves ordered discovery, not every downstream access cost.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Splits and publication',
       paragraphs: [
-        'Consider a SaaS billing table with an index on (customer_id, invoice_date) INCLUDE (amount, status). The customer dashboard asks for the last 90 days of invoices for one customer. The B+ tree descends to the first (customer_id, invoice_date) leaf entry, follows leaf siblings while the customer and date bound still match, and returns amount and status directly from the leaf. No heap fetch is needed for the dashboard list.',
-        'The same design can fail if the dashboard also selects a large JSON payload that is not in the index. The index scan is still ordered, but every invoice row now needs a table lookup. If the matching invoices are scattered, latency becomes random IO and buffer-pool misses. The fix might be a narrower result set, a covering INCLUDE column, clustering, or a different storage model, not merely "add another index."',
-        'A write-heavy tenant adds the other half of the case study. New invoices append near the hot end of that tenant-date range, causing repeated leaf modifications and occasional splits. Fill factor leaves growth room; WAL protects split ordering; vacuum or bottom-up deletion controls old row versions; and monitoring has to watch page splits, bloat, index-only scan hit rate, and heap fetch count.',
+        'Insertion descends to the target leaf. If the leaf has room, the engine inserts the new entry in sorted position. If the leaf is full, it splits the page. Lower keys remain in the old page. Upper keys move to a new right sibling. The sibling links are repaired so scans can move from old page to new page to the previous next page. A separator key from the new right page is copied into the parent so future searches can route directly.',
+        'Parent pages can split too. If the parent has no room for the new separator, it splits and pushes another separator upward. A root split creates a new root and increases tree height by one. Because fanout is high, root splits are rare compared with leaf updates, but the algorithm must handle them cleanly.',
+        'Crash-safe publication is the hard part. The system must log enough information to recover the split. It must not leave a newly created leaf unreachable. It must not let a range scan skip keys because a sibling link was repaired in the wrong order. It must not let a parent route searches to a page that does not contain the advertised range. The sorted-array move is simple; the storage-engine protocol around it is the real work.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Concrete case study',
       paragraphs: [
-        'A B+ tree is not automatically a covering index. If the query needs columns absent from the leaf entry, the engine still has to visit table rows. It is also not free to maintain. Every extra index increases write amplification, cache pressure, WAL volume, and lock or latch traffic.',
-        'Another misconception is that range scans are just repeated point lookups. A good B+ tree cursor seeks once and then follows leaves. If an implementation had to descend from root for every returned row, it would throw away the core advantage of sibling-linked leaves.',
+        'Consider a billing table with columns customer_id, invoice_date, invoice_id, amount, status, and a large JSON audit payload. The product dashboard needs the last 90 days of invoices for one customer, ordered by date, showing amount and status. An index on (customer_id, invoice_date) INCLUDE (amount, status) fits the access pattern. The engine seeks to the first matching leaf entry, follows leaf siblings while the customer and date range match, and returns the displayed columns directly from the index.',
+        'The same index is weaker for an export job that selects the audit payload for every invoice in the year. The B+ tree still finds matching row locators in order, but now each entry requires a base-table fetch. If the table is not clustered by the same order, those fetches may be scattered. The right answer may be a different covering index, a clustered layout, a columnar export path, or a batch job that avoids using a narrow OLTP index as a bulk data pipeline.',
+        'A write-heavy tenant adds the maintenance side. New invoices for the same customer range repeatedly modify nearby leaves. Fill factor can leave room for growth. Deduplication can reduce repeated keys in some engines. Vacuum or bottom-up deletion can remove stale MVCC entries. Monitoring needs to track page splits, bloat, index-only scan rate, heap fetch count, and whether the buffer pool keeps upper pages hot.',
       ],
     },
     {
-      heading: 'Sources and engine details',
+      heading: 'Tradeoffs and failure modes',
       paragraphs: [
-        'PostgreSQL documents B-tree indexes as multi-level balanced tree structures. Its implementation notes describe leaf pages, internal pages, doubly linked pages at each level, page splits, cascading parent updates, bottom-up deletion, and deduplication: https://www.postgresql.org/docs/current/btree.html. The index-types page explains why B-tree indexes are the default fit for equality, range comparisons, and ordered retrieval: https://www.postgresql.org/docs/current/indexes-types.html.',
-        'SQLite exposes the page-level view in its file format and B-tree module docs: tables and indexes are B-trees over database pages, with page cells, interior pages, leaf pages, and a pager layer underneath: https://www.sqlite.org/fileformat.html and https://sqlite.org/btreemodule.html. MySQL InnoDB documents the clustered-index and secondary-index distinction, including the fact that secondary index records contain primary-key columns used to find clustered rows: https://dev.mysql.com/doc/refman/8.0/en/innodb-index-types.html.',
+        'The first tradeoff is read speed versus write cost. Every extra B+ tree index makes some reads faster and every write more expensive. Inserts and updates must maintain each affected index. Splits add page writes. WAL volume increases. Cache pressure increases because more pages compete for memory.',
+        'The second tradeoff is covering power versus size. Adding included columns can avoid heap fetches, but larger leaf entries reduce fanout and increase write cost. Cover everything and the index becomes a second copy of the table. Cover nothing and range scans may drown in random row lookups.',
+        'The third tradeoff is operational aging. Deletes and updates can leave dead index entries until cleanup. Poor fill factor can cause frequent splits. Monotonic keys can create right-edge hot spots. Random keys can scatter writes. A B+ tree is a living structure, not a static textbook diagram.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Start with B-Trees for the core split invariant, Binary Search for in-page lookup, and Database Indexing for full scan versus index scan versus covering index. Then study SQLite B-Tree & Pager Case Study, MySQL InnoDB Clustered Index, PostgreSQL HOT Update Heap-Only Tuple, MVCC Internals & VACUUM, and Write-Ahead Log to see the same structure inside real storage engines.',
-        'For alternatives, compare Bw-Tree Delta Chain & Mapping Table, B-Epsilon Tree Write-Optimized Index, LSM Tree, LSM Compaction Strategies Primer, SSTable Block Index & Filter, Adaptive Radix Tree, ALEX Adaptive Learned Index, Block Range Index Zone Maps, and Filesystem Extent Tree & Delayed Allocation.',
+        'Primary engine references are PostgreSQL B-tree index documentation, PostgreSQL index type documentation, SQLite file format and B-tree module documentation, and MySQL InnoDB clustered and secondary index documentation. Read them with page roles in mind: root pages, internal pages, leaf pages, sibling links, row locators, splits, and recovery.',
+        'Next topics in this curriculum: B-Trees, Binary Search, Database Indexing, SQLite B-Tree & Pager Case Study, PostgreSQL HOT Update Heap-Only Tuple, Write-Ahead Log, MVCC Internals & VACUUM, B-Epsilon Tree Write-Optimized Index, Bw-Tree Delta Chain & Mapping Table, LSM Tree, LSM Compaction Strategies Primer, Adaptive Radix Tree, ALEX Adaptive Learned Index, and Block Range Index Zone Maps.',
       ],
     },
   ],

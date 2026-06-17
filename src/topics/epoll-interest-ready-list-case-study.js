@@ -205,7 +205,21 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'epoll is Linux readiness notification for many file descriptors. User space creates an epoll instance, registers descriptors and event masks with epoll_ctl, then calls epoll_wait to receive descriptors that are ready for I/O.',
-        'The data-structure lesson is the split between the interest list and the ready list. The interest list is the watched set. The ready list is the current batch of watched descriptors with available events.',
+        'The core data-structure insight is the split between the interest list and the ready list. The interest list is the watched set. The ready list is the current batch of watched descriptors with available events. That split is why a server can track many quiet sockets without scanning every one on every loop turn.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious server loop keeps a list of sockets and checks each one for work. That is fine for a small number of clients, but it wastes time when thousands of descriptors are mostly idle. The program repeatedly asks quiet sockets whether anything changed.',
+        'select and poll improve portability and structure, but they still expose a scan-shaped problem. epoll changes the shape by maintaining a kernel-side interest set and returning descriptors that became ready. The application still owns protocol state; epoll only makes readiness discovery cheaper.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core idea is to separate what the application cares about from what is currently actionable. The interest list says "watch these descriptors for these events." The ready list says "these watched descriptors can probably make progress now."',
+        'That distinction is why epoll belongs in a data-structures curriculum. It is not just a Linux API. It is a maintained set plus a work queue, connected to kernel wakeups and user-space state machines.',
       ],
     },
     {
@@ -220,12 +234,28 @@ export const article = {
       paragraphs: [
         'In edge-triggered mode, a readable socket may generate an event when it transitions to ready. If the handler reads only one small chunk and leaves bytes in the socket buffer, there may be no second edge. The correct pattern is nonblocking I/O and a drain loop until EAGAIN.',
         'A production server keeps request and response state per fd. epoll reports readiness; the application updates buffers, toggles POLLOUT interest when there is pending output, removes closed descriptors, and applies backpressure when output queues grow.',
+        'one-shot mode adds another common pattern. A worker handles an fd once, then rearms interest with epoll_ctl after it has restored the per-fd state. This prevents two threads from processing the same descriptor at the same time, but it also creates a new failure mode: forget to rearm and the connection goes quiet forever.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'Read the first view as two lists with different jobs. epoll_ctl changes the interest list when your application changes what it cares about. Kernel wakeups populate the ready list when a watched descriptor can make progress. epoll_wait only hands you the current ready batch; it does not own your protocol state.',
+        'In the edge-triggered view, the obvious but wrong handler reads once and waits again. The correct handler drains a nonblocking descriptor until EAGAIN, then updates per-fd state and interest masks. That is the difference between a fast event loop and a rare production stall.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'epoll works because most descriptors are idle most of the time. Maintaining an interest set lets the kernel connect readiness changes to waiters without asking user space to rescan every descriptor. The application wakes with a batch of likely-progress descriptors and spends work where state changed.',
+        'Correctness still comes from the application state machine. Readiness is not the same as completion. A readable socket can still return a partial message. A writable socket can still accept only part of a response. The server must keep buffers, parse state, and backpressure outside epoll.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
         'The payoff is avoiding a full scan of thousands of inactive descriptors on every loop turn. The costs move into registration bookkeeping, kernel wakeup paths, batching, per-fd state, and handler discipline. Bad handlers can still block the loop, leak fd state, or let output queues grow without bounds.',
+        'Edge-triggered mode adds a stricter contract. It can reduce repeated notifications, but it requires nonblocking descriptors and drain loops. Level-triggered mode is more forgiving because a descriptor that remains ready can be reported again.',
       ],
     },
     {
@@ -233,6 +263,30 @@ export const article = {
       paragraphs: [
         'epoll is readiness notification, not completion notification. It says an operation should be able to make progress; the application still performs the read or write. io_uring completion queues invert that relationship by reporting finished submitted operations.',
         'Another misconception is that edge-triggered mode is automatically faster. It reduces repeated notifications only when handlers drain correctly. Without nonblocking drain loops, edge-triggered mode is a reliable way to create rare stalls.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track epoll_wait batch size, loop latency, handler duration, fd count, interest modifications, EAGAIN rate, output queue length, accepted connections, closed descriptors, and memory per connection. These tell whether the event loop is discovering readiness efficiently or hiding backpressure.',
+        'A stalled connection should be debuggable from per-fd state: current interest mask, input buffer size, output buffer size, last readiness event, last read/write result, and whether the handler drained to EAGAIN. Without that state, edge-triggered bugs are painful to reproduce.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        'A chat server accepts ten thousand mostly idle TCP connections. A scan-based loop wastes time asking every socket whether anything changed. An epoll-based loop registers each client once, then wakes when a client socket becomes readable, a response socket becomes writable, or the listen socket can accept more clients.',
+        'When a client sends a partial message, the handler appends bytes to that client state and returns. When a full message is parsed, the server appends responses to other clients output queues and enables write interest only where there is data to flush. When a peer closes, the server removes the descriptor, deletes per-client state, and frees queued buffers.',
+        'This example shows why epoll is not the application protocol. The ready list only says which descriptors deserve attention now. The server logic lives in the per-connection state machine built around it.',
+        'A slow client makes the lesson sharper. If the server keeps writing faster than the socket can drain, output buffers grow. The event loop must disable writes when there is no data, enable writes when there is pending data, and cap queued bytes so one slow receiver cannot consume memory for everyone else.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'epoll gives you readiness batches, not a server. The server is the per-fd state machine wrapped around those batches. The interest list and ready list are useful only when handlers are nonblocking, bounded, and honest about backpressure.',
+        'For course design, teach epoll after queues, hash maps, and file descriptors. It shows how ordinary data structures become the backbone of high-concurrency systems.',
+        'The final test is whether a student can explain why data can sit unread forever in a broken edge-triggered server. If they can answer that with the words nonblocking, drain to EAGAIN, ready edge, and per-fd state, they understand the algorithm rather than the API name.',
       ],
     },
     {

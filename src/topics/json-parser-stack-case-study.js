@@ -210,36 +210,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A JSON parser turns text into structured values: objects, arrays, strings, numbers, booleans, and null. The scanner recognizes tokens. The parser validates nesting, separators, object keys, colons, commas, and root-value completion. A finite-state scanner is enough for token shapes, but nested arrays and objects require a stack.',
-        'The distinction is important because many bugs come from treating JSON as string matching. A JSON text is one value with strict grammar rules, not arbitrary JavaScript syntax and not a sequence of independent objects unless a separate framing format says so.',
+        'A JSON parser turns a byte sequence into exactly one typed value: object, array, string, number, boolean, or null. That sounds small, but it is the boundary between text and data. HTTP APIs, configuration files, package metadata, logs, caches, browser storage, model tool calls, and message queues all use JSON because it carries nested structure in a format that many languages can read.',
+        'At that boundary, string search is not enough. The program needs a trustworthy answer to three questions: did the text describe legal JSON, what value did it describe, and where did it stop being valid if it failed? A parser gives those answers by separating token recognition from structural validation.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting shortcut',
       paragraphs: [
-        'The lexer reads UTF-8 text and emits tokens: braces, brackets, colon, comma, strings, numbers, true, false, and null. The parser keeps a stack of object and array frames. Each frame stores what it expects next: a key, colon, value, comma, or closing delimiter. Opening braces and brackets push frames; closing delimiters pop them.',
-        'A JSON object member must be string, colon, value. An array item is a value separated by commas. After the root value is complete, only whitespace may follow. These rules let a parser catch errors at the point they become impossible to repair.',
+        'The tempting shortcut is to scan for punctuation: count braces, split on commas, look for colons, and trim quotes. This works on the smallest examples and fails as soon as the input becomes realistic. A comma inside a string is not a separator. An escaped quote is not the end of a string. A colon is legal after an object key and meaningless in an array. A closing bracket is legal only when the most recent open container is an array.',
+        'Regular expressions and simple split calls also fail because JSON is recursively nested. An object can contain an array, the array can contain objects, and those objects can contain more arrays. The parser must remember the chain of open containers. That memory is not a convenience; it is the data structure required by the grammar.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Lexer versus parser',
       paragraphs: [
-        'For {\"a\":[1,true]}, the parser pushes an object frame, reads key \"a\", consumes colon, pushes an array frame, appends number 1, appends true after a comma, pops the array at ], attaches it as the value for key a, and pops the object at }. The stack is then empty and the root value is complete.',
-        'For {\"a\" 1}, the lexer can recognize every token, but the parser rejects the number because the object frame expected a colon after the key. That is a structural error, not a tokenization error.',
+        'A clean parser has two jobs. The lexer reads characters and emits tokens: left brace, right brace, left bracket, right bracket, colon, comma, string, number, true, false, and null. It owns details such as whitespace, escape sequences, Unicode escapes, number syntax, and source spans.',
+        'The parser consumes those tokens and decides whether their order is legal. The lexer can say that {"a" 1} contains a left brace, a string, a number, and a right brace. Only the parser can say that the number is illegal there because an object key must be followed by a colon before a value.',
+        'Keeping the two jobs separate improves error messages and implementation quality. A bad string quote is a lexical error. A missing colon is a structural error. Extra data after a complete root value is a document-level parser error.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The stack invariant',
       paragraphs: [
-        'Parsing is O(n) over the input. Memory is O(depth) for a streaming event parser plus output buffering chosen by the caller, or O(document size) for a full in-memory tree. Practical parsers also need number-range policy, string escape handling, duplicate-key policy, depth limits, byte limits, and source spans for useful diagnostics.',
+        'The core invariant is simple: the top stack frame describes the only container that may receive the next token. Opening { pushes an object frame. Opening [ pushes an array frame. A primitive token becomes the next value in the current frame. A closing delimiter must match the top frame and pop it.',
+        'A frame is not just an opening delimiter. It also stores an expectation. An object frame may be waiting for a key, a colon, a value, a comma, or a closing brace. An array frame may be waiting for a value, a comma, or a closing bracket. The expectation is what turns punctuation into grammar.',
+        'The root value has a related invariant: a JSON text contains one complete value. Once that value is done and the stack is empty, only whitespace may follow. A second object in {}{} is not part of the same JSON text unless a surrounding protocol says it is JSON Lines or some other stream format.',
+      ],
+    },
+    {
+      heading: 'Object frames',
+      paragraphs: [
+        'An object frame is a small state machine. At the beginning it can accept a string key or a closing brace for an empty object. After a key it must accept a colon. After the colon it must accept a value. After that value it can accept a comma for another member or a closing brace to finish the object.',
+        'This is why common mistakes are caught exactly where they happen. In {"a" 1}, the frame has stored the key and is waiting for a colon. In {"a":}, the frame is waiting for a value. In {"a":1 "b":2}, the frame is waiting for a comma or close brace before the next key. Each error is the same kind of violation: the next token is not legal for the current frame state.',
+        'A parser also needs a duplicate-key policy. The JSON grammar allows object member names to repeat, but applications often do not want silent overwrites. A parser can preserve all pairs, reject duplicates, or keep the last value. The important point is to choose deliberately and document the behavior.',
+      ],
+    },
+    {
+      heading: 'Array and root frames',
+      paragraphs: [
+        'An array frame is simpler than an object frame because it has no keys and no colons. At the beginning it can accept a value or a closing bracket for an empty array. After a value it can accept a comma or a closing bracket. After a comma it must accept another value.',
+        'That state explains trailing comma rejection. In [1,], the comma moves the frame into the waiting-for-value state. A closing bracket is not legal there. Some languages permit trailing commas in their own literals, but JSON does not.',
+        'The root frame is not usually stored as a normal stack frame, but the parser still needs equivalent state: no value yet, one value in progress, or root value complete. That state catches empty documents and extra root values.',
+      ],
+    },
+    {
+      heading: 'Building the output',
+      paragraphs: [
+        'A DOM-style parser builds a full in-memory value tree. When it sees an object or array, it creates a container. When a primitive arrives, it attaches the primitive to the current container. When a container closes, the completed value becomes available to its parent. This is convenient for application code because the result behaves like ordinary data.',
+        'A streaming parser emits events instead: start object, key, value, end object, start array, and so on. The parser still uses the same stack, but the consumer decides what to store. Streaming is better for very large documents, log processing, and filtering because the program does not need to allocate the whole tree.',
+        'The output strategy changes memory use, not grammar. Both forms must obey the same token expectations, depth limits, root-value rule, and error reporting discipline.',
+      ],
+    },
+    {
+      heading: 'Error reporting',
+      paragraphs: [
+        'Good JSON errors name the actual token, the expected token or token class, and the source position. "Unexpected token" is much less useful than "expected colon after object key at byte 6." The stack gives the parser enough context to report that kind of message.',
+        'Error spans should come from the lexer. The lexer knows where a token began and ended, and it can report line and column information if it tracks newlines. The parser should preserve those spans so application logs can point to the exact failure.',
+        'Do not recover casually inside a strict parser. JSON is commonly used for security boundaries and machine protocols. If the document is invalid, the safer default is to reject it clearly rather than guess what the sender meant.',
+      ],
+    },
+    {
+      heading: 'Cost and limits',
+      paragraphs: [
+        'The parsing pass is O(n) in the input length. A streaming parser needs O(depth) stack memory plus whatever the consumer stores. A DOM-style parser needs O(document size) memory because it materializes the full value tree.',
+        'Production parsers also need defensive limits: maximum bytes, maximum nesting depth, maximum string length, number range policy, Unicode validation, and timeout or cancellation behavior in hostile environments. A tiny document with thousands of nested arrays can break a recursive parser even though the byte count is small.',
+        'In JavaScript, the built-in JSON.parse is fast and strict for ordinary use. A custom parser is useful when you need streaming events, custom diagnostics, duplicate-key rejection, incremental parsing, educational tracing, or integration with a constrained decoder. It is not usually worth replacing the native parser for normal application payloads.',
+      ],
+    },
+    {
+      heading: 'Worked cases',
+      paragraphs: [
+        'For {"a":[1,true]}, the parser pushes an object frame at {, reads key "a", consumes :, pushes an array frame at [, appends 1, consumes a comma, appends true, pops the array at ], attaches that array as the value for key a, and pops the object at }. The stack is empty, so the root value is complete.',
+        'For {"a" 1}, tokenization succeeds. The parser fails when the number appears because the object frame expected a colon after the key. For [1,], the parser fails at the closing bracket because the array frame expected another value after the comma.',
+        'For {}{}, the first object is a valid complete root. The second { is illegal in plain JSON because the root is already done. A streaming container format must define its own framing if it wants multiple JSON values in one byte stream.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'The same stack idea appears beyond JSON. XML, HTML, programming-language blocks, markdown containers, expression parentheses, template syntax, and protocol envelopes all need a memory of open structure. Once a format has recursive nesting, a stack is usually close by.',
+        'In AI systems, JSON parsing also sits behind tool calling and structured output. A model may produce text that looks like JSON, but the runtime still needs a strict parser before it executes a tool. The parser proves shape, not truth; schema validation and authorization checks come next.',
+      ],
+    },
+    {
+      heading: 'Common failure modes',
+      paragraphs: [
+        'The first failure is confusing JSON with JavaScript object literal syntax. JSON has double-quoted strings, no comments, no trailing commas, no undefined, and one root value. The second failure is treating syntactic validity as business validity. {"amount":-1} can be valid JSON and still invalid for a payment API.',
+        'The third failure is ignoring resource limits. Attackers can send deep nesting, huge strings, absurd numbers, or duplicate keys that different components interpret differently. A parser should reject invalid structure, then a validator should enforce the application contract.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary source: RFC 8259, The JavaScript Object Notation Data Interchange Format, at https://www.rfc-editor.org/rfc/rfc8259. Study UTF-8 Decoder DFA, CSV Parser State Machine, Parser Design Patterns Primer, Finite State Machines, Stack, Pratt Parser Expression AST, JSON-RPC Protocol Case Study, Constrained Decoding, JSON Schema Constrained Decoding Token Mask, and Schema Registry Case Study next.',
+        'Primary source: RFC 8259, The JavaScript Object Notation Data Interchange Format, at https://www.rfc-editor.org/rfc/rfc8259. Study Stack, Finite State Machines, CSV Parser State Machine, UTF-8 Decoder DFA, Pratt Parser Expression AST, Parser Design Patterns Primer, JSON-RPC Protocol Case Study, JSON Schema Constrained Decoding Token Mask, Constrained Decoding, and Schema Registry Case Study next.',
       ],
     },
   ],

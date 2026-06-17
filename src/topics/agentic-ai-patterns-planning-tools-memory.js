@@ -90,7 +90,7 @@ function* controlLoop() {
   yield {
     state: loopState('An agent is a measured observe-act loop'),
     highlight: { active: ['task', 'context', 'planner', 'e-task-context', 'e-context-planner', 'e-task-planner'], compare: ['tool', 'observe', 'eval'] },
-    explanation: 'The useful mental model is not a magic chatbot. It is a control loop. The system receives a task, builds context, chooses a next action, observes the environment, and decides whether to continue or stop.',
+    explanation: 'Read the loop left to right: task and context feed the planner, the planner chooses one bounded action, and the result comes back as observation. This exists because a single prompt cannot know what the environment will reveal after the first step.',
   };
 
   yield {
@@ -109,7 +109,7 @@ function* controlLoop() {
   yield {
     state: loopState('Evaluation closes the loop'),
     highlight: { active: ['observe', 'eval', 'planner', 'answer', 'e-observe-eval', 'e-eval-planner', 'e-eval-answer'], removed: ['e-planner-tool'] },
-    explanation: 'Evaluation is the difference between autonomous progress and aimless iteration. The evaluator can be a parser, test suite, permission check, rubric, retrieval citation check, or human approval gate.',
+    explanation: 'The evaluator is the stop/go switch. It turns raw observation into a decision: answer now, try another action, reject unsafe output, or ask a person. Without this node, the loop can spend tokens while drifting away from the task.',
   };
 
   yield {
@@ -218,44 +218,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'What agentic means',
       paragraphs: [
-        'Agentic AI is a family of system patterns where a model is allowed to choose actions, observe results, update state, and continue toward a goal. The useful definition is operational: an agent is not just a long prompt; it is a loop over planning, tool use, observation, memory, evaluation, and stopping. That loop may run for two turns or for hours, but the engineering problem is the same.',
-        'The most practical sources distinguish workflows from agents. A workflow follows a mostly known path: classify, retrieve, summarize, validate, respond. An agent directs its own path through tools and environment feedback. Anthropic explicitly frames production systems around an augmented LLM first, then progressively more complex workflows and autonomous agents: https://www.anthropic.com/research/building-effective-agents.',
+        `Agentic AI is not a magic product category. It is a system pattern where a model is allowed to choose actions, observe the results, update state, and continue toward a goal. The useful definition is operational: an agent is a controlled loop over planning, tool use, observation, memory, evaluation, and stopping. The loop may last two turns or many hours, but the engineering problem is the same.`,
+        `This distinction matters because many useful AI systems are not agents. A deterministic workflow can classify a request, retrieve documents, summarize them, validate the result, and respond along a mostly fixed path. An agent is needed when the path cannot be fully known ahead of time because the next step depends on what tools reveal. The goal is not more autonomy by default. The goal is the right amount of autonomy for uncertain work.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Why one prompt fails',
       paragraphs: [
-        'A production agent has explicit state: the task, current plan, tool inventory, retrieved context, observations, memory, budgets, and pending decisions. The planner chooses the next action. The tool layer executes a bounded operation such as search, code execution, database lookup, browser navigation, ticket update, or function call. The observation returns data to the loop. The evaluator decides whether the result is sufficient, invalid, unsafe, or worth another step.',
-        'ReAct made the interleaving clear: reasoning traces help the model track and update action plans, while actions let it gather external information. Toolformer studied how models can learn when to call external APIs and how to incorporate results. Reflexion added a memory-centered variant: feedback is converted into verbal reflections stored for later trials. These are different surface forms of the same control-loop idea.',
+        `The obvious approach is to write a larger prompt with all instructions, examples, and context included. That works when the task is self-contained. It breaks when the answer depends on live files, search results, database state, user permissions, API responses, intermediate errors, or side effects that do not exist until the system acts. A single prompt cannot know what a compiler error will say before code is run, what a website will return before it is opened, or which customer record needs review before retrieval happens.`,
+        `Long prompts also hide state. The model may forget the original objective, confuse old observations with current ones, over-trust hostile text retrieved from a page, or continue spending after the task is already solved. Agentic design makes the hidden loop explicit. Each step has a state, an action, an observation, and a decision about whether to stop. That is ordinary systems engineering applied to model behavior.`,
       ],
     },
     {
-      heading: 'Data structures and cost',
+      heading: 'Core loop',
       paragraphs: [
-        'The hidden data structures matter more than the branding. The trace log is a Write-Ahead Log for decisions: without it, you cannot reproduce a failure. The memory index can be a RAG Pipeline, Multi-Index RAG, a key-value store, a ticket state, or a workflow history; Agent Memory & Context Engineering Case Study breaks that layer into working context, notes, episodic traces, semantic memory, temporal graph memory, compaction, and prompt packing. The tool registry is a typed API surface, often strengthened by Constrained Decoding so calls are parseable. Budgets are counters over tokens, wall time, retries, and side effects.',
-        'Cost grows with loop length. Every extra turn adds inference latency, tool latency, context growth, and failure surface. A deterministic workflow should be preferred when the branch structure is known. An agent becomes worth it when uncertainty is high enough that pre-programming every path is more expensive than letting the model inspect state and choose the next action. Agent Model Router & Context Handoff Ledger shows the next production layer: route easy work to cheaper owners, escalate risky slices, and preserve state when ownership changes.',
+        `A production loop starts with a task and a context object. The context contains user intent, known facts, retrieved material, permissions, budgets, previous observations, and any constraints on allowed actions. The planner chooses the next bounded action. The tool layer executes that action: search, code execution, database lookup, browser navigation, calculator call, file edit, ticket update, or another function call with a typed schema.`,
+        `The observation returns to the loop as data, not as vague intuition. The memory layer records what should survive the step. The evaluator turns the observation into a decision: answer now, plan another action, reject unsafe output, ask a person, retry with a different tool, or stop because the budget is exhausted. The control-loop view in the topic is a cycle, not a one-pass pipeline. The important edge is from evaluation back to planning, because that is where feedback changes the next action.`,
       ],
     },
     {
-      heading: 'Case studies and uses',
+      heading: 'State structures',
       paragraphs: [
-        'Coding agents are the clearest case study. Code World Models Case Study shows that execution traces and tool feedback can improve coding behavior, but verification and portability become the real moat. Abstract Agent Operation Graph separates intent from tool grammar, while Agent Harness Portability Audit checks whether the loop survives interface changes. AlphaEvolve Case Study shows a stricter loop: LLM proposals enter an evolutionary population only after automatic evaluators score executable candidates. Temporal Workflow Case Study explains the orchestration side: long-running work needs durable history, replay, retries, and side-effect boundaries.',
-        'The same pattern appears in customer-support triage, legal research, incident response, data-cleaning assistants, browser automation, design-to-code tools, spreadsheet repair, procurement workflows, and research agents. Deep Research Agent Architecture Case Study specializes the generic loop into scoping, web/file retrieval, source ledgers, contradiction handling, synthesis, citations, and quality gates. In each case, the product quality depends less on the word "agent" and more on tool contracts, context isolation, human escalation, trace inspection, and eval coverage.',
+        `The hidden data structures matter more than the label "agent." The state object should include the goal, current plan, tool inventory, tool outputs, memory pointers, authorization scope, budget, outstanding uncertainties, and stop condition. If the state exists only inside a transcript, the system is hard to restart, inspect, or test. If the state is explicit, an evaluator or human reviewer can ask why the next action is allowed.`,
+        `The run trace is the decision ledger. It records actions, tool inputs, tool outputs, timestamps, errors, retries, approvals, and redactions. It plays the same role that a write-ahead log or distributed trace plays in other systems: it lets the team reproduce failures and measure behavior. The memory index is separate. It may be a vector store, a relational table, a graph of tasks, a ticket state, a durable workflow history, or a compacted set of lessons. Memory is not "everything the model has seen." Memory is retrieved state that changes a future decision.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Tool contracts',
       paragraphs: [
-        'The common mistake is using an agent where a workflow would be cheaper and safer. If the task has a known path, use a router, prompt chain, finite-state workflow, or normal service code. Another mistake is leaving memory as a transcript dump. Memory should be indexed, scoped, and evaluated like retrieval. The third mistake is guarding only the prompt. The dangerous boundary is action: sending, deleting, purchasing, publishing, changing permissions, or exposing private context.',
-        'Evaluation must be layered. Parseability tests catch malformed tool calls. Permission checks catch forbidden actions. Retrieval checks catch missing evidence. Task holdouts catch goal failures. Human review catches high-impact ambiguity. Without those evaluators, the loop can look productive while drifting, spending, or exploiting weak metrics.',
+        `Tools are the action surface of the agent. A tool contract should say what the tool does, what arguments it accepts, what permissions it needs, what side effects it may create, what it returns, how errors are represented, and whether it is idempotent. Typed schemas and constrained decoding help because malformed tool calls are a basic reliability failure. A model that can write arbitrary text is not automatically safe to call arbitrary APIs.`,
+        `The highest-risk boundary is usually action, not prose. Sending email, deleting a file, changing access control, moving money, publishing a page, creating a support ticket, or exposing private context should not be protected only by a line in the prompt. Put guards around the tool channel: allowlists, permission checks, dry-run modes, human approval interrupts, rate limits, idempotency keys, and output validation. The production-patterns view places guards and human review near actions because that is where damage happens.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Planning patterns',
       paragraphs: [
-        'Primary and official sources: Anthropic Building Effective Agents at https://www.anthropic.com/research/building-effective-agents, ReAct at https://arxiv.org/abs/2210.03629, Toolformer at https://arxiv.org/abs/2302.04761, Reflexion at https://arxiv.org/abs/2303.11366, and Anthropic Writing Tools for Agents at https://www.anthropic.com/engineering/writing-tools-for-agents. Study Agent Model Router & Context Handoff Ledger, Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Blackboard Architecture Agent Coordination, Contract Net Agent Task Allocation, RAG Pipeline, Multi-Index RAG, Constrained Decoding, Deep Research Agent Architecture Case Study, Agent Memory & Context Engineering Case Study, Temporal Workflow Case Study, Code World Models Case Study, Abstract Agent Operation Graph, Agent Harness Portability Audit, Execution-as-a-Service Verifier Economy Case Study, AlphaEvolve Case Study, Distributed Tracing, and Saga Pattern next.',
+        `Not every uncertain task needs a fully autonomous agent. A prompt chain is enough when each transformation is known. A router is enough when the hard part is choosing the right specialist path. An evaluator-optimizer loop is useful when drafts can be scored and improved. An orchestrator-workers pattern helps when a central planner can divide work among specialized workers. A true open-ended agent is reserved for tasks where the system must choose actions based on changing observations.`,
+        `This is why mature products mix workflows and agents. Fixed workflows give predictable cost, testability, and compliance. Agents add flexibility when external state is unknown. The router should choose the cheapest reliable pattern for the request. If the branch structure is known, do not pay for autonomy. If the branch structure is not known, do not pretend a static chain can inspect evidence it has not gathered.`,
+      ],
+    },
+    {
+      heading: 'Memory discipline',
+      paragraphs: [
+        `Memory should be scoped by decision. Short-term working memory keeps the current task coherent. Episodic memory stores prior attempts, outcomes, and mistakes. Semantic memory stores reusable facts and preferences. A durable workflow history stores approvals and side effects. Retrieval should answer a concrete question: what past information should change the next action? If the answer is "nothing," the memory should stay out of the prompt.`,
+        `Transcript dumping is the common failure. It inflates context, repeats stale facts, and lets unrelated text steer the model. A better memory system stores source, timestamp, ownership, confidence, privacy scope, and invalidation rules. It also separates user-provided instructions from retrieved documents, because tool outputs and web pages can contain hostile text. Agent Memory & Context Engineering Case Study is the natural next topic for that layer.`,
+      ],
+    },
+    {
+      heading: 'Evaluation and stopping',
+      paragraphs: [
+        `An agent without a stop rule is just an expensive loop. Evaluation starts with simple checks: did the tool call parse, did the requested file exist, did the command succeed, did retrieval return enough evidence, did the answer cite the sources it used, did the patch pass the relevant check? Higher-level evaluators compare the result with the original objective, policy constraints, and quality bar.`,
+        `Good systems use layered evaluators instead of one all-purpose judge. Parseability tests catch malformed calls. Permission checks catch forbidden actions. Unit or integration checks catch behavioral regressions. Retrieval tests catch missing evidence. Cost monitors catch runaway loops. Human review handles high-impact ambiguity. The evaluator is the stop/go switch: continue only when another action is likely to improve the result enough to justify its cost.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Consider a coding agent asked to fix a failing parser. A workflow-only assistant might answer with advice from memory. An agent can inspect the repository, locate the failing test, open the parser, form a plan, edit the smallest relevant function, run the targeted test, observe a new error, adjust the patch, and stop when the requested validation passes. Each tool result changes the next decision.`,
+        `The same shape applies outside code. A research agent scopes a question, retrieves sources, checks contradictions, builds a source ledger, drafts, validates claims, and cites evidence. A support triage agent reads the ticket, checks account status, searches known incidents, proposes a resolution, and escalates if the action requires authority. In each case, quality comes from the control plane: tool contracts, state updates, memory retrieval, evaluation, and human escalation, not from calling the system an agent.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `Goal drift happens when the loop starts solving a nearby task because the latest observation is more salient than the original objective. Context poisoning happens when retrieved text or tool output contains instructions the model should not follow. Runaway loops happen when there is no budget or stop condition. Tool misuse happens when action schemas are vague or permission checks are missing. False confidence happens when an evaluator checks formatting but not correctness.`,
+        `Multi-agent systems add coordination failures. Specialized agents can duplicate work, disagree without resolution, hide assumptions, or pass summaries that lose critical evidence. More agents do not automatically mean more intelligence; they often mean more state synchronization. Use multi-agent patterns when roles are genuinely different and outputs can be independently checked. Otherwise, one well-instrumented loop is easier to reason about.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Start with the smallest controllable loop. Define the task schema, allowed tools, state object, trace format, budget, stop condition, and evaluator before adding autonomy. Keep deterministic code in charge of routing, permissions, retries, and irreversible side effects. Let the model choose among bounded actions, not among arbitrary powers. Store enough run data to replay what happened without exposing private content unnecessarily.`,
+        `Measure cost and reliability per task type. Every extra turn adds model latency, tool latency, context growth, and more surface for error. Use cheaper workflows for routine paths, route difficult cases to stronger models or human reviewers, and preserve state when ownership changes. Agent Model Router & Context Handoff Ledger explains that handoff problem: route easy work cheaply, escalate risky slices, and carry the context capsule across the boundary.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Anthropic Building Effective Agents at https://www.anthropic.com/research/building-effective-agents, ReAct at https://arxiv.org/abs/2210.03629, Toolformer at https://arxiv.org/abs/2302.04761, Reflexion at https://arxiv.org/abs/2303.11366, and Anthropic Writing Tools for Agents at https://www.anthropic.com/engineering/writing-tools-for-agents.`,
+        `Study Agent Model Router & Context Handoff Ledger, Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Blackboard Architecture Agent Coordination, Contract Net Agent Task Allocation, RAG Pipeline, Multi-Index RAG, Constrained Decoding, Deep Research Agent Architecture Case Study, Agent Memory & Context Engineering Case Study, Temporal Workflow Case Study, Code World Models Case Study, Abstract Agent Operation Graph, the agent-portability audit module, Execution-as-a-Service Verifier Economy Case Study, AlphaEvolve Case Study, Distributed Tracing, Saga Pattern, Idempotency & Exactly-Once Delivery, and Prompt Injection Threat Model next.`,
       ],
     },
   ],

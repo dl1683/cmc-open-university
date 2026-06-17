@@ -200,24 +200,110 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'Fractional cascading is a data-structuring technique for repeated search. If a query needs the predecessor or successor of the same value in many related sorted lists, doing a fresh binary search in every list wastes work. Fractional cascading augments the lists with sampled items and bridge pointers so only the first list needs a full binary search.',
-      'The name describes the mechanism. A fraction of each later catalog is copied into earlier catalogs, and the search result cascades through pointers from one catalog to the next. The result is O(log n + k) query time for k catalogs, rather than O(k log n), with linear-size augmentation under the classic static assumptions.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'In the simplest path-shaped case, start from the last list and work backward. Each augmented list stores its own items plus every second item from the next augmented list. Every item stores bridge information: where it lands in the original list and where to continue in the next augmented list.',
-      'A query binary-searches the first augmented list. The stored bridge gives a nearly correct position in the next list, so a constant number of comparisons fixes the answer. Repeating that step walks the catalog path without repeated logarithmic searches.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'Static fractional cascading uses O(n) extra space and answers a path query in O(log n + k), where n is total catalog size and k is the number of catalogs visited. The preprocessing is worthwhile when the catalog structure is stable and the same query pattern repeats many times.',
-      'Dynamic updates are much harder because bridge positions and sampled items must remain valid as lists change. That does not make the technique impractical, but it does mean the static version should not be casually dropped into a high-churn system.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'A merge-sort tree stores a sorted list at every segment-tree node. To answer a range successor query, the range decomposes into O(log n) nodes, and each node needs a search for the same value x. Fractional cascading connects those node catalogs so the query performs one binary search and then follows bridges through the rest.',
-      'That case study is the clean mental model: many lists, one query key, related catalogs, and enough query volume to repay preprocessing. It also explains why Fractional Cascading belongs near Segment Tree and Sparse Table in the map of ideas.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: Chazelle and Guibas, "Fractional Cascading: I. A Data Structuring Technique", https://www.cs.princeton.edu/~chazelle/pubs/FractionalCascading1.pdf, and CP-Algorithms Segment Tree notes on fractional cascading, https://cp-algorithms.com/data_structures/segment_tree.html. Study Segment Tree, Sparse Table, Disjoint Sparse Table, Binary Search, and Wavelet Tree next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Many data structures answer one logical query by searching several sorted catalogs. A range query over a merge-sort tree may decompose into several segment-tree nodes. A geometric query may walk across related layers or slabs. In each catalog, the task is often the same: find the predecessor, successor, or rank of one key.',
+        'The repeated key is the opportunity. If the query value is `x = 50`, every catalog is being asked where 50 would be inserted. Independent binary searches treat those questions as unrelated, even though the query key is identical and the catalogs were built by one data structure.',
+        'Fractional cascading exists to remove that repeated search cost. It preprocesses related sorted lists so the first list pays for a full binary search and later lists receive near positions through stored bridge pointers.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to binary-search every catalog separately. It is simple, local, and easy to implement. For k catalogs of comparable size, the query cost is O(k log n), or more generally the sum of the logarithms of the catalog sizes.',
+        'That approach is often fine. If there are only two lists, if queries are rare, or if the catalogs are small, repeated binary search may be clearer and faster in practice. Fractional cascading is worth learning because it attacks a specific bottleneck, not because every sorted list needs bridge pointers.',
+        'The baseline also has a useful correctness property: each search is independent. If one catalog changes, only that catalog has to be maintained. Fractional cascading gives up some of that simplicity to make repeated queries faster.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall appears when k is large enough and queries are frequent enough that the logarithmic factor repeats constantly. A merge-sort tree range query may touch O(log n) node catalogs. If each touched node performs its own binary search, the total query becomes O(log^2 n) for rank-like work that feels like it should share effort.',
+        'The waste is not that binary search is slow. The waste is that every binary search relearns the same placement of the same key. Once one catalog has located 50 between two nearby values, a related catalog should not have to start with the full interval again.',
+        'The missing structure is a way to carry a position from one catalog to the next while keeping the correction small. A raw array index in one list is not enough because the lists contain different values. Fractional cascading adds sampled values and explicit bridge pointers so an index becomes transferable.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'A binary search gives a placement, not just an answer. It tells where x belongs in sorted order. Fractional cascading preserves enough cross-catalog order so that placement can be reused in the next catalog.',
+        'The technique augments each catalog with a fraction of the next catalog and stores bridge pointers. The first augmented catalog pays for binary search. Each later catalog is reached by following a pointer to a position that is close to the true answer, then checking a constant-size neighborhood.',
+        'The word fractional matters. Copying every item from every later catalog would make queries easy but blow up space. Copying a regular fraction, such as every second item in the classic path-shaped construction, gives enough landmarks to bound the local correction while keeping total space linear under the usual assumptions.',
+      ],
+    },
+    {
+      heading: 'Preprocessing mechanism',
+      paragraphs: [
+        'In the classic path-shaped version, build from the end toward the start. The last augmented catalog is just the last original catalog. The previous augmented catalog merges its own original items with every second item sampled from the next augmented catalog. Continue backward until the first catalog has been augmented.',
+        'Each augmented item stores at least two positions: where it lands in the local original catalog and where it points in the next augmented catalog. The local pointer answers predecessor, successor, or rank for the current original list. The bridge pointer lets the query move to the next catalog without a new full search.',
+        'The construction is a set of sorted merges. Because the sampled items are interleaved into the previous catalog, a binary search in the previous augmented catalog brackets the query key using a mixture of local values and landmarks copied from the next catalog. Those copied landmarks are what make the bridge accurate enough.',
+      ],
+    },
+    {
+      heading: 'Query mechanism',
+      paragraphs: [
+        'A query starts with one binary search in the first augmented catalog. The result gives the local answer for the first original list and a bridge position into the second augmented catalog. The query follows that bridge, checks the neighboring entries needed to correct the position, reports the second answer, and follows the next bridge.',
+        'Because sampled items from the next catalog were copied backward at regular density, the bridge lands near the true position of x. The correction is constant in the classic static construction: inspect a bounded number of adjacent entries, then continue. Repeating that step across k catalogs gives O(log n + k) query time instead of O(k log n).',
+        'The output still contains one answer per catalog. Fractional cascading does not merge the problem into one global answer. It changes how the search positions are found.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose four catalogs need the successor of 50. Independently, L1 returns 64, L2 has no successor, L3 returns 62, and L4 returns 79. The naive method discovers those facts with four separate binary searches.',
+        'With fractional cascading, the first augmented catalog is searched once. The found slot also contains a bridge into the second augmented catalog. That bridge lands near where 50 belongs in the second list, so a few comparisons decide whether a successor exists. The same pointer-and-correct step continues through the third and fourth catalogs.',
+        'The important point is that the query still respects each list. If L2 has no successor, the structure reports that fact for L2. It does not assume that the successor in L1 or L3 applies everywhere. The bridge only saves search work; it does not erase catalog-specific answers.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The copied fraction creates a coarse map of the next catalog inside the current one. If two copied samples from the next catalog bracket x in the current augmented catalog, then the true position of x in the next catalog is trapped near the bridge targets for those samples.',
+        'The density of copied samples bounds the correction. With every second item copied in the classic construction, there cannot be a long unsampled run between bridge landmarks. The bridge may not land exactly on the answer, but it lands close enough that a constant number of comparisons repairs it.',
+        'The cascade is safe because sorted order is carried by explicit pointers. The algorithm is not guessing that nearby values in one list imply nearby values in another. It built augmented catalogs whose copied samples are real elements from the next catalog, and it stored the exact positions needed to cross lists.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Static fractional cascading can answer k related catalog searches in O(log n + k) time with linear total augmentation under the usual assumptions. The cost moves into preprocessing, extra sampled elements, bridge metadata, and more complicated catalog construction.',
+        'The space overhead is not just the copied values. Each augmented entry needs enough metadata to report a position in the local original catalog and cross into the next augmented catalog. For compact numeric arrays, that pointer metadata may dominate the copied values.',
+        'The technique is most attractive when catalogs are stable and query volume is high. It is less attractive when k is small, when values are tiny and cache behavior makes repeated binary search cheap, or when the implementation complexity would create more risk than the asymptotic win removes.',
+        'Updates are the main tradeoff. Inserting or deleting a value can change sample positions and bridge pointers across multiple augmented catalogs. Static fractional cascading is simple and elegant. Dynamic fractional cascading exists, but it is a different engineering problem.',
+      ],
+    },
+    {
+      heading: 'Practical use',
+      paragraphs: [
+        'A merge-sort tree is the easiest application to remember. Each segment-tree node stores a sorted list. A range query decomposes into O(log n) nodes, and each touched node needs the rank, predecessor, or successor of the same x. Fractional cascading links those node catalogs so the query pays one binary search and then follows bridges across the relevant catalogs.',
+        'Computational geometry gives the historical motivation. Layered range searching and planar subdivisions often ask related catalogs the same key question while moving through a search structure. Fractional cascading turns the repeated sorted-list searches into a cascade of constant-time transfers after the first search.',
+        'The decision rule is concrete: many related catalogs, one query key, frequent queries, and enough stability to repay preprocessing. If any of those pieces is missing, the technique loses its reason to exist.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Start with a plain version first. Build the segment tree, range tree, or catalog chain with independent binary searches. Measure how many catalogs a typical query touches and how much time is actually spent inside those searches. Fractional cascading should be a targeted optimization, not a reflex.',
+        'Keep augmented and original catalogs distinct in code. The original catalog is what the query reports against. The augmented catalog is the search accelerator. Confusing those layers causes off-by-one errors, especially for predecessor versus successor queries and for duplicate keys.',
+        'Test boundary cases aggressively: x below every value, x above every value, x equal to a copied sample, x equal to a local-only value, empty catalogs if the application allows them, duplicate values, and paths that touch only one catalog. Most bugs in this structure are not in the big idea; they are in pointer correction at boundaries.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Dynamic updates are the hard case. Insertions and deletions can invalidate bridge positions and sampled structure across several catalogs. There are dynamic variants, but the simple static idea should not be dropped into a high-churn system without a maintenance plan.',
+        'The technique fails conceptually when the searches are unrelated. If every catalog is searched for a different key, or if the catalogs do not form a useful relationship, there is no placement to cascade. Independent binary search is then the honest structure.',
+        'It can also lose to cache and constant factors. A few small arrays may fit in cache so well that bridge metadata slows the program down. A clean implementation should compare against the naive baseline on the expected workload.',
+        'Finally, fractional cascading can complicate persistence and serialization. Augmented catalogs contain derived pointers whose meaning depends on exact list versions. If original catalogs are rebuilt, sorted differently, compressed, or deduplicated, the bridge layer must be rebuilt or versioned with them.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Sources: Chazelle and Guibas, "Fractional Cascading: I. A Data Structuring Technique", https://www.cs.princeton.edu/~chazelle/pubs/FractionalCascading1.pdf, and CP-Algorithms Segment Tree notes on fractional cascading, https://cp-algorithms.com/data_structures/segment_tree.html.',
+        'Study Binary Search first, because fractional cascading reuses a binary-search placement. Then study Segment Tree, Merge Sort Tree, Range Tree, Wavelet Tree, Sparse Table, Disjoint Sparse Table, and persistent segment trees. The useful contrast is static preprocessing for faster repeated catalog search versus dynamic balanced trees for high-update workloads.',
+      ],
+    },
   ],
 };

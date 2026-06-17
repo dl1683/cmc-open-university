@@ -105,10 +105,31 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
         `Distributed tracing follows one user request through dozens of machines, dozens of services, and hundreds of function calls — and assembles them into a single tree. A trace ID (like abc123) is minted at the gateway and propagated downstream in request headers, especially the W3C traceparent standard. Each unit of work — a function call, a database query, an RPC — records a span: its name, start time, end time, and parentId (which service called me). All spans with the same trace ID reassemble at a tracing backend into the exact shape of the dependency tree. If a request takes 120ms from user to response, the tree shows which 55ms came from fraud-check, which 20ms from inventory, which 45ms from idle network waiting.`,
         `Without tracing, each service logs its own events to its own server. A checkout that takes 120ms looks fast in the auth service (15ms), fine in inventory (20ms), reasonable in payments (70ms). The bug hides two layers deep. Tracing exposes it: fraud-check is the critical path. It is the Recursion call tree, but scattered across a dozen machines and reassembled by timestamp and parentId.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        `The obvious approach is to inspect service logs one by one. That works when one service owns the whole request. It breaks down when latency comes from nested calls, retries, network waits, queue handoffs, or a dependency nobody remembered was on the path.`,
+        `Per-service dashboards hit the same wall. Auth can look fast, inventory can look fast, and payments can look acceptable while the composed checkout is slow. Without parent-child timing, you cannot tell which spans were serial, which overlapped, and which one sat on the critical path.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `Use the visual model as one checkout trace being built. When a span opens, a service has started work. When it waits, that service is blocked on a child span. When it returns, its duration becomes evidence about the request path. The tree is not a map of every possible dependency; it is the exact call tree for this request.`,
+        `Fraud-check matters because it sits on the critical path. Its 55ms flows upward into payments, orders, and gateway. Notify is different: it publishes to a queue and returns quickly, so later notification work is operationally relevant but not part of this user's response time.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `The core insight is context propagation. The system must carry trace identity across process boundaries so independently emitted spans can be joined later. W3C Trace Context standardizes headers such as traceparent and tracestate for this reason.`,
+        `A span is useful because it has both timing and parentage. Timing alone is a stopwatch. Parentage turns many stopwatches into a dependency tree, separating self time, child time, parallel work, and detached async work.`,
       ],
     },
     {
@@ -120,19 +141,39 @@ export const article = {
       ],
     },
     {
+      heading: 'Why it works',
+      paragraphs: [
+        `Spans can arrive out of order from different machines. The backend can still assemble the trace if each span carries trace ID, span ID, and parent span ID. Those identifiers are enough to rebuild the tree after the work has already happened.`,
+        `Latency attribution works because span intervals nest or overlap in time. A child span inside a parent contributes to the parent's elapsed time, but two overlapping children should not be added as if they were serial. The trace view prevents that common arithmetic mistake.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `A checkout trace takes 120ms. Gateway calls auth for 15ms, then orders. Orders checks inventory in 20ms and calls payments. Payments calls fraud-check, which takes 55ms. Payments finishes at 70ms, orders at 95ms, and gateway at 120ms.`,
+        `The conclusion is not merely that payments took 70ms. Payments is slow because fraud-check dominates its child time, and payments sits under orders, which sits under gateway. If fraud-check can be cached or moved off the synchronous path safely, the user-facing latency can improve.`,
+      ],
+    },
+    {
       heading: 'Cost and complexity',
       paragraphs: [
         `Instrumenting every service to emit spans requires a client library (OpenTelemetry is the standard) and a tracing backend (Jaeger and Zipkin are free and open-source; Datadog, Honeycomb, and others are hosted). Tracing every request is too expensive: 10,000 requests per second times 100 bytes per span quickly overwhelms disks and networks. Most production systems sample: keep 100% of slow traces (e.g., anything over 1 second) and 100% of error traces, then sample 1% of fast, normal requests — a strategy called tail-based sampling. See Reservoir Sampling for the math. The overhead is small once sampling is in place: a span is just six integers (IDs and timestamps) and a string (the name).`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Sampling and cost',
+      paragraphs: [
+        `The real costs are storage, high-cardinality attributes, privacy review, and operational dependency on collectors. Head sampling is cheap but can drop the slow trace before the system knows it is slow. Tail sampling can keep slow and error traces, but it needs buffering and backend capacity.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
       paragraphs: [
         `The primary use is debugging latency regressions: "our checkout endpoint got slower last week; which service changed?" The trace tree answers in seconds. Second use: capacity planning. If fraud-check is the critical path and takes 45% of the total time, redesigning payments (which takes 20%) saves nothing. Third: dependency discovery. New engineers ask "what does this service call?" A trace shows every downstream call in order, with latency for each. Fourth: contract violations. If a service promises 50ms SLA but consistently takes 100ms when called by a certain caller, distributed tracing identifies the pattern.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it fails',
       paragraphs: [
         `Myth: "Tracing tells me why something is slow." False — it tells you where (which service, which function). The why comes from profilers, logs, and human investigation. Myth: "A 120ms trace means my response time is 120ms." False: if 100 traces run in parallel (common with async work), the median response time might be 120ms but the sum of all spans across all traces is 12,000ms. Tracing shows concurrency; it does not measure throughput. Pitfall: forgetting to propagate the trace ID. If one service doesn't pass the header downstream, the trace breaks into fragments — the tree becomes a forest. Pitfall: over-sampling. If you keep every normal request, your tracing backend becomes a bottleneck and you lose the latency advantage. Pitfall: confusing traces with metrics. Metrics (response time percentiles) drive the alert; traces (the full call tree) explain it.`,
       ],

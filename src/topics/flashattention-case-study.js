@@ -205,42 +205,78 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: "Why this exists",
       paragraphs: [
-        'FlashAttention is an exact attention algorithm that is IO-aware. It computes the same attention result as the standard softmax(QK^T)V formula, but it changes the memory schedule so large intermediate score and probability matrices do not have to be written to slow GPU high-bandwidth memory.',
-        'The point is subtle and important. FlashAttention does not make attention mathematically linear. The pairwise query-key interactions are still quadratic in sequence length. The win comes from tiling the computation so blocks fit in fast on-chip SRAM and from using online softmax statistics to combine those blocks exactly.',
+        "FlashAttention exists because standard attention spends too much time moving data. The formula looks compact: compute scores with QK^T, apply softmax, then multiply by V. On real GPUs, the slow part is often not the multiply itself. The slow part is writing and reading the huge intermediate score and probability matrices through high-bandwidth memory.",
+        "This matters because attention sits in the hottest part of transformer training and inference. A long sequence makes the attention matrix grow as n by n. If the kernel materializes that matrix and then materializes the softmax probabilities, the GPU pays a large memory-traffic bill before the final output is even produced.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: "The naive approach",
       paragraphs: [
-        'Naive attention materializes S = QK^T, applies softmax to get P, then multiplies P by V. For long sequences, S and P are n by n matrices. FlashAttention instead processes blocks of Q against blocks of K and V. Temporary scores live only inside the tile. The algorithm updates each output block and then discards the temporary score block.',
-        'The hard part is softmax. A stable softmax subtracts the row maximum and divides by the row sum. Because FlashAttention sees one tile at a time, it keeps running statistics for each query row: the current maximum, the current normalization sum, and the partial output. When a later tile changes the maximum, earlier partial output is rescaled before the new tile is added.',
+        "The naive implementation has three visible stages. First it computes S = QK^T, an n by n score matrix. Then it applies softmax row by row to produce P, another n by n matrix. Then it computes O = P V. The math is correct, but the schedule forces the full S and P matrices to leave the chip and come back.",
+        "That is a bad bargain on a GPU. On-chip SRAM is small but very fast. HBM is much larger but slower and more expensive to touch. A naive attention kernel treats memory as if all reads and writes were equal. FlashAttention starts from the opposite question: can exact attention be scheduled so temporary scores live only in fast memory?",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: "The core insight",
       paragraphs: [
-        'The arithmetic complexity remains O(n^2 d) for exact dense attention, but the IO complexity drops because the algorithm avoids writing full n by n intermediates to HBM. That matters because GPU kernels often bottleneck on memory movement, not only arithmetic throughput. The original paper reports large speedups on transformer training and long-sequence workloads by exploiting this IO gap.',
-        'This is why the idea belongs beside Attention Mechanism, Multi-Head Attention, KV Cache, and LLM Serving: PagedAttention. FlashAttention improves the attention kernel. PagedAttention improves serving-time cache allocation. Grouped-query attention reduces KV cache bytes. They are different levers in one system.',
+        "The core insight is IO-awareness. FlashAttention does not change the answer. It changes the order of computation so blocks of Q, K, and V are streamed through SRAM, temporary score tiles are consumed immediately, and the full attention matrix is never stored in HBM.",
+        "That distinction is the whole case study. FlashAttention is not sparse attention, linear attention, or an approximation. Every query still interacts with every key in dense attention. The speedup comes from avoiding unnecessary memory movement while preserving the exact softmax result.",
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: "How the mechanism works",
       paragraphs: [
-        'FlashAttention and later variants are now standard infrastructure in many transformer stacks. They are used in training and inference libraries because they reduce memory traffic while preserving exact output. For long context, the practical lesson is not that attention became free; it is that hardware-aware kernels can move the feasible context window and throughput frontier.',
+        "For a block of query rows, the kernel loads a tile of Q and then visits tiles of K and V. It computes a small score tile in SRAM, applies the softmax update for those rows, folds the weighted V contribution into the partial output, and discards the scores. The next K/V tile repeats the same process.",
+        "The hard part is softmax because a stable softmax normally needs the whole row. It subtracts the row maximum before exponentiating and divides by the row sum. FlashAttention processes a row in pieces, so it carries running statistics for each row: the current maximum, the current normalization sum, and the partial output.",
+        "When a later tile contains a larger score, the old partial output was normalized against the old maximum. The online softmax update rescales the previous sum and output before adding the new tile's contribution. This small numerical trick is what lets the algorithm be tiled without becoming approximate.",
+        "Causal masks and padding masks do not change the idea. They change which scores inside a tile are valid. The kernel still wants the same contract: load useful blocks, mask invalid positions before softmax, update row statistics, and write back only the final output state.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: "What the visual is proving",
       paragraphs: [
-        'The most common misconception is that FlashAttention removes quadratic attention. It does not. It removes avoidable memory traffic for exact attention. Another misconception is that a faster attention kernel solves all LLM serving economics. During autoregressive inference, the long-lived KV Cache and scheduler behavior become central, which is why LLM Serving: PagedAttention is a separate systems page.',
+        "The naive-vs-tiled view proves that the expensive object is not only the arithmetic expression. It is the materialized n by n state. The score matrix and probability matrix are useful only as temporary bridges between Q, K, V, and O. If those bridges can stay inside a tile, they do not need to become long-lived arrays in HBM.",
+        "The online-softmax view proves why tiling does not break correctness. The running max and running normalization sum are enough state to combine blocks exactly. The visual is showing the minimum row state that must survive across tiles, not a heuristic summary of the row.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: "Why it works",
       paragraphs: [
-        'Primary source: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness" at https://arxiv.org/abs/2205.14135, plus the official implementation at https://github.com/Dao-AILab/flash-attention. Local framing source: Cost_of_Transformers_full.txt in the provided document corpus. Study Attention Mechanism, Softmax & Temperature, Multi-Head Attention, KV Cache, and LLM Serving: PagedAttention next.',
+        "The algorithm works because it respects the memory hierarchy. HBM bandwidth is large, but it is still precious compared with data reuse inside SRAM and registers. A tile schedule loads blocks, uses them heavily while they are on chip, and writes back only the final output plus the small statistics needed for correctness.",
+        "It also works because softmax has an associative update when the right statistics are kept. Max and sum can be updated block by block. Earlier contributions can be rescaled when the max changes. That gives the kernel exactness without storing all previous scores.",
+      ],
+    },
+    {
+      heading: "Costs and tradeoffs",
+      paragraphs: [
+        "The arithmetic complexity for dense exact attention remains O(n^2 d). FlashAttention reduces IO, not the number of query-key interactions. That is why it can make long context more practical while still leaving quadratic attention as a real scaling cost.",
+        "The implementation is also more complex than the textbook formula. Kernel writers have to choose tile sizes, manage SRAM occupancy, handle masks and causal attention, preserve numerical stability, and fit the schedule to a particular GPU architecture. The payoff is large only when memory movement is a meaningful bottleneck.",
+        "The tradeoff is shape sensitivity. A kernel that is excellent for one head dimension, precision mode, sequence length, or GPU generation may be less impressive on another. Production teams usually need a small benchmark matrix rather than one headline speedup number.",
+      ],
+    },
+    {
+      heading: "Real uses",
+      paragraphs: [
+        "FlashAttention-style kernels are used in transformer training and inference stacks because they preserve model outputs while improving throughput and memory use. They are especially valuable when sequence length is large, batch shapes are awkward, or the naive kernel would spend too much time reading and writing attention intermediates.",
+        "The systems lesson also appears outside this one paper. Modern LLM performance is a stack of memory decisions. FlashAttention improves the attention kernel. KV Cache reduces repeated work during autoregressive decoding. PagedAttention manages serving-time KV memory. Grouped-query attention reduces KV bytes. None of these levers replaces the others.",
+        "A good mental model is a compiler pass for memory traffic. The high-level network still asks for attention, but the implementation lowers that request into a schedule that respects the hardware. That is why this topic belongs in both algorithms and systems.",
+      ],
+    },
+    {
+      heading: "Failure modes and limits",
+      paragraphs: [
+        "The most common misconception is that FlashAttention makes attention linear. It does not. It keeps dense attention exact and still evaluates all query-key pairs. If a workload is dominated by the number of interactions rather than memory traffic, tiling alone cannot erase the cost.",
+        "Another failure mode is treating the kernel win as the whole serving story. During autoregressive inference, the model repeatedly appends tokens and reads the KV cache. Long-lived cache layout, batching, prefill/decode separation, and scheduler policy can dominate the economics. FlashAttention is one layer, not the full inference system.",
+        "There are also engineering limits. Unsupported masks, unusual head dimensions, precision choices, dropout behavior, or hardware-specific constraints can push a stack onto a slower path. A production system needs benchmarks on its actual model shapes instead of assuming the paper result transfers automatically.",
+      ],
+    },
+    {
+      heading: "Study next",
+      paragraphs: [
+        "Primary source: FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness at https://arxiv.org/abs/2205.14135, plus the official implementation at https://github.com/Dao-AILab/flash-attention. Read the paper as a memory-schedule argument, not just a transformer paper.",
+        "Study Attention Mechanism for the baseline equation, Softmax and Temperature for the row-normalization step, Multi-Head Attention for head layout, GPU Memory Hierarchy for the IO argument, KV Cache for autoregressive decoding, Transformer Inference Roofline for bottleneck analysis, and LLM Serving: PagedAttention for serving-time memory management.",
       ],
     },
   ],

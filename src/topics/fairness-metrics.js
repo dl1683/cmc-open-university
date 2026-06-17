@@ -55,7 +55,7 @@ function* confusionByGroup() {
       ],
     ),
     highlight: { active: ['a_tp:rate', 'b_tp:rate'], compare: ['a_fp:rate', 'b_fp:rate'] },
-    explanation: 'Fairness audits usually start by splitting errors by group. Here the false positive rates match, but group B has a much lower true positive rate. A global Precision/Recall score would hide that harm.',
+    explanation: 'The table splits the confusion matrix by group so the denominator is visible. False positive rates match, but group B has a much lower true positive rate, meaning qualified positives are missed more often. A global precision or recall score would average that harm away.',
     invariant: 'Fairness metrics are conditional rates; always ask what denominator they use.',
   };
 
@@ -80,7 +80,7 @@ function* confusionByGroup() {
       ],
     ),
     highlight: { found: ['eo:constraint', 'eopp:constraint'], compare: ['dp:denominator', 'cal:denominator'] },
-    explanation: 'The metrics encode different moral and operational commitments. Demographic parity cares about selection rates. Equalized odds cares about error rates by true label. Calibration cares whether a score means the same thing across groups.',
+    explanation: 'Each metric conditions on a different population. Demographic parity looks at everyone in a group, equalized odds conditions on the true label, equal opportunity focuses on qualified positives, and calibration conditions on the score. The choice is a policy decision about which harm matters.',
   };
 
   yield {
@@ -96,7 +96,7 @@ function* confusionByGroup() {
       ],
     }),
     highlight: { active: ['tprA', 'tprB'], compare: ['single', 'adjust'] },
-    explanation: 'Post-processing can adjust thresholds to target equal opportunity or equalized odds. That may improve one fairness metric while changing selection rates, precision, or calibration.',
+    explanation: 'Moving thresholds changes which errors each group receives. A group-specific threshold can close the TPR gap, but it also changes selection rates, precision, and calibration. The visual is a tradeoff dial, not a free repair.',
   };
 
   yield {
@@ -120,7 +120,7 @@ function* confusionByGroup() {
       ],
     ),
     highlight: { active: ['harm:why', 'label:why', 'causal:why'], compare: ['base:why'] },
-    explanation: 'A metric is not a substitute for problem definition. You need the harm model, label audit, base-rate context, and causal story before deciding what fairness constraint is appropriate.',
+    explanation: 'This checklist comes before metric choice. The harm model says which error matters, the label audit checks whether ground truth is trustworthy, base rates reveal possible conflicts, and the causal story guards against proxy paths.',
   };
 }
 
@@ -146,7 +146,7 @@ function* metricTradeoffs() {
       ],
     ),
     highlight: { active: ['base:consequence'], compare: ['parity:consequence', 'calibration:consequence'] },
-    explanation: 'When base rates differ, you usually cannot satisfy all intuitive fairness definitions at once. This is not a dashboard bug; it is a mathematical and policy tradeoff.',
+    explanation: 'The rows show why calibrated scores and equal selection can conflict when base rates differ. Forcing demographic parity may require different thresholds, while preserving score meaning may leave selection rates unequal.',
   };
 
   yield {
@@ -161,7 +161,7 @@ function* metricTradeoffs() {
       ],
     }),
     highlight: { active: ['rocA', 'rocB'], found: ['target'] },
-    explanation: 'Equalized odds asks groups to have the same TPR and FPR. If one ROC curve dominates another, meeting the constraint may require randomization or accepting lower utility for the stronger group.',
+    explanation: 'The ROC plot shows feasible error-rate tradeoffs. Equalized odds asks both groups to land at the same TPR and FPR; if one curve dominates, the system may need randomization or reduced utility to hit the shared point.',
     invariant: 'Fairness constraints can redistribute errors; they do not erase model weakness.',
   };
 
@@ -186,7 +186,7 @@ function* metricTradeoffs() {
       ],
     ),
     highlight: { found: ['data:fixes', 'threshold:fixes', 'causal:fixes'], compare: ['features:danger'] },
-    explanation: 'Fairness work is not only threshold tuning. Sometimes the right answer is better labels, better measurement, causal adjustment, more representative data, or product-policy changes.',
+    explanation: 'The intervention table prevents a threshold-only mindset. Some gaps come from missing signal, biased labels, proxy leakage, or unfair causal paths, so the right fix may be data, measurement, causal correction, or product policy.',
   };
 
   yield {
@@ -210,7 +210,7 @@ function* metricTradeoffs() {
       ],
     ),
     highlight: { found: ['slice:include', 'uncertainty:include', 'decision:include'] },
-    explanation: 'A serious fairness report connects metrics to decision rights. Who is harmed, what recourse exists, and how will drift be detected? The model card is only useful if it changes operations.',
+    explanation: 'The reporting package links numbers to operations. Slice metrics expose harm, uncertainty sets show when to defer, and the decision policy explains human review, appeals, and drift response. A model card only helps if it changes decisions.',
   };
 }
 
@@ -224,43 +224,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: "Why this exists",
       paragraphs: [
-        'Fairness metrics compare model behavior across protected or operationally important groups. The core idea is simple: global accuracy can improve while one group receives more false negatives, more false positives, worse calibration, or less useful uncertainty estimates.',
-        'The local privacy-preserving ML notes mention fairness metrics because privacy, robustness, and fairness are separate guarantees. A private model can still be unfair. A calibrated model can still have unequal error rates. A model with equal selection rates can still be inaccurate for one group.',
+        "Fairness metrics exist because a model can look good on average while failing a particular group. Global accuracy, AUC, loss, or precision can hide who receives false positives, false negatives, bad calibration, low coverage, or no useful path to appeal. The metric has to be sliced before the harm is visible.",
+        "This is separate from privacy, robustness, and security. A private model can still be unfair. A robust model can still assign one group more false negatives. A calibrated model can still have unequal error rates. A model with equal selection rates can still be wrong for one group. Fairness is not a bonus dashboard; it is a question about who bears the system's mistakes.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: "The naive approach",
       paragraphs: [
-        'Demographic parity asks for equal selection rates across groups. Equalized odds asks for equal true positive and false positive rates. Equal opportunity relaxes equalized odds by focusing on true positive rates among qualified positives. Calibration by group asks whether a score has the same empirical meaning across groups.',
-        'These metrics use different denominators and encode different values. If base rates differ, some fairness definitions can conflict. That is why metric choice must follow the harm model, not fashion.',
+        "The naive approach is one global metric and one global threshold. If the model reaches the target AUC or accuracy, the team ships. That is attractive because it is simple, but it averages away the denominator. One group may have high recall while another group has qualified people missed at twice the rate.",
+        "Another naive approach is to remove the protected attribute and assume the model is now fair. That can make the audit worse. Other features may proxy for the protected attribute, and without group labels the team may be unable to measure whether harms are concentrated. Blindness is not the same as fairness.",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: "The core insight",
       paragraphs: [
-        'Fairness audits require group labels, reliable outcome labels, enough sample size per slice, drift monitoring, and decision-policy clarity. Threshold adjustments may improve one metric while reducing precision, calibration, or utility. Removing a sensitive attribute may not help if proxies remain, and it can make auditing impossible.',
-        'The hardest part is often label governance. If the historical outcome was produced by an unfair process, equalizing error rates against that label may preserve the old process. If protected attributes are unavailable, the team may be unable to audit harms. If groups are intersectional and small, confidence intervals matter as much as point estimates.',
+        "The core insight is that fairness metrics are conditional rates. Each one asks about a different denominator. Demographic parity conditions on all people in a group and asks whether selection rates match. Equalized odds conditions on the true label and asks whether true positive and false positive rates match. Equal opportunity focuses on true positive rates among qualified positives. Calibration conditions on the score and asks whether the score means the same thing for each group.",
+        "Because the denominators differ, the metrics encode different values. A hiring screen may care most about qualified people being missed. A pretrial risk tool may care intensely about false positives. A medical triage model may need calibration because clinicians interpret risk scores. Metric choice should follow the harm model, not fashion.",
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: "How the mechanism works",
       paragraphs: [
-        'Fairness metrics are used in lending, hiring, moderation, medical triage, education, insurance, fraud review, recommender systems, and language-model evaluations. They connect to Causal Graphs, Threshold Optimization, Calibration Curves, Conformal Prediction, Data Leakage, and Differential Privacy SGD.',
-        'A good audit reports several metrics together rather than pretending one is universal. For example, a loan model might report approval rate, true positive rate among repayers, false positive rate among defaulters, calibration by score band, appeal outcomes, and coverage of conformal uncertainty sets. The decision-maker then has to choose which harms the system is allowed to trade.',
+        "A fairness audit starts with a normal confusion matrix, then repeats it by group and often by intersectional slices. For each group, compute counts and rates: true positives, false positives, true negatives, false negatives, selection rate, precision, recall, false positive rate, false negative rate, calibration by score band, and coverage for any defer or abstain option.",
+        "The next step is comparison. Equal opportunity compares TPR across groups. Equalized odds compares both TPR and FPR. Demographic parity compares selection rates. Calibration compares empirical outcomes within score bands. The same table can support several definitions, but the interpretation changes with the denominator.",
+        "Thresholds are a common intervention. A group-specific threshold can close a TPR gap, but it may change precision, selection rate, and calibration. Some equalized-odds procedures also use randomized decisions to reach a shared error-rate point. That can satisfy a statistical constraint while creating product and governance questions.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: "What the visual is proving",
       paragraphs: [
-        'There is no single fairness number. Metrics can conflict, labels can be biased, and groups can be too small for stable estimates. Fairness is also not only a model property. Product recourse, human review, appeals, monitoring, and who bears the cost of mistakes are part of the system.',
+        "The confusion-by-group view proves that the denominator is the first thing to inspect. In the displayed example, false positive rates match while true positive rates differ. A global score would miss the fact that qualified positives in one group are being rejected more often.",
+        "The metric table proves that fairness words are not interchangeable. Demographic parity, equalized odds, equal opportunity, and calibration each condition on a different population. The threshold and ROC visuals prove that fairness constraints move errors around. They are not a free repair button; they are a way to make a chosen tradeoff explicit.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: "Why it works",
       paragraphs: [
-        'Primary sources: Equality of Opportunity in Supervised Learning at https://arxiv.org/abs/1610.02413 and the NeurIPS PDF at https://papers.neurips.cc/paper/6374-equality-of-opportunity-in-supervised-learning.pdf, plus Fairness and Machine Learning at https://fairmlbook.org/. Study Precision/Recall, ROC-AUC, Calibration Curves, Threshold Optimization, Causal Graphs, and Conformal Prediction next.',
+        "The method works because it turns an abstract fairness debate into measurable questions. Who was selected? Who was rejected? Among people who truly qualified, who was missed? Among people who did not qualify, who was falsely selected? Among people with the same score, did outcomes occur at the same rate?",
+        "It also works because it forces the policy question into the open. If two groups have different base rates, calibration, demographic parity, and equalized error rates may not all hold at once. That is not a dashboard bug. It means the organization must decide which harm it is minimizing and what cost it is willing to pay.",
+      ],
+    },
+    {
+      heading: "Costs and tradeoffs",
+      paragraphs: [
+        "Fairness audits require data that many teams do not have cleanly: group labels, reliable outcome labels, enough sample size per slice, and a decision log that says what the model actually changed. If groups are small or intersectional, confidence intervals can be wider than the gap the team is trying to interpret.",
+        "The hardest cost is label governance. If the historical outcome was produced by an unfair process, equalizing error rates against that label can preserve the old process. If protected attributes are unavailable, the team may be unable to audit harm. If protected attributes are available, the team must protect them and explain how they are used.",
+        "There are performance tradeoffs too. A threshold change can improve one metric while reducing precision or calibration. Removing a proxy feature can reduce discrimination through one path while removing useful signal. A defer-to-human policy can reduce automated harm while increasing delay, cost, and inconsistent human judgment.",
+      ],
+    },
+    {
+      heading: "Real uses",
+      paragraphs: [
+        "Fairness metrics are used in lending, hiring, housing, insurance, education, fraud review, content moderation, medical triage, recommender systems, and language-model evaluation. The specific metric depends on the decision. A loan model may inspect approval rates, repayment prediction, false denial of creditworthy applicants, and calibration by score band. A medical model may care about missed positives and whether a risk score means the same thing across groups.",
+        "A serious report shows several metrics together instead of pretending one is universal. It pairs global performance with slice metrics, uncertainty intervals, threshold policy, coverage or abstention rates, appeal outcomes, drift monitoring, and a statement of which errors are most harmful. The model card matters only if it changes decisions.",
+      ],
+    },
+    {
+      heading: "Failure modes and limits",
+      paragraphs: [
+        "There is no single fairness number. Metrics can conflict, labels can be biased, and groups can be too small for stable estimates. A model can satisfy demographic parity while making poor predictions for everyone. It can be calibrated while imposing unequal false negative rates. It can equalize an error rate while relying on an unfair label.",
+        "Fairness is also not only a model property. Product recourse, human review, appeals, monitoring, explanation, data collection, and who bears the cost of mistakes are part of the system. If rejected users have no path to correct bad data, a clean metric table will not make the product fair.",
+        "Causal structure matters. A feature can be unacceptable because of how it was caused, not only because of its correlation. Removing a sensitive attribute while keeping proxies may leave the unfair path intact. Correcting that requires causal assumptions, domain knowledge, and policy judgment, not just post-processing.",
+      ],
+    },
+    {
+      heading: "Study next",
+      paragraphs: [
+        "Primary sources: Equality of Opportunity in Supervised Learning at https://arxiv.org/abs/1610.02413 and the NeurIPS PDF at https://papers.neurips.cc/paper/6374-equality-of-opportunity-in-supervised-learning.pdf, plus Fairness and Machine Learning at https://fairmlbook.org/. Read them with one question in mind: which denominator matches the harm?",
+        "Study Precision and Recall for confusion-matrix basics, ROC-AUC for threshold movement, Calibration Curves for score meaning, Threshold Optimization for post-processing, Causal Graphs for path-dependent fairness, Data Leakage for proxy problems, Conformal Prediction for defer and coverage behavior, and Differential Privacy SGD for why privacy and fairness remain separate guarantees.",
       ],
     },
   ],

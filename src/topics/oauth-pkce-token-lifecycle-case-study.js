@@ -85,7 +85,7 @@ function* pkceFlow() {
   yield {
     state: pkceGraph('PKCE begins with a one-time verifier'),
     highlight: { active: ['client', 'verifier', 'challenge', 'e-client-verifier', 'e-verifier-challenge'], compare: ['authz'] },
-    explanation: 'A public client creates a high-entropy code verifier and derives a code challenge, usually with SHA-256. The verifier stays local. The challenge goes into the authorization request.',
+    explanation: 'PKCE starts by creating proof before the browser redirect. The public client keeps a high-entropy verifier local, sends only the derived challenge, and later uses the verifier to prove it is the same client finishing the flow.',
     invariant: 'The authorization code later only works for the client that still has the verifier.',
   };
 
@@ -162,7 +162,7 @@ function* tokenLifecycle() {
   yield {
     state: tokenGraph('Refresh rotation replaces long-lived credentials'),
     highlight: { active: ['refresh', 'rotate', 'cache', 'e-refresh-rotate', 'e-rotate-cache'], found: ['access'], compare: ['revoke'] },
-    explanation: 'When access expires, the client may use a refresh token to obtain a new access token. Safer systems rotate refresh tokens, replacing the old token with a new one and detecting replay of an old refresh token.',
+    explanation: 'Refresh tokens have the bigger blast radius because they can mint new access tokens. Rotation turns refresh into a chain: each use replaces the old token, and reuse of an old token becomes a compromise signal.',
   };
 
   yield {
@@ -206,47 +206,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'OAuth 2.0 authorization code with PKCE is a state-machine and token-lifecycle case study. A public client cannot keep a client secret, so PKCE adds a one-time proof: create a code verifier, send a derived code challenge in the authorization request, then present the verifier when exchanging the authorization code for tokens.',
-        'RFC 7636 defines PKCE terminology and the verifier/challenge binding: https://datatracker.ietf.org/doc/html/rfc7636. RFC 6749 defines the OAuth 2.0 framework, authorization grants, access tokens, refresh tokens, and client/resource/authorization-server roles: https://datatracker.ietf.org/doc/html/rfc6749.',
+        'OAuth exists because users should not hand their passwords to every application that wants API access. A photo-printing app should be able to read selected photos without learning the user\'s account password. A CLI tool should receive limited repository access without becoming the identity provider.',
+        'PKCE exists because many clients are public. A mobile app, desktop app, browser app, or local agent host cannot keep a client secret in the same way a server can. If an attacker intercepts an authorization code on the redirect path, the code alone should not be enough to mint tokens.',
+        'The authorization-code-with-PKCE flow is therefore a state-machine lesson. It separates browser redirects, one-time codes, verifier binding, token exchange, scope, expiry, refresh, revocation, and audit. Each value has a different lifetime and blast radius.',
       ],
     },
     {
-      heading: 'Data structure model',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The client tracks a small but critical record: state, redirect URI, code verifier, code challenge method, requested scopes, issuer, nonce if OpenID Connect is present, and expiry deadlines. On redirect return, state is the lookup key that proves this browser response belongs to an outstanding authorization attempt. At the token endpoint, code plus verifier proves the client finishing the flow is the same client that started it.',
-        'The authorization server stores or can reconstruct the challenge associated with the authorization code. It must validate redirect URI and client identity rules, verify the code is valid and unused, recompute the challenge from the verifier, and only then issue tokens. This is a distributed correlation problem, not just a login button.',
+        'The obvious bad approach is password sharing: ask the user for their password and call the API directly. That gives the client too much power, makes revocation awkward, and trains users to type credentials into untrusted surfaces.',
+        'A second shortcut is to put powerful access tokens directly in the browser redirect or URL fragment. That avoids a backend exchange but exposes credentials to browser history, logs, extensions, referrers, and interception paths. Modern OAuth guidance has moved away from that pattern for good reason.',
+        'A third mistake is treating login as the end of the story. The hard part is the token lifecycle after login: where tokens are stored, which scopes they carry, how long they last, when they rotate, how they are revoked, and what the resource server checks on every request.',
       ],
     },
     {
-      heading: 'Token lifecycle',
+      heading: 'Core insight',
       paragraphs: [
-        'The authorization code is temporary and single-use. The access token is presented to the resource server. The refresh token, when issued, can mint new access tokens and therefore has a larger blast radius. Scope narrows authority. Expiry limits time. Rotation limits replay. Revocation handles logout, compromise, and policy changes.',
-        'Access tokens are often opaque strings or JWTs depending on the deployment. JWT Verification explains the signed-token path: JOSE header, JWKS key lookup, signature validation, issuer, audience, expiry, and type checks. TLS 1.3 Handshake explains the channel protection that OAuth assumes for browser redirects and token requests.',
-        'RFC 9700, OAuth 2.0 Security Best Current Practice, updates the threat model and security advice for modern deployments: https://datatracker.ietf.org/doc/rfc9700/. The OAuth.net PKCE page summarizes the modern advice that PKCE is recommended even when other client authentication exists and is not itself a replacement for client authentication: https://oauth.net/2/pkce/.',
+        'The core insight is proof by separation. The authorization code travels through the browser redirect. The code verifier stays with the client until token exchange. The authorization server stores or reconstructs a challenge derived from that verifier. A stolen code is not enough unless the attacker also has the verifier.',
+        'The flow also separates identity, authorization, and resource access. The authorization server issues tokens. The resource server validates the access token, audience, issuer, expiry, and scope before serving an API request. The client should not decide its own authority.',
+        'The client is maintaining a small security-critical cache: state, verifier, redirect URI, code challenge method, requested scopes, issuer, token expiry, optional refresh token, and audit correlation. Losing track of one field can turn a login flow into a confused-deputy bug.',
       ],
     },
     {
-      heading: 'Complete case study: MCP over HTTP',
+      heading: 'How it works',
       paragraphs: [
-        'A remote MCP server using HTTP authorization can rely on OAuth-style authorization before allowing tool calls. The agent host opens an authorization flow, receives scoped authority, then uses an access token when calling protected endpoints. The Model Context Protocol Case Study explains the JSON-RPC tool surface; this topic explains the authorization state that decides whether those calls should be accepted.',
-        'A careful implementation stores only the minimum token state needed, ties token use to scopes and audience, refreshes before access expiry, rotates refresh tokens when supported, and revokes on logout or compromise. Distributed Tracing and audit records should connect token use to protocol requests without logging raw token values.',
+        'The client starts by generating a high-entropy code verifier. It derives a code challenge, usually with S256, and sends that challenge with the authorization request. It also sends state, redirect URI, client id, requested scope, and other protocol fields.',
+        'After the user authorizes, the authorization server redirects back with an authorization code and state. The client checks state against the pending request. Then it sends the code and original verifier to the token endpoint. The server recomputes the challenge and compares it to the stored challenge before issuing tokens.',
+        'After token issuance, the access token is presented to the resource server. A refresh token, if issued, is kept more carefully because it can mint new access tokens. Rotation turns refresh into a chain: each use replaces the old token, and reuse of an old refresh token can signal compromise.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'PKCE is not a client secret. It protects the authorization code exchange against interception by requiring the verifier at token exchange time. It does not make a public client confidential, and it does not remove the need for exact redirect URI validation, state correlation, TLS, scope minimization, token expiry, and storage hardening.',
-        'Do not put access tokens in URLs. Do not store long-lived tokens where unnecessary. Do not treat refresh tokens like harmless session IDs. Do not request broad scopes just because the API allows it. Do not log Authorization headers. And do not confuse authentication with authorization: a user may be signed in but still lack the scope or relationship needed for a particular resource. Zanzibar Authorization Case Study covers that resource-level decision model.',
+        'The PKCE-flow view proves which values are allowed to travel. The challenge can go through the browser redirect because it is derived from the verifier. The verifier stays with the client until the back-channel token exchange. The authorization code is short-lived and single-use.',
+        'The token-lifecycle view proves that tokens are not interchangeable. A code, access token, refresh token, scope string, and state value all have different purposes. Losing an expired code is different from losing a refresh token that can mint new access.',
+        'The storage-choice matrix proves that token handling is threat-model dependent. Memory-only storage reduces persistence but loses sessions on reload. httpOnly cookies protect against JavaScript reads but require CSRF and SameSite design. Browser storage that JavaScript can read is exposed to XSS.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: RFC 7636 PKCE at https://datatracker.ietf.org/doc/html/rfc7636, RFC 6749 OAuth 2.0 at https://datatracker.ietf.org/doc/html/rfc6749, RFC 9700 OAuth 2.0 Security Best Current Practice at https://datatracker.ietf.org/doc/rfc9700/, OAuth.net PKCE at https://oauth.net/2/pkce/, OAuth.net OAuth 2.0 overview at https://oauth.net/2/, and OAuth.net refresh token grant overview at https://oauth.net/2/grant-types/refresh-token/.',
-        'Study JWT Verification, WebAuthn Passkeys, TLS 1.3 Handshake, JSON-RPC Protocol Case Study, Model Context Protocol Case Study, Agent Payments Protocol Mandate Ledger Case Study, Zanzibar Authorization Case Study, Capability Security & Attenuation, Macaroon Caveat Chain Case Study, UCAN Delegation Proof Chain, OPA Rego Policy Decision Graph, IndexedDB Object Store Case Study, Service Workers & Offline-First, Distributed Tracing, and Hash Table next.',
-        'For browser-auth deployment details, continue into SameSite Cookies & CSRF, Storage Access API Third-Party Cookie Gate, and WebAuthn Passkey Credential Discovery. Those pages cover the session cookie, embedded-login, and passkey-discovery edges that sit around OAuth redirect flows.',
+        'PKCE works because an intercepted authorization code is only half the proof. The attacker also needs the verifier, which was not sent in the authorization request. The server binds the code to the challenge and accepts only the matching verifier at exchange time.',
+        'State works because it correlates the redirect to an outstanding authorization attempt. Without state, a client can accept a response that belongs to a different request or attacker-controlled login flow. Exact redirect URI validation narrows where a code can land.',
+        'Short lifetimes and scopes work by reducing blast radius. A leaked access token should expire soon and carry only the authority needed for the resource. Refresh rotation and revocation make persistent compromise easier to detect and stop.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'PKCE adds state management. The client must generate and store verifiers, handle redirects, validate state, exchange codes once, track token expiry, and recover cleanly from failed flows. That complexity is the price of avoiding password sharing and front-channel tokens.',
+        'Storage choices are tradeoffs, not universal answers. In-memory tokens reduce persistence but hurt user experience after reload. Cookies can be httpOnly but need careful CSRF design. LocalStorage is simple but easy to steal after XSS. Native apps have platform credential stores, but still cannot hide embedded secrets perfectly.',
+        'Refresh tokens improve user experience but increase blast radius. Long-lived authority must be rotated, constrained, stored carefully, and revoked on logout or compromise. Some deployments avoid refresh tokens in browser clients and use server-side sessions instead.',
+      ],
+    },
+    {
+      heading: 'Where it appears',
+      paragraphs: [
+        'PKCE is used in mobile apps, desktop apps, browser-based clients, command-line tools, device flows around user authorization, and agent hosts that need delegated access to protected APIs. The common shape is a public client that needs limited authority without holding a durable secret.',
+        'In a remote MCP-style tool system, the host can open an authorization flow, receive scoped authority, and present access tokens when calling protected endpoints. The model protocol defines tool calls; OAuth decides whether those calls are authorized.',
+        'The pattern also appears around enterprise SSO, SaaS integrations, developer tools, and API platforms. The details differ, but the same token lifecycle questions remain: scope, audience, expiry, storage, refresh, revocation, and audit.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'PKCE is not a client secret. It protects the code exchange against interception, but it does not make a public client confidential. It does not remove the need for exact redirect URI validation, TLS, state correlation, scope minimization, token expiry, and storage hardening.',
+        'Do not put access tokens in URLs. Do not log Authorization headers. Do not request broad scopes because they are convenient. Do not store long-lived tokens where a short-lived session would work. Do not treat refresh tokens like harmless session IDs.',
+        'Do not confuse authentication with authorization. A signed-in user may still lack the scope, tenant relationship, group membership, or object-level permission needed for a resource. Zanzibar Authorization Case Study covers that resource-level decision model.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: RFC 7636 PKCE at https://datatracker.ietf.org/doc/html/rfc7636, RFC 6749 OAuth 2.0 at https://datatracker.ietf.org/doc/html/rfc6749, RFC 9700 OAuth 2.0 Security Best Current Practice at https://datatracker.ietf.org/doc/rfc9700/, OAuth.net PKCE at https://oauth.net/2/pkce/, OAuth.net OAuth 2.0 overview at https://oauth.net/2/, and OAuth.net refresh token grant overview at https://oauth.net/2/grant-types/refresh-token/. Study JWT Verification, WebAuthn Passkeys, TLS 1.3 Handshake, JSON-RPC Protocol Case Study, Model Context Protocol Case Study, Zanzibar Authorization Case Study, Macaroon Caveat Chain Case Study, UCAN Delegation Proof Chain, OPA Rego Policy Decision Graph, SameSite Cookies & CSRF, IndexedDB Object Store Case Study, and Distributed Tracing next.',
       ],
     },
   ],

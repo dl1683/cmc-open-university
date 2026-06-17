@@ -38,6 +38,28 @@ The shared engine (`src/core/`) plays those steps: SVG rendering, play/pause/
 step/speed controls, and the explanation panel. Topic modules contain *only*
 algorithm logic and are written to be read as teaching material.
 
+## Learning paths
+
+The site now has a curriculum layer in `src/tracks.js`. Categories are broad
+shelves; learning paths are ordered courses with audience, outcome, modules,
+capstone, and next-track guidance. Homepage visitors see these paths first,
+then a compact domain map, with the full 1,000+ topic library still available
+behind search and the "browse all" disclosure.
+
+Topic pages also use the same track data to explain where a topic fits: which
+course module it belongs to, what to learn before, what it unlocks, and the
+previous/next topic inside the active path.
+
+## Writing system
+
+`WRITING_SYSTEM.md` is required reading before creating or revising a topic.
+Step explanations should teach decisions, invariants, and consequences; study
+notes should teach the full idea: why it exists, the obvious alternative, the
+wall, the core insight, correctness, cost, real uses, tradeoffs, and what to
+study next. The prose standard is deliberately plain: no stiff AI phrasing, no
+filler setup, no repeated ideas in different clothes. A working animation with
+caption-level text is not a finished topic.
+
 ## Run it locally
 
 ```bash
@@ -45,22 +67,22 @@ python -m http.server 8000   # ES modules need HTTP, not file://
 # open http://localhost:8000/
 ```
 
-## Run the tests
+## Review a change
 
-```bash
-node --test
-```
-
-Every topic is checked against the step contract (snapshots immutable,
-explanations on every step, highlights valid), and the algorithms are tested
-against the bug classes that lived in the 2017 version of this site —
-including the merge sort that looped forever on duplicate values.
+This is a static teaching site, not a package with a unit-test workflow. Run it
+locally, open the changed pages, and check the actual experience: navigation,
+animation pacing, responsive layout, explanation quality, and whether the topic
+passes `WRITING_SYSTEM.md`.
 
 ## Add a topic
 
 1. Create `src/topics/<id>.js` exporting a `topic` descriptor and a `run`
    generator (copy any existing topic as a template).
 2. Register it in `src/registry.js` (one entry — title, category, tags).
+3. If it belongs in a guided course, add it to the right module in
+   `src/tracks.js`.
+4. Apply `WRITING_SYSTEM.md`: strengthen step explanations and study notes until
+   the page teaches why the idea works, where it is useful, and where it fails.
 
 That's it: the homepage, search, and topic page pick it up automatically.
 If adding a topic ever requires more than that, the architecture has drifted.

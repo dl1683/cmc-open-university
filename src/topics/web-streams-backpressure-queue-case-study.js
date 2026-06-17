@@ -217,34 +217,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Web Streams are the browser platform abstraction for chunked data. ReadableStream represents a source, WritableStream represents a sink, and TransformStream connects the two. The data-structure core is an internal queue plus a queuing strategy.',
-        'Backpressure is the reason streams are not just callbacks. When the downstream queue fills, the pressure signal moves backward through the chain so the source can slow down.',
+        'Web Streams exist because modern pages rarely receive data as one neat value. Fetch bodies, compression, decoders, file reads, generated media, and UI renderers all move chunks. If every layer buffers everything before handing work to the next layer, latency rises and memory becomes the hidden bottleneck.',
+        'The useful constraint is not just "process chunks." It is "process chunks without letting a fast producer drown a slow consumer." That is the problem backpressure solves.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first approach is to append chunks into an array and let downstream code drain it whenever it can. That feels reasonable for small responses, and it is easy to debug because the buffer is just data waiting in order.',
+        'The wall arrives when the sink is slower than the source. A queue with no pressure signal is not a pipeline; it is an unbounded memory commitment. The UI can jank, the tab can grow until it is killed, and the producer never learns that its output is no longer useful at that speed.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A stream is a chain of bounded queues with a meter on each queue. The meter is desiredSize: highWaterMark minus the queued size. Positive desiredSize means there is room. Zero or negative desiredSize means the producer should pause or await readiness.',
+        'That single number turns a push problem into a feedback loop. Data still moves forward, but overload information moves backward.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the pipe-chain view, watch chunks and pressure move in opposite directions. Chunks move from source to transform to sink. Backpressure moves from the slow sink back toward the producer through desiredSize and readiness promises.",
+        "In the queue-strategy view, read highWaterMark as a budget and desiredSize as the remaining budget. A positive desiredSize invites more chunks. Zero or negative desiredSize tells the upstream stage to wait.",
+        "The important animation state is not simply a queue filling. It is the moment the producer changes behavior because the consumer is behind. That feedback loop is the difference between streaming and unbounded buffering.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A fetch response delivers compressed bytes. A decompression transform expands them, a text decoder turns bytes into strings, a line splitter emits records, and a UI renderer appends visible rows. If the renderer can only handle 500 records per frame, the line splitter cannot keep pushing indefinitely without growing memory. Backpressure gives the renderer a way to slow the upstream chain.',
+        'The same pipeline without backpressure looks fine in a demo and fails on real data. The browser downloads quickly, transforms quickly, queues millions of records, and then the UI spends seconds catching up. Streams make the slow stage visible so the whole pipeline can operate at the sustainable rate.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Each readable or writable stream maintains an internal queue. A queuing strategy assigns a size to each chunk and compares total queued size against a highWaterMark. The difference is desiredSize. If desiredSize is zero or negative, the stream is telling the producer to stop or slow down.',
-        'pipeThrough connects a readable to a transform. pipeTo connects a readable to a writable. Piping locks the streams while the operation is active, which prevents competing readers or writers from corrupting the stream state.',
+        'ReadableStream, TransformStream, and WritableStream each keep internal state: queued chunks, close/error state, and reader or writer locks. A queuing strategy decides how each chunk counts against the high water mark. Count strategies treat each chunk as one unit; byte strategies count bytes; custom strategies assign a weight.',
+        'pipeThrough connects a readable side to a transform. pipeTo connects a readable side to a writable side. While piping is active, the stream is locked so two consumers cannot race over the same queue state. On the writable side, writer.ready is the promise-shaped pressure signal.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Backpressure works because every queue boundary has a local invariant: do not keep accepting work once queued size reaches the high water mark. If every stage respects its own boundary, pressure can travel upstream until the original source slows down.',
+        'The guarantee is not magic throughput. It is bounded behavior. The pipeline can still be slow, fail, or cancel, but it does not need to hide that failure by accumulating arbitrary data in memory.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost is bookkeeping and coordination. Each chunk is enqueued, measured, transferred, transformed, and possibly awaited. Small chunks reduce latency but increase per-chunk overhead. Large chunks reduce overhead but make cancellation, UI updates, and memory spikes coarser.',
+        'When the consumer slows down, a correct stream trades throughput for memory safety. The important behavior is that the queue reaches a limit and then pushes waiting back toward the source.',
+        'Queuing strategy changes the meaning of "full." A count strategy treats every chunk equally, which is fine for similar-sized records. A byte strategy is better when chunk sizes vary widely. A custom size function can model domain cost, such as decoded image memory rather than compressed byte length.',
+      ],
+    },
+    {
+      heading: 'Cancellation and errors',
+      paragraphs: [
+        'Backpressure is only one control signal. Cancellation says downstream no longer needs the data. Error propagation says one stage cannot continue safely. A correct pipeline should close, cancel, or abort upstream work instead of leaving fetches, readers, or transforms alive after the user navigates away.',
+        'AbortController often belongs beside Streams. If a search result stream is no longer relevant because the query changed, the app should cancel the reader and abort the underlying request. Otherwise the stream may be memory-safe but still waste network and CPU on useless data.',
+      ],
+    },
+    {
+      heading: 'Design guidance',
+      paragraphs: [
+        'Choose chunk boundaries that match the work. Bytes are natural for network and file IO. Lines are natural for logs and JSONL. Domain records are natural once parsing is complete. Do not force every stage to understand every other stage; transforms should narrow the data shape as it moves through the chain.',
+        'Keep UI work batched. A stream that appends one DOM node per chunk can still jank even when memory is bounded. For visible interfaces, collect a small batch, render on an animation frame, then let backpressure decide when more chunks should arrive.',
+        'Use Workers when parsing or compression is heavy. Streams protect memory, but they do not make CPU work disappear. A clean pipeline often combines streams, transferables, workers, and cancellation into one control surface the developer can reason about.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Streams work well for fetch bodies, large files, media pipelines, compression, logs, JSON-lines feeds, and UI lists where the user can start seeing useful data before the whole response arrives.',
+        'The fit is strongest when the application can process records incrementally and when upstream work can actually pause, cancel, or slow down.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Streams do not help if the application immediately buffers the whole output, ignores writer.ready, or converts every chunk into a synchronous DOM update. They also do not remove the need for protocol-level flow control; HTTP, TCP, and the source itself still matter.',
+        'tee is a common trap. The slow branch can keep pressure alive even if the fast branch is draining quickly. A branch that is no longer needed should be canceled.',
+        'They also fail as a teaching tool when examples hide the slow consumer. Real pipelines should show the sink, the queue budget, and the cancellation path; otherwise the reader learns syntax without learning the control problem.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'Consider a log viewer loading a 2 GB server log. A fetch response body produces bytes. TextDecoderStream turns bytes into text. A line splitter emits complete lines. A parser emits records. The UI batches records into animation-frame updates. If the UI falls behind, desiredSize drops and pressure travels back toward the source instead of building a 2 GB array in memory.',
-        'The same lesson appears in Backpressure & Flow Control and Message Queue: bounded queues are not an implementation detail. They are the control surface that keeps producers from outrunning consumers.',
+        'A log viewer loads a 2 GB server log. The fetch response produces bytes, TextDecoderStream produces text, a line splitter emits complete lines, a parser emits records, and the UI batches records into animation-frame updates. If rendering falls behind, desiredSize drops and pressure moves back toward fetch instead of building a 2 GB array.',
+        'This is the same lesson as Backpressure & Flow Control and Message Queue: bounded queues are not an implementation detail. They are the control surface that keeps producers from outrunning consumers.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'Do not read an entire response into memory and call it streaming. Do not ignore writer.ready or controller.desiredSize. Do not tee a stream and forget that the slow branch matters. Do not update the DOM once per chunk if chunks arrive faster than frames.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MDN Streams concepts at https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts, Streams Standard at https://streams.spec.whatwg.org/, and web.dev Streams guide at https://web.dev/articles/streams. Study Backpressure & Flow Control, Queue, Ring Buffer, Message Queue, Web Workers, Structured Clone & Transferables, AbortController Cancellation Graph, and Browser Message Channels & Broadcast Coordination next.',
       ],

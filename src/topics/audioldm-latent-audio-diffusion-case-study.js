@@ -197,11 +197,117 @@ export const article = {
     { title: 'AudioLDM paper PDF', url: 'https://proceedings.mlr.press/v202/liu23f/liu23f.pdf' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['AudioLDM is a text-to-audio system built on latent diffusion. Instead of denoising raw waveforms directly, it learns and samples continuous audio representations conditioned by language-audio embeddings.', 'This module extends Diffusion Models and Variational Autoencoders: the expensive object is audio, but the sampler operates in a compressed latent space and a decoder renders the final waveform.'] },
-    { heading: 'Data structures', paragraphs: ['The pipeline stores prompt text, text embeddings, audio embeddings, latent tensors, noise timesteps, denoised latents, spectrogram-like representations, waveform samples, edit masks, and evaluation scores.', 'CLAP-style embeddings align text and audio. The latent diffusion model can use text embeddings during sampling while training on audio representations, which helps separate audio reconstruction from cross-modal conditioning.'] },
-    { heading: 'How it works', paragraphs: ['A pretrained language-audio representation maps text and audio into a shared semantic space. The latent diffusion model learns to generate audio latents, and the decoder turns those latents into audible output.', 'The same latent structure supports more than simple generation. Inpainting, style transfer, and super-resolution can be represented as masks or constraints over latent audio states.'] },
-    { heading: 'Complete case study', paragraphs: ['A sound-design tool receives the prompt "rain in a metal warehouse with distant thunder." The system creates a text embedding, samples latent audio, decodes a waveform, and records metrics for prompt match, distribution quality, human preference, safety, and render time.', 'An editor then masks a two-second region and asks for a louder thunder hit. The product reuses the surrounding latent context, regenerates only the masked span, and stores the edit mask with the generation seed.'] },
-    { heading: 'Pitfalls', paragraphs: ['Audio failures can be subtle. A sample may match the prompt label while having bad timing, harsh artifacts, unnatural dynamics, or unsafe content. Evaluation needs listening tests and task-specific checks, not one scalar metric.', 'Another trap is over-guidance. Pushing prompt adherence too hard can reduce naturalness or diversity, especially for long ambience where the best result is often textured rather than literal.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: AudioLDM at https://proceedings.mlr.press/v202/liu23f.html, AudioLDM project page at https://audioldm.github.io/, and the paper PDF at https://proceedings.mlr.press/v202/liu23f/liu23f.pdf. Study Diffusion Models, Variational Autoencoders, Embeddings & Similarity, Convolution, and Normalizing Flows next.'] },
+    {
+      heading: 'The real problem',
+      paragraphs: [
+        'Text-to-audio generation asks for more than assigning a label to a clip. The output has to contain plausible acoustic events, timing, texture, dynamics, and scene consistency. "Rain in a metal warehouse with distant thunder" is not just rain plus thunder; it is reverberation, material, distance, and temporal placement.',
+        'Generating raw waveform samples directly is expensive because audio has high temporal resolution. A few seconds of sound contain far more sample positions than a small image contains pixels, and tiny waveform errors can become audible artifacts.',
+      ],
+    },
+    {
+      heading: 'The obvious wall',
+      paragraphs: [
+        'The obvious way to generate sound is to predict waveform samples directly. That gives maximum fidelity in principle, but it makes the model operate on a long, fragile sequence where small errors can become audible clicks, noise, or timing artifacts.',
+        'Another obvious route is to retrieve a matching clip from a library. Retrieval is reliable when the exact asset exists, but it cannot compose new scenes, edit a selected region, or satisfy unusual prompts without a very large catalog. AudioLDM sits between those extremes: generate new audio, but do the slow denoising in a compressed latent representation.',
+      ],
+    },
+    {
+      heading: 'Why latent diffusion',
+      paragraphs: [
+        'AudioLDM moves the denoising problem into a learned latent space. The sampler does not repeatedly predict every waveform sample. It denoises a compact continuous audio representation, then a decoder renders the result back into an audible waveform path.',
+        'The original AudioLDM paper frames this as text-to-audio generation with latent diffusion and CLAP-style language-audio embeddings. The project page describes training latent diffusion models with audio embeddings while using text embeddings as the condition during sampling.',
+      ],
+    },
+    {
+      heading: 'Representation stack',
+      paragraphs: [
+        'A production pipeline stores several different objects: prompt text, text embeddings, audio embeddings, latent tensors, timestep noise levels, denoised latents, spectrogram-like representations, waveform samples, edit masks, seeds, sampler settings, and evaluation records.',
+        'Each representation has a job. Text embeddings carry semantic intent. Audio embeddings align the training signal with audio examples. Latents make diffusion cheaper. Spectrogram-like features preserve time-frequency structure. Waveforms are the final playback artifact.',
+      ],
+    },
+    {
+      heading: 'Training versus sampling',
+      paragraphs: [
+        'During training, the model learns to reverse noise in latent audio space. The training target is not "the word thunder"; it is a distribution over latent audio states that can reconstruct real sound and align with language-audio representations.',
+        'During sampling, the prompt is embedded and used as conditioning while the denoiser gradually turns noise into a latent audio sample. Guidance can push the sample toward the prompt, but too much guidance can make the result harsh, repetitive, or less natural.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A sound-design tool receives "rain in a metal warehouse with distant thunder." It encodes the prompt, samples a latent plan for the sound scene, decodes the latent into audio, and stores the seed, prompt, sampler settings, model version, and output path.',
+        'A useful output keeps low, dense rain energy throughout the clip, places a thunder event at a plausible time, and gives the scene a metallic reverberant tail. A weak output may contain rain and thunder labels in some metric while still sounding flat, clipped, mistimed, or spatially wrong.',
+      ],
+    },
+    {
+      heading: 'Text-guided edits',
+      paragraphs: [
+        'Latent diffusion also supports edit operations because the state has spatial and temporal structure. A mask can protect known context while a selected time span or frequency band is regenerated. Style transfer, inpainting, and super-resolution become constrained denoising problems rather than full restarts.',
+        'For the warehouse clip, the editor can mask two seconds and ask for a louder thunder hit. The system keeps surrounding context fixed, noises the masked latent region, denoises under the new prompt condition, and records the mask and seed so the edit can be reproduced.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The method works because the model separates three hard jobs. A representation model compresses audio into a latent space, contrastive audio-language training supplies a conditioning bridge, and diffusion provides an iterative generative process that can trade diversity for prompt adherence.',
+        'The separation is not perfect. If the latent space discards details, the decoder cannot recover them. If the embedding model has shallow semantic coverage, the prompt may steer toward the wrong sound. If the sampler is tuned poorly, plausible latents can become unnatural audio.',
+      ],
+    },
+    {
+      heading: 'Evaluation',
+      paragraphs: [
+        'Audio evaluation needs a ledger, not one score. Distribution metrics can catch broad realism problems. Text-audio similarity can catch prompt mismatch. Human preference can catch timing, texture, and annoyance. Safety review can catch speech, identity, copyrighted style, or harmful content concerns.',
+        'The evaluation record should include latency and reproducibility data too: model version, seed, prompt, negative prompt if used, guidance scale, sampler steps, duration, sample rate, and post-processing. Without that ledger, product teams cannot compare failures or reproduce a bad generation.',
+      ],
+    },
+    {
+      heading: 'Costs and latency',
+      paragraphs: [
+        'Latent diffusion is cheaper than direct waveform diffusion, but it is still an iterative sampler. More steps usually cost more latency. Longer clips enlarge the latent grid. Higher sample rates and stereo outputs increase decode and storage costs.',
+        'Serving systems often need separate routes for preview, final render, and edit mode. Preview may use fewer steps and lower duration. Final render may spend more compute. Edit mode may preserve context and regenerate only masked regions.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Prompt match can be shallow. The model may produce a generic ambience that scores as "rain" but lacks warehouse acoustics or distant thunder timing. It may also smear transients, loop textures, clip peaks, hallucinate speech, or produce unstable loudness.',
+        'Editing has its own failures. A masked region can create seams at the boundary, change ambience outside the intended span, or ignore the existing rhythm. Good tools need crossfades, loudness normalization, and audit trails for what was regenerated.',
+      ],
+    },
+    {
+      heading: 'Where it fits',
+      paragraphs: [
+        'AudioLDM-style systems fit sound design, game ambience, video prototyping, accessibility audio sketches, dataset augmentation, and creative exploration where plausible generated sound is useful and human review is acceptable.',
+        'They fit less well when exact reproduction is required: legal evidence, medical audio, safety alarms, music licensing-sensitive production, voice identity, and low-latency interactive instruments. In those domains, generated plausibility can be a liability.',
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        'The latent pipeline view shows the representation handoffs: text to CLAP text embedding, audio examples to audio embeddings, latent noise through the denoiser, then decoded spectrogram-like structure and waveform output.',
+        'The audio edits view shows why masks and evaluation matter. The mask decides what can change, the prompt decides the new condition, and the evaluation ledger catches failures that a single text-match score would miss.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Audio generation becomes tractable when the system separates semantic control, compact acoustic representation, and waveform rendering. Text embeddings say what the user wants. Latent diffusion searches a compressed sound space. The decoder turns the chosen latent trajectory back into audible samples.',
+        'That separation also explains the failures. A bad text-audio embedding loses intent, a weak latent representation loses acoustic detail, and a poor decoder turns a plausible latent into noisy playback. The pipeline is only as strong as the interfaces between those representations.',
+      ],
+    },
+    {
+      heading: 'Rule of thumb',
+      paragraphs: [
+        'Use AudioLDM-style generation for creative sound drafts, ambience, prototyping, and controlled edits where a human can judge the result. Keep seeds, prompts, model versions, and sampler settings because reproducibility is part of the creative workflow.',
+        'Do not treat text-audio similarity as sufficient evaluation. A generated clip can match the words and still fail timing, spatial impression, loudness, transient quality, or safety policy. Audio is experienced over time, so evaluation needs listening and context.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: AudioLDM at https://proceedings.mlr.press/v202/liu23f.html, AudioLDM project page at https://audioldm.github.io/, and the paper PDF at https://proceedings.mlr.press/v202/liu23f/liu23f.pdf.',
+        'Study Diffusion Models for the denoising loop, Variational Autoencoders for latent compression, Embeddings & Similarity for text-audio alignment, Convolution for time-frequency feature extraction, and Product Quantization for a different view of compressed representation search.',
+      ],
+    },
   ],
 };

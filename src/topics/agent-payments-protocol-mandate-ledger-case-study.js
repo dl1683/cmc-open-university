@@ -303,6 +303,27 @@ export const article = {
       ],
     },
     {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious answer is to let the agent use the user\'s payment credential directly. That is dangerous: a prompt-injected or confused agent can spend outside intent, and a later dispute has little structured evidence about what the user actually approved.',
+        'Another tempting answer is to ask the model to restate the user\'s intent at checkout. That is not authorization. A fluent sentence from an LLM is not a cryptographic proof, and it does not bind the payment to a merchant-signed cart.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Turn intent into signed, verifiable data. Open mandates express user constraints for future action. Closed mandates bind a specific checkout or payment to those constraints. Receipts record what happened. The payment credential is released only after deterministic verification.',
+        'The mandate ledger is the data structure. It links user intent, agent authority, merchant checkout, payment scope, receipts, hashes, signatures, and dispute evidence. The model may propose actions, but deterministic code decides whether the signed artifacts satisfy the rules.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The mandate-chain view shows how authority narrows over time. Broad open constraints become a specific closed checkout, then a scoped payment authorization, then receipts. Each artifact should point to the prior artifact it depends on.',
+        'The risk-gates view shows the threat model: the LLM-controlled agent is not trusted to authorize itself. Constraints, scoped tokens, signatures, hashes, and receipts bound the worst financial effect of a bad or manipulated agent action.',
+      ],
+    },
+    {
       heading: 'Mandates as data structures',
       paragraphs: [
         'AP2 defines two mandate families. A Checkout Mandate proves that the shopping agent is authorized to purchase the assembled checkout. A Payment Mandate proves that the shopping agent is authorized to pay for that checkout. Both can exist in open form, where the user signs constraints for future autonomous execution, and closed form, where a specific checkout or payment is bound to those constraints.',
@@ -314,6 +335,7 @@ export const article = {
       paragraphs: [
         'In a human-present flow, the user sees and approves the final checkout and payment through a trusted surface. The trusted surface signs the closed checkout and payment mandates, the credential provider verifies the payment mandate and releases a scoped token, and the merchant verifies the checkout mandate before completing the order.',
         'In a human-not-present flow, the user signs open mandates up front: budget, allowed merchants, line-item constraints, payment instruments, payees, dates, recurrence, and other rules. Later, the shopping agent builds a cart and signs closed mandates with its agent key. Verifiers accept the transaction only if the closed mandates satisfy the user-signed open constraints.',
+        'The difference is not whether the user cares. The difference is when the user is present to inspect the exact cart. AP2 has to preserve intent across time when the user is absent, so it replaces live human review with signed constraints and replayable verification.',
       ],
     },
     {
@@ -328,6 +350,7 @@ export const article = {
       paragraphs: [
         'AP2 is useful because it turns agentic commerce into familiar systems problems. Constraints become sets, intervals, counters, time windows, and flow graphs. Mandates become signed credentials with versioned schemas. Receipts become append-only audit records. Scoped payment tokens limit blast radius. Idempotency and receipt handling prevent duplicate autonomous purchases. Selective disclosure reduces privacy leakage from broad open mandates.',
         'The security docs explicitly assume agents and LLMs may be attackers, because prompt injection cannot be fully prevented. That is the core lesson: do not ask the model whether it is authorized. Verify signatures, hashes, constraints, scopes, payment tokens, and receipts in deterministic code.',
+        'A production implementation also needs lifecycle management. Mandates expire, payment instruments rotate, agents are revoked, merchants change checkout formats, and receipts must remain available for disputes. Those lifecycle rules are part of the protocol safety story, not administration afterthoughts.',
       ],
     },
     {
@@ -335,6 +358,14 @@ export const article = {
       paragraphs: [
         'Do not treat AP2 as permission for an agent to spend generally. It authorizes specific closed transactions or bounded autonomous constraints. Do not expose more user intent than the verifier needs; use selective disclosure. Do not release payment tokens before final mandate verification. Do not allow multiple overlapping autonomous closed mandates from the same open mandate without receipt handling. Do not treat a merchant catalog result as trustworthy simply because an agent selected it.',
         'AP2 also does not replace fraud, compliance, settlement, chargeback, KYC, AML, or merchant risk systems. It gives those systems better evidence and consistent agent-presence signals. Payment processors and issuers still need their ordinary risk engines and operational controls.',
+      ],
+    },
+    {
+      heading: 'Implementation review',
+      paragraphs: [
+        'A serious implementation should record mandate ids, schema versions, signing keys, constraint disclosures, checkout hashes, payment-token scopes, receipt ids, expiry times, revocation status, and idempotency keys. Those records let a verifier replay the decision and let a dispute team reconstruct what each participant accepted.',
+        'The hardest product question is recovery and revocation. Users need to cancel autonomous mandates, rotate payment instruments, revoke agent keys, and see what closed purchases were created under each open mandate. If that lifecycle is unclear, the protocol may be cryptographically sound while still feeling unsafe to users.',
+        'Dispute replay should be deterministic. Given the open mandate, closed checkout, merchant checkout JWT, payment mandate, scoped token, receipts, and timestamps, an auditor should be able to recompute whether the transaction satisfied the original constraints without asking the agent to explain itself after the fact.',
       ],
     },
     {

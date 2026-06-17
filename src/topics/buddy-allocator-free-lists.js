@@ -242,37 +242,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A buddy allocator manages memory in power-of-two blocks. Free blocks are grouped by order, where each order represents a block size such as 4 KB, 8 KB, 16 KB, and so on. When a request arrives, the allocator rounds up to the next available order. If no block of that order is free, a larger block is split repeatedly into equal buddies.',
-        'The central trick is that every block has exactly one buddy at the same order. When both buddies are free, they can coalesce into their parent block. That makes freeing local and cheap compared with a general allocator that must search arbitrary neighboring chunks.',
+        'An allocator has two jobs that fight each other: hand out memory quickly, and later rebuild large free ranges from the pieces that return. A kernel page allocator also has a harder constraint: it often needs physically contiguous page blocks, not just any scattered bytes.',
+        'The obvious design is a list of arbitrary free holes. On allocation, search for a hole large enough. On free, put the hole back and try to merge it with neighboring holes. That works, but the allocator now depends on variable-length searches and boundary bookkeeping to keep fragmentation under control.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Arbitrary holes make both questions expensive: which hole should serve this request, and which free neighbors can merge after this block returns? A long-running system can have plenty of total free memory while still lacking a large contiguous region.',
+        'The buddy allocator accepts a narrower shape. Every block size is a power of two. That restriction wastes some space inside allocated blocks, but it gives the allocator a cheap answer to the merge question.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Split memory as a binary tree of power-of-two blocks. At any order, a block has exactly one same-size buddy: the sibling created by the same split. With aligned addresses, the buddy address is found by flipping the bit for that block size.',
+        'That one fact turns coalescing from a heap search into a local test. If the exact buddy is free, merge the two children back into their parent. If it is not free, no other block at that order is allowed to merge with this one.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The allocate-and-split view is about controlled waste. A larger block is split only along power-of-two boundaries until the requested order exists. Every unused half goes onto a known free list, so the allocator never loses track of the remaining memory.',
+        'The free-and-coalesce view is about local proof. The allocator does not scan the whole heap looking for any neighbor. It computes the exact buddy, checks whether that buddy is free, and merges only when the tree says the two blocks are siblings.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Allocation starts by rounding the requested size up to an order. Check the free list for that order. If it is empty, climb to a larger nonempty order, remove one block, split it into two halves, put one half on the smaller free list, and continue until the target order exists. Return one block to the caller.',
-        'Freeing reverses the process. Compute the block buddy for the current order, often by flipping the size bit in the block address. If the buddy is free, remove it from the free list and merge the pair into the next larger order. Repeat until the buddy is allocated or the allocator reaches the maximum order.',
+        'Allocation rounds the request up to an order such as 4 KB, 8 KB, 16 KB, or 32 KB. If that order has a free block, return it. If not, climb to the next larger nonempty order, remove one block, split it into equal halves, place the unused half on the smaller-order free list, and repeat until the target order exists.',
+        'Freeing reverses the tree. Compute the buddy for the freed block at its current order. If that buddy is free, remove the buddy from its free list, merge the pair into the next order, and try again. The merge stops when the buddy is allocated, missing, or the region has reached the maximum order.',
+        'A practical allocator also needs metadata. It must know each block order, whether a block is free or allocated, which free list owns it, and where the managed region begins. Kernel implementations often combine per-order free lists with page descriptors and zone policy because not all pages are interchangeable.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Worked example',
       paragraphs: [
-        'Allocation and free are usually O(number of orders), which is O(log heap size) for the managed region. The free lists make common cases fast, and the buddy computation avoids a broad search for merge candidates. The cost is internal fragmentation: a 33 KB request may consume a 64 KB block. External fragmentation is mitigated but not eliminated, because only exact buddies can merge.',
+        'Suppose the allocator manages a 64 KB region and receives a 10 KB request. It rounds up to a 16 KB order. If no 16 KB block is free but a 64 KB block is available, the allocator splits 64 KB into two 32 KB blocks, splits one 32 KB block into two 16 KB blocks, returns one 16 KB block, and stores the unused halves on the 32 KB and 16 KB free lists.',
+        'When the 16 KB block is freed, the allocator computes its buddy by flipping the 16 KB bit in the address. If that buddy is free, they merge into a 32 KB block. If the 32 KB buddy is also free, the merge continues to 64 KB. One free operation can therefore repair several levels of fragmentation.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Linux uses a buddy-style page allocator for physical pages. Kernel subsystems often need contiguous page blocks, and the buddy system gives a simple way to split and coalesce page ranges. Smaller kernel objects are then commonly handled by slab-style allocators on top of pages, because allocating every tiny object as a power-of-two page block would waste too much memory.',
-        'User-space malloc implementations add more layers. glibc malloc organizes chunks into bins and handles coalescing around heap chunks. jemalloc emphasizes arenas, bins, thread caches, and fragmentation control. These systems are more complicated than a pure buddy allocator, but the same concerns recur: free-list organization, coalescing, size classes, locality, concurrency, and fragmentation.',
+        'The invariant is a partition of the managed region into non-overlapping power-of-two blocks. Splitting replaces one valid block with two valid children. Coalescing replaces two free sibling children with their valid parent. No operation invents overlapping memory or loses address space.',
+        'The buddy test is correct because only siblings share the same parent at that order. A neighboring non-buddy block may be physically adjacent, but merging it would create a block whose address or size does not match the allocator tree.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Buddy allocation is not a universal malloc replacement. It is easiest to reason about when the managed region is fixed and aligned and when block sizes can be powers of two. For arbitrary small object allocation, size-class allocators and slab caches often waste less memory and reduce lock contention. For huge contiguous allocations, even a buddy allocator can fail if free memory is split into incompatible buddies.',
-        'Another misconception is that coalescing solves all fragmentation. Coalescing only works when both exact buddies are free. If one half remains allocated, the allocator cannot merge the other half with a neighboring non-buddy block, even if total free memory looks large.',
+        'Allocation and free are O(number of orders), which is O(log heap size) for a fixed minimum block size. If the managed region doubles, the allocator adds one more possible order. Common cases are faster because each order has its own free list.',
+        'The tax is internal fragmentation. A 33 KB request may consume a 64 KB block. Requests just over half of an order waste almost half the block. External fragmentation is reduced by aggressive coalescing, but it is not eliminated because only exact buddies can merge.',
+        'That tradeoff is acceptable when the allocator is managing pages or large aligned regions. It is much less acceptable when the workload is dominated by tiny objects, because rounding error becomes the main cost instead of a secondary tax.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Buddy allocation fits page-level memory management: fixed aligned regions, page-sized units, and a real need for contiguous runs. Linux uses a buddy-style page allocator for physical pages, then places slab-style object allocators above it for small kernel objects.',
+        'The pattern also teaches the allocator stack. User-space mallocs such as glibc malloc and jemalloc add bins, arenas, thread caches, and richer policies, but they still face the same pressures: free-list organization, coalescing, locality, concurrency, and fragmentation.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Buddy allocation is not a universal malloc replacement. Small arbitrary objects waste too much space when every request rounds to a power of two. Size-class allocators and slab caches usually fit that workload better.',
+        'Coalescing also has a hard limit. If one half of a buddy pair remains allocated, the free half cannot merge with any other neighbor, even if total free memory looks large. Large contiguous allocations can still fail after the pool has fragmented into incompatible buddies.',
+        'It also needs policy above the raw algorithm. A kernel may have DMA zones, NUMA nodes, movable pages, reclaimable pages, and huge-page goals. The buddy algorithm can find a free block inside a pool, but higher-level policy decides which pool is allowed to satisfy the request.',
+      ],
+    },
+    {
+      heading: 'Operational review',
+      paragraphs: [
+        'When a buddy allocator is under pressure, inspect free blocks by order, not just total free memory. A system can have many free 4 KB pages and still fail a large contiguous allocation because the pages cannot coalesce into the requested order.',
+        'Fragmentation metrics should distinguish internal waste from rounded allocations, external fragmentation from incompatible free buddies, and policy fragmentation from memory being free in the wrong zone or NUMA node. Those distinctions matter when diagnosing page allocation failures.',
+        'A useful allocator trace records requested size, rounded order, split path, selected zone, merge attempts, and the reason a merge stopped. That trace turns a mysterious allocation failure into a concrete statement about which order, pool, or policy boundary lacked a usable block.',
       ],
     },
     {

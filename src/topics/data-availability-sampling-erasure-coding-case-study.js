@@ -272,45 +272,64 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Data availability sampling is the technique that lets many lightweight nodes gain high confidence that block or blob data was actually published without each node downloading everything. It combines erasure coding, commitments, random sampling, peer retrieval, and repair. It is central to modular blockchain designs where rollups or apps execute elsewhere but must publish enough data for anyone to check them.',
-        'The data-structure story is concrete. Original bytes become coded shares. Shares are arranged into indexed cells or blob vectors. Commitments bind those shares. Light clients request random cells plus proofs. Full nodes and archival providers reconstruct and retain data. Execution layers then use the available data to verify or dispute state transitions.',
+        'Data availability sampling exists because modular blockchain systems want many parties to check that data was published without forcing every participant to download every byte. Rollups and other execution layers can compute state transitions elsewhere, but they still need the underlying data to be public long enough for honest parties to reconstruct inputs, verify proofs, or challenge fraud. A block header or commitment alone is not enough. A malicious producer can commit to data and then withhold the actual bytes. Full download by every node solves availability, but it caps throughput at what ordinary nodes can fetch, store, and verify. Data availability sampling, or DAS, tries to keep light nodes light while making withholding attacks likely to be caught.',
       ],
     },
     {
-      heading: 'Why erasure coding comes first',
+      heading: 'The Naive Approaches',
       paragraphs: [
-        'If a block producer could hide one critical byte and still pass sampling, random samples would be weak. Erasure coding changes the attack: the producer must hide many coded shares to prevent reconstruction. Once many shares are missing, random sampling has a much better chance of detecting the withholding.',
-        'This is why Reed-Solomon Erasure Coding is a prerequisite. A DAS design needs a coding rule, share coordinates, reconstruction threshold, proofs that sampled shares belong to the committed data, and repair logic for peers that missed or lost shares. Sampling is the visible behavior; coding is the reason sampling has teeth.',
+        'The first naive approach is to trust the header. If a block contains a Merkle root or a KZG commitment, a light client can verify that a sample matches the commitment. That proves inclusion or consistency for bytes it actually receives. It does not prove the rest of the data can be downloaded. The second naive approach is to require every node to download everything. That is simple and strong, but it makes data throughput scale with the weakest acceptable node profile. The third naive approach is to sample the original data directly. That fails because a producer could hide a small but decisive part of the original data. If one missing share blocks reconstruction, random sampling has too little detection power unless clients sample a large fraction of the block.',
       ],
     },
     {
-      heading: 'Ethereum and Celestia as case studies',
+      heading: 'Core Insight',
       paragraphs: [
-        'Ethereum EIP-4844 introduced blob-carrying transactions and KZG commitments. The EIP specifies that commitments must match the corresponding blobs and proofs, and ethereum.org describes danksharding as moving toward distributed data sampling across blobs. EIP-4844 is proto-danksharding: a step that makes rollup data cheaper and prepares commitment plumbing for later sampling designs.',
-        'Celestia is an explicit data availability layer. Its docs describe erasure-coded blobs, a two-dimensional extended data square, namespaced Merkle trees for row and column commitments, and light-node data availability sampling. Namespaced Merkle Tree Proof Case Study breaks down that completeness proof: sorted namespace leaves plus min/max range siblings let one app verify it received all of its own data. That makes Celestia a clean teaching contrast with Ethereum blobs: different commitments and network roles, same underlying boundary between availability, validity, and archival retention.',
+        'The core insight is to change the shape of the attack before sampling. Erasure coding expands the original data into more shares than are needed for reconstruction. Once the data is extended, hiding a tiny original fragment is no longer enough. To prevent honest nodes from reconstructing the data, the producer has to hide many coded shares. Random sampling then has teeth because the unavailable region is large enough to hit with a small number of independent challenges. Commitments bind sampled shares to the advertised data so the producer cannot answer samples with different bytes. The invariant is probabilistic: if enough independent samplers receive valid random shares, then with high confidence the data was available during the sampling window. It is not certainty, execution validity, or permanent storage.',
       ],
     },
     {
-      heading: 'Complete case study: a rollup batch',
+      heading: 'How the Pipeline Works',
       paragraphs: [
-        'A rollup batches user transactions and posts the batch data as blob or DA-layer data. The chain stores a compact commitment or versioned hash. During the retention window, honest nodes can fetch the blob, verify the commitment, reconstruct the rollup inputs, and check an optimistic fraud proof or a validity proof. If the sequencer publishes a state root but withholds data, users cannot independently reconstruct the transition; DAS is designed to make that withholding detectable before the system accepts the data as available.',
-        'The important distinction is that availability is not validity. DAS can say the data was likely published. It does not prove the rollup executed correctly. KZG can prove a point belongs to a committed polynomial. It does not prove the application semantics. Archival nodes can keep historical blobs. They do not change whether data was available during the consensus window. Each layer has a different proof object.',
+        'A DAS pipeline starts with bytes: transactions, rollup batch data, or application blobs. The producer splits those bytes into shares, applies an erasure code such as Reed-Solomon, and arranges the expanded shares into an indexed structure. Celestia describes a two-dimensional extended data square: original shares arranged in a k by k matrix, extended with parity into a larger matrix, and committed through row and column roots. Ethereum EIP-4844 introduced blob-carrying transactions where the execution layer can access a commitment reference while the large blob data is handled outside EVM execution. PeerDAS, specified in EIP-7594, extends EIP-4844 blobs with one-dimensional erasure coding and cells that can be authenticated against KZG commitments. Different systems choose different shapes, but the pipeline is the same: encode, commit, distribute, sample, repair, retain, and archive.',
+        'A light node does not reconstruct the whole block. It chooses random coordinates or cells, asks peers for the shares at those positions, and verifies proofs against the committed header or blob commitment. Many light nodes doing this independently create network-wide coverage. Full nodes, bridge nodes, or repair services reconstruct larger pieces and serve missing data. Archival services keep older data after the protocol availability window. Execution layers then use the available data for their own proof systems. A rollup can derive its state from blob data, verify a validity proof, or give challengers the inputs needed for a fraud proof. DAS is the publication check under those higher-layer arguments.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why It Works',
       paragraphs: [
-        'Do not say a commitment makes data available. A commitment can bind to data that nobody can download. Do not say sampling proves certainty; it provides high confidence under assumptions about random sampling, enough honest nodes, and network retrieval. Do not say erasure coding is archival; it helps reconstruct from enough live shares, but the system still needs retention and archival policy.',
-        'Another trap is biased sampling. If a producer or network adversary can predict or steer sample positions, detection probability falls. A serious DAS design needs sampling randomness, peer diversity, custody or repair strategy, and monitoring for cells that are repeatedly unavailable. Finally, do not ignore namespacing. In modular systems, apps need proofs for their own data ranges without downloading every other app blob.',
+        'The correctness argument has two parts. The coding part says that the original data can be reconstructed from enough valid shares, so a producer that wants reconstruction to fail must hide more than a small local mistake. The sampling part says that once many shares are hidden, independent random samples have a rising chance of hitting a missing position. If one light client samples eight cells, that client alone has limited confidence. If many light clients sample independently, the probability that all of them miss a large withheld region falls quickly. Commitments add binding: a valid proof ties the returned share to the data root or polynomial commitment. The argument depends on honest sampling randomness, peer diversity, enough live data, and a repair path. Break those assumptions and confidence falls.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'What the Visual Proves',
       paragraphs: [
-        'Primary sources: ethereum.org Danksharding roadmap at https://ethereum.org/roadmap/danksharding/, EIP-4844 at https://eips.ethereum.org/EIPS/eip-4844, EIP-7594 PeerDAS at https://github.com/ethereum/EIPs/blob/master/EIPS/eip-7594.md, Celestia data availability docs at https://docs.celestia.org/learn/celestia-101/data-availability/, Celestia app data structures at https://celestiaorg.github.io/celestia-app/data_structures.html, and the Ethereum research note on data availability and erasure coding at https://github.com/ethereum/research/wiki/A-note-on-data-availability-and-erasure-coding.',
-        'Study Namespaced Merkle Tree Proof Case Study, Reed-Solomon Erasure Coding, KZG Polynomial Commitments, Narwhal Bullshark DAG Mempool Case Study, HotStuff BFT Quorum Certificate Case Study, Merkle Tree, Content-Addressed Merkle DAG Object Store, Reservoir Sampling, Byzantine Fault Tolerance: When Nodes Lie, and Distributed Tracing next.',
+        'The sampling-game view shows why the erasure code comes before the random challenge. The original blob becomes a larger square or vector of shares, and the header binds commitments to that extended data. The toy matrix marks data shares and parity shares so the learner can see redundancy as stored cells, not as a vague safety claim. The random-sample matrix shows the confidence curve: one sample is weak, several samples are better, and many independent nodes are better still. The final matrix separates claims that are often confused. DAS can support a high-confidence availability claim and commitment consistency. It does not prove transaction validity, and it does not promise that the data will be stored forever.',
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        'The cost starts with expansion. Erasure coding increases the number of shares that must be distributed, committed, and sometimes repaired. Two-dimensional schemes can make fraud proofs and light-client checks practical, but they also add row and column commitments. KZG-based blob designs have compact proofs and commitments, but they require polynomial-commitment machinery and careful implementation. Sampling lowers per-node bandwidth, yet the network still has to move enough data collectively. Repair and custody are not optional; if sampled cells vanish quickly or peers do not serve them, light-client confidence does not help users reconstruct anything. Retention policy matters because availability is time-bounded. Long-term historical access needs archival nodes, indexers, rollup teams, or other storage providers.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'DAS fits systems where many light participants need confidence that data was published but cannot download all data. Rollups are the main motivating case: transaction execution can move off the base layer, while the base layer or DA layer provides a publication guarantee for the inputs. Celestia uses DAS as a core data availability layer, combining erasure coding, extended data squares, row and column roots, and namespaced Merkle trees so applications can fetch their own data ranges. Ethereum EIP-4844 uses blobs and KZG commitments as proto-danksharding infrastructure, while PeerDAS designs move toward sampling and custody. The access pattern is asymmetric verification: producers publish large data, many light nodes check small random pieces, and full or bridge nodes reconstruct.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'DAS fails when people overstate what it proves. A commitment is not availability. Sampling is not certainty. Availability is not validity. Erasure coding is not archival storage. Biased or predictable sampling weakens detection. Weak peer diversity lets an adversary target who receives which cells. Bad coding or invalid extended data can make reconstruction fail even if samples appear to pass, which is why designs need fraud proofs, validity checks, or commitment schemes that match the coding model. Namespacing can also be mishandled. Applications need completeness proofs for their own data ranges, not just random access to unrelated shares. Finally, DAS is the wrong tool for small systems where every verifier can cheaply download the data. The machinery pays off when full download becomes the bottleneck.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary references are EIP-4844 at https://eips.ethereum.org/EIPS/eip-4844, EIP-7594 PeerDAS at https://eips.ethereum.org/EIPS/eip-7594, Celestia data availability docs at https://docs.celestia.org/learn/celestia-101/data-availability/, Celestia app data structures at https://celestiaorg.github.io/celestia-app/data_structures.html, and the Ethereum research note on data availability and erasure coding at https://github.com/ethereum/research/wiki/A-note-on-data-availability-and-erasure-coding. Study Reed-Solomon erasure coding, KZG polynomial commitments, Merkle trees, namespaced Merkle tree proofs, reservoir sampling, Byzantine fault tolerance, HotStuff quorum certificates, Narwhal and Bullshark DAG mempools, content-addressed Merkle DAGs, and distributed tracing next. Keep the layers separate: DAS checks publication, proof systems check execution claims, and archival systems handle long-term access.',
       ],
     },
   ],

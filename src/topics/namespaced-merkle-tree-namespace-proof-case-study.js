@@ -308,45 +308,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A namespaced Merkle tree is a Merkle tree whose leaves are sorted by namespace and whose internal nodes store three fields: minimum namespace, maximum namespace, and hash value. The root still commits to the bytes below it, but it also commits to the namespace interval covered by every subtree.',
-        'The extra range metadata changes the proof question. A normal Merkle proof can show that one leaf is included. An NMT proof can show that all leaves for namespace B have been returned, because any skipped sibling whose range still overlaps B exposes an incomplete response.',
+        `A namespaced Merkle tree exists because a shared data layer has a different proof problem from a single-application database. Many applications publish shares into the same block. A rollup, payment app, game, or bridge usually wants only its own data, but it must know that the server did not omit one of its shares. A normal Merkle proof can prove that one returned leaf is in the committed tree. It cannot, by itself, prove that all leaves for one application were returned.`,
+        `Celestia-style data availability makes that completeness question central. Light nodes sample random coordinates to test whether block data is available, while applications fetch complete namespace slices for their own blobs. The shared root has to support both questions. The tree must authenticate bytes, authenticate namespace order, and give a verifier enough boundary evidence to reject a partial namespace response.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The obvious approach is to keep one Merkle tree per application. Then an app can ask for its root and verify every share in its own tree. That works until the block producer needs one canonical commitment for a mixed block and light nodes need to sample the whole data square. Per-app roots fragment the commitment and make the header carry application-specific structure that may change every block.`,
+        `The next approach is to put every share in one ordinary Merkle tree and return inclusion proofs for the shares an app asks for. That proves the returned leaves are real, but it still does not prove completeness. A malicious or faulty server can return B0 and B1 while hiding B2 and B3. Each returned leaf verifies. The missing leaves are invisible because the proof says nothing about the namespace range inside skipped siblings.`,
+        `The failure is that inclusion is weaker than interval completeness. If leaves are unordered, the verifier cannot know whether another B leaf is hiding elsewhere without scanning the whole block. If internal nodes carry only hashes, a skipped subtree is opaque. Data availability also needs one commitment to serve random coordinate sampling, complete namespace retrieval, and efficient full-node construction at the same time.`,
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        `The core insight is to sort leaves by namespace and commit to the namespace range of every subtree. Each leaf includes a namespace identifier and share bytes. Each internal node stores or derives a minimum namespace, a maximum namespace, and a hash over its children and their ranges. Sorting turns all shares for namespace B into one contiguous interval. Range metadata makes every skipped subtree inspectable without opening it.`,
+        `Completeness then becomes a boundary proof. The server returns the B leaves plus the sibling commitments needed to recompute the root. The verifier accepts skipped siblings only when their namespace interval is entirely left of B or entirely right of B. If a skipped sibling says its range is [B-D], it might contain hidden B shares, so the proof is incomplete and must be rejected.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The producer first tags each share with a namespace identifier and sorts shares lexicographically by namespace. A leaf hash includes a leaf domain byte, the namespace, and the raw share data. An internal hash includes an internal-node domain byte, the child ranges, and the child hash values. The parent range is derived from the child ranges.',
-        'To prove a namespace, the server returns the leaves in that namespace plus sibling commitments needed to recompute the root. The verifier checks the root hash, then checks that the left boundary has a maximum namespace lower than the target and the right boundary has a minimum namespace higher than the target. If a sibling range intersects the target namespace, the proof skipped data it was supposed to return.',
+        `Construction starts by tagging shares with namespace identifiers and ordering them lexicographically by namespace. A leaf hash commits to the namespace and share data with leaf-domain separation. An internal node combines child commitments with internal-domain separation and carries the minimum and maximum namespace below it. The root is still a compact commitment, but it now commits to both data bytes and the namespace layout.`,
+        `A namespace proof has two jobs. First, it proves inclusion for the returned leaves by allowing the verifier to recompute the trusted root. Second, it proves completeness by showing that the immediate skipped material on both sides cannot contain the target namespace. Absence is similar: if namespace B is missing, the proof must show the neighboring ranges that bracket where B would have appeared in sorted order.`,
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Celestia uses NMTs inside its data availability layer. Shares are arranged into an extended data square with Reed-Solomon erasure coding. Every row and every column gets an NMT root, and the block header commits to the row and column roots through the available data root. Light nodes sample shares to test availability, while applications retrieve complete namespace slices for their own blobs.',
-        'This is the teaching bridge from Merkle Tree to Data Availability Sampling. Merkle Tree explains hash paths. Reed-Solomon Erasure Coding explains why a block can be reconstructed from enough shares. Data Availability Sampling explains random coordinate checks. Namespaced Merkle Tree Proof Case Study explains how one app proves it got all of its own data without downloading everyone else data.',
+        `The first view proves why ordering matters. Once shares are sorted by namespace, all B shares form one interval rather than scattered leaves. The boundary cells labeled left and right are not decoration. They are the evidence that the returned interval is complete. If the left boundary has a maximum below B and the right boundary has a minimum above B, no B share can be hiding just outside the returned slice.`,
+        `The tree view proves why range-carrying siblings matter. A normal Merkle sibling only says "trust this hash while recomputing the root." An NMT sibling also says which namespace interval it covers. The incomplete-response frame shows the key rejection rule: a server cannot replace missing B leaves with a sibling whose range still overlaps B. The range exposes the omission.`,
+        `The data-square view proves the system context. Celestia-like blocks arrange shares into an extended data square, commit to rows and columns with NMT roots, and commit to those roots in the header. Coordinate sampling and namespace retrieval are different queries over the same committed data, so the proof format must serve both light-node availability checks and app-specific retrieval.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Tree construction is O(n) hashing after shares are sorted. A single leaf proof is O(log n) sibling data. A namespace proof is O(k + log n) in the common mental model: k returned leaves for the namespace plus boundary and path data. The exact proof format depends on implementation details, but the asymptotic lesson is stable: the app pays for its own data slice plus a small authentication boundary.',
-        'The range metadata makes absence and completeness efficient. If namespace B does not appear, the proof can show neighboring ranges that bracket where B would have been. If B appears, the proof must include every B leaf or else a skipped sibling range will still contain B.',
+        `The correctness argument is a sorted-interval argument plus a Merkle argument. The Merkle argument says the returned leaves and sibling commitments recompute the trusted root, so the proof is about the committed tree rather than a made-up tree. The sorted-interval argument says that if all leaves are ordered by namespace, every occurrence of namespace B must lie between the leftmost and rightmost B position.`,
+        `Range metadata connects those arguments. Any skipped subtree whose range does not include B cannot contain B because its min and max namespaces exclude it. Any skipped subtree whose range does include B is unsafe to skip. Therefore a verifier that receives all B leaves and only non-overlapping skipped siblings has a complete namespace response relative to the accepted root.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'An NMT is not a data availability protocol by itself. It authenticates shares and namespace ranges. The network still needs data distribution, sampling, repair, retention, and a trusted header root. It also does not prove transaction validity; rollup execution proofs or fraud proofs handle that layer.',
-        'The serialization contract is security-critical. Implementations must define namespace size, lexicographic ordering, leaf and internal domain separation, parity namespace handling, compact-root rules, and proof verification exactly. A proof verifier that only recomputes the hash but ignores boundary ranges has lost the main NMT guarantee.',
+        `After sorting, tree construction is linear in the number of shares for hashing purposes. A single coordinate proof is logarithmic in the tree size. A namespace proof is roughly the returned slice size plus boundary and path data, often described as O(k + log n) for k shares in the namespace. The important behavior is that an app pays for its own data and a small authentication envelope, not for every other app's blob.`,
+        `The tradeoff is stricter serialization and verification. Namespace size, namespace ordering, share format, leaf hashing, internal hashing, domain separation, parity namespace handling, and proof rules must be identical across producers and verifiers. The tree also carries more metadata than a plain Merkle tree. That extra metadata is the price of completeness proofs.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Celestia data-structure specification at https://celestiaorg.github.io/celestia-app/data_structures.html, Celestia data availability docs at https://docs.celestia.org/learn/celestia-101/data-availability/, Celestia NMT glossary at https://celestia.org/glossary/namespaced-merkle-tree/, celestiaorg/nmt implementation at https://github.com/celestiaorg/nmt, LazyLedger paper at https://arxiv.org/abs/1905.09274, and Fraud and Data Availability Proofs at https://arxiv.org/abs/1809.09044.',
-        'Study Merkle Tree first for root and proof paths. Then read Sparse Merkle Tree Non-Membership for absence proofs, Reed-Solomon Erasure Coding for recoverable shares, Data Availability Sampling & Erasure Coding Case Study for the DA layer, Content-Addressed Merkle DAG Object Store for hash-linked object identity, KZG Polynomial Commitments for the Ethereum blob commitment contrast, and Reservoir Sampling for the randomness intuition behind DAS.',
+        `Namespaced Merkle trees win in multi-tenant commitments. A modular data availability layer can put many applications into one block while letting each application fetch only its own namespace. A rollup full node can verify that it received all shares for its namespace without trusting the peer that served them. A light node can still use compact row or column proofs while sampling coordinates.`,
+        `The pattern also teaches a broader data-structure lesson. When clients need selective completeness, a plain hash tree may not carry enough semantic information. Adding order and range metadata turns an opaque subtree into a safely skippable subtree. The same idea appears in interval trees, authenticated dictionaries, sparse Merkle non-membership proofs, and database indexes that use key ranges to skip pages.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `An NMT is not a full data availability protocol by itself. It authenticates shares and namespace ranges relative to a root. The network still needs erasure coding, block propagation, sampling, repair, retention, and a trusted header. It also does not prove transaction validity. A rollup still needs its own execution checks, fraud proofs, validity proofs, or verifier rules.`,
+        `The verifier can lose the main guarantee by checking only the hash path. If it ignores min and max namespaces, a partial namespace proof degenerates into ordinary inclusion proofs. Other failures are implementation-level: inconsistent namespace ordering, malformed reserved namespaces, incorrect parity-share handling, unsafe compact proofs, root mismatch, stale headers, or accepting shares from the wrong block height.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Merkle Tree for ordinary inclusion proofs, Sparse Merkle Tree Non-Membership for absence proofs, Reed-Solomon Erasure Coding for recoverable shares, Data Availability Sampling for light-node availability checks, Content-Addressed Merkle DAG Object Store for hash-linked object identity, KZG Polynomial Commitments for a contrasting commitment family, and Reservoir Sampling for the random-sampling intuition behind availability checks. Then return to NMTs and ask which guarantee comes from hashing, which comes from ordering, and which comes from the accepted root.`,
       ],
     },
   ],

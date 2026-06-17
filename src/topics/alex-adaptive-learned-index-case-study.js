@@ -220,41 +220,106 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'ALEX, short for Adaptive Learned Index, is a dynamic range index that wraps learned position models in the machinery needed for real updates. Earlier learned-index demos often assumed static, read-only arrays. ALEX targets mixed workloads with point lookups, short range queries, inserts, updates, and deletes.',
-        'The structure resembles a tree of model nodes and data nodes. Model nodes predict which child range should contain a key. Data nodes store sorted keys and payloads in arrays with gaps. The model gives a predicted position; local search and comparison preserve exact map semantics.',
+        `Learned indexes start from a provocative observation: an ordered index is partly a prediction problem. Given a key, the index predicts where that key should appear in sorted order. A B-tree predicts coarsely with separator keys. A learned index can predict with a model trained on the key distribution. If the model is accurate, lookup can jump close to the answer and use only a short local correction.`,
+        `ALEX exists because the first version of that story was too static. It is impressive to learn positions in a sorted array, but production indexes receive inserts, updates, deletes, point lookups, and range scans while the data distribution changes. A static learned model over a dense sorted array has no good answer when new keys arrive. It can predict a position, but it cannot create space, update local error bounds, or decide when the layout is no longer healthy.`,
+        `ALEX, the Adaptive Learned Index, is important because it treats the learned model as one part of an index rather than the whole index. It adds gapped data nodes, adaptive expansion, splitting, retraining, and exact verification around the model. The lesson is broader than ALEX itself: learned data structures become practical only when prediction is wrapped in storage machinery that survives change.`
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious approach`,
       paragraphs: [
-        'Lookup descends through model nodes until it reaches a data node. Inside the data node, the local model predicts a slot, then the implementation searches nearby to find the exact key or insertion point. Insertions use reserved gaps when possible. When a data node becomes crowded or predictions become expensive to correct, ALEX can expand, split, or retrain.',
-        'That adaptation is the case-study lesson. Learned indexes are not just models; they are model-guided storage layouts with cost monitors, repair policies, and exact fallback. The prediction is allowed to be wrong, but it must be bounded enough that correction remains cheap.',
+        `The robust baseline is a B+ tree or a balanced-tree ordered map. It does not assume keys are smooth, linear, or easy to learn. Internal nodes route by separators, leaf pages store sorted records, and page splits create space when a region fills. It is not glamorous, but it handles updates, range scans, recovery, and concurrency with a long history of engineering practice.`,
+        `The obvious learned-index baseline is simpler: train a model from key to array position over a sorted dense array. A lookup evaluates the model, searches around the predicted position, and verifies the answer with comparisons. This can be very fast for read-mostly data with a learnable distribution. It also explains why learned indexes are attractive: the model can replace many branchy comparisons with arithmetic and cache-friendly local search.`,
+        `The first attempt fails on writes. A dense array has no spare slots. Inserting a key near the middle requires shifting many items or rebuilding. The model also becomes stale as inserted keys change the local shape of the distribution. A fast static predictor is not enough; the index needs a layout and repair policy.`
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Where the baseline fails`,
       paragraphs: [
-        'ALEX trades traditional separator pages for models and gapped arrays. Reads can be fast when the key distribution is learnable and the local correction window stays small. Writes stay practical by using gaps and local adaptation, but maintenance is not free. Bad distributions, hot insert regions, frequent splits, or poor parameter choices can erase the advantage over a B-tree.',
+        `The wall is dynamic maintenance. An index must preserve exact ordered-map semantics while keys arrive in uneven patterns. If many inserts land near one predicted position, the local array region becomes crowded. If a model was trained on yesterday's distribution, its prediction error can grow today. If the repair policy is too aggressive, the index spends all its time rebuilding. If it is too lazy, lookup windows and insert shifts grow until the learned index loses its advantage.`,
+        `This is a data-structure problem, not just a machine-learning problem. The model answers "where should this key probably be?" The storage layer must answer "where can it go now, how far must existing keys move, when should this node split, and how do range scans remain sorted?" ALEX's contribution is to make those storage answers part of the learned-index design.`,
+        `The exactness requirement is also non-negotiable. A search index may rank approximate matches, but an ordered map cannot return the wrong key because the model guessed well on average. Every prediction needs a comparison-based correction path. The model can reduce work; it cannot replace the final proof that the key is present or absent.`
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: `Core insight`,
       paragraphs: [
-        'The SIGMOD 2020 ALEX paper presents it as an updatable learned index for read-write workloads and reports strong performance and memory results against B+ trees and earlier learned indexes on evaluated workloads. Microsoft released a C++ implementation whose README describes ALEX as an ML-enhanced range index similar in functionality to a B+ tree and close to a drop-in replacement for std::map or std::multimap.',
+        `ALEX separates routing, storage, and repair. Model nodes route a key toward a child range. Data nodes store sorted records in arrays with deliberate gaps. Each data node has a local model that predicts a position inside that node, and the node uses local search plus comparisons to find the exact key or insertion point. When the node becomes crowded or the model becomes inaccurate, the index adapts the node instead of pretending the original prediction surface is permanent.`,
+        `The core invariant is: prediction chooses a neighborhood; comparisons preserve exactness. That invariant keeps ALEX from becoming an approximate index. A wrong prediction costs extra local search, but it does not corrupt the answer. A crowded node costs shifts or repair, but it does not break sorted order.`,
+        `The second invariant is slack must be managed as a resource. Gaps are not wasted space by accident. They are reserved write capacity. ALEX spends memory to reduce insert movement, then monitors whether that slack is still in the right places.`
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Lookup and insert path`,
       paragraphs: [
-        'ALEX does not make learned indexes universally better. It works when prediction reduces enough search and memory work to pay for model evaluation, gap management, and adaptation. It also does not return approximate answers: exact comparison still decides lookup and insertion. Compare it with Bw-Tree Delta Chain & Mapping Table to separate learned placement from concurrency-control and page-publication design. The broader lesson is the same as PGM-Index: Piecewise Geometric Model and Learned Indexes: models help only when the data structure preserves its contract.',
+        `A lookup begins at the root model node. The model maps the search key to a child pointer or child range. The process repeats until it reaches a data node. Inside the data node, a local model predicts a slot. ALEX then searches around that slot to find the key or the lower-bound position where the key would belong.`,
+        `An insert follows the same route. After the lower-bound position is found, the data node tries to place the new key into a nearby gap while preserving sorted order. If a gap is close, the insert can be much cheaper than shifting a dense array. If no useful gap remains, the node may expand, split, or rebuild its layout. This is why ALEX is not just a model: the gapped array is doing real data-structure work.`,
+        `Range scans depend on the same sorted-node contract. Once the first key is found, the scan can walk forward through records and across neighboring data nodes. The model helps locate the start, but the sorted layout makes the range result exact and ordered.`
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Adaptation mechanism`,
       paragraphs: [
-        'Primary sources: ALEX arXiv paper at https://arxiv.org/abs/1905.08898, ACM DOI at https://dl.acm.org/doi/10.1145/3318464.3389711, Microsoft Research page at https://www.microsoft.com/en-us/research/publication/msr-alex-techreport/, and implementation at https://github.com/microsoft/ALEX. Study Learned Indexes, PGM-Index: Piecewise Geometric Model, B-Trees, Database Indexing, and Binary Search next.',
+        `ALEX monitors operational symptoms rather than only model loss. Important signals include node density, insert shift distance, local search cost, model error, and hot ranges where many writes cluster. These symptoms tell the index whether the current bargain is still working: a little extra memory for gaps, a little local search for model error, and occasional repair for long-term health.`,
+        `Expansion adds more space to a data node and redistributes records with gaps. It is useful when the model is still acceptable but the node is too dense. Splitting divides a node into smaller ranges, which can isolate a hot region or reduce search and shift costs. Retraining updates a model when the key-to-position relationship has changed enough that correction windows are too wide.`,
+        `The hard part is choosing when to pay the repair cost. Rebuilding too late creates slow operations and bad tail latency. Rebuilding too early wastes CPU and memory bandwidth. ALEX is therefore a feedback-controlled index: it uses local cost measurements to decide when prediction, layout, or both need repair.`
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `ALEX works when the key distribution is learnable enough that predictions land near the true position and stable enough that repairs are not constant. In that regime, model evaluation can replace several pointer-heavy tree steps, and a gapped data node can absorb inserts without shifting a full dense array. The model gives locality; the gaps give write capacity; the comparisons give correctness.`,
+        `The design also works because errors are local. A bad prediction in one data node does not poison the whole index. It widens local search or triggers local repair. A hot insert range can be split without rebuilding the entire structure. That locality is the same reason B-trees work well: most maintenance is bounded to a page or path. ALEX keeps that discipline while changing the routing and node layout.`,
+        `The exactness proof is simple at the interface level. Keys remain sorted inside data nodes. Model nodes route to ranges that cover the key space. After prediction, local comparison finds the lower bound. As long as splits and expansions preserve range boundaries and sorted order, lookup and range scan semantics match an ordered index even when the model is imperfect.`
+      ],
+    },
+    {
+      heading: `Cost and behavior`,
+      paragraphs: [
+        `ALEX trades separator pages for models, gapped arrays, and repair policy. Reads can be fast when model error is low and data nodes stay cache-friendly. Writes can be fast when gaps are available near insert positions. Range scans can remain efficient because records are sorted inside and across data nodes.`,
+        `The costs are memory slack, model storage, repair work, and policy complexity. Reserved gaps increase memory footprint. Model evaluation and correction add code paths that a plain B-tree does not have. Expansion and splitting consume CPU and memory bandwidth. Tail latency can suffer if a foreground operation triggers a large repair.`,
+        `The engineering comparison with B-trees is sober. B-trees have decades of work on latching, logging, recovery, buffer management, compression, and concurrent scans. ALEX shows a promising in-memory range-index design, but bringing the pattern into a full database index means solving all the ordinary database problems in addition to learned placement.`
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `ALEX is strongest for in-memory ordered indexes where keys have a learnable distribution, reads and range scans are common, and writes are present but not so adversarial that every local model is constantly invalidated. It is a good fit when the workload benefits from cache-friendly arrays and when extra memory for gaps is acceptable.`,
+        `The SIGMOD 2020 paper presents ALEX as an updatable learned index for read-write workloads. Microsoft released a C++ implementation that describes ALEX as an ML-enhanced range index with B+ tree-like functionality and a near drop-in role for std::map or std::multimap-style use cases. That framing is useful: ALEX is not a classifier bolted onto a database. It is an ordered range index with learned routing and adaptive storage.`,
+        `It also wins as a teaching case. It shows the difference between a learned algorithm demo and a real data structure. The model is interesting, but the decisive ideas are exact correction, slack management, local repair, and feedback from measured operation cost.`
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `ALEX is not universally better than a B-tree. If keys are nearly random, highly jagged, encrypted, hashed, or distributed in a way the model cannot learn, prediction windows grow and the learned layer becomes overhead. If writes concentrate in a moving hot spot, the structure may spend too much time expanding, splitting, and retraining.`,
+        `It also has production risks outside the core paper algorithm. Concurrent updates require careful synchronization. Recovery requires logging enough structure changes to rebuild a consistent index after a crash. Memory reclamation matters if nodes are replaced while readers are active. Tail latency matters if a user request pays for a repair. None of these problems disappear because the routing function is learned.`,
+        `The most common misconception is to compare average lookup speed only. A serious comparison includes inserts, deletes, range scans, memory footprint, build time, update amplification, p99 latency, skewed workloads, and mixed read-write traces. Learned indexes are systems, not just curves on a static array.`
+      ],
+    },
+    {
+      heading: `Implementation guidance`,
+      paragraphs: [
+        `Start with exact ordered-map behavior before optimizing. Implement lower-bound verification, sorted data-node invariants, range boundary checks, and tests that compare every operation against a reference map. The model path should be allowed to be wrong about position but never wrong about membership or order.`,
+        `Make repair decisions observable. Track per-node density, average and maximum shift distance, local search window, insert count, split count, expansion count, and retraining cost. Without those metrics, tuning becomes guesswork. Expose them in benchmarks and logs so bad distributions are visible rather than hidden behind average throughput.`,
+        `Keep repair operations safe and bounded. Splits must update parent routing atomically. Expansions must preserve sorted order and gap metadata. Retraining must not publish a model that routes outside the node's key range. If the implementation is concurrent, readers need a stable view while nodes are replaced or repaired.`
+      ],
+    },
+    {
+      heading: `Worked example`,
+      paragraphs: [
+        `Suppose a data node covers keys from 50 to 100 and currently stores 50, 60, 80, and 95 with gaps between them. A lookup for 73 descends through model nodes, lands in that data node, predicts a slot near the gap between 60 and 80, and uses local comparison to decide that 73 is absent but should be inserted before 80.`,
+        `If a gap is available near that position, the insert can move only a few records or none at all. Later, many new keys arrive near 73: 70, 71, 72, 74, 75, 76. The nearby gaps disappear, insert shifts grow, and the node's local model may become less accurate. ALEX now has evidence that the node's original layout is no longer healthy.`,
+        `The repair choice depends on the measured pain. If the model still predicts well but slack is gone, expansion can redistribute records with fresh gaps. If the region is hot or the node has become too large, splitting can give the dense subrange its own data node. If the prediction error is the main issue, retraining the local model can shrink future correction windows.`
+      ],
+    },
+    {
+      heading: `Sources and study next`,
+      paragraphs: [
+        `Primary sources: the ALEX arXiv paper at https://arxiv.org/abs/1905.08898, the ACM DOI at https://dl.acm.org/doi/10.1145/3318464.3389711, the Microsoft Research page at https://www.microsoft.com/en-us/research/publication/msr-alex-techreport/, and the implementation at https://github.com/microsoft/ALEX.`,
+        `Study Learned Indexes first for the static model-as-index idea. Then study PGM-Index: Piecewise Geometric Model, Packed Memory Array Gapped Order, B-Trees, B+ Tree Leaf Sibling Scan, Database Indexing, Adaptive Radix Tree, Bw-Tree Delta Chain and Mapping Table, and Binary Search. Those topics separate the model, the ordered layout, the update policy, and the production database concerns that ALEX brings together.`
       ],
     },
   ],

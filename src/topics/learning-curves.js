@@ -151,40 +151,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why Learning Curves Exist`,
       paragraphs: [
-        `Learning Curves & Bias–Variance is the diagnostic that answers a costly question: should you collect more data, simplify the model, or make it more expressive? Plot training accuracy and validation accuracy as the training set grows. The gap between them tells you whether the model is memorizing the sample, while the level where they converge tells you whether the model is too simple. This is diagnosis before treatment, and Cross-Validation & Honest Evaluation supplies the held-out measurement that makes the curves believable.`,
+        `A learning curve is a diagnostic plot. It shows model performance as the amount of training data changes. In the common supervised-learning version, you train the same model on small, medium, and large slices of the training set, then plot both training performance and validation performance. The shape tells you whether the model is starved for data, too weak to fit the pattern, over-regularized, under-regularized, or already close to the noise floor.`,
+        `This matters because machine-learning budgets are expensive in different ways. Collecting more labels can take months. Redesigning the model can break production assumptions. Adding capacity can increase latency and serving cost. Regularization can stabilize a model or make it too dull. A learning curve does not solve the whole problem, but it tells you which intervention is plausible before the team spends the budget. It is diagnosis before treatment.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Wall They Answer`,
       paragraphs: [
-        `The high-variance patient starts with 50 examples: training accuracy is 100%, validation is 62%, a 38-point gap. As data grows to 1,600 examples, training falls to 94%, validation rises to 86%, and the gap narrows to 8 points. The model had enough capacity to memorize small samples, but more data is still helping. Treatments include more data, stronger Regularization: L1 & L2, Dropout, or a simpler model.`,
-        `The high-bias patient looks different. Training begins at only 78%, validation at 65%, and both curves fuse around 74% by 800 to 1,600 examples. There is no big gap left to close. The model cannot fit the pattern it already has, so ten times more data would mostly confirm the same ceiling. Treatments point the other way: better features, more capacity, lower regularization, or a model class beyond a straight boundary like Logistic Regression.`,
+        `The obvious response to mediocre validation accuracy is to argue from taste. One person says the model needs more data. Another says the architecture is too small. Another says the model is overfitting and needs regularization. All three can be right in different situations, and each can be damaging when applied to the wrong situation. A high-bias model does not become powerful just because you add labels. A high-variance model does not become more stable because you make it bigger.`,
+        `Learning curves answer that wall by separating memorization from underfitting. Training performance tells you how well the model can fit the data it saw. Validation performance tells you how well that fit transfers to unseen data. The gap between those curves is a variance clue. The level where the curves settle is a bias clue. The trend as data grows is the prescription. You do not read one score; you read the shape.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core Insight`,
       paragraphs: [
-        `A learning curve costs several training runs at different sample sizes. The demo uses six sizes: 50, 100, 200, 400, 800, and 1,600. If each run starts from scratch, total cost is the sum of those fits, often a few times a full run rather than a new data-collection project. Storage is just the plotted scores. The payoff is avoiding the expensive wrong prescription: collecting labels for a high-bias model or redesigning a model that only needed more data. For expensive models, you can sample fewer points, but keep them spaced widely enough to reveal the trend.`,
+        `The core insight is that training error and validation error fail for different reasons. If training performance is excellent but validation performance is poor, the model has enough capacity to fit the sample but is sensitive to which sample it saw. That is high variance. More data, stronger regularization, dropout, data augmentation, simpler models, or better validation discipline may help. The model is not dumb; it is too free to memorize accidents.`,
+        `If training and validation performance are both poor and close together, the model is not even fitting the training set well. That is high bias. More data may make the estimate more stable, but it will not remove the ceiling. The model needs more capacity, better features, a different hypothesis class, less regularization, or a representation that can express the pattern. The model is not overfitting; it is underfitting.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Mechanism`,
       paragraphs: [
-        `Medical AI teams use learning curves before buying another labeling round. Spam teams use them to decide whether Tokenization (BPE), features, or more mail labels matter most. Recommenders, fraud systems, search rankers, and Gradient Boosting pipelines use them to tell whether validation is still climbing or has hit a ceiling. Early Stopping & Patience reads a related curve over epochs instead of dataset size: stop when validation stops improving even as training keeps improving.`,
+        `To draw a learning curve, choose several training-set sizes. The demo uses 50, 100, 200, 400, 800, and 1,600 examples. For each size, sample a training subset, train the model under the same basic recipe, evaluate on the training subset, and evaluate on a fixed validation set. Plot training accuracy and validation accuracy against training-set size. For error metrics, the vertical axis may be loss or error instead of accuracy, but the interpretation is the same.`,
+        `The validation set must be honest. If preprocessing, feature selection, deduplication, or hyperparameter search leaks validation information into training, the curve lies. Cross-validation can improve reliability when the dataset is small, but it does not remove the need for separation. The clean setup is: training subsets grow, the validation protocol stays fixed, and the score reflects generalization to examples the model did not train on.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Why it works`,
       paragraphs: [
-        `Do not read one point; read the trend. Do not let Data Leakage & Contamination inflate validation and hide variance. Keep preprocessing and hyperparameter choices fixed while drawing the curve, or you are mixing diagnosis with tuning. Remember irreducible noise: if curves fuse at a high but imperfect value, the remaining error may be ambiguous labels or inherently noisy outcomes. Uncertainty: Teaching Models to Say "I Don't Know" names that aleatoric floor. Double descent also complicates the old U-shaped story for very overparameterized neural nets, where validation can improve again past interpolation. That is a warning to inspect the regime, not a license to ignore the curve. Bad curves send budget in the wrong direction.`,
+        `Learning curves work because they compare two errors that move for different reasons. Training error shows how well the model can fit the examples it already saw. Validation error shows whether that fit transfers to held-out data. The gap between them is the signal: a large gap points to variance, while two high curves point to bias or missing signal.`,
+        `The useful invariant is that changing data size, model capacity, and regularization should move the curves in predictable ways. More data usually reduces variance before it fixes bias. More capacity usually reduces training error before it improves validation error. Stronger regularization usually raises training error while trying to lower validation error. That pattern turns a vague bad score into a diagnosis you can act on.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Worked Diagnosis`,
       paragraphs: [
-        `Study Regularization: L1 & L2 and Dropout for high-variance treatments, Logistic Regression for a deliberately simple high-bias model, and Cross-Validation & Honest Evaluation for trustworthy validation curves. Then connect this topic to Early Stopping & Patience, where the same bias-variance reasoning plays out over training time.`,
+        `The high-variance patient starts with 50 examples. Training accuracy is 100 percent, validation accuracy is 62 percent, and the gap is 38 points. The model can memorize the tiny training set. As the training set grows to 1,600 examples, training accuracy falls to 94 percent and validation rises to 86 percent. The gap is still there, but it narrows. Validation is still climbing. That shape says the model is data-starved or too unconstrained. More data is likely to help, and so are regularization or simplification if new data is expensive.`,
+        `The high-bias patient looks different. Training accuracy starts at only 78 percent and validation starts at 65 percent. As data grows, both curves move toward 74 percent and flatten together. There is no large gap left. The model cannot fit the training data it already has. More labels would mostly confirm the same ceiling. The useful interventions point the other way: richer features, a more expressive model, lower regularization, better representation learning, or a model class beyond a simple linear boundary.`,
+      ],
+    },
+    {
+      heading: `Bias-Variance Anatomy`,
+      paragraphs: [
+        `Bias is error from the hypothesis being too simple or systematically wrong. Even with infinite data, a straight line cannot represent a curved boundary without better features or a different model class. Variance is error from sensitivity to the particular training sample. A high-variance model changes too much when trained on a different draw from the same distribution. Noise is the irreducible part: mislabeled examples, ambiguous cases, measurement error, or outcomes no available input can determine.`,
+        `The classical bias-variance story says total expected error can be viewed as bias squared plus variance plus noise. In practice you rarely calculate those exact terms for a modern model, but the concepts still guide action. More capacity usually lowers bias and raises variance. More regularization usually lowers variance and raises bias. More data usually lowers variance without directly fixing bias. Better features can lower bias by making the true pattern easier for the model class to express.`,
+      ],
+    },
+    {
+      heading: `What The Animation Teaches`,
+      paragraphs: [
+        `The first plot is the high-variance case. Watch the training curve start near perfection while the validation curve lags far below it. That gap is the important evidence. Then watch what happens as data increases: training performance becomes less perfect because memorization is harder, validation improves because the model sees a more representative sample, and the gap narrows. The treatment row says more data, stronger regularization, dropout, or a simpler model.`,
+        `The second plot is the high-bias case. Both curves converge quickly at a low ceiling. The model is not using its freedom to memorize noise; it does not have enough useful freedom in the first place. The prescription card matters because the treatments are opposite. Regularizing a high-bias model can make it worse. Making a high-variance model larger can make it worse. The plot prevents that kind of budget mistake.`,
+      ],
+    },
+    {
+      heading: `Costs And Tradeoffs`,
+      paragraphs: [
+        `A learning curve costs several training runs. If the model is cheap, use many training sizes and repeat the sampling to estimate variance around the curve. If the model is expensive, use fewer sizes, spaced widely enough to reveal the trend. A rough curve is often enough to decide whether a labeling project is worth funding. It is better to spend a few additional training runs than to collect thousands of labels for a model that has already hit a bias ceiling.`,
+        `There is a methodological tradeoff. If you keep hyperparameters fixed across all data sizes, the curve is easier to interpret because only training-set size changes. But the smallest subsets may need different regularization than the largest subsets. If you retune at every size, you may get a better estimate of best-achievable performance, but the curve mixes data scaling with tuning effort. Be explicit about which question you are asking: diagnosis of the current recipe or best performance at each size.`,
+      ],
+    },
+    {
+      heading: `Where They Win And Fail`,
+      paragraphs: [
+        `Learning curves are useful in medical AI, fraud detection, search ranking, recommendation systems, spam filtering, forecasting, computer vision, and any supervised task where labels are expensive. A medical team can use the curve before paying experts for another annotation round. A fraud team can see whether better features matter more than more examples. A recommender team can compare whether validation is still climbing with logged interaction data or whether the model class has flattened out.`,
+        `They are less useful when the evaluation set is untrustworthy, the data distribution is changing quickly, or the target metric is dominated by delayed feedback that the validation set does not capture. They can also mislead when duplicate examples leak across splits, when preprocessing sees the whole dataset, or when the chosen training subsets are not representative. The curve diagnoses the system you actually measured. If the measurement pipeline is contaminated, the diagnosis is contaminated.`,
+      ],
+    },
+    {
+      heading: `Pitfalls And Misconceptions`,
+      paragraphs: [
+        `The first misconception is that more data always helps. More data helps most when validation is still climbing and the train-validation gap is large. It does not fix a model that cannot fit the existing training data. The second misconception is that overfitting always means high validation error. You need the training curve too. Poor validation with poor training is underfitting, not overfitting.`,
+        `The third trap is reading a single endpoint. A model at 86 percent validation accuracy could be promising if the curve is still rising, or stuck if the curve has flattened. Trend matters. Another trap is ignoring irreducible noise. If training and validation are both high and close together, the remaining mistakes may come from ambiguous labels or missing information. Double descent adds one more caution for very overparameterized neural networks: the classical U-shaped validation curve can improve again past interpolation. That does not invalidate learning curves. It means you must know which regime you are in.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Study Cross-Validation and Honest Evaluation first, because a learning curve is only as trustworthy as its validation protocol. Then study Regularization: L1 and L2, Dropout, Data Augmentation, Logistic Regression, Decision Trees, Gradient Boosting, and Early Stopping. These topics become clearer once you see whether they mostly attack bias, variance, or training-time overfitting.`,
+        `The best exercise is to generate learning curves for three models on the same dataset: a deliberately weak linear model, a high-capacity model with little regularization, and a tuned middle-ground model. Plot training and validation performance for each. Then write the prescription before changing anything. The habit you want is simple: inspect the curve, name the failure mode, choose the matching intervention, and measure again.`,
       ],
     },
   ],

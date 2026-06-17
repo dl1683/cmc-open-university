@@ -285,44 +285,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'Power of two choices is a randomized load-balancing rule. For each request, choose two candidate backends at random, inspect their current load, and send the request to the less loaded one. It is a small change from random placement, but the effect is large: one random choice can keep hitting an already-busy server, while two choices usually include at least one reasonable alternative.',
-        'The idea comes from the balls-into-bins literature. Throwing n balls independently into n bins produces a maximum load around log n / log log n with high probability. If every ball gets two random bins and goes to the less loaded one, the maximum-load scale falls to about log log n. In systems language, one extra counter read buys an outsized reduction in queue imbalance.',
+        'A load balancer has to make a small decision many times per second: which healthy backend should receive the next request? If it sends too much work to one backend, that backend builds a queue, latency rises, retries appear, and tail behavior gets worse for users who did nothing unusual. If the balancer spends too much effort finding the perfect backend, the selection logic itself becomes a bottleneck.',
+        'Power of two choices is a deliberately modest rule. Sample two eligible backends, compare their load signals, and send the request to the less loaded one. The rule does not try to know the whole fleet. It uses one extra random sample to avoid many bad placements, which is exactly the kind of tradeoff that shows up in scalable systems: spend a tiny amount of information to avoid a large amount of coordination.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The balancer maintains or observes a load signal for each backend, often active requests or active connections. On arrival, it samples two healthy backends. If one has fewer active requests, it wins; if tied, break the tie randomly or by a stable local rule. The selection cost stays constant because the balancer reads two counters, not every backend counter.',
-        'This is different from full least-connections. Full least-connections tries to find the global minimum, which can require scanning the fleet, coordinating shared counters, or maintaining a heap. Power of two choices accepts a local comparison. The local answer is not always globally best, but it is good enough often enough to keep the tallest queues from growing unchecked.',
+        'The simplest approach is random routing. Pick one healthy backend uniformly and send the request. It is fast, decentralized, and needs no shared counter. Its problem is variance. Randomness can keep hitting an already busy backend while quieter backends are available. Over many requests the average may look fine, but the tallest queue can still become painfully tall.',
+        'The opposite approach is full least-connections. Inspect every backend, choose the one with the smallest active-request count, and route there. This can work well for small pools or when a centralized balancer already owns accurate counters. In large proxy fleets, however, full scans require many counter reads, shared state, or a hot data structure. The better systems question is not always "which backend is globally best?" Sometimes it is "can I cheaply avoid an obviously bad one?"',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'Selection is O(1): two samples and one comparison. The memory cost is the backend list plus whatever load counters the balancer already needs. The operational cost is freshness. In a distributed proxy, workers may have local or delayed views of active requests. That can sound bad, but random sampling is partly why the algorithm works well under imperfect information: it avoids every worker stampeding toward the same single best-looking backend.',
-        'There are still caveats. If requests have wildly different durations, active-request count is only a proxy for work. If servers have different capacity, the sampling or comparison must account for weights. If a backend is unhealthy, it should not be sampled. If the whole fleet is overloaded, routing cannot create capacity; Load Shedding and Backpressure decide what happens next.',
+        'The wall is concurrency and partial truth. Many load-balancer workers may route requests at the same time. Their counters may be local, delayed, sampled, or updated after a request is already in flight. If every worker chases the same globally best-looking backend, stale state can create a stampede. If no worker looks at load at all, random placement creates avoidable hot spots.',
+        'The load signal is also imperfect. Active requests, active connections, queue depth, outstanding bytes, CPU, and latency all describe different parts of load. A one-second request and a one-minute stream may both count as one active request. The algorithm must remain useful even when its measurements are proxies rather than truth.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'Consider an Envoy or service-mesh cluster with hundreds of identical application replicas. A full least-request scan per HTTP request would be expensive, especially when many workers route concurrently. Envoy documents an O(1) least-request strategy for equal weights: sample N hosts, two by default, and choose the one with the fewest active requests. That is power of two choices in production form.',
-        'The same logic appears in HAProxy and NGINX discussions of random-two load balancing. It is especially useful when backends change quickly and load balancer instances have incomplete views. The goal is not perfect fairness per request. The goal is to make it unlikely that a busy backend keeps receiving new work while quieter backends are available.',
+        'One random sample gives no live load signal. Two random samples plus one comparison gives just enough signal to reject many bad placements. The dramatic result from the balls-into-bins analysis is that, for n balls into n bins, one random choice gives a maximum-load scale around log n / log log n, while two choices reduce the scale to about log log n. The second choice is the big jump.',
+        'In systems terms, one extra counter read buys a large reduction in queue skew. The rule does not need perfect fairness to improve tail behavior. It only needs to make a tall queue unlikely to receive more work unless the other sampled queue is also tall. That negative feedback is absent in pure random routing.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visualization shows',
       paragraphs: [
-        'Do not confuse power of two choices with magic fairness. It can still make unlucky choices, especially in small pools or with stale counters. It also does not understand request cost unless the load signal represents cost. A streaming request, a cache hit, and a five-second export may all count as one active request even though their impact is different. SLO-Aware LLM Request Router extends the idea by adding prefix/KV locality, SLO class, policy gates, and fallback to the selection score.',
-        'Do not use it as a substitute for placement algorithms. Consistent Hashing, Jump Consistent Hash, Rendezvous Hashing, and Maglev preserve affinity across membership changes. Power of two choices balances live load. If a cache must keep a key on the same backend, you need a placement rule first and a load-balancing rule around it only where movement is allowed.',
+        'The two-sampled-queues view shows the single-request decision. The request samples two hosts, reads their active counts, and chooses the shorter queue. The comparison node is the whole algorithm: not a full scan, not blind random placement, just enough feedback to avoid one visibly worse candidate.',
+        'The balls-into-bins view compares the same fixed request stream under one choice and two choices. The exact toy numbers are less important than the pattern: blind placement lets one server accumulate a taller pile, while two choices spread load by repeatedly rejecting locally worse placements. The production-caveats view then shows why health, weights, stale counters, locality, and fallback behavior have to wrap the simple core.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Mechanics',
       paragraphs: [
-        'Primary sources: Mitzenmacher survey at https://www.eecs.harvard.edu/~michaelm/postscripts/handbook2001.pdf, Balanced Allocations by Azar, Broder, Karlin, and Upfal at https://homes.cs.washington.edu/~karlin/papers/AzarBKU99.pdf, Envoy least-request documentation at https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/load_balancing/load_balancers, F5/NGINX discussion at https://www.f5.com/company/blog/nginx/nginx-power-of-two-choices-load-balancing-algorithm, and HAProxy discussion at https://www.haproxy.com/blog/power-of-two-load-balancing. Study Load Balancer first, then Tail Latency & p99 Thinking, Load Shedding & Graceful Degradation, Maglev Load Balancer Case Study, Consistent Hashing, Jump Consistent Hash Case Study, Rendezvous Hashing (HRW), SLO-Aware LLM Request Router, and Queue.',
+        'The basic algorithm is short. Filter the backend set to eligible hosts. Sample two candidates according to the desired distribution. Read a load signal for each candidate, commonly active requests or active connections. Choose the lower-load candidate. Break ties randomly, round-robin locally, or by a stable rule. Update counters when the request starts and finishes.',
+        'Production implementations add layers around this core. Health checking removes bad hosts before sampling. Weights make larger or more capable hosts appear more often or compare more favorably. Locality routing may restrict the candidate set to a region or zone before the two choices happen. Retries should avoid sending repeated attempts to the same failed host. Panic modes or fail-open modes define what happens when too few healthy hosts remain.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose six servers have active-request counts [4, 2, 3, 1, 2, 2]. A pure random rule might pick server 1 again, raising the tallest queue from 4 to 5. Full least-connections would scan all six and choose server 4 with count 1. Power of two choices might sample server 1 and server 4, compare 4 with 1, and choose server 4. It got the same decision as the full scan in this request with only two reads.',
+        'It will not always find the global minimum. If it samples servers with counts 3 and 2, it chooses 2 even though another server has count 1. That is acceptable. The goal is not perfect placement; the goal is to keep obvious hot spots from repeatedly winning. Over many requests, that local rejection rule sharply reduces the tallest queues.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The proof intuition is a feedback loop. A backend that is already loaded can still receive work, but only if both sampled candidates are also loaded or if the loaded backend wins a tie. As a queue grows taller, it becomes less likely to be the better of two random samples. The algorithm creates pressure against the tall tail without coordinating the entire fleet.',
+        'It also reduces herd behavior. Full least-connections can make many workers converge on the same backend if they share stale information about the current minimum. Random pairs spread comparisons across the pool. Each worker makes a small local decision, and the aggregate effect is smoother than blind random placement without requiring a single global coordinator.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Selection cost is O(1): two samples and one comparison. Memory is the backend list plus whatever counters or signals the balancer already maintains. Doubling the backend pool does not increase per-request selection work. That is why the rule is attractive inside high-throughput proxies, service meshes, and client-side RPC balancers.',
+        'The hidden cost is signal quality. Active-request count is a proxy, not a direct measure of CPU, memory pressure, downstream blocking, or response time. Weighted pools need weighted sampling or weighted comparison. Long-lived requests can pin counts. Very small pools get less statistical benefit. Observability should report not only average distribution but also tail queue depth, retries, outlier hosts, and how often candidate samples are unhealthy or tied.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Power of two choices wins in large pools of roughly interchangeable replicas where full scans are expensive and blind random placement is too noisy. It is a good fit for reverse proxies, service meshes, RPC clients, stateless web services, and internal workers where many independent balancer instances need cheap local decisions.',
+        'It is especially useful under high request rates. Each balancer can make a decision without synchronizing with every other balancer. The system gets most of the practical value of least-connections while avoiding the per-request cost and coordination pressure of a fleet-wide minimum search.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It is not magic fairness. Stale counters, unlucky samples, small pools, unequal request durations, and heterogeneous backends can still create skew. A cache hit, a database-blocked request, and a long stream may all count as one active request unless the signal is richer. If the signal does not match true load, the comparison can prefer the wrong host.',
+        'It is also not an affinity or placement algorithm. Consistent hashing, rendezvous hashing, jump consistent hashing, and Maglev-style tables preserve key or connection mapping across membership changes. Power of two choices balances live load after the eligible candidate set is defined. In many systems, affinity chooses the candidate subset and two choices balances within it.',
+      ],
+    },
+    {
+      heading: 'Failure modes to test',
+      paragraphs: [
+        'Test stale counters, delayed decrement on request finish, health-check races, retry storms, very long requests, weighted hosts, zone-local routing, small backend pools, host flapping, and panic conditions where most hosts are unhealthy. A good test should show both distribution and tail behavior, not only average requests per host.',
+        'Also test observability. Operators need to know which two candidates were sampled often enough to debug, how ties were broken, whether weights were applied, how many requests hit unhealthy fallback paths, and whether a few hosts carry a disproportionate number of long-running requests. Without these measurements, the algorithm can look balanced while user latency is not.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources for this topic include the Balanced Allocations paper by Azar, Broder, Karlin, and Upfal at https://homes.cs.washington.edu/~karlin/papers/AzarBKU99.pdf, Mitzenmacher survey material at https://www.eecs.harvard.edu/~michaelm/postscripts/handbook2001.pdf, Envoy least-request load-balancer documentation at https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/load_balancing/load_balancers, F5 NGINX discussion at https://www.f5.com/company/blog/nginx/nginx-power-of-two-choices-load-balancing-algorithm, and HAProxy discussion at https://www.haproxy.com/blog/power-of-two-load-balancing.',
+        'Good next topics are Tail Latency, Queue, Rate Limiter, Circuit Breakers, Retries with Jitter, Consistent Hashing, Rendezvous Hashing HRW, Maglev Load Balancer Case Study, SLO-Aware LLM Request Router, Load Shedding and Graceful Degradation, and Work Stealing Deque Scheduler.',
       ],
     },
   ],

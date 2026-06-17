@@ -198,41 +198,86 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why R1CS exists',
       paragraphs: [
-        'A Rank-1 Constraint System, or R1CS, encodes a computation as equations over a finite field. Each row has the form A(w) times B(w) equals C(w), where w is a shared witness vector and A, B, and C are sparse linear forms.',
-        'R1CS is a bridge between programs and zero-knowledge proof systems. The prover knows a witness. The verifier wants assurance that the witness satisfies all constraints without learning the private witness values.',
+        'A proof system cannot verify a normal program directly. It needs a mathematical statement over a field. R1CS, rank-1 constraint systems, is one classic way to turn a computation into equations that a prover can satisfy and a verifier can check through a cryptographic protocol.',
+        'The goal is not to run the program again. The goal is to prove that there exists a witness containing private inputs and intermediate values such that every constraint is true. Public inputs are bound to the statement, while private values remain hidden.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'The circuit builder creates witness variables for inputs and intermediate values. Multiplication gates become rank-1 rows. Additions and constants become linear combinations inside A, B, or C. Public inputs are included in the witness structure but marked as public instance values.',
-        'The same witness vector is used for every row. That is the key data-structure invariant: rows do not carry separate local assignments. If a derived value is used twice, copy constraints or shared variable IDs must force equality.',
+        'The obvious approach is to prove only the final expression. For example, say that y equals x^3 + x + 5 and stop there. That sounds compact, but it hides all intermediate values and all assumptions about field arithmetic, ranges, copying, and public binding.',
+        'A malicious or buggy prover does not need to satisfy the intention in your head. It only needs to satisfy the equations you wrote. If the circuit omits a row, forgets to bind a public output, or leaves a derived value unconstrained, the proof can be valid for the wrong statement.',
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'The witness vector',
       paragraphs: [
-        'For the claim y = x^3 + x + 5 with public y = 35, the witness can be [1, x, x2, x3, y] = [1, 3, 9, 27, 35]. Rows enforce x*x=x2, x2*x=x3, x3+x+5=y, and y=35. A prover using x=4 or a fake x2 fails one of those rows.',
+        'R1CS starts by flattening computation into a witness vector. The vector usually contains a fixed one wire, private inputs, public inputs, and derived intermediate values. In the example y = x^3 + x + 5, the witness can hold one, x, x2, x3, and y.',
+        'The witness is not trusted because the prover writes it down. It becomes meaningful only when the rows constrain it. The same witness slots are shared across all rows, so a value used in one multiplication is the same value referenced later by an output check.',
+        'This shared slot discipline is the data-structure idea behind the circuit. If two expressions should use the same value, they must point at the same witness index or be connected by an explicit equality constraint. Names in source code do not matter after compilation unless they become constrained witness positions.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'A/B/C rows',
       paragraphs: [
-        'R1CS proves only the constraints you wrote. If you forget a range check, nonzero check, copy check, or public-input binding, the proof can be valid for the wrong statement. Field arithmetic also wraps, so ordinary integer assumptions need explicit constraints.',
+        'Each R1CS row has the form A(w) * B(w) = C(w). A, B, and C are sparse linear forms over the same witness vector w. A row can select one wire, add several wires, multiply by constants, or represent a fixed value by using the one wire.',
+        'The word rank-1 points to the bilinear shape: one linear combination times another linear combination equals a third. Multiplication is isolated into rows, while additions and constants are packed inside the linear combinations. That is why x3 + x + 5 can appear on one side of a row.',
+        'Implementations usually store these forms as sparse matrices because most rows mention only a few witness entries. A large circuit may have many thousands or millions of rows, but each row is still a compact recipe for choosing witness terms and checking one equation.',
       ],
     },
     {
-      heading: 'Why it matters',
+      heading: 'Building the example',
       paragraphs: [
-        'Many proof systems no longer expose raw R1CS directly, but the mental model remains useful. It teaches how witness assignment, constraints, and public inputs become the true contract between prover and verifier.',
+        'For public y = 35 and private x = 3, the witness is [1, 3, 9, 27, 35]. The rows enforce x * x = x2, x2 * x = x3, (x3 + x + 5) * 1 = y, and y * 1 = 35. Every intermediate claim is tied to a row.',
+        'This decomposition looks tedious, but the tedium is the security boundary. If x2 is not constrained, the prover could choose a fake square. If y is not bound to the public input, the prover could prove a private computation that says nothing about the value the verifier cares about.',
+        'A useful way to review the example is to try to cheat it. Change x while keeping y fixed. Change x2 without changing x. Change y but leave the intermediate rows alone. Each attempt should break at least one row. If no row breaks, the circuit is missing part of the intended statement.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Study sources: R1CS overview at https://alinush.github.io/r1cs, the Bulletproofs R1CS explanation at https://tlu.tarilabs.com/cryptography/rank-1.html, and the existing ZK-SNARK Arithmetization topic. Next study KZG Polynomial Commitments, PLONK Permutation Grand Product, Sparse Matrix formats, and Finite State Machine.',
+        'The witness-rows view shows source code becoming field wires. The table is not decorative bookkeeping. It is the private and public assignment that the prover claims can satisfy the circuit. Derived rows must be constrained because a derived value written into a witness is still just a claim.',
+        'The constraint-check view shows the verifier-facing invariant: every row evaluates under one shared assignment. The bad-witness table separates two cases that are easy to confuse. A wrong assignment should reject. A missing constraint is worse because it may allow a proof to pass.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'R1CS works because local equations compose into a global statement. Each row checks one small relationship, and all rows reference the same witness. If every row is true at once, the witness satisfies the computation encoded by the constraint system.',
+        'A zero-knowledge proof system then commits to the witness and proves satisfaction without revealing private slots. The cryptography can compress the check, but it does not repair the circuit. The proof is only as meaningful as the exact rows and public bindings that were encoded.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'R1CS is simple and widely taught, but it can be verbose. Range checks, bit decomposition, lookups, memory, and VM-style execution traces may require many rows unless the proving system has custom gates or a better arithmetization for that workload.',
+        'The model also lives over a finite field. Normal integer intuition can fail because values wrap modulo the field prime. If a variable must be a byte, boolean, timestamp, array index, or nonzero divisor, the circuit must constrain that fact explicitly.',
+        'There is also a maintenance cost. The circuit, witness generator, and public-input encoding must agree exactly. A witness generator bug can hide until a boundary case appears, and a public API change can silently change the statement unless tests include serialized public inputs and negative witnesses.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'R1CS is excellent for learning how zero-knowledge programs become algebra. It makes the witness, multiplication gates, sparse matrices, public inputs, and missing constraints visible. That makes it useful even when the final production system uses a different proof backend.',
+        'It also fits computations that naturally decompose into arithmetic circuits. Hash preimage checks, signature verification components, small arithmetic programs, and educational circuits are good examples. The row structure gives reviewers a concrete object to audit.',
+        'The format is also useful for debugging because each failed row can point back to a local relationship. That locality helps developers separate witness-generation mistakes from missing circuit constraints.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The most dangerous failure is proving the wrong thing. Common bugs include missing range checks, unconstrained advice values, forgotten copy constraints, unbound public inputs, division by zero, accepting field-wrapped integers, and assuming source-language control flow survived compilation.',
+        'Another failure is treating the circuit compiler as magic. A compiler can generate rows, but the developer still needs to understand the statement. Circuit tests should include honest witnesses, bad witnesses, boundary values, and attempts to exploit every implicit assumption.',
+        'Good audits ask what the verifier learns, not what the developer meant. They trace every public input into the rows, every private input into constrained use, and every branch condition into algebra. If the proof should imply a business rule, the rows must imply that rule too.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: the R1CS overview at https://alinush.github.io/r1cs and the Bulletproofs R1CS explanation at https://tlu.tarilabs.com/cryptography/rank-1.html. Read them with the witness vector in mind, not only the final equations.',
+        'Study Sparse Matrix formats for storage, PLONK Permutation Grand Product for copy constraints, KZG Polynomial Commitments for compact openings, Finite Field Arithmetic for wraparound behavior, and Finite State Machine for transition-style constraint design.',
       ],
     },
   ],

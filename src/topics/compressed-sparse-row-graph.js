@@ -242,44 +242,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Compressed Sparse Row, or CSR, is a compact layout for sparse matrices and graph adjacency. Instead of storing a list object for every vertex, CSR stores two main arrays. rowPtr has one entry per vertex plus a final sentinel. colIdx stores all destination vertices in one flat array. The neighbors of vertex u are exactly colIdx[rowPtr[u]..rowPtr[u+1]).',
-        'For graph algorithms, this is the physical version of an adjacency list. The mathematical graph says A connects to B and C. CSR says where those neighbors live in memory. That difference matters at scale because many graph workloads spend more time moving adjacency through memory than doing arithmetic.',
+        `Compressed Sparse Row, or CSR, exists because sparse graphs and sparse matrices often contain far more absence than presence. A dense adjacency matrix spends space on every possible edge, even when almost all entries are empty. CSR stores only the present edges, plus enough indexing information to recover each row quickly.`,
+        `For graph algorithms, CSR is the physical version of an adjacency list. The graph idea says vertex A connects to B and C. CSR says exactly where B and C live in memory. That physical detail matters because large graph workloads often spend more time moving neighbor lists through memory than doing complicated arithmetic.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious representation',
       paragraphs: [
-        'To build CSR from an edge list, group or sort edges by source vertex. Append each source vertexs destinations to colIdx. Record the running offset before each row in rowPtr, then append the final edge count as the sentinel. Weighted graphs add a values array parallel to colIdx. Undirected graphs commonly store both u->v and v->u.',
-        'Scanning is pointer arithmetic. For vertex u, start = rowPtr[u] and end = rowPtr[u + 1]. Loop k from start to end - 1 and visit colIdx[k]. A full traversal reads O(V) row offsets and O(E) neighbor entries. Empty rows cost almost nothing because their start and end offsets are equal.',
+        `The obvious graph representation is an adjacency list: one array or list per vertex. It is easy to explain and easy to update. Add edge u -> v by appending v to u's list. Delete it by finding v and removing it. For small programs and heavily mutable graphs, that representation is often the right answer.`,
+        `The wall appears in large, mostly static graphs. Millions of tiny arrays, object headers, pointers, capacity gaps, and allocator decisions can cost more than the neighbor IDs themselves. Traversal becomes pointer chasing. The CPU asks for the next neighbor and instead gets sent to a different allocation, a different cache line, and sometimes a different page.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Space is O(V + E) for an unweighted directed graph: V + 1 row pointers and E column indices. If column indices and row pointers are 32-bit, the structural storage is roughly 4(V + 1 + E) bytes before alignment and metadata. Weighted graphs add one value per edge. Dense adjacency matrices cost O(V^2), so CSR is decisive when E is much smaller than V^2.',
-        'The tradeoff is mutability. CSR is fast for repeated scans over a mostly static graph. Inserting one edge in the middle of colIdx can require shifting later entries and updating row offsets. Dynamic graph stores often accumulate updates elsewhere, rebuild CSR in batches, or use hybrid layouts.',
+        `CSR removes the per-vertex container and keeps one flat neighbor array. The rowPtr array is the index into that flat storage. For vertex u, rowPtr[u] is the start position and rowPtr[u + 1] is the end position. The neighbors are the half-open slice colIdx[start..end).`,
+        `The final entry in rowPtr is a sentinel equal to the number of stored edges. That one extra value removes a special case for the last vertex. Every row, including an empty row, can be described by the same start and end rule. If start equals end, the vertex has no outgoing neighbors.`,
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'How to build it',
       paragraphs: [
-        'SciPy exposes CSR matrices through indptr, indices, and data arrays. Boost Graph Library provides a compressed_sparse_row_graph for large graphs that do not need mutation. NVIDIA and Intel sparse libraries describe CSR as a standard sparse matrix format for row-oriented kernels. GraphBLAS treats graph algorithms as sparse matrix operations over semirings, so graph storage and sparse matrix storage become the same engineering problem.',
-        'PageRank is the classic example. Each iteration streams outgoing links, sends rank mass to neighbors, and repeats. BFS frontiers, connected components, triangle counting, recommendation graph walks, and sparse matrix-vector multiplication all benefit from the same contiguous row scans.',
+        `To build CSR from an edge list, group or sort edges by source vertex. Then append each source vertex's destinations to colIdx and record the running offset before each row in rowPtr. After the final row, append the total edge count as rowPtr[V].`,
+        `Weighted graphs add a values array parallel to colIdx, so values[k] is the weight for edge colIdx[k] inside the current row slice. Undirected graphs usually store both directions, u -> v and v -> u, unless the algorithm is intentionally using a triangular or symmetric compressed form.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How scanning works',
       paragraphs: [
-        'CSR is not always faster. For tiny graphs, pointer-heavy adjacency lists are simpler and fine. For dense graphs, an adjacency matrix can make edge tests and dense algebra cheaper. For highly mutable graphs, CSR rebuild costs can dominate. The layout is best when the graph is sparse, large, and scanned many times after construction.',
-        'Another trap is assuming every CSR has sorted neighbor lists. Many libraries permit unsorted column indices. Sorting rows can speed intersection, binary search, compression, and reproducibility, but it costs build time. Duplicate edges are another contract issue: some sparse libraries sum duplicates, while graph algorithms may need to preserve or remove them explicitly.',
+        `A neighbor scan is pointer arithmetic. Read start = rowPtr[u] and end = rowPtr[u + 1]. Loop k from start up to, but not including, end. Each colIdx[k] is one outgoing neighbor. A full traversal reads O(V) row offsets and O(E) neighbor entries.`,
+        `This is why CSR is so common in sparse linear algebra. Sparse matrix-vector multiplication is just row scanning with arithmetic attached. BFS, PageRank, connected components, triangle counting, and recommendation graph walks reuse the same shape: choose a row, stream a contiguous neighbor slice, and move on.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'A small example',
       paragraphs: [
-        'Primary sources: SciPy CSR docs at https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_matrix.html, NVIDIA sparse format docs at https://docs.nvidia.com/nvpl/latest/sparse/storage_format/sparse_matrix.html, Intel oneMKL sparse formats at https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-dpcpp/2024-0/sparse-storage-formats.html, Boost compressed_sparse_row_graph at https://www.boost.org/doc/libs/latest/libs/graph/doc/compressed_sparse_row.html, and SuiteSparse GraphBLAS at https://github.com/DrTimothyAldenDavis/GraphBLAS. Study Graph BFS, PageRank, Pregel Graph Processing, Feature Hashing Signed Projection Primer, Elias-Fano Encoding, Roaring Bitmaps, and Big-O Growth Rates next.',
+        `Suppose A points to B and C, B points to C and D, C points to D, and D has no outgoing neighbors. If vertices are ordered A, B, C, D, the flat neighbor array is [B, C, C, D, D]. The row pointer array is [0, 2, 4, 5, 5].`,
+        `Those five offsets are enough to recover every row. A owns colIdx[0..2), B owns colIdx[2..4), C owns colIdx[4..5), and D owns colIdx[5..5). The final empty slice is not a bug. It is the same rule handling a vertex with no outgoing edges, which is exactly why the sentinel is useful.`,
+        `This example also shows why rowPtr is a prefix-sum structure. Each entry says how many neighbor entries appear before the row begins. Building CSR is therefore closely related to counting degrees, taking prefix sums, and scattering edges into the final flat positions.`,
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        `The build view proves that CSR is not a new graph; it is a new layout for the same adjacency relation. Edges are sorted or grouped by source, rowPtr records boundaries, and colIdx becomes the shared storage for every neighbor list. The important movement is from many little lists to one flat array plus offsets.`,
+        `The scan view proves the performance promise and the tradeoff at the same time. Scanning a row is fast because the data is already packed. Updating one edge is awkward because inserting into the middle of the packed array may shift later entries and change many row boundaries.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The correctness contract is small. rowPtr[0] must be 0. rowPtr must be monotonic. rowPtr[V] must equal colIdx.length. With those facts, each vertex owns exactly one half-open slice of the neighbor array, and every stored edge belongs to the row whose boundary contains its position.`,
+        `The performance contract is equally direct. Graph traversal becomes sequential memory access. Sequential access is friendly to CPU caches, hardware prefetching, vectorized kernels, GPU memory coalescing, and compact serialization. CSR does not change asymptotic traversal complexity, but it improves the constant factors that dominate large sparse workloads.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `Space is O(V + E) for an unweighted directed graph: V + 1 row pointers and E column indices. If both are 32-bit integers, the structural storage is roughly 4 * (V + 1 + E) bytes before metadata and alignment. Weighted graphs add one stored value per edge.`,
+        `The tradeoff is mutability. CSR is excellent when the graph is built once and scanned many times. It is weak when edges are inserted and deleted constantly. Dynamic systems often keep a mutable delta structure beside CSR, rebuild in batches, or choose a different layout until the graph becomes stable.`,
+        `Build time is usually O(E log E) if the edge list must be sorted by source, or O(V + E) if the input is already bucketed or degree counts are available. That preprocessing cost is worth paying only when later scans reuse the compact layout enough times.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `CSR wins in large sparse graphs where repeated neighbor scans dominate: PageRank on web links, BFS over road or social graphs, connected components, graph neural network message passing, sparse matrix-vector multiplication, and triangle counting with sorted rows.`,
+        `It is also a good interchange shape. SciPy exposes CSR matrices through indptr, indices, and data arrays. Boost has compressed_sparse_row_graph for static graphs. GraphBLAS treats many graph algorithms as sparse matrix operations, which makes row-oriented sparse formats a shared systems language.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `CSR is not automatically faster. Tiny graphs do not need it. Dense graphs may be better served by adjacency matrices. Highly mutable graphs can spend more time rebuilding than scanning. Algorithms that need fast edge existence checks may require sorted rows, binary search, hash side tables, or a different representation.`,
+        `There are also data-contract traps. Some CSR builders preserve duplicate edges; others collapse or sum them. Some rows are sorted; others are not. Index width can double memory if a graph crosses 32-bit limits. A production algorithm must state these assumptions instead of treating CSR as one universal object.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: SciPy CSR docs at https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_matrix.html, NVIDIA sparse format docs at https://docs.nvidia.com/nvpl/latest/sparse/storage_format/sparse_matrix.html, Intel oneMKL sparse formats at https://www.intel.com/content/www/us/en/docs/onemkl/developer-reference-dpcpp/2024-0/sparse-storage-formats.html, Boost compressed_sparse_row_graph at https://www.boost.org/doc/libs/latest/libs/graph/doc/compressed_sparse_row.html, and SuiteSparse GraphBLAS at https://github.com/DrTimothyAldenDavis/GraphBLAS.`,
+        `Study Graph BFS for row scanning in traversal, PageRank for repeated sparse passes, Big-O Growth Rates for the V + E cost model, Elias-Fano Encoding and Roaring Bitmaps for compressed adjacency alternatives, and Pregel Graph Processing for distributed graph execution.`,
       ],
     },
   ],

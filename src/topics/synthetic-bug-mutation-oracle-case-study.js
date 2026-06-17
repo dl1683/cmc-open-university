@@ -97,7 +97,7 @@ function* mutationQueue() {
   yield {
     state: mutationGraph('Kill weak mutants before they enter the dataset'),
     highlight: { active: ['build', 'test', 'kill', 'live', 'e-build-test', 'e-test-kill', 'e-test-live'], found: ['task'], removed: ['live'] },
-    explanation: 'If tests do not fail on the mutant, the oracle is too weak. The factory should discard or quarantine surviving mutants instead of asking agents to repair invisible bugs.',
+    explanation: 'The live branch means the injected bug was invisible to the tests. That is not a good task; it is evidence that the oracle is weak. The factory discards or quarantines it instead of asking an agent to repair a bug with no observable failure.',
   };
 
   yield {
@@ -148,7 +148,7 @@ function* oracleProofLedger() {
       ],
     ),
     highlight: { active: ['base:act', 'mut:act', 'fix:act'], found: ['dup:act'], removed: ['flake:act'] },
-    explanation: 'The minimal gate is baseline passes, mutant fails, repaired version passes, reruns agree, and the mutation is not a duplicate of an existing family.',
+    explanation: 'The gate is a small proof chain: clean baseline passes, mutant fails, repaired version passes, reruns agree, and the mutation is not a duplicate family. If any row breaks, the label is not trustworthy enough for training or evaluation.',
     invariant: 'The oracle must prove both failure and repair.',
   };
 
@@ -194,45 +194,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A synthetic bug mutation oracle is a data structure and workflow for creating verified coding-agent tasks. It mutates a clean program, proves that the mutation causes an observable failure, asks for a repair, and stores the full failing-to-passing proof.',
-        'This enriches Code World Models Case Study and Verified Agent Trajectory Store by adding a controlled source of new tasks. It also connects to Agent Trajectory Dedupe & Provenance Hash, because synthetic tasks can leak if the same mutation family appears on both sides of a split.',
+        'A synthetic bug mutation oracle exists because coding-agent evaluation needs many verified repair tasks, and real bugs are scarce, uneven, and expensive to label. A good benchmark task needs a clean repository, an observable failure, a plausible repair, and proof that the repair actually fixes the failure.',
+        'Synthetic mutation can create more tasks, but only if the mutations are realistic and the labels are trustworthy. Randomly damaging text creates nonsense. Mutating code without a failing test creates invisible bugs. Accepting a repair without a passing proof creates noisy training data.',
+        'The oracle is the data structure that keeps this honest. It mutates a clean program, proves that the mutation causes an observable failure, asks for or records a repair, and stores the full failing-to-passing proof chain.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The factory maintains a source snapshot, parsed AST, mutation operator registry, mutation queue, executable image digest, test oracle table, repair candidate table, proof ledger, duplicate-family index, and promotion gate. Each promoted task is a small graph, not a loose prompt.',
-        'AST-level mutation is more stable than raw string damage because the factory can name the operator, node type, source span, and expected semantic effect. That makes examples easier to bucket, dedupe, and explain.',
+        'The obvious approach is random text damage: delete a line, change a token, ask an agent to fix it, and call the result synthetic data. That produces unrealistic bugs, syntax errors, duplicate patterns, and tasks that teach agents to reverse the generator rather than debug software.',
+        'A second shortcut is to mutate code and trust that the mutation matters. Many mutants survive because the tests do not observe them. Surviving mutants are not successful tasks; they are evidence that the oracle cannot see the injected bug.',
+        'A third mistake is to store only the prompt and final patch. Without baseline pass, mutant fail, repair pass, rerun, environment digest, and dedupe proof, later users cannot tell whether the task was valid, flaky, leaked, or already broken before mutation.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that a synthetic repair task is a proof object, not a prompt. The task is valid only if the clean baseline passes, the mutant fails for the intended reason, the repair passes, reruns agree, and the task is not a duplicate of a leaked family.',
+        'Mutation should happen at the program-structure level when possible. AST-level mutation can record operator, node type, source span, and expected semantic effect. That makes examples easier to bucket, dedupe, audit, and explain than raw string damage.',
+        'The oracle should reject aggressively. A healthy factory loses many candidates to invisible bugs, flaky tests, duplicate mutation families, unrealistic edits, build failures, and repairs that do not prove the intended behavior.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The workflow is baseline pass, mutate, build, run tests, require failure, optionally ask an agent for repair, rerun tests, require pass, rerun to detect flakiness, dedupe against existing tasks, and then promote. Surviving mutants are not successes; they show that the test oracle did not observe the injected bug.',
-        'The oracle should be more than one Boolean. A useful proof ledger stores failing test names, assertion output, runtime, environment digest, patch fingerprint, flaky rerun status, and the reason a mutant was dropped or promoted.',
+        'The factory starts with a clean repository snapshot and proves the baseline passes. It parses source into an AST or another structured representation, chooses a typed mutation operator, writes the mutant, builds or restores the executable image, and runs the oracle command.',
+        'If the mutant fails, the task becomes a repair candidate. An agent or known inverse patch attempts a fix. The factory reruns the oracle, requires the repaired version to pass, reruns to detect flakiness, hashes the mutation family, and checks whether similar tasks already exist in the same split or another split.',
+        'The promoted record stores source snapshot, mutation operator, AST path, changed span, image digest, failing command, failing output, repair diff, passing command, passing output, runtime, flaky rerun status, dedupe family, split assignment, and promotion decision.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A project has a parser that correctly returns an empty result for an empty input. The factory mutates the AST by removing the empty-input branch. Baseline tests pass, the mutant fails on the empty-input test, and an agent restores the branch. The repair passes twice and the task is promoted.',
-        'A weaker factory would only store the prompt and final patch. The stronger factory stores the mutation operator, AST path, failing command, failing output, repair diff, passing output, image digest, dedupe family, and split decision. That is the difference between synthetic data and verifiable synthetic data.',
+        'The mutation-queue view proves that raw candidate volume is not quality. Clean source, AST mutation, build, test, kill status, and promotion are separate gates. The line between raw mutants and clean repairs should shrink because most candidates are not trustworthy enough.',
+        'The oracle-proof-ledger view proves the correctness argument. Baseline pass means the repository was not already broken. Mutant fail means the injected bug is visible. Repair pass means the candidate fixed the observed failure. Reruns and dedupe defend against flaky or repeated examples.',
+        'The empty-input case proves the desired shape. A mutation removes a real edge-case branch. The tests fail only when that edge is exercised. The agent restores the branch. The repaired task passes and carries provenance back to the original source and mutation operator.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Mutation works when the operator creates a small semantic defect that the oracle can observe. Removing a boundary check, flipping a comparator, changing an error condition, dropping a null guard, or misrouting a branch can create realistic repair work if the tests cover the behavior.',
+        'The proof ledger works because it separates several claims that are often blurred together: the project was clean, the mutation caused failure, the failure was deterministic, the repair fixed it, and the example is distinct from other examples.',
+        'Dedupe works when it hashes the mutation family, not just the final text. Two tasks can differ in file path and still teach the same trick. A useful benchmark should avoid putting near-identical mutation families on both sides of a train/eval split.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The cost is yield. Many mutants will be discarded, and that is healthy. Invisible mutants, flaky tests, build-only failures, unrealistic edits, duplicate families, and over-simple repairs should not become promoted tasks merely because they are cheap to generate.',
+        'There is also compute cost. Each candidate may need baseline verification, build, test, repair attempt, rerun, and dedupe comparison. Caching executable images and dependency installs matters because the factory can spend more time proving labels than generating mutations.',
+        'The tradeoff is control versus realism. Synthetic tasks give coverage and provenance, but real bugs include messy requirements, ambiguous intent, and multi-file design changes. A strong corpus uses synthetic tasks as one source, not as a replacement for mined real issues.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Synthetic mutation wins for benchmark expansion, coding-agent curriculum generation, repair-model training, regression suites, and targeted evaluation of specific bug classes. It can deliberately create missing guard cases, comparator errors, resource leaks, parser edge cases, and API misuse examples.',
+        'It is especially useful when combined with a verified trajectory store. Each agent attempt can be tied to a task proof, command output, patch diff, and final result. That makes later analysis of repair strategy, failure type, and model progress much more reliable.',
+        'It also helps curriculum design. The factory can group tasks by mutation family, language, subsystem, oracle type, and difficulty, then stage learning from small local repairs to multi-file reasoning problems.',
+        'For evaluation, it gives maintainers knobs they do not have with mined issues alone. They can hold out entire mutation families, build balanced slices, and ask whether a model improves on a class of defects rather than only on one public benchmark leaderboard.',
       ],
     },
     {
       heading: 'Failure modes',
       paragraphs: [
-        'Bad mutation factories produce unrealistic bugs, invisible mutants, duplicate tasks, flaky proof, and answer leakage. They can also reward agents for memorizing mutation patterns rather than learning real debugging. The promotion gate needs diversity metrics and held-out families.',
-        'Another trap is accepting baseline-broken projects. If the clean repository does not pass before mutation, a later passing result may repair an unrelated failure. Baseline pass is a hard prerequisite for clean labels.',
+        'Bad mutation factories produce unrealistic bugs, invisible mutants, duplicate tasks, flaky proof, and answer leakage. They can reward agents for memorizing mutation patterns rather than learning real debugging. Promotion gates need diversity metrics and held-out mutation families.',
+        'Baseline-broken projects are fatal to label quality. If the clean repository does not pass before mutation, a later passing result may repair an unrelated failure. Baseline pass is not paperwork; it is the first proof obligation.',
+        'Another failure is overtrusting tests. A passing repair can still be wrong if the test oracle is weak. Mutation factories should record oracle scope and, when possible, add hidden checks, property tests, static analysis, or human review for promoted examples.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
-        'Primary sources: Python AST documentation at https://docs.python.org/3/library/ast.html, pytest assertion documentation at https://docs.pytest.org/en/stable/how-to/assert.html, CWM at https://arxiv.org/abs/2510.02387, SWE-bench at https://arxiv.org/abs/2310.06770, SWE-agent at https://arxiv.org/abs/2405.15793, and Git apply at https://git-scm.com/docs/git-apply.',
-        'Study next: Executable Repository Image Build Cache Case Study, Agent Candidate Patch Search DAG Case Study, Neural-Symbolic Execution Verifier Bridge Case Study, Mutation Testing, Symbolic Execution Path Constraints, and Benchmark Variance & Model Selection.',
+        'Primary sources: Python AST documentation at https://docs.python.org/3/library/ast.html, pytest assertion documentation at https://docs.pytest.org/en/stable/how-to/assert.html, CWM at https://arxiv.org/abs/2510.02387, SWE-bench at https://arxiv.org/abs/2310.06770, SWE-agent at https://arxiv.org/abs/2405.15793, and Git apply at https://git-scm.com/docs/git-apply. Study Executable Repository Image Build Cache Case Study, Agent Candidate Patch Search DAG Case Study, Neural-Symbolic Execution Verifier Bridge Case Study, Mutation Testing, Symbolic Execution Path Constraints, Agent Trajectory Dedupe & Provenance Hash, Verified Agent Trajectory Store, and Benchmark Variance & Model Selection next.',
       ],
     },
   ],

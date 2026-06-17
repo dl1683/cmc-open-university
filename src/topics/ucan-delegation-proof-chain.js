@@ -85,7 +85,7 @@ function* delegationChain() {
   yield {
     state: delegationGraph('UCAN delegates capability from one DID to another'),
     highlight: { active: ['owner', 'ucan1', 'agent', 'e-owner-ucan1', 'e-ucan1-agent'], compare: ['ucan2'] },
-    explanation: 'A UCAN delegation is signed by an issuer and addressed to an audience. It grants a capability over a resource to that audience, often with time bounds and proof links.',
+    explanation: 'A UCAN token is a signed edge in an authority graph. The issuer grants a capability over a resource to one audience, usually with time bounds and proof links that explain why the issuer had that authority.',
   };
   yield {
     state: delegationGraph('Delegation can be attenuated down the chain'),
@@ -129,7 +129,7 @@ function* offlineVerification() {
   yield {
     state: verificationGraph('Verification can happen from the packet and proofs'),
     highlight: { active: ['packet', 'proofs', 'sig', 'cap', 'e-packet-proofs', 'e-proofs-sig', 'e-proofs-cap'], compare: ['decision'] },
-    explanation: 'UCAN is designed for local verification. The verifier walks proof tokens, checks signatures, checks audience continuity, and checks that the requested capability is covered.',
+    explanation: 'Local verification means the packet carries enough proof material to decide. The verifier walks tokens, checks signatures, checks audience continuity, and proves the requested capability is covered by the chain.',
   };
   yield {
     state: verificationGraph('Expiry and revocation evidence bound risk'),
@@ -176,44 +176,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why Capability Delegation Exists',
       paragraphs: [
-        'UCAN stands for User Controlled Authorization Network. It is a public-key-verifiable capability scheme for distributed and local-first systems. Instead of relying on a central authorization server for every decision, actors carry signed delegation proofs showing which capabilities they received and from whom.',
-        'The UCAN working-group specification describes UCAN as a secure, local-first, user-originated distributed authorization scheme with public-key verifiable and delegable capabilities: https://github.com/ucan-wg/spec.',
+        "UCAN stands for User Controlled Authorization Network. It is a way to represent authority as signed, delegable capabilities that can be verified with public keys. The core idea is simple: instead of asking one central authorization service whether an actor may do something, the actor presents a proof chain showing who delegated which capability, to whom, under what limits.",
+        "The mechanism exists for systems where authority needs to move across users, devices, agents, and services without every decision depending on an always-online account database. Local-first software is the obvious case. A user may create data on a phone, sync later from a laptop, delegate one file to a collaborator, or let a background worker process an object while the original device is offline. Peer-to-peer systems, content-addressed storage, edge workers, and user-owned data networks have the same pressure.",
+        "The naive approach is bearer tokens from a central server. A service issues a token after login, and every resource server checks with the issuer or validates a token minted by that issuer. That works well for many web APIs, but it has a wall. Delegation becomes awkward. Offline verification is weak. Tokens often carry account-level authority instead of narrow task-level authority. A worker may need a user's private key or a broad API credential just to perform one small operation. Revocation and audit are centralized, but so is availability."
       ],
     },
     {
-      heading: 'Data structure model',
+      heading: 'The Core Model',
       paragraphs: [
-        'A UCAN proof chain is a directed graph. Issuers and audiences are principals, often represented by DIDs. Tokens are signed edges. Each edge grants a capability over a resource to an audience, with optional facts such as expiry, nonce, and proofs. Verification walks backward through proof edges until it reaches trusted authority.',
-        'This connects Capability Security & Attenuation to Content-Addressed Merkle DAG Object Store and local-first collaboration. The capability says what may be done. The proof chain says why the actor has that capability. Content addressing can identify resources and immutable proof objects.',
+        "A UCAN proof chain is best understood as a directed graph. Principals are nodes. They are usually identified by DIDs or other public-key identities. Tokens are signed edges. Each edge says that an issuer grants an audience a capability over a resource, possibly with time bounds, facts, nonces, and links to proofs that explain why the issuer had authority to grant it.",
+        "The capability is the what: read this object, write this path, upload to this bucket, invoke this service method, or administer this namespace. The proof chain is the why: the owner delegated write access to a laptop, the laptop delegated read-only access to a worker, and the worker is now invoking the read operation. Verification checks that every edge is signed by the previous holder of authority and that every child capability is no broader than the parent capability.",
+        "This is capability security with attenuation. Attenuation means authority can become narrower as it moves. A token for store://alice/photos/* with read and write may delegate store://alice/photos/2026/report.jpg with read only for ten minutes. It must not delegate write access to a different path or extend the expiration beyond its parent. If attenuation rules are vague, the chain becomes unsafe even if every signature is valid."
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What A Token Must Mean',
       paragraphs: [
-        'A user owns a local-first document space. Their phone delegates read/write capability for one folder to their laptop until Friday. The laptop delegates read-only capability for one file to a rendering worker for ten minutes. The worker invokes the render operation with the short UCAN and its proof chain. The document service verifies signatures, audience chain, expiry, resource path, action subset, and revocation evidence before allowing the read.',
-        'The important feature is that the worker never receives the user private key and never needs broad account authority. It carries a narrow proof of delegated authority, and the verifier can check it without asking the original phone to be online.',
+        "The important token fields are issuer, audience, capabilities, proofs, expiration, and sometimes not-before time, nonce, facts, or attached resources. The issuer is the key that signs. The audience is the principal allowed to use or further delegate the token. The capability names the resource and action. Proofs point to earlier UCANs or authority roots. Expiration limits how long the edge remains usable.",
+        "A verifier has to enforce the meaning of all of these fields. Signature verification alone is not authorization. A signed token with the wrong audience should fail because it was not issued to the invoker. A signed token with a child capability outside its parent should fail because it expands authority. A signed token past expiration should fail even if the chain was valid yesterday. A token using an unsupported capability vocabulary should fail because the verifier cannot safely interpret it.",
+        "Resource naming is a major design decision. If resources are content-addressed, the capability may point to immutable data by CID. If resources are paths, the system needs clear path containment rules. If resources are logical objects, the verifier needs a namespace model. Many authorization bugs come from strings that look hierarchical but are not compared with a precise grammar."
       ],
     },
     {
-      heading: 'Verifier checklist',
+      heading: 'Local Verification',
       paragraphs: [
-        'A practical verifier should check signature validity, issuer and audience continuity, expiration, not-before times when used, capability subset rules, resource namespace rules, proof reachability, and revocation requirements. It should also reject proof chains that are too deep, cyclic, malformed, or based on unsupported capability vocabularies.',
-        'The decision record should include the invocation id, accepted proof ids, final capability, verifier version, and revocation source. That makes offline authorization auditable after devices reconnect, which is the operational difference between a neat proof format and a dependable authorization system.',
+        "To invoke a capability, the caller sends a request plus the relevant proof chain. The resource server or peer verifier walks the chain. It checks token encoding, cryptographic signatures, issuer-to-audience continuity, time bounds, resource scope, action scope, and any revocation or caveat requirements required by the application. If the chain reaches a trusted root and covers the requested action, the verifier can allow the operation without asking the original issuer to be online.",
+        "That offline property is the main distinction. A service can accept a narrow proof from a worker because the proof carries its own authority story. The worker does not need the user's private key. The user does not need to be online. The central service does not need to evaluate every delegation in real time. The verifier still needs trust roots and policy, but the proof material travels with the invocation.",
+        "Local verification should be bounded. Proof chains need maximum depth. Token sizes need limits. The verifier should detect cycles and repeated proofs. Capability parsing should be deterministic. Revocation checks must have a defined freshness rule. Without those bounds, an attacker can turn authorization into a CPU, memory, or network exhaustion path."
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Public-key delegation does not remove policy design. Capabilities still need precise resource names, action vocabularies, attenuation rules, expiry, revocation, and audit logs. A verifier that checks signatures but ignores capability subset semantics is unsafe.',
-        'UCAN also does not magically solve every OAuth or Zanzibar use case. Centralized SaaS authorization often needs list APIs, group expansion, administrative revocation, and product-specific policy. UCAN is strongest when offline verification, user-originated delegation, and local-first or peer-to-peer flows matter.',
+        "The delegation-chain view teaches that UCAN is an authority graph, not a session flag. The owner, agent, worker, and resource are nodes. The UCANs are signed edges. The important movement is attenuation: the second token must be narrower than the first, and the invocation must carry enough proof for the resource to verify that path.",
+        "The offline-verification view teaches the verifier's checklist. Proofs feed signature checks and capability checks. Time and revocation evidence feed the decision. The audit node is part of the model because local authorization still needs an explanation after the fact. A resource that only checks signatures but ignores capability scope, audience continuity, or expiry is accepting a picture of authority, not authority itself."
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
       paragraphs: [
-        'Primary sources: UCAN working-group specification at https://github.com/ucan-wg/spec, UCAN guide at https://ucan.xyz/guides/getting-started/, and Storacha UCAN concepts at https://docs.storacha.network/concepts/ucan/. Study Capability Security & Attenuation, Macaroon Caveat Chain Case Study, JWT Verification, OAuth PKCE Token Lifecycle Case Study, Content-Addressed Merkle DAG Object Store, Local-First Sync Engine Case Study, and Distributed Tracing next.',
+        "The approach works because each delegation is bound to a public key and a specific audience. A copied token is not enough if the invoker cannot prove control of the audience key or if the request does not match the delegated capability. The proof chain explains provenance: the verifier can see that the authority came from an owner or trusted root through a sequence of narrower grants.",
+        "It also works because attenuation makes least authority practical. A user can grant a device broad access, the device can grant a worker narrow access, and the worker can complete one task without ever seeing broader credentials. The invariant is simple: each child token must fit inside the parent authority that justifies it. If that invariant holds, delegation can move without turning every delegate into the owner."
+      ],
+    },
+    {
+      heading: 'Revocation And Time',
+      paragraphs: [
+        "Distributed delegation makes revocation harder. A central authorization server can remove a permission from its database and every future online check sees the change. UCAN-style proofs can be copied and presented elsewhere. If a verifier accepts old proofs without fresh revocation evidence, authority may survive longer than the user expects.",
+        "Short expiration is the simplest mitigation. A ten-minute worker token limits damage even if copied. Parent capabilities can also be short-lived, forcing periodic refresh from the authority holder. For higher-risk operations, the application can require revocation evidence: a status proof, a signed revocation list, a transparency log checkpoint, or a service lookup. The right design depends on the cost of stale authority and the availability requirements of the system.",
+        "There is no free revocation. Stronger freshness usually means more online dependency. Offline operation usually means accepting some window of stale authority. The security model should state that window plainly. For example: read-only render worker tokens last ten minutes and require no online revocation check; admin tokens last one minute and require a fresh status proof; storage delete operations require live verification."
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        "UCAN trades a central lookup for larger request packets and more verifier logic. The invocation may need to carry several proof tokens. The verifier must parse them, resolve keys, check signatures, enforce resource grammar, evaluate attenuation, and decide whether revocation evidence is fresh enough. That is more work than checking one opaque server-side session id.",
+        "The tradeoff is offline delegation and narrower authority. If every request already reaches one trusted service and immediate revocation is mandatory, a central policy engine may be simpler. If users, devices, edge workers, and peer services need to operate while disconnected, portable proof chains can be worth the extra protocol surface."
+      ],
+    },
+    {
+      heading: 'Concrete Case Study',
+      paragraphs: [
+        "A user owns a local-first document workspace. Their phone is the initial authority for did:alice and controls the root document space. The phone delegates read and write access for docs://alice/projects/thesis/* to the user's laptop until Friday. The laptop delegates read-only access for docs://alice/projects/thesis/chapter-3.md to a rendering worker for ten minutes. The worker invokes render with its short token and includes the laptop token as proof.",
+        "The document service verifies the worker signature, checks that the worker is the audience of the short token, checks that the laptop signed that token, checks that the laptop was the audience of the parent token, and checks that both tokens are still valid. Then it verifies attenuation: read on chapter-3.md is within read/write on the thesis folder. It checks revocation freshness according to the operation's risk tier. If all checks pass, it allows the read needed for rendering and records the accepted proof ids.",
+        "The security win is not that UCAN is cryptographically fancy. The win is that the worker never received account-level credentials, never received the user's private key, and could not write or read other files if compromised. The proof is narrow, inspectable, and portable. The user can delegate through devices without turning every device into a central authority server."
+      ],
+    },
+    {
+      heading: 'Where It Fits And Where It Fails',
+      paragraphs: [
+        "UCAN is a natural fit for local-first applications, user-owned storage, content-addressed networks, device-to-device delegation, edge execution, and agent workflows where a user wants to grant a bounded task to another process. It is also useful when audit needs to show the exact authority path behind an operation.",
+        "It is not a drop-in replacement for every centralized authorization system. Large SaaS products often need group expansion, search over all resources a user can access, administrative override, immediate revocation, billing-aware policy, and relationship queries. Zanzibar-style systems are designed for that relation-store problem. OAuth remains a strong fit for web login and third-party API consent. Macaroons are useful for caveat-bearing bearer tokens. UCAN's strength is public-key, user-originated, delegable proof chains.",
+        "Operational signals should focus on verifier behavior. Track denial reasons, unsupported capability types, expired token rate, proof-chain depth, revocation-check latency, revocation freshness, token size, and audit coverage. Sample accepted chains for overbroad delegation. Test malicious chains with cycles, wrong audience, wrong issuer, path confusion, parent-child scope expansion, expired parents, and missing revocation evidence. The verifier is the product; the token format only gives it material to reason about."
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        "Define the capability grammar before building token plumbing. Write down the resource URI rules, action vocabulary, subset relation, expiry policy, accepted issuers, supported DID methods, revocation sources, maximum chain depth, maximum token size, and clock-skew tolerance. Then build tests that try to escape each boundary.",
+        "The verifier should produce structured denial reasons: bad signature, wrong audience, unsupported capability, expired parent, child broader than parent, missing proof, stale revocation evidence, and malformed resource. Those reasons make audits useful and help operators distinguish an attacker from a broken client. Store accepted proof ids and verifier version with the decision so future incident review can replay the same chain."
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        "Primary sources are the UCAN working-group specification, UCAN guides, and implementations used by distributed storage projects. The next topics to study are capability security and attenuation, macaroon caveat chains, JWT/JWS verification, OAuth PKCE, Zanzibar authorization, content-addressed Merkle DAGs, local-first sync engines, and distributed tracing. Those topics clarify the design space: bearer tokens versus proof chains, centralized relation checks versus portable capabilities, and online revocation versus offline delegation."
       ],
     },
   ],

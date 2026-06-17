@@ -230,42 +230,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'LLM Continuous Batching is the serving pattern where the runtime changes batch membership after every decode iteration. Traditional batching is request-level: gather a group, run the group, wait for it to finish, then start the next group. That wastes capacity because language-model outputs have different lengths. Continuous batching keeps the batch as a live set. Finished sequences leave, waiting sequences enter, and the GPU keeps processing useful tokens.',
-        'The idea is especially important for autoregressive decode. Each generated token needs a model step, but many users can share the same model weights during that step. The scheduler wants large batches for throughput, but users want low latency and fair streaming. Continuous batching is the compromise: refill lanes aggressively without making everyone wait for the slowest request.',
+        `Autoregressive LLM serving has a shape ordinary request batching does not handle well. Every active user needs one model step for each generated token, but users arrive at different times, send prompts of different lengths, and stop after different output lengths. A chat reply might finish in 80 tokens while an agent trace keeps going for 1,500. If the server freezes a batch until every request finishes, the short request leaves an idle lane while other users wait outside.`,
+        `Continuous batching exists because decode work is repeated, synchronized, and weight-heavy. On each decode iteration, many sequences can share a read of the same model weights. An empty lane during that step is wasted GPU opportunity. The scheduler therefore treats the batch as a live set: completed sequences leave, waiting sequences enter, and the next token iteration runs with as many legal active requests as the memory and latency policy allow.`,
+      ],
+    },
+    {
+      heading: 'The naive approach and the wall',
+      paragraphs: [
+        `The naive approach is static batching. Collect several requests, run them together, and keep the batch membership fixed until all of them finish. This works for many offline workloads because every item in the batch has roughly the same shape. It can also work for prompt prefill, where a set of prompts can be padded or packed and processed in a large parallel pass.`,
+        `The wall appears during interactive decode. Output length variance turns static batching into head-of-line blocking. A large frozen batch waits for its slowest sequence. A short sequence that finished early cannot free its lane for a waiting request. Average tokens per second may look fine while time to first token and p99 streaming latency degrade. FIFO fairness has a different wall: it respects arrival order but ignores the fact that a 200-token chat, a 16k-token prefill, and a tool-constrained agent trace do not impose the same compute, memory, or tail-latency risk.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `The core insight is that the scheduling unit should be a decode iteration, not an entire request. A request is long and unpredictable. A decode iteration is short and repeatable: choose active sequences, run one token step, update their state, remove finished sequences, and admit new work for the next step. Orca called this iteration-level scheduling and paired it with selective batching for transformer operations: https://www.usenix.org/conference/osdi22/presentation/yu.`,
+        `The invariant is simple: each decode iteration chooses a legal live set. A sequence may join decode only if its prompt has been processed, its KV cache is resident, its sampling state is valid, and the scheduler is willing to spend capacity on it. The batch is not a promise that every original request stays until the end. It is a snapshot of which sequences are eligible for the next model step.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The scheduler tracks active sequences, waiting requests, KV Cache blocks, and phase information. At each iteration it chooses which sequences run next. If a sequence finished or hit a stop condition, it is removed. If memory and latency budgets allow, a waiting request is admitted. Some systems also separate prompt prefill from token decode, because a long prompt can monopolize compute and delay already-streaming users. Chunked Prefill Token Budget Scheduler is the dedicated follow-up for that problem: decode runs first, and leftover max_num_batched_tokens is spent on bounded prefill chunks. SLO-Aware LLM Request Router sits one layer above the scheduler, deciding which replica should receive the request before local batching begins.',
-        'Orca named this iteration-level scheduling and paired it with selective batching. Dense transformer operations can be batched together, while request-specific work such as sampling, stopping criteria, and cache metadata may remain separate. LLM Serving: PagedAttention complements the scheduler by making cache allocation block-based, so admitting and removing requests does not strand large contiguous slabs of GPU memory.',
+        `A continuous-batching scheduler loops over active requests. After each token step, it checks which sequences emitted an end token, hit a maximum length, violated a stop rule, or were cancelled by the client. Those sequences leave the live set and their KV cache blocks can be reclaimed. The scheduler then looks at the waiting queue, estimates whether each candidate fits available KV memory and policy constraints, and admits compatible requests before the next decode iteration.`,
+        `Selective batching handles the fact that a transformer request is not one uniform operation. Dense attention and MLP kernels want large compatible batches because they reuse model weights well. Sampling may differ by request because temperature, top-p, penalties, grammar constraints, or structured-output masks vary. Cache updates are also per-request metadata operations. A good serving engine batches the operations that benefit from batching and keeps the request-specific pieces separate enough to preserve correctness.`,
+        `Prefill complicates the loop. Prompt processing is large dense work; decode is many small repeated steps. If a long prompt monopolizes the GPU, already-streaming users freeze. Systems use policies such as chunked prefill, decode reservation, length-aware queues, and separate prefill/decode workers to keep first-token work from destroying time per output token. Continuous batching is therefore a scheduler plus a memory manager plus a latency policy, not just a bigger batch size.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Continuous batching improves throughput, but it turns serving into a control problem. Large batches reuse weights better but raise per-user latency. Small batches feel responsive but waste GPU bandwidth. Long prompts, long outputs, tool-calling agents, and structured-output requests all have different cost shapes. The scheduler must also prevent starvation: a stream of short requests should not permanently delay a long one, and a long prefill should not freeze every decode lane.',
-        'Good systems measure time to first token, time per output token, aggregate tokens per second, cache occupancy, queue age, and p99 latency separately. A single tokens-per-second graph can hide a broken product if a subset of users waits too long.',
+        `The static-vs-continuous view makes the wasted lane visible. In the static schedule, request A finishes early, but its lane stays idle while C, D, and E wait outside the frozen batch. In the continuous schedule, those waiting requests can enter on later iterations. The important move is not that the matrix has more colored cells. It is that admission happens after each token step rather than only after the original batch drains.`,
+        `The selective-batching view proves a second point: continuous batching is not blind mixing. Attention and MLP work can be grouped because their kernel shapes are compatible after padding or packing. Sampling, stopping rules, cache metadata, and prefill chunks remain policy-controlled. The mixed schedule shows chunked prefill interleaved with decode so prompt work uses the GPU while streaming users still advance.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'Continuous batching appears in modern LLM serving systems such as Orca, vLLM, SGLang-style runtimes, and commercial inference stacks. Chat applications use it to support many concurrent conversations. RAG Pipeline systems use it because retrieved prompts vary in length. Coding agents need it because traces can grow long and outputs can stop unpredictably. Batch summarization systems use similar scheduling to maximize tokens per dollar.',
+        `Continuous batching works because decode iterations have a shared structure. Every active sequence needs the same model weights for the next step. By packing compatible sequences into the same iteration, the server amortizes weight reads and kernel launches across more useful tokens. Removing finished sequences immediately prevents output-length variance from wasting lanes.`,
+        `Correctness comes from preserving per-sequence state. A sequence can be decoded in a different batch on every iteration as long as its KV cache, position, sampling parameters, stop criteria, and generated prefix remain intact. The batch is only an execution grouping. It is not part of the model's mathematical state. That separation is what lets schedulers rearrange live requests without changing each request's token history.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Continuous batching is not the same as simply increasing batch size. It changes the scheduling granularity. It also does not remove memory pressure: more active sequences mean more KV cache. Another misconception is that maximizing GPU occupancy is always best. If the scheduler overfills the batch, individual users experience slow streaming or high tail latency. The target is not full hardware at any cost; it is the best throughput that still honors the latency contract.',
+        `The gain is throughput under latency constraints, not free capacity. More live sequences consume more KV cache, more scheduler bookkeeping, more sampling work, and sometimes longer per-request waits. If the scheduler admits too aggressively, it can increase total tokens per second while making p99 worse. If it admits too conservatively, the GPU sits underfilled and cost per token rises.`,
+        `Memory management is the hard systems partner. KV cache grows and shrinks dynamically as requests arrive, generate, and finish. PagedAttention attacks this by allocating cache in blocks, reducing fragmentation and enabling better sharing for common prefixes: https://arxiv.org/abs/2309.06180. Without a block allocator or equivalent memory plan, continuous admission can run into cache fragmentation, preemption churn, or outright memory deadlock.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Orca, A Distributed Serving System for Transformer-Based Generative Models at https://www.usenix.org/conference/osdi22/presentation/yu, Efficient Memory Management for Large Language Model Serving with PagedAttention at https://arxiv.org/abs/2309.06180, and the JAX inference scaling chapter at https://jax-ml.github.io/scaling-book/inference/. Study Length-Aware Batching for LLM Serving, Chunked Prefill Token Budget Scheduler, SLO-Aware LLM Request Router, Queue, Load Balancer, Backpressure, KV Cache, Transformer Inference Roofline, and Tail Latency & p99 Thinking next.',
+        `Continuous batching fits online LLM serving with many concurrent users: chat, coding assistants, agent backends, RAG systems, customer-support bots, and API platforms where requests arrive continuously rather than as a clean offline dataset. It sits inside a model replica, below the request router and above the model kernels. The router chooses a replica; the local scheduler chooses when a request gets prefill, when it joins decode, and when it must wait for memory.`,
+        `It is most useful when paired with length-aware routing, chunked prefill, PagedAttention, admission control, speculative decoding, and phase-specific metrics. The production contract is not maximum occupancy. It is the best tokens per dollar that still respects time to first token, time per output token, queue age, memory safety, cancellation behavior, and p99 by request class.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Continuous batching can fail by over-admitting. More live sequences mean more KV memory, more attention reads, and a larger scheduling surface. It can also starve awkward requests if short compatible jobs keep arriving and the policy has no queue-age protection. A long prefill can still freeze streaming users unless prefill and decode are separated, chunked, or rate-limited.`,
+        `It also fails when metrics are too coarse. Aggregate tokens per second can hide users who wait too long for the first token. Average latency can hide a terrible p99. GPU utilization can look healthy while a subset of long-context users is constantly preempted. Measure TTFT, TPOT, cache occupancy, queue age, preemption, cancellation, admission rejects, and p99 by prompt length, output length, model, adapter, and request class.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Orca for iteration-level scheduling and selective batching, then PagedAttention for the memory allocator that makes high-churn KV cache practical. After that, study length-aware batching, chunked prefill token budgets, SLO-aware request routing, KV cache capacity models, prefill/decode disaggregation, transformer inference rooflines, backpressure, load balancers, and tail-latency thinking. The durable lesson is that LLM serving is a queueing system wrapped around model kernels; throughput numbers mean little without the scheduler state that produced them.`,
       ],
     },
   ],

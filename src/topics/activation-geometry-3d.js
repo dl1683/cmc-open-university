@@ -123,11 +123,32 @@ export const article = {
       ],
     },
     {
+      heading: `The obvious wall`,
+      paragraphs: [
+        `A stack of linear layers without activations collapses into one linear layer. No matter how many matrices you multiply, the final function is still a plane in this two-input picture. It can tilt, stretch, and rotate the input, but it cannot bend around clusters, carve several regions, or represent a nonlinear decision boundary.`,
+        `The activation is the move that breaks that wall. It lets each neuron decide where part of the space should change slope. That is why the small geometric choice between ReLU, sigmoid, and GELU becomes a large architectural choice once the layer is repeated thousands of times.`,
+      ],
+    },
+    {
       heading: `How it works`,
       paragraphs: [
         `Every activation function is a pointwise nonlinearity: for each neuron's pre-activation z (a weighted sum from Neural Network Forward Pass), apply the activation to get the output. In 3-D, you are plotting the layer's output height as a function of the two input coordinates x₁ and x₂. A ReLU neuron computes ReLU(w₁·x₁ + w₂·x₂ + b), which clamps all negative values to zero. Geometrically: the plane tilts according to the weights w₁ and w₂; the bias b shifts it; then ReLU "cuts" the plane at height zero, folding the negative half down to a flat dead zone. The crease — the line where the plane crosses zero — is a perfectly straight edge in space, exactly the decision boundary that separates the "on" region from the "off" region.`,
         `When you add two neurons, their creases cross. The two lines divide the plane into four sectors; each sector has its own output height because in each region, a different subset of neurons is "on." The layer is piecewise-linear: flat planes joined at creases, with no curves inside any piece. Depth compounds this. Stack another layer atop this one and each new neuron's weights no longer point through flat space — they thread through the already-folded origami, so their activation patterns are bent by every fold beneath them. This folding-of-folds is why depth multiplies regions exponentially (Montúfar et al., 2014) and why deep networks can express vastly more functions than shallow ones.`,
         `Now swap the activation: sigmoid smooths the creases into rolling hills with an S-curve shape. The terrain is no longer piecewise-linear; it is differentiable and smooth everywhere. But watch the edges: far from zero, sigmoid flattens into plateaus at the top and bottom. Flat terrain means zero slope, zero gradient, and zero feedback to learn from — Vanishing & Exploding Gradients is the literal landscape of these plateaus. GELU splits the difference: it keeps ReLU's linear wings (the open-ended slope) but rounds the crease instead of cutting it sharp, inheriting ReLU's learnable slopes while avoiding the dead-switch discontinuity that can permanently silence a neuron. The terrain is the function; the function's geometry determines what the network can optimize.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `Treat the 3D surface as the function a tiny layer computes. ReLU turns a tilted plane into flat-off plus linear-on, creating a crease. Adding neurons adds creases; stacking layers folds already-folded space. That is the geometric reason depth creates rich piecewise-linear decision boundaries.`,
+        `In the smooth view, compare slope rather than beauty. Sigmoid looks gentle, but its far edges are flat, which means gradients vanish. GELU keeps useful linear wings while rounding the ReLU crease. The animation is asking you to connect activation shape to optimization behavior, not just classification shape.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `ReLU works because it creates simple local linear regions that are cheap to evaluate and easy for gradients to cross while the neuron is active. The model can assemble many small flat facets into a complicated boundary without paying for expensive nonlinear formulas at every point.`,
+        `Smooth activations work for a different reason. They avoid abrupt derivative changes and can make optimization gentler, but they risk saturation if their tails flatten too much. GELU is useful because it keeps the open-ended slope of ReLU while smoothing the switch-on region that transformers hit constantly during training.`,
       ],
     },
     {

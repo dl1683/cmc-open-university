@@ -62,13 +62,13 @@ function* graphExecution() {
   yield {
     state: graph('TensorFlow represents computation as a dataflow graph'),
     highlight: { active: ['input', 'matmul', 'bias', 'relu', 'loss', 'e-input-mm', 'e-mm-bias'], compare: ['var'] },
-    explanation: 'TensorFlow made ML computation explicit as a graph of operations over tensors. That graph can represent forward computation, gradient computation, and state updates.',
+    explanation: 'Read the graph as the runtime sees the program: operations are nodes, tensors are edges, and dependencies decide what can run in parallel. The forward path is only the first half of training.',
   };
 
   yield {
     state: graph('Backpropagation is graph structure too'),
     highlight: { active: ['loss', 'grad', 'update', 'var', 'e-loss-grad', 'e-grad-update', 'e-update-var'], found: ['matmul'] },
-    explanation: 'Gradients are not magic outside the system. They are added to the graph and scheduled like other operations, then optimizer ops mutate variable state.',
+    explanation: 'Gradients are not magic outside the system. They are graph work too: the loss creates reverse edges, gradients feed optimizer ops, and those ops mutate variable state.',
     invariant: 'Edges carry tensors; stateful ops own persistent variables.',
   };
 
@@ -143,7 +143,7 @@ function* placementAndState() {
       ],
     ),
     highlight: { active: ['matmul:device', 'embedding:device'], found: ['update:reason'] },
-    explanation: 'TensorFlow maps graph nodes to devices. The placement problem mixes hardware, tensor sizes, communication, state ownership, and available kernels.',
+    explanation: 'Placement is the hidden systems problem. The runtime maps graph nodes to devices while balancing kernels, tensor sizes, communication cost, state ownership, and available hardware.',
   };
 
   yield {
@@ -211,41 +211,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'TensorFlow is a system for large-scale machine learning that represents computation as a dataflow graph. Nodes are operations, edges are tensors, and stateful operations hold variables that can be updated during training.',
-        'The case study matters because it shows how an ML framework becomes a distributed systems problem: graph construction, placement, scheduling, kernels, communication, state ownership, checkpointing, and debugging.',
+        'Large-scale machine learning is not just a set of equations. A training job has to place tensor operations on CPUs, GPUs, TPUs, and remote workers; move data between them; update state; checkpoint progress; and recover enough information to debug slow or wrong runs.',
+        'TensorFlow made that problem explicit by representing computation as a dataflow graph. Nodes are operations, edges are tensors, and stateful nodes hold variables. Once computation is a graph, the runtime can schedule, place, rewrite, partition, and execute it across devices.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is an imperative loop: run this tensor operation, then the next, then the next. That is easy to debug for small models, but it hides the global structure. The runtime sees calls one at a time instead of seeing the dependency graph it could optimize.',
+        'Another simple approach is hand-written distributed training. A researcher can decide which machine owns each variable and which GPU runs each layer, but that quickly becomes brittle. The program starts mixing model logic with placement, communication, checkpointing, and failure handling.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is scale. A model step may contain thousands of operations, large tensors, device-specific kernels, and communication between workers. A single bad placement can move tensors across the network or PCIe boundary repeatedly. A single straggler can stall synchronous training.',
+        'State is the second wall. Variables persist across steps; activations do not. Gradients are derived from the forward pass; optimizer slots may persist beside variables. Checkpointing has to capture the right state without treating every intermediate tensor as permanent.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Expose the computation as a graph so the system can reason about dependencies before execution. If the runtime knows that two branches are independent, it can run them in parallel. If it knows a tensor is consumed only once, it can plan memory reuse. If it knows where a variable lives, it can place update operations nearby.',
+        'The graph is also a contract between the user program and the runtime. The user describes tensor operations and state. The runtime chooses kernels, device placement, communication edges, execution order, and sometimes graph rewrites. The abstraction pays off when the runtime can optimize better than a hand-written loop.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'In the graph-execution view, follow the forward path from input to loss, then the backward path from loss to gradients to optimizer update. The variables node is state: it persists across steps, unlike activation tensors that can be freed after use.',
+        'In the placement-and-state view, each row is a scheduling decision. CPUs may parse input, GPUs or TPUs run dense linear algebra, parameter devices own state, and collectives or parameter servers move updates. TensorFlow is not one execution policy; it exposes several consistency and throughput choices.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A program builds a graph of tensor operations. The runtime places operations on devices such as CPUs, GPUs, TPUs, and remote workers, then executes according to graph dependencies. Automatic differentiation adds gradient computation, and optimizer operations update variables.',
-        'The graph representation gives the runtime opportunities for parallelism, placement, memory planning, and graph rewrites. Distributed execution adds choices such as synchronous replicas, asynchronous replicas, parameter servers, and collective communication.',
+        'A program builds a graph of tensor operations. Automatic differentiation adds gradient operations for training. Optimizer operations update variables. The runtime then partitions and places graph nodes on available devices such as CPUs, GPUs, TPUs, or remote workers.',
+        'Execution follows graph dependencies. An operation can run when its input tensors are ready and an appropriate kernel exists for the chosen device. The runtime may insert send and receive operations between devices, choose kernels, reuse memory buffers, and coordinate variable updates.',
+        'Distributed execution adds policy choices. Synchronous replicas aggregate gradients before applying an update, which keeps workers on the same training step but waits for slow workers. Asynchronous replicas improve throughput but can apply stale gradients. Parameter-server designs centralize variable ownership; collective all-reduce spreads communication differently.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Worked example',
       paragraphs: [
-        'TensorFlow-style graphs expose optimization opportunities but can make dynamic control flow, debugging, and performance attribution harder. Placement mistakes create hidden transfer costs. Stateful variables require checkpointing and consistency decisions. Hardware-specific kernels can dominate real performance.',
+        'A simple image classifier reads a batch, decodes images on CPU, sends tensors to a GPU, runs convolutions, computes loss, creates gradients, and updates variables. In a graph runtime, those dependencies are visible. Input preprocessing can overlap with GPU compute. Temporary activations can be freed after backpropagation. Variable updates can be grouped and checkpointed.',
+        'Now distribute the same training job. Four workers compute gradients on their local batches. In synchronous training, the gradients are combined and the same update is applied everywhere. In asynchronous training, workers may send gradients to parameter servers at different times. The graph and runtime define where communication happens and what consistency model the training loop receives.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'TensorFlow has been used for training and inference in speech, vision, recommendation, robotics, information retrieval, natural language processing, and production ML services. Its graph ideas influenced later ML compiler and serving stacks.',
+        'Dataflow works because dependencies are explicit. If operation B needs tensor A, the edge says so. If two operations have no dependency, the runtime can schedule them independently. This gives the system room to exploit parallelism, choose placements, and insert communication without the user writing every scheduling decision.',
+        'The model also matches the mathematical structure of neural networks well enough for many workloads. Forward operations produce tensors. Backward operations consume them to produce gradients. Variables provide persistent state. Checkpoints capture variables and other needed state so training can continue after interruption.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'A dataflow graph is not automatically fast. It gives the runtime information, but kernels, placement, communication, and memory still decide performance. Another misconception is that graph systems and dynamic task systems solve the same problem; TensorFlow and Ray optimize different workload shapes.',
+        'Graph systems add build time, runtime planning, and debugging complexity. When a placement decision is bad, the user may see only slow training, not the hidden tensor transfer that caused it. When the graph is large, error messages and performance traces can be hard to connect back to the original model code.',
+        'The payoff depends on workload shape. Static or mostly static tensor programs benefit from global optimization, kernel fusion, memory planning, and distributed scheduling. Highly dynamic workloads may prefer a more imperative task system or eager execution because the graph boundary can become friction.',
+        'Graph rewrites are powerful but risky to explain poorly. Constant folding, common subexpression elimination, layout changes, fusion, and device-specific lowering can make the executed program differ from the naive graph a learner drew. The right lesson is that the graph is an optimization surface, not merely a visualization.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'TensorFlow-style dataflow wins for production ML systems that need repeatable execution, accelerator placement, graph optimization, distributed training, checkpointing, and serving. It has been used across speech, vision, recommendation, robotics, information retrieval, natural language processing, and production inference systems.',
+        'It is also a useful case study because it turns a machine-learning framework into a systems topic. Graph construction, automatic differentiation, kernel dispatch, device placement, communication, state ownership, and checkpointing are all data-structure and runtime problems.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A dataflow graph is not automatically fast. It gives the runtime information, but kernels, placement, communication, batching, memory, and hardware topology still decide performance. A graph with poor placement can be slower than a simple local loop.',
+        'It also does not solve every programming model. Dynamic control flow, irregular workloads, interactive debugging, and Python-side logic can be awkward when the main abstraction expects a graph. Later systems and TensorFlow modes draw the boundary differently because no single abstraction fits all ML work.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Common failures include hidden device transfers, slow input pipelines, unsupported kernels, excessive graph size, checkpoint mismatches, stale gradients in asynchronous training, stragglers in synchronous training, and memory pressure from retained activations. A good trace separates graph construction, placement, kernel time, communication, and input stalls.',
+        'The main misconception is that the graph is the model. The graph is an execution representation of the model plus training machinery. The real system includes data ingestion, hardware, kernels, optimizers, checkpoints, metrics, and debugging tools.',
+        'A second misconception is that static graphs and eager execution are moral opposites. They are different debugging and optimization boundaries. Eager execution makes local behavior easier to inspect; graph execution gives the system more global structure to optimize and distribute.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: USENIX OSDI paper at https://www.usenix.org/system/files/conference/osdi16/osdi16-abadi.pdf, USENIX page at https://www.usenix.org/conference/osdi16/technical-sessions/presentation/abadi, and arXiv system paper at https://arxiv.org/abs/1603.04467. Study Backpropagation, Neural Network Forward Pass, Ray Distributed Execution Case Study, Parameter Server Case Study, and Borg Cluster Scheduler Case Study next.',
+        'Primary sources: TensorFlow OSDI paper at https://www.usenix.org/system/files/conference/osdi16/osdi16-abadi.pdf, USENIX page at https://www.usenix.org/conference/osdi16/technical-sessions/presentation/abadi, and arXiv system paper at https://arxiv.org/abs/1603.04467.',
+        'Study Backpropagation, Neural Network Forward Pass, Automatic Differentiation, Parameter Server Case Study, Ray Distributed Execution Case Study, Borg Cluster Scheduler Case Study, XLA compiler material, and GPU Kernel Fusion for adjacent runtime ideas.',
       ],
     },
   ],

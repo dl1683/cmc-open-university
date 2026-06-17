@@ -417,51 +417,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Problem',
       paragraphs: [
-        'Structured pruning removes model weights under a pattern that serving hardware and kernels can exploit. Ordinary pruning asks which connections can be deleted. Production N:M pruning adds a stricter data-structure question: can each small group of weights satisfy a legal mask, can that mask be packed into the layout expected by the sparse matrix library, and can the resulting route beat the dense fallback without quality loss?',
-        'This belongs between Knowledge Distillation, Quantization, Activation-Aware Quantization Calibration Ledger, Transformer Inference Roofline, and Accelerator Kernel Compatibility Matrix. Distillation trains a smaller behavior, quantization stores numbers with fewer bits, and pruning deletes or packs connections. The methods combine well, but each changes a different artifact and has a different failure mode.',
+        'Large neural networks contain redundancy, but deleting weights is not automatically useful. A model can have many zeros and still run at dense speed if the accelerator, compiler, and matrix library cannot exploit those zeros. A compressed checkpoint can also be smaller while silently losing a narrow capability that the average benchmark does not expose.',
+        'Structured pruning and N:M sparsity turn compression into a systems problem. The team must choose which weights to remove, enforce a mask pattern that kernels support, pack the remaining values into the expected layout, prove the sparse path actually dispatches, and roll out the result with quality and rollback gates. The topic is not only model surgery; it is mask data structure, kernel compatibility, and production evidence ledger.',
       ],
     },
     {
-      heading: 'Mask data structure',
+      heading: 'Naive pruning',
       paragraphs: [
-        'The mask is the core structure. For unstructured pruning, it can be a bit per weight. For 2:4 sparsity, every group of four weights must contain exactly two zeros and two kept entries. The compressed operand then stores the kept values plus compact metadata for their positions. This regularity is why a sparse Tensor Core or sparse GEMM implementation can skip work predictably.',
-        'The scoring side table matters as much as the final mask. Magnitude pruning ranks weights by absolute value. Wanda ranks by weight magnitude multiplied by activation statistics gathered from calibration data. SparseGPT uses a layer-wise reconstruction objective designed for large GPT-family models. The mask therefore depends on weight tensor, score rule, calibration sample, grouping rule, and target kernel layout.',
+        'The naive idea is magnitude pruning: sort weights by absolute value and set the smallest ones to zero. That often works as a first experiment because small weights can contribute less to the output than large weights. If the model is fine-tuned after pruning, some lost accuracy may recover.',
+        'The naive idea breaks in two ways. First, small by magnitude does not always mean unimportant. A small weight connected to a high-activation feature can matter more than a larger weight connected to a quiet feature. Second, arbitrary zeros are irregular. Dense matrix multiplication pipelines do not become fast just because the tensor contains zeros at random positions.',
+        'The other naive mistake is to stop at a masked dense tensor. A matrix with zeros still has the original shape. If the runtime stores it densely and launches dense GEMM, the hardware still reads and schedules those zero positions. Parameter sparsity and wall-clock speed are different claims.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The wall',
       paragraphs: [
-        'Suppose a team wants to compress the feed-forward and projection matrices of a production LLM for Ampere-class GPUs. The dense checkpoint is frozen as the rollback reference. A calibration set is selected from real prompt slices, and activation statistics are recorded with data hashes. The pruning job scores each target layer, enforces a 2:4 mask inside every four-weight group, writes a mask map, and emits a packed values-plus-indices artifact.',
-        'The artifact is then checked against the kernel compatibility matrix: architecture, dtype, layout, alignment, shape bucket, and sparse GEMM support. Shadow traffic compares dense and sparse outputs. Canary traffic measures p50, p99, memory, fallback rate, perplexity, domain tasks, code, math, safety, and long-context slices. Only after those gates pass does the feature flag ramp. The dense checkpoint and dense route remain available until the sparse path has operational history.',
+        'The wall is that production pruning has three gates, and all three must pass. The mask must be legal for the target pattern. The model must still perform well on task slices. The serving stack must dispatch a sparse kernel that is actually faster for the shape, dtype, batch size, and device.',
+        'These gates are independent. A legal 2:4 mask can damage code generation. A high-quality sparse checkpoint can miss the sparse kernel path and run as dense fallback. A sparse kernel can be faster at one batch shape and slower at another because metadata handling, alignment, memory bandwidth, or launch overhead dominates.',
+        'That is why a pruning deployment needs a ledger. The ledger records dense checkpoint id, target layers, scoring rule, calibration data hash, grouping rule, N:M pattern, mask id, packed layout, kernel target, compatibility result, quality slices, latency evidence, fallback route, and rollback target. Without it, pruning becomes an unrepeatable checkpoint mutation.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'Pruning saves memory only when zeros are represented compactly or packed away. It saves time only when the execution path uses kernels that exploit the pattern. A model with 50% zeros can still run at dense speed if the runtime stores it as a dense tensor or falls back to dense matmul. N:M sparsity is less flexible than arbitrary sparsity, but it is easier for hardware to schedule.',
-        'Quality cost is workload-dependent. Some layers, channels, languages, or capabilities are more fragile than others. A small average loss can hide a large regression on code generation, math reasoning, refusal behavior, or rare-domain labels. That is why the pruning artifact needs an evaluation ledger instead of a single benchmark number.',
+        'The core insight is to trade pruning freedom for regularity. Unstructured pruning can remove any weight, which gives the optimizer many choices but gives the hardware a messy pattern. N:M sparsity restricts each small group of M weights so that only N are kept. In a 2:4 pattern, every four-weight group keeps two entries and removes two.',
+        'That local rule is the data-structure trick. Each group can be represented by kept values plus tiny position metadata. The kernel knows that every group has the same density, so it can schedule predictable sparse matrix work instead of chasing arbitrary indices. The price is that the pruning algorithm must choose the best legal pattern inside each group, not the best global set of weights.',
       ],
     },
     {
-      heading: 'Sources and concrete systems',
+      heading: 'Mechanics',
       paragraphs: [
-        'Primary sources: NVIDIA cuSPARSELt structured sparsity workflow and 2:4 sparse Tensor Core discussion at https://developer.nvidia.com/blog/exploiting-ampere-structured-sparsity-with-cusparselt/ and https://docs.nvidia.com/cuda/cusparselt/. NVIDIA describes the A100 2:4 pattern as requiring at least two zeros in every four-element group for the sparse operand, then compressing values with metadata for sparse matrix multiply.',
-        'SparseGPT shows one-shot pruning for GPT-family models and reports pruning large OPT and BLOOM models with 50% or higher sparsity: https://arxiv.org/abs/2301.00774 and code at https://github.com/IST-DASLab/sparsegpt. Wanda introduces a simple activation-aware score for LLM pruning: https://arxiv.org/abs/2306.11695. The Lottery Ticket Hypothesis is the classic sparse-subnetwork lens: https://arxiv.org/abs/1803.03635. PyTorch documents semi-structured 2:4 training support at https://pytorch.org/blog/accelerating-neural-network-training/, and LLM Compressor exposes Wanda with N:M mask structures at https://docs.vllm.ai/projects/llm-compressor/en/0.8.1/reference/llmcompressor/modifiers/pruning/wanda/.',
+        'A pruning pass begins with a frozen dense reference. The system chooses target tensors, usually large linear layers where matrix multiplication dominates runtime. It collects calibration activations from representative data. A scoring rule ranks candidate weights inside each group. Magnitude pruning uses absolute weight size. Activation-aware methods multiply or otherwise combine weight information with activation statistics. Reconstruction-style methods estimate output error layer by layer.',
+        'The mask builder enforces the local pattern. For 2:4 sparsity, it inspects each consecutive group of four candidate weights and keeps the two best according to the scorer. The debug artifact may be a dense-shaped tensor where removed weights are zero. The serving artifact is different: packed kept values plus metadata that tells the sparse kernel which positions survived.',
+        'After packing, the artifact enters a kernel compatibility matrix. Device architecture, dtype, layout, alignment, matrix dimensions, batch shape, and library support decide whether the sparse path is legal. Only then does benchmarking mean anything. A sparse checkpoint that goes through dense fallback should be treated as a quality experiment, not a serving-speed win.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not confuse parameter sparsity with latency improvement. Unstructured sparsity can reduce checkpoint size while increasing runtime overhead. Do not confuse legal mask with safe model behavior; the mask can be hardware-valid and still damage rare skills. Do not reuse a generic calibration set blindly; activation-aware pruning is only as representative as the activations it sees.',
-        'The strongest mental model is checkpoint surgery with a control plane. The surgery removes connections, but the control plane records score rule, mask legality, packed layout, kernel target, benchmark slices, canary results, and rollback route. That is what turns pruning from a paper result into a maintainable serving optimization.',
+        'Take one row of weights split into two groups of four: [0.62, -0.15, 0.08, -0.48] and [0.21, -0.06, 0.39, -0.33]. A pure magnitude scorer would keep 0.62 and -0.48 in the first group, then 0.39 and -0.33 in the second group. An activation-aware scorer can change that decision if a smaller weight is attached to a much more active input channel.',
+        'The mask for the first group might be [keep, zero, zero, keep]. The dense debug tensor becomes [0.62, 0, 0, -0.48]. The packed serving representation stores values [0.62, -0.48] and positions [0, 3]. The important point is that the original layer shape remains conceptually the same, but the operand handed to the kernel is no longer just a dense array with zeros.',
+        'A complete deployment uses this process layer by layer. It freezes the dense model as rollback reference, writes a mask map, packs sparse operands, checks sparse kernel support, compares dense and sparse outputs under shadow traffic, then canaries the sparse route. The dense route stays available until quality and latency evidence are both stable.',
+      ],
+    },
+    {
+      heading: 'What the animation shows',
+      paragraphs: [
+        'The mask-ledger view starts with dense weights, then scores them with activation context, then applies a 2:4 mask. The key lesson is that the mask is not only a visualization of zeros. It is a legal object with a local invariant: every four-weight block has exactly two kept entries.',
+        'The packed-operand frame shows the transition from mathematical sparsity to serving representation. Values and small indices are stored together because the kernel needs both. The pruning ledger frame adds the production metadata: pattern, scorer, calibration packet, packed layout, kernel, eval, and rollback gate.',
+        'The kernel-path view separates legality from dispatch. A mask can be legal, but a device or shape can still miss the sparse path. The quality-gate view separates speed from behavior. The frontier plot and slice gate show that a model can be smaller and faster while failing a narrow capability test.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'N:M sparsity works when the removed weights were not essential for the target distribution and the regular pattern lets hardware skip enough work to matter. The local constraint gives the kernel a predictable density. The packed representation reduces the amount of useful data moved and multiplied, while the metadata tells the kernel where the surviving values belong.',
+        'Activation-aware scoring works better than blind magnitude when calibration data resembles real traffic. A weight is not important in isolation; it is important when multiplied by the activations it usually sees. Reconstruction-style methods add another view by asking which removals least disturb layer outputs.',
+        'The rollout works because it keeps the dense reference available. Pruning is a lossy optimization. Safe deployment means measuring the loss by slice and preserving the ability to route back to dense when quality, safety, latency, or compatibility gates fail.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Pruning cost has several layers. Calibration needs representative data and activation collection. Mask construction needs scoring and legality checks. Packing needs format conversion and validation. Benchmarking needs enough shape coverage to prove the sparse route is not a dense fallback. Rollout needs shadow, canary, and telemetry work.',
+        'The quality tradeoff is uneven. Average perplexity can move little while code, math, refusal behavior, rare languages, tool-call schemas, or long-context recall degrade. Some layers are more fragile than others. Some capabilities rely on small weights that look unimportant under a weak scorer.',
+        'The performance tradeoff is also uneven. Sparse kernels shine only when the pattern, dtype, matrix shape, batch size, and hardware align. Metadata handling and packing overhead can eat the benefit. In bandwidth-bound paths, the memory reduction can help; in launch-bound paths, it may not.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Structured N:M pruning wins when a large fraction of serving cost sits in compatible dense linear layers and the deployment hardware has fast sparse kernels for the chosen pattern. LLM feed-forward and projection layers are natural candidates because they contain large matrix multiplications and large parameter counts.',
+        'It is especially useful when paired with other compression techniques. Distillation can move behavior into a more compressible student. Pruning can remove legal connections. Quantization can reduce bit width. Kernel fusion, CUDA graphs, batching, and routing can then make the serving path use the compressed artifact efficiently.',
+        'The pattern also wins in operational environments that need explicit fallback. A dense reference, sparse route, compatibility registry, and feature flag allow the team to use sparse acceleration where it is legal while routing unsupported shapes or devices to dense.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the target hardware does not support the sparse pattern or when the serving shapes miss the sparse kernel. It fails when the calibration set is narrow and the model later sees different activation distributions. It fails when evaluation relies on one average score instead of task slices.',
+        'It also fails when the compression stack is applied in the wrong order without revalidation. Quantization can change the effective importance of weights. Fine-tuning can change activation statistics. Distillation can change which layers are fragile. Any later change can invalidate a mask or at least invalidate the evidence behind it.',
+        'A common operational failure is silent dense fallback. The team advertises a sparse model, but telemetry shows dense kernels doing the work. Another failure is irreversible checkpoint surgery: the dense reference is lost, the mask id is unknown, or nobody can reproduce the calibration packet. At that point rollback and diagnosis become guesswork.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Knowledge Distillation for behavior compression, Quantization for bit-width compression, Activation-Aware Quantization Calibration Ledger for calibration-aware scale and packing decisions, MatMul-Free Language Modeling for a more radical operation-level redesign, Transformer Inference Roofline for why sparsity only helps when it changes the bottleneck, Inference Kernel Fusion & CUDA Graphs for serving fast paths, Accelerator Kernel Compatibility Matrix for legal dispatch, Benchmark Variance Model Selection for evaluation gates, and Heterogeneous AI Compute Workload Router for rollout and fallback policy.',
+        'Study Quantization for bit-width compression, Activation-Aware Quantization Calibration Ledger for calibration and packing decisions, Knowledge Distillation for behavior transfer, Transformer Inference Roofline for why sparsity only helps when it changes the bottleneck, Accelerator Kernel Compatibility Matrix for legal dispatch, Sparse Format Selection Compiler Lowering for layout choices, COO and CSC sparse tensor primers for sparse representation basics, Benchmark Variance Model Selection for quality gates, and Heterogeneous AI Compute Workload Router for dense fallback and device-aware serving policy.',
       ],
     },
   ],

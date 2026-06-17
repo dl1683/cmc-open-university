@@ -228,37 +228,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Synthetic control is a comparative case-study method for estimating the effect of an intervention on one treated unit. It builds a weighted combination of untreated donor units that matches the treated unit before intervention, then treats that weighted mixture as the counterfactual path.',
-        'The core data structure is the donor-weight vector plus its diagnostics: donor pool, pre-treatment fit, post-treatment gaps, and placebo gaps. It is a structured alternative to picking one control unit by intuition.',
+        'Synthetic control exists for interventions that happen to one visible unit instead of many randomly assigned units. A state passes a law, a city changes policing policy, a platform launches a market rule, or one store receives a new operating model. The analyst still needs a counterfactual: what would the treated unit have looked like if the intervention had not happened?',
+        'The constraint is that no untreated unit is usually a perfect comparison. A neighboring state may share geography but not history. A similar store may share size but not demand mix. A country may share region but not institutions. Synthetic control answers by building a comparison unit from weighted untreated donors, then asking whether that weighted unit tracked the treated unit before the intervention.',
+        'The output is not only a chart. A serious synthetic-control design produces a donor pool, a weight vector, pre-treatment fit diagnostics, a post-treatment gap path, placebo comparisons, and sensitivity checks. Those objects make the estimate inspectable. Without them, the method collapses into a line chart with causal language attached.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Choose a donor pool of untreated units. Optimize nonnegative weights that sum to one so the weighted donor history matches the treated unit in the pre-treatment period, often using both outcomes and covariates. After treatment, compare the treated outcome to the synthetic outcome period by period.',
-        'Placebo tests rerun the method by pretending each donor was treated. If the actual treated unit has a much larger post-treatment gap than placebo units with good pre-fit, the causal story becomes more credible.',
+        'The first reasonable approach is before-after comparison. Measure the treated unit before the policy, measure it after the policy, and call the difference the effect. This is simple and sometimes useful when the outside world is stable. It fails when broader trends, recessions, seasonality, product cycles, demographic change, or measurement changes move the outcome at the same time.',
+        'The next reasonable approach is to choose one control unit. Pick a neighboring state, a similar city, or the most comparable store, then subtract its trend. That is not a foolish baseline. If one untreated unit already matches the treated unit across the pre-treatment period, a single comparison can be transparent and easy to explain.',
+        'The problem is that single controls often match one dimension and miss another. A neighboring region can have a different baseline level. A similar baseline unit can have a different trend. A unit with the right trend can face a shock of its own. The analyst needs a way to use the best pieces of several donors without pretending that any one donor is the missing treated path.',
       ],
     },
     {
-      heading: 'Complete case study: regional policy launch',
+      heading: 'The wall',
       paragraphs: [
-        'A state launches a tobacco-control policy. No single other state has the same pre-policy trajectory. Synthetic control creates a weighted donor state from several untreated states that together match the pre-policy trend. After the policy begins, the treated state falls below its synthetic counterfactual.',
-        'The analyst reports the donor weights, pre-treatment RMSPE, post-treatment gap path, and placebo ranks. A large post-gap with poor pre-fit would not be persuasive; a large post-gap with strong pre-fit and weak placebo gaps is more compelling.',
+        'The wall is pre-treatment mismatch. If the comparison unit was already higher, lower, faster-growing, or exposed to different shocks before treatment, the post-treatment gap mixes treatment effect with counterfactual error. A dramatic post-treatment gap is not persuasive if the comparison was already drifting away before treatment.',
+        'The wall also includes analyst freedom. If donors, predictors, pre-periods, exclusions, and reporting choices are adjusted after seeing the post-treatment outcome, the final estimate can become a story selected from many attempts. Synthetic control looks quantitative, but it still needs design discipline before the outcome period is inspected too aggressively.',
+        'The geometric version of the wall is support. If the treated unit lies outside what donor mixtures can reproduce, the optimizer cannot create a credible counterfactual by force. A low numerical error from a strange donor pool, a very short pre-period, or many tuned predictors may be overfit rather than evidence.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'The core insight',
       paragraphs: [
-        'Synthetic control does not prove causality by itself. It assumes the weighted donor trajectory is a credible counterfactual absent treatment. Spillovers, donor shocks, cherry-picked predictors, short pre-periods, and bad pre-fit all weaken the design.',
-        'The simplex weight constraint is a feature: it limits extrapolation. If the treated unit is outside the donor pool support, forcing a synthetic match can still fail. Report the donor pool and pre-fit, not just the final chart.',
+        'The core insight is that a convex mixture of untreated donors can be a better counterfactual than any single untreated donor. The weights are nonnegative and sum to one, so the synthetic unit stays inside the donor pool. That constraint matters because it limits extrapolation. The method is saying, "this treated unit looked like this weighted combination of real untreated units before treatment."',
+        'The donor-weight vector is the central data structure. It binds donor identity, weight, pre-treatment fit, predictor balance, and post-treatment comparison into one auditable object. A donor with weight zero is still part of the design because it was eligible and rejected by the fit. A donor with high weight deserves extra scrutiny because it carries much of the counterfactual.',
+        'The method changes the causal question from "which untreated unit should we trust?" to "can a transparent donor mixture reproduce the treated unit before treatment, and is the later gap unusual compared with the same construction on untreated units?"',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How the construction works',
       paragraphs: [
-        'Primary sources: Abadie, Diamond, and Hainmueller synthetic control paper at https://economics.mit.edu/sites/default/files/publications/Synthetic%20Control%20Methods.pdf and the NBER working paper at https://www.nber.org/system/files/working_papers/w12831/w12831.pdf. Study Difference-in-Differences, Propensity Score Overlap Diagnostics, Causal Graphs, Instrumental Variables, and Regression Discontinuity next.',
+        'Start by defining the treated unit, intervention date, outcome, and eligible donor pool. Donors should be untreated during the study window and should not be exposed to spillovers from the intervention. This step is design work, not optimization. A bad donor pool cannot be rescued by a clean weight vector.',
+        'Next choose pre-treatment outcome periods and predictors that should matter for the missing untreated path. The optimizer searches for donor weights that make the weighted donor history resemble the treated history before intervention. The exact optimization can vary, but the visible contract is stable: weights must be nonnegative, must sum to one, and should create a synthetic pre-period that tracks the treated unit closely.',
+        'After fitting, compute the post-treatment gap: treated outcome minus synthetic outcome at each post-treatment time. The gap is a path, not just one number. A temporary dip, delayed effect, level shift, or trend break tells a different story. Good reports show the whole path and the pre-period fit on the same scale.',
+        'Placebo tests rerun the same construction as if each donor had been treated. Donors with poor pre-treatment fit are usually interpreted cautiously or excluded from rank comparisons. The treated gap is more persuasive when it is large relative to placebo gaps among units that the method could fit well before treatment.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'The donor-weights view shows that the synthetic unit is a construction, not a found object. Nevada, Utah, Colorado, and Oregon do not become one real state. Their weighted outcome history becomes the comparison trajectory. The simplex constraint keeps that trajectory inside the donor evidence rather than letting the model invent negative donors or extreme extrapolation.',
+        'The pre-fit plot shows the credibility gate. Before treatment, the treated and synthetic lines should be close. After treatment, the vertical distance is the estimated effect path. If a visible gap already exists before treatment, the later gap loses force because the comparison was not earning trust.',
+        'The placebo view shows the second gate. A large treated gap matters only in context. If many untreated donors produce gaps as large as the treated unit under the same procedure, then the method is detecting volatility, donor shocks, or weak fit rather than a distinctive treatment effect.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The design works when pre-treatment similarity is evidence about the missing untreated path. If a weighted mixture of donors reproduces the treated unit across levels, trends, and important predictors before intervention, it is more plausible that the same mixture approximates the untreated path after intervention. The argument is not that matching guarantees truth. It is that the pre-period gives an observable test of the counterfactual model before the causal gap is read.',
+        'The convex-weight constraint is part of the credibility argument. Negative weights or weights that do not sum to one can sometimes improve numerical fit, but they make the comparison harder to defend because the synthetic path may rely on extrapolation outside the donor support. The classic formulation favors an interpretable weighted average of real untreated units.',
+        'Placebo inference works as a calibration check. It asks whether the treated unit looks unusual under the same procedure applied to units that should not have treatment effects. Placebos do not prove causality, but they expose whether the method tends to generate large gaps even when the treatment label is fake.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The computational cost is usually modest for the case-study settings where synthetic control is common. It grows with donor count, predictor count, and pre-treatment periods. The practical cost is design and sensitivity work. The analyst must justify donor eligibility, predictor choices, pre-period length, treatment timing, and exclusion rules.',
+        'The statistical cost is overfit. A short pre-period, too many predictors, or a large flexible donor pool can produce a clean-looking pre-fit that does not generalize. Pre-treatment RMSPE helps, but it is not enough. The time plot, donor weights, leave-one-out checks, and placebo distribution all matter.',
+        'When the donor pool doubles, the optimizer has more ways to match history. That can improve fit, but it can also increase design risk if many donors are weakly comparable. More donors are useful only when they are plausible untreated alternatives, not when they are added to search for a better-looking chart.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Spillover is the clearest failure. If the treated policy affects donors through migration, markets, media, supply chains, or neighboring behavior, the synthetic control is partly treated. The post-gap then understates or distorts the effect because the comparison path moved too.',
+        'Donor shocks are another failure. A donor that receives its own policy change, measurement change, recession shock, or reporting break can contaminate the weighted path. Placebo gaps and donor audits help detect this, but the safest defense is exclusion rules defined before fitting.',
+        'Bad pre-fit should not be explained away. If the synthetic path does not track the treated unit before treatment, the design has not earned the right to interpret the post-treatment gap. The answer may be that the treated unit has no credible donor support for this question.',
+        'Instrumentation failure is separate from causal failure. If the intervention changes measurement, reporting, sample composition, or data collection at the same time as the outcome, the gap may be a measurement artifact rather than a treatment effect.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'A good implementation stores the full design packet. Record donor eligibility rules, excluded units, intervention date, predictors, pre-period windows, outcome transformations, optimization settings, donor weights, pre-fit errors, post-gap values, placebo results, and sensitivity variants. The design should be replayable from raw data.',
+        'Treat donor weights as evidence that needs review. A high-weight donor should be checked for hidden exposure to treatment, data breaks, and idiosyncratic shocks. A synthetic unit dominated by one donor may be close to a single-control design; a synthetic unit spread across many donors may be harder to explain but less dependent on one place.',
+        'Pre-registering the broad design is valuable when stakes are high. At minimum, decide the donor pool, primary outcome, pre-period, and main diagnostics before treating the largest post-gap as the headline. The method is strongest when the conclusion survives reasonable perturbations rather than one hand-tuned specification.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A state launches a tax policy in 2010. No neighboring state is a convincing control by itself. The analyst builds a synthetic state from Nevada, Utah, Colorado, and Oregon using pre-2010 outcomes and predictors. Suppose the weights are 0.42, 0.31, 0.18, and 0.09. Those numbers are not decoration. They say exactly which untreated histories define the missing path.',
+        'If the weighted mixture tracks the treated state closely through 2009, the post-2010 treated-minus-synthetic gap becomes the effect path to inspect. If the treated line falls while the synthetic line continues along the old trend, the design suggests a negative effect. If the gap fades after two years, the effect may be temporary. If the gap starts before 2010, the design is weak.',
+        'Now run placebos. Pretend each donor was treated in 2010 and rebuild its synthetic control. If many donors show gaps as large as the treated state, the result is not distinctive. If the treated gap is much larger than placebo gaps among units with good pre-fit, the design has stronger support.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Abadie, Diamond, and Hainmueller synthetic control paper at https://economics.mit.edu/sites/default/files/publications/Synthetic%20Control%20Methods.pdf, the NBER working paper at https://www.nber.org/system/files/working_papers/w12831/w12831.pdf, and Abadie 2021 on feasibility and data requirements at https://conference.nber.org/confer/2021/SI2021/Abadie_2021.pdf.',
+        'Study Difference-in-Differences for parallel-trend comparisons, Propensity Score Overlap Diagnostics for support and comparability, Causal Graphs for design assumptions, Instrumental Variables for different identification logic, Regression Discontinuity for threshold designs, and Placebo Testing for falsification habits.',
       ],
     },
   ],

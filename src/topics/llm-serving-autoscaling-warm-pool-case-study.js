@@ -365,39 +365,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'LLM serving autoscaling is the control loop that turns demand signals into more or fewer model-serving replicas. A warm pool keeps some capacity close enough to ready that spikes do not wait for the full cold-start path.',
-        'The data-structure lesson is a delayed queue-control problem. The system keeps metric windows, scale-event ledgers, replica-state machines, warm-pool floors, readiness gates, and cost records. The key question is not simply how many replicas you want; it is when useful capacity will actually arrive.',
+        'LLM serving capacity is slow to appear. A user spike can arrive in a few seconds. A new GPU replica may need a node assignment, container image pull, model weight load, CUDA kernel warmup, health checks, routing registration, and enough initial traffic to make caches useful. The autoscaler can decide to scale in one control-loop tick, but users do not receive more tokens until the whole readiness path finishes.',
+        'That gap matters because LLM traffic is often deadline-bound. Chat users notice time to first token. Agents can miss tool deadlines. Enterprise tenants may send synchronized bursts at the start of a workday, demo, or batch of workflow steps. A policy that eventually reaches the right replica count can still fail the live SLO if the demand spike is over before new capacity becomes useful.',
+        'A warm pool is the practical answer when scale-to-zero is too slow but fully hot capacity is too expensive. It keeps some serving state close to ready. The pool may already have model weights loaded, runtime initialized, and GPU memory reserved, even if it is not handling much traffic. The team pays idle cost so the next burst pays only a short activation path instead of the entire cold-start path.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The naive autoscaler',
       paragraphs: [
-        'The autoscaler watches a metric window: ongoing requests, queue age, request class, time to first token, KV utilization, GPU memory, and deadline misses. It writes a scale-event record with desired replicas, ready replicas, placement result, image pull time, weight load time, readiness time, and impact on goodput.',
-        'Replica state is a small state machine: hot means serving traffic, warm means weights and runtime are ready but little traffic is assigned, cold means starting or loading, zero means no pod exists. A routing index has to know those states because a new cold replica can increase compute capacity while reducing cache locality.',
+        'The naive approach is threshold scaling. Watch CPU utilization, GPU utilization, request count, or queue depth. When the metric crosses a threshold, ask Kubernetes, Ray Serve, KServe, or another control plane for more replicas. During quiet periods, scale down, maybe all the way to zero. This is attractive because it is simple, cheap at rest, and easy to explain.',
+        'It works well for stateless web services with fast startup and small per-request state. If a container starts in two seconds and every request takes similar work, a target like requests per pod is often enough. The system may be a little late, but it catches up before users care.',
+        'LLM serving breaks those assumptions. Startup can be dominated by huge model weights and GPU placement. Request cost varies by prompt length, output length, batching compatibility, and cache reuse. Decode saturation can occur while CPU looks calm. GPU utilization can be high for a healthy batch or high because overloaded requests are queueing behind long generations. The metric has to describe user-facing pressure, not just machine activity.',
       ],
     },
     {
-      heading: 'Production anchors',
+      heading: 'The wall',
       paragraphs: [
-        'Ray Serve autoscaling uses ongoing requests per replica as the main target; its docs emphasize tuning `target_ongoing_requests`, `max_ongoing_requests`, `min_replicas`, `max_replicas`, upscale delay, downscale delay, and load testing against latency objectives: https://docs.ray.io/en/latest/serve/autoscaling-guide.html and https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html.',
-        'vLLM Production Stack documents KEDA autoscaling with Prometheus-based metrics as part of the Helm chart path: https://docs.vllm.ai/projects/production-stack/en/latest/use_cases/autoscaling-keda.html. KServe supports KEDA external metrics, including Prometheus queries over LLM metrics such as `vllm:num_requests_running`: https://kserve.github.io/website/docs/model-serving/predictive-inference/autoscaling/keda-autoscaler.',
-        'NVIDIA Dynamo frames autoscaling as part of a system-level distributed inference layer that also includes disaggregated serving, smart routing, KV cache management, Kubernetes-native deployment, and observability: https://docs.nvidia.com/dynamo/getting-started/introduction.',
+        'Autoscaling is delayed feedback. First the burst must affect a metric. Then the metric has to be scraped or pushed. Then the autoscaler evaluates policy. Then the scheduler finds a GPU. Then the serving process becomes ready. If the total path is 70 seconds and callers abandon after 20 seconds, the scale-out action mostly helps the next burst.',
+        'The wall is not only cold start. New replicas can be lower quality capacity at first. They have empty KV caches, empty prefix caches, cold kernels, and no established locality with repeated prompts. Sending a long repeated prompt to a newly created replica may waste prefill work that an existing hot replica could have avoided. Raw compute increased, but useful goodput did not increase by the same amount.',
+        'There is also a measurement wall. Generic resource metrics can hide the real bottleneck. Queue age, time to first token, inter-token latency, deadline misses, KV memory pressure, and admission outcomes are closer to what users experience. A serving autoscaler that cannot see those signals is steering through a fog.',
       ],
     },
     {
-      heading: 'Complete case study: launch spike',
+      heading: 'Core insight',
       paragraphs: [
-        'A team launches an enterprise copilot. At 9:00, short chat traffic triples, long repository-agent prompts appear, and batch summarization is still running. A CPU-based autoscaler sees little at first because GPU decode is the bottleneck. A request-count autoscaler fires, but the new pods wait for GPU placement, image pull, model load, and kernel warmup. During those minutes, the admission gate protects goodput: short chats fit through, batch work defers, very long prompts route to cache-local hot replicas, and requests with no viable deadline get fast 503s.',
-        'The fixed design uses a warm floor for business hours, a launch calendar prewarm, KEDA or Serve metrics based on running requests and queue age, a router aware of cold KV locality, and a scale-event ledger. The result is not perfect utilization. It is fewer missed deadlines, lower p99, fewer retries, and a clear bill for idle warm capacity versus wasted failed work.',
+        'The core data structure is a replica-state machine backed by a scale-event ledger. A hot replica is serving live traffic. A warm replica has expensive prerequisites paid, such as weights loaded and runtime initialized, but may be idle or lightly loaded. A cold replica is still being scheduled, pulled, loaded, or warmed. Zero means no serving process exists. These states must be explicit because each one has a different remaining time to usefulness.',
+        'The invariant is simple: desired capacity and ready capacity are different facts. The autoscaler may request four more replicas, but the router cannot spend those replicas until they pass readiness and can serve the right class of request. The scale ledger records both facts: what the policy wanted and what actually became usable.',
+        'Warm pools work because they move capacity leftward on the readiness timeline. They do not eliminate demand, and they do not make GPUs cheap. They prepay the slowest parts of the path so the control loop has a chance to satisfy a live deadline instead of writing a correct postmortem.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'The scale-event ledger',
       paragraphs: [
-        'Do not scale only on CPU for model serving. Do not set min replicas to zero for latency-sensitive traffic unless cold-start p99 is acceptable. Do not let new replicas take cache-local long prompts just because they are empty. Do not judge autoscaling by desired replicas; judge ready replicas, readiness lag, TTFT, p99, goodput, and cost per completed task.',
-        'Study LLM Serving Admission-Control Goodput Gate, SLO-Aware LLM Request Router, Chunked Prefill Token Budget Scheduler, KV Cache Tiered Offload Store Case Study, KV Cache Transfer Fabric Case Study, LLM Continuous Batching, Load Shedding & Graceful Degradation, Backpressure, Tail Latency & p99 Thinking, Ray Distributed Execution Case Study, Kubernetes Scheduler PriorityQueue & Preemption, Feature Flag Control Plane, Distributed Tracing, and LLM Unit Economics Ledger Case Study next.',
+        'A useful scale event is more than "scaled from 3 to 7." It should record the signal that fired, the metric window, the target replica count, the actual ready replica count, the requested GPU type, placement result, image pull time, model load time, readiness time, cache state, admission decisions, and the effect on TTFT, p99, goodput, and dropped work.',
+        'This ledger turns autoscaling from a black box into an auditable control loop. If a burst missed SLO, the team can distinguish "policy fired too late" from "quota blocked placement", "model load was slow", "readiness never passed", "router sent traffic to cold caches", or "admission let in work that could not finish." Each failure asks for a different fix.',
+        'The ledger is also how teams tune the warm floor. If three warm replicas cover the steep part of a morning burst until cold replicas arrive, the pool is doing its job. If six warm replicas sit idle all day while deadline misses remain unchanged, the bottleneck is somewhere else.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Start with the demand signal. For LLM serving, useful signals include ongoing requests per replica, queue age by priority class, time to first token, inter-token latency, KV cache utilization, GPU memory headroom, prefix-cache hit rate, and deadline misses. CPU can still be useful for host-side bottlenecks, but it should not be the only scale signal for a GPU decode path.',
+        'Next, translate demand into target states. The policy may say: keep two hot replicas per tenant, keep one warm spare per model shard, prewarm extra capacity before scheduled launches, and create cold replicas when queue age exceeds a bound. Warm capacity is controlled separately from maximum capacity. The warm pool protects the near future; the cold pool handles sustained growth.',
+        'Then route with state awareness. The router should know whether a replica is hot, warm, or cold, and whether it has useful locality for a request. For short prompts under burst pressure, an activated warm replica may be ideal. For a repeated long prompt, a busier hot replica with the right prefix cached may still win. Routing that ignores cache state can turn scale-out into extra prefill waste.',
+        'Finally, pair scaling with admission control. During the scale-out gap, the front door should admit work that can finish, defer lower-priority work, and reject or shed work that would miss its deadline anyway. Autoscaling without admission control often converts one overload into two failures: saturated current replicas and a backlog of requests that are already doomed.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is deadline math. Suppose a cold path takes 90 seconds: 10 seconds for metric delay, 20 for scheduling, 20 for image and runtime, 30 for model load, and 10 for readiness and routing. If the product deadline is 15 seconds, cold scale-out cannot save the current spike. A warm pool might reduce the remaining path to 5 or 10 seconds, which puts the response back inside the deadline.',
+        'The approach also works because it keeps the control loop honest. Observation is not decision. Decision is not readiness. Readiness is not goodput. The ledger records each boundary, so a team can measure where lag enters the path instead of guessing from a replica-count graph.',
+        'The model is intentionally conservative. A warm replica is not treated as free capacity until its state supports the request class being routed to it. That prevents a common mistake: counting containers that exist but cannot yet protect user latency.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Warm capacity is deliberately wasteful in the narrow accounting sense. A parked GPU is expensive. The justification is that missed interactive demand is also expensive: abandoned sessions, failed agent runs, retry storms, damaged tenant trust, and emergency overprovisioning after the fact. The right pool size is the point where idle cost is cheaper than the expected cost of missed deadlines.',
+        'Upscale and downscale delays are coupled. Fast upscale helps bursts but can thrash if metrics are noisy. Slow downscale preserves cache warmth and avoids repeated cold starts, but it extends idle cost. Scale-to-zero is excellent for infrequent batch or admin paths and dangerous for latency-sensitive chat unless the product explicitly accepts cold starts.',
+        'Tenant isolation is another tradeoff. A shared warm pool improves utilization, but one tenant can consume the warm buffer before another tenant spike arrives. Dedicated tenant pools protect contracts and predictable workloads, but they fragment expensive GPUs. Many platforms need both: shared base pools for efficiency and reserved warm floors for important tenants or models.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Warm-pool autoscaling wins for workloads with predictable burst shape: business-hour ramps, classroom starts, sales demos, enterprise tenant jobs, product launches, scheduled agent swarms, and recurring report generation. It also helps with failure recovery because a warm spare can absorb traffic when a hot replica crashes or is drained for rollout.',
+        'It is especially strong when combined with smart routing, prefix caching, chunked prefill, and observability. The autoscaler supplies near-ready capacity. The router sends requests where they will do the least redundant work. Admission control protects the gap. Tracing explains what happened when reality differs from the plan.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Warm pools fail when traffic is so unpredictable that the pool is always the wrong size. They also fail when the platform lacks quota or placement headroom; a policy cannot create GPUs that the cluster cannot schedule. If model images are too large, weight loading is unstable, or readiness checks are inaccurate, the warm state may be more imagined than real.',
+        'The pattern also fails when the team treats warm capacity as a substitute for overload policy. A sufficiently large spike can consume any warm pool. Without admission control, deadline-aware routing, and load shedding, the service still accepts work it cannot finish. Warm pools reduce the probability and duration of overload; they do not repeal capacity limits.',
+        'Finally, warm pools can hide quality regressions in operations. If cost pressure causes the team to shrink the floor without load tests, the product may degrade gradually. The antidote is a recurring scale audit that replays realistic bursts and compares demand, ready capacity, cost, and user impact.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study admission control next, because it protects the period before new capacity arrives. Then study SLO-aware request routing, prefix caching, chunked prefill, continuous batching, KV cache transfer, and disaggregated prefill/decode. Those topics explain why LLM capacity is not a single number.',
+        'For systems grounding, study backpressure, load shedding, tail latency, Kubernetes scheduling, distributed tracing, and write-ahead logs. The mental model is the same across these subjects: make state transitions explicit, record the evidence, and tune the control loop against user-facing outcomes rather than comforting internal counters.',
       ],
     },
   ],

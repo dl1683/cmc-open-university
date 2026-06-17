@@ -228,6 +228,35 @@ export const article = {
       ],
     },
     {
+      heading: 'Why it exists',
+      paragraphs: [
+        'The naive broad phase compares every pair of bounding boxes. Most pairs are separated on at least one axis, so exact overlap tests waste time proving obvious misses. The wall is that n^2 pairs appear before the narrow phase gets a chance to reject them.',
+        'Sweep and prune sorts interval endpoints on one axis and keeps an active set of intervals currently overlapping that sweep position. If two boxes do not overlap on the sweep axis, they cannot collide. The method is correct because full AABB overlap requires overlap on every axis; the sweep axis gives a necessary filter before checking the remaining axes.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that broad-phase collision detection should prove non-overlap as cheaply as possible. Projection turns a geometric question into an interval-order question: if two boxes are separated on one axis, no more geometry is needed for that pair.',
+        'The active set is the compact proof state. It contains only objects whose intervals have started but not ended on the swept axis. A new interval can only overlap objects currently in that set, so the algorithm avoids generating pairs with objects that are already known to be separated.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the sweep-axis view, read each endpoint as an event. A minimum endpoint means the object has entered the active interval set. A maximum endpoint means it has left. Candidate pairs are emitted only when a new interval begins while older intervals are still active.",
+        "In the physics-engine view, the highlighted pair is not a confirmed collision. It is a maybe-overlap that survived the cheap one-axis test and still needs the remaining axes and narrow-phase geometry. Sweep-and-prune is a promise to avoid obvious misses, not a promise to solve contact generation.",
+        "The active set is the proof state. If object A has already ended before object B begins on the swept axis, those two boxes cannot overlap in full space. If they overlap on the swept axis, the algorithm keeps the pair alive only long enough to test the remaining conditions.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine three boxes projected on the x-axis: A covers [1, 5], B covers [3, 7], and C covers [8, 10]. The sorted endpoint stream is A-min, B-min, A-max, B-max, C-min, C-max. When B-min appears, A is active, so A-B becomes a candidate. When C-min appears, the active set is empty, so C creates no candidate with A or B.',
+        'That example shows both the power and the limit. The algorithm rejects A-C and B-C without a two-dimensional box test because they are separated on x. It cannot confirm A-B from x alone; A and B might be separated on y. A robust broad phase treats A-B as a candidate, then intersects candidates across axes or checks the full AABB before narrow-phase shape work.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'For one axis, create two endpoints for every object: min and max. Sort the endpoints. Sweep from low to high. When a min endpoint appears, the object overlaps all currently active intervals on that axis, so those pairs become candidates. When a max endpoint appears, remove the object from the active set. In multiple dimensions, a real AABB candidate must overlap on all tested axes.',
@@ -242,10 +271,25 @@ export const article = {
       ],
     },
     {
+      heading: 'Why temporal coherence matters',
+      paragraphs: [
+        'Sweep-and-prune became popular in simulations because frames resemble the previous frame. Endpoint arrays are usually almost sorted after small object movements. Insertion sort is poor on random data but excellent on nearly sorted data, so the update can be close to linear in calm scenes.',
+        'The bad case is a chaotic scene where endpoints reorder heavily every frame, or a teleporting workload where temporal coherence disappears. Then the method falls back toward full sorting plus large candidate generation. Engines often combine it with sleeping objects, world partitioning, or axis selection to keep the common case stable.',
+      ],
+    },
+    {
+      heading: 'Engineering the pair cache',
+      paragraphs: [
+        'A real engine rarely treats candidate pairs as anonymous tuples thrown away every frame. It keeps pair identifiers so contacts can persist, warm-start solvers, and detect when two objects stop overlapping. The broad phase therefore feeds a pair manager: add newly discovered pairs, keep pairs that still overlap, and remove stale pairs when endpoint order proves separation.',
+        'This is where small details matter. Endpoint ties must follow the engine definition of touching. Static and sleeping objects can be skipped or updated less often. Fast movers may need swept AABBs so the broad phase covers the path between old and new positions. A good sweep-and-prune implementation is less about one elegant loop and more about preserving stable pair lifecycle under messy simulation updates.',
+      ],
+    },
+    {
       heading: 'Complete case study',
       paragraphs: [
         'A physics engine can run sweep-and-prune every simulation step. First it updates every shape AABB from the latest transforms. Then it updates sorted endpoint arrays, runs a sweep to generate maybe-overlapping pairs, deduplicates or intersects pairs across axes, and sends candidates to narrow-phase algorithms such as circle overlap, polygon SAT, GJK, or contact manifold generation.',
         'Unity documents broad-phase choices including Sweep and Prune, Multibox Pruning, and Automatic Box Pruning. The practical lesson is that large scenes often combine ideas: grid-like world partitioning can reduce the domain, while sweep-and-prune inside a region exploits local temporal coherence.',
+        'The decision is workload-shaped. A side-scrolling game with objects spread along x may get excellent rejection from one axis. A pile of crates stacked vertically may need y or z checks to avoid a huge active set. A world split into regions may run separate sweeps per region so distant objects never enter the same endpoint list.',
       ],
     },
     {
@@ -253,6 +297,7 @@ export const article = {
       paragraphs: [
         'The main misconception is that sorting endpoints guarantees few candidates. It only guarantees that disjoint intervals on a swept axis are rejected. If many objects overlap on that axis, or the chosen axis is poorly aligned with the scene, the active set becomes large and the broad phase floods the narrow phase.',
         'Another mistake is forgetting endpoint tie rules and pair lifecycle. Starts and ends at the same coordinate need deterministic ordering based on whether touching counts as overlap. Engines also need stable pair ids so contact creation, persistence, and removal do not flicker between frames.',
+        'A third mistake is treating one-axis SAP as enough in a three-dimensional world. One axis is a necessary condition, not sufficient. Use additional axis checks, pair caches, or full AABB tests before narrow-phase geometry. Otherwise the broad phase becomes a false-positive factory.',
       ],
     },
     {

@@ -212,39 +212,59 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'LZ77 is a dictionary-compression algorithm that does not ship a dictionary. The encoder and decoder build the dictionary implicitly from the already-seen byte stream. New bytes are emitted as literals. Repeated spans are emitted as length-distance pairs pointing backward into a sliding history window.',
-        'This makes LZ77 a natural companion to Sliding Window. The window is both the searchable history and the decoder contract: a back-reference can only copy from bytes that already exist in the reconstructed output.',
+        `LZ77 is a lossless compression idea for byte streams that repeat themselves. It does not try to understand words, objects, records, images, or source code. It sees only a sequence of symbols. When the next symbols have already appeared nearby, the encoder emits a reference to that earlier span instead of writing the same bytes again. A reference usually says two things: how far back to look and how many bytes to copy.`,
+        `The method is called sliding-window compression because the encoder keeps a bounded history of recent output and a lookahead region of upcoming input. The history acts like a dictionary, but it is not a dictionary file sent separately. It is just the bytes that both encoder and decoder already agree have been produced. That makes LZ77 simple to decode, useful in streaming formats, and flexible across many kinds of data.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and wall',
       paragraphs: [
-        'At each input position, the encoder searches the history window for the longest useful match against the lookahead buffer. If no match is worth coding, emit a literal. If a match is useful, emit a pair such as length 6, distance 3, meaning "copy six bytes from three bytes back." The decoder appends literals and performs the same copies from its own output buffer.',
-        'The reference can overlap the region being written. That is not a bug; it is essential. A token like length 5, distance 1 turns one literal a into a run of six a characters. The decoder copies one byte at a time and the newly written bytes become available for the rest of the copy.',
+        `A reasonable first compressor is a static dictionary. Count common phrases, assign short codes, and replace every occurrence with an identifier. That can work when the data domain is stable: known words in a language, known protocol fields, or known templates in logs. The wall is coordination. The decoder must have the same dictionary, the dictionary has to be transmitted or standardized, and the dictionary may be bad for the next file.`,
+        `Another obvious approach is run-length encoding: if a byte repeats many times, write the byte and the count. That catches runs like aaaaaa, but misses abcabcabc, repeated JSON keys, repeated HTML tags, repeated stack-trace prefixes, and repeated blocks in binaries. Real data often repeats as phrases, not single characters. LZ77 solves the broader problem by letting any recent substring become reusable vocabulary for later bytes.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Naive match finding can be expensive because every lookahead position might be compared with many earlier positions. Practical encoders use hash tables, hash chains, binary trees, suffix-array-like indexes, lazy matching, and compression levels to bound search. Decoding is usually much simpler and faster: read a token, append a literal or copy from a ring buffer.',
+        `The core insight is that the decompressor is building the same output stream the compressor has already seen. If the compressor says distance 3, length 6 after emitting abc, the decompressor can look three bytes back in its own output and copy abcabc. No external memory is needed because the output buffer is the dictionary. The reference is valid only because it points into already reconstructed bytes.`,
+        `This also explains the surprising power of overlapping copies. Suppose the output contains a single a and the next token says distance 1, length 5. The decoder copies from one byte behind the cursor. After it writes the second a, that new byte is also behind the cursor, so the copy can continue. One literal plus one back-reference can describe a long run. LZ77 compression is therefore not just phrase reuse; it is a controlled program for copying from history.`,
       ],
     },
     {
-      heading: 'Complete case studies',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'DEFLATE, used by gzip, ZIP, and PNG, combines LZ77 length-distance pairs with Huffman Coding. LZ4 optimizes for very fast decode and simple framing. Zstandard and Brotli use richer match modeling and stronger entropy coding. The shared lesson is that dictionary matching and entropy coding are separate layers: first replace repeated strings, then assign short bit patterns to common token values.',
+        `An encoder repeatedly chooses between a literal and a length-distance pair. At the current input position it searches the history window for prefixes that match the lookahead. If no useful match exists, it emits the next byte as a literal and advances one byte. If a match is worth its token cost, it emits the match length and distance, then advances by that length. The decoder follows the same stream deterministically: append literals, copy references, repeat.`,
+        `The simple description hides the main data-structure problem: match finding. A naive encoder could compare the lookahead against every position in the window. That is correct but too slow for large windows. Practical encoders use hash tables from short prefixes to recent positions, hash chains for older candidates with the same prefix, binary trees, rolling hashes, suffix-array-like indexes, or limited search budgets. The chosen structure controls the tradeoff between compression ratio and CPU time.`,
+        `Token design is part of the mechanism too. A format must say how literals, lengths, distances, blocks, end markers, and optional dictionaries are encoded. Short matches may be rejected because the length-distance token costs more than the literal bytes it replaces. Very long matches may be split because the format has a maximum length field. The compressor is constantly comparing savings against token overhead, not merely asking whether a repeated string exists.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works and what it costs',
       paragraphs: [
-        'LZ77 does not guarantee compression. Inputs with no repeated structure can grow after token overhead. Match length, window size, and match-search policy matter. Another misconception is that the decoder needs the original input dictionary. It only needs the previous decoded output and the same token stream. That is why LZ77 can stream with bounded memory.',
+        `Correctness rests on one invariant: every back-reference names bytes that the decoder has already produced or is producing through a legal overlapping copy. If the stream obeys that rule, decoding is unambiguous. A literal appends one byte. A reference copies exactly length bytes from exactly distance bytes behind the current cursor. Since the decoder performs the same appends the encoder assumed, both sides keep the same history after every token.`,
+        `Decoding is usually linear in the size of the output, with bounded memory for the sliding window plus output buffers chosen by the implementation. Encoding cost depends on match search. A fast LZ4-style encoder may inspect only a few candidates and favor speed. A slower high-ratio encoder may spend more time searching, try lazy matching, or choose a shorter current match because it unlocks a longer next match. Window size is also a cost knob: larger windows find older repeats but require larger distance codes and more memory.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it is useful',
       paragraphs: [
-        'Primary sources: Ziv and Lempel, "A Universal Algorithm for Sequential Data Compression", at https://courses.cs.duke.edu/spring03/cps296.5/papers/ziv_lempel_1977_universal_algorithm.pdf, and RFC 1951 DEFLATE at https://datatracker.ietf.org/doc/html/rfc1951. Study Sliding Window, Hash Table, Suffix Array & LCP, Huffman Coding, Arithmetic & ANS Coding, DEFLATE Case Study, and Tokenization (BPE) next.',
+        `LZ77 is useful when repetition is local. Text, source code, logs, markup, serialized objects, executable files, and many prefiltered media streams contain repeated substrings close enough to fit in a practical window. The method is also streaming-friendly. An encoder can process bytes from left to right, and a decoder can start reconstructing output before seeing the whole file, as long as references never point into the future.`,
+        `Many familiar compressors use this idea as one layer. DEFLATE combines LZ77-style length-distance tokens with Huffman coding. Zstandard, Brotli, and LZ4 use related match-token designs with different search strategies, entropy coders, dictionaries, and speed policies. The division of labor matters: LZ77 removes repeated strings, then an entropy coder gives shorter bit patterns to common literal, length, and distance values. Compression improves because structure is handled before probability coding.`,
+        `A practical compression pipeline often prepares data before LZ77 sees it. Image filters may turn neighboring pixels into small residuals. Columnar encoders may group similar values. Log systems may normalize timestamps or common prefixes. These steps do not replace LZ77; they make repetition easier for it to see inside the window. Good compression is usually a stack of transformations whose output is friendlier to the next stage.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `LZ77 cannot create repetition where none exists. Encrypted data, already-compressed data, cryptographic hashes, and random-looking bytes often expand because the stream pays token overhead without finding useful matches. The method is also limited by locality. If a phrase appears again after it has fallen out of the window, a plain LZ77 encoder cannot reference it. External dictionaries and larger windows help only when the format and memory budget allow them.`,
+        `There are engineering failure modes too. Aggressive search can burn CPU for tiny ratio gains. Weak search can miss obvious matches. Bad block boundaries can prevent references across useful spans. Decompression must defend against malformed references, output-size bombs, and distance-length combinations that are legal but expensive to copy. In production, useful signals include compression ratio, encode throughput, decode throughput, window memory, candidate probes per byte, and the share of bytes covered by back-references.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study sliding windows first, because the window is the memory model that makes the dictionary implicit. Then study hash tables and rolling hashes, because they explain how encoders find candidate matches without scanning the whole history. Suffix arrays and suffix automata show the high-ratio end of substring search, even when production compressors use cheaper approximations. Huffman coding, arithmetic coding, and ANS explain the second stage that turns LZ77 tokens into compact bits.`,
+        `Good primary references are Ziv and Lempel's 1977 paper "A Universal Algorithm for Sequential Data Compression" and RFC 1951 for DEFLATE. After that, compare LZ4, DEFLATE, Brotli, and Zstandard as design points. Ask which part each format optimizes: search depth, token layout, entropy model, dictionary support, decompression speed, or operating profile. That comparison turns LZ77 from a single algorithm into a family of compression systems.`,
       ],
     },
   ],

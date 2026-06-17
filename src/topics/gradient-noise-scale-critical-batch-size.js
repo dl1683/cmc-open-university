@@ -58,7 +58,7 @@ function* noiseMeter() {
   yield {
     state: signalGraph('A minibatch gradient has signal and noise'),
     highlight: { active: ['data', 'sample', 'mean', 'var', 'e-data-sample', 'e-sample-mean', 'e-sample-var'], found: ['gns', 'batch'] },
-    explanation: 'A minibatch gradient is an estimate. The mean points toward the full-data direction; the variance is sampling noise. Gradient noise scale asks how much variance there is relative to squared signal.',
+    explanation: 'The graph splits a minibatch gradient into useful direction and sampling scatter. Gradient noise scale asks whether the scatter is large compared with the squared signal, because that ratio predicts how much extra batch can still help.',
     invariant: 'Batch size controls the estimator, not just the hardware load.',
   };
 
@@ -80,7 +80,7 @@ function* noiseMeter() {
       ],
     }),
     highlight: { active: ['speed', 'eff', 'knee'], compare: ['small', 'waste'] },
-    explanation: 'Below the critical batch, larger batches usually improve wall-clock speed with limited loss in data efficiency. Past the knee, updates become expensive and less statistically useful.',
+    explanation: 'The two curves show why "bigger batch" has a knee. Below it, parallelism improves wall-clock time without wasting many examples. Beyond it, each update costs more data while adding little new statistical information.',
   };
 
   yield {
@@ -105,7 +105,7 @@ function* noiseMeter() {
       ],
     ),
     highlight: { active: ['near:benefit', 'near:risk'], compare: ['small:risk', 'huge:risk', 'accum:benefit'] },
-    explanation: 'The sweet spot is not minimum noise. It is enough averaging to exploit parallelism while keeping enough update diversity and enough updates per epoch to reach the target quality cheaply.',
+    explanation: 'The sweet spot is not the quietest possible gradient. It is the smallest batch that keeps hardware useful while leaving enough update diversity and enough updates per epoch to reach the target cheaply.',
   };
 
   yield {
@@ -125,7 +125,7 @@ function* noiseMeter() {
       ],
     }),
     highlight: { active: ['gns', 'batch'], found: ['late'] },
-    explanation: 'McCandlish et al. observed that noise scale can increase as training progresses. That supports adaptive batch schedules: start smaller when signal is strong, then grow the batch when larger batches are statistically useful.',
+    explanation: 'The rising curve means the useful batch size can change during training. Early on, signal is strong enough that small batches are efficient; later, larger batches can average noise without wasting as much learning opportunity.',
   };
 }
 
@@ -151,13 +151,13 @@ function* scalingDecision() {
       ],
     ),
     highlight: { active: ['mean:use', 'var:use'], found: ['small:measure', 'large:measure'] },
-    explanation: 'You do not need to mythologize batch size. Measure gradients at different batch sizes, estimate signal and variance, and treat the critical batch as an empirical quantity for this model and data regime.',
+    explanation: 'This table turns batch choice into measurement. Sample gradients at different sizes, estimate mean signal and variance, and treat the critical batch as a property of this model, data, optimizer, and training stage.',
   };
 
   yield {
     state: signalGraph('Two valid goals imply different batch choices'),
     highlight: { active: ['gns', 'batch', 'e-gns-batch'], compare: ['mean', 'var'] },
-    explanation: 'Compute-efficient training chooses smaller batches to use each example well. Time-efficient training chooses larger batches up to the knee to finish sooner. Confusing those goals creates bad benchmark claims.',
+    explanation: 'The same noise-scale estimate supports two honest goals. Compute-efficient training spends examples carefully with smaller batches; time-efficient training spends more examples per update to finish sooner. Benchmark claims need to say which goal they optimized.',
   };
 
   yield {
@@ -181,7 +181,7 @@ function* scalingDecision() {
       ],
     ),
     highlight: { active: ['goyal:control', 'mcc:lesson', 'mcc:control'], compare: ['keskar:lesson', 'smith:control'] },
-    explanation: 'The literature is not a single slogan. Large batches can work with warmup, small-batch noise can help, batch growth can substitute for LR decay, and gradient noise scale gives a measurement story.',
+    explanation: 'The source map prevents slogan learning. Large batches can work with warmup, small-batch noise can help generalization, batch growth can cool training like LR decay, and noise scale gives a way to measure the regime.',
   };
 
   yield {
@@ -201,7 +201,7 @@ function* scalingDecision() {
       ],
     }),
     highlight: { active: ['lr', 'batch', 'same'], found: ['cool'] },
-    explanation: 'Smith and Le framed learning-rate decay and batch-size increase as two ways to reduce training noise. That makes batch schedules part of optimizer design, not merely cluster plumbing.',
+    explanation: 'Both curves cool the stochasticity of training. Decaying the learning rate makes each update smaller; growing the batch makes each gradient less noisy. That is why batch schedules belong with optimizer design, not just cluster planning.',
   };
 }
 
@@ -215,44 +215,65 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Gradient noise scale is a way to reason about minibatch training quantitatively. A minibatch gradient has a signal component, the average direction you would get from much more data, and a noise component, the variation caused by sampling only part of the dataset. The gradient noise scale compares those pieces and predicts the largest batch size that is still statistically useful. McCandlish et al. present it as a simple statistic that predicts useful batch-size limits across supervised learning, reinforcement learning, and generative-model settings: https://arxiv.org/abs/1812.06162.',
-        'This topic extends Batch Size Scaling. Linear scaling and warmup explain how to make a large batch train stably. Gradient noise scale explains when making the batch larger is likely to stop paying for itself.',
+        `Batch size is one of the first knobs people touch when a training run gets expensive. A larger batch can keep more accelerators busy, reduce the number of all-reduce rounds per example, and make a job finish sooner in wall-clock time. It can also waste tokens, images, or environment steps if each optimizer update no longer learns much more than a smaller update would have learned. Gradient noise scale exists to separate those two stories.`,
+        `A minibatch gradient is an estimate of the full-batch gradient. Part of it is signal: the direction the whole dataset would push the parameters. Part of it is sampling noise: the wobble caused by looking at only some examples. The gradient noise scale compares the variance of that estimate with the squared size of the signal. McCandlish et al. used it to predict the largest useful batch size across supervised learning, reinforcement learning, and generative-model training: https://arxiv.org/abs/1812.06162.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive batch-size rule',
       paragraphs: [
-        'Small batches give noisy gradients. That can waste steps, but it can also act like a source of exploration and regularization. Large batches average away noise, expose parallel work, and make each optimizer step more expensive in data. The critical batch size is the knee where more examples per update mostly reduce noise that no longer limits progress.',
-        'In practical terms, a team can compare gradients at different batch sizes, estimate the ratio of gradient variance to squared gradient signal, and choose a batch near the useful knee. Below that knee, adding batch often improves wall-clock time with limited loss in data efficiency. Far above it, training may still use the hardware but consumes extra examples per useful update.',
+        `The obvious rule is to make the batch as large as the hardware allows, then raise the learning rate and add warmup until the run does not diverge. That rule is not foolish. If each device is underused, larger batches can improve throughput. If communication dominates, doing more local work per synchronization can help. If a team has a fixed deadline, time efficiency may matter more than example efficiency.`,
+        `The rule breaks because stability is not the same as usefulness. A huge batch can produce a very clean gradient and still be a bad bargain. The optimizer may take fewer, more expensive updates. Validation quality may arrive after processing more examples than a smaller-batch run needed. The cluster dashboard can look better while the training economics get worse.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The core tradeoff is compute efficiency versus time efficiency. Compute-efficient runs use smaller batches and more updates because every example contributes more statistical value. Time-efficient runs use larger batches and more devices to finish sooner. Neither is universally correct. The right choice depends on accelerator cost, launch deadline, target metric, and whether the training job is limited by communication, memory, input pipeline, or optimization.',
-        'Gradient accumulation deserves special care. Accumulation can create a large effective batch when memory is tight, but it does not automatically create wall-clock speedup. It changes the gradient statistics without adding parallel workers. That distinction matters when comparing one-GPU prototypes to distributed runs using GPU All-Reduce.',
+        `The useful question is not "how large can the batch be?" The useful question is "how much noise is still large enough to justify averaging more examples before taking an update?" When sampling noise is large compared with the true gradient signal, increasing the batch can improve the update. When noise is already small compared with the signal, more averaging mostly buys a prettier estimate of the same direction.`,
+        `That creates a knee. Below the knee, batch growth often improves wall-clock speed without burning too much data efficiency. Near the knee, the batch is large enough to expose parallelism but small enough to preserve many useful optimizer steps. Far beyond the knee, the run may still scale in examples per second, but each step consumes more data for little additional learning.`,
       ],
     },
     {
-      heading: 'Case-study connections',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'Goyal et al. showed that ImageNet training could scale to minibatches of 8192 with linear learning-rate scaling and warmup while preserving accuracy: https://arxiv.org/abs/1706.02677. Keskar et al. warned that large-batch methods can converge to sharper minima and worse generalization in some regimes: https://arxiv.org/abs/1609.04836. Smith and Le argued that increasing batch size can play a role similar to learning-rate decay by reducing SGD noise: https://arxiv.org/abs/1711.00489.',
-        'Taken together, the lesson is disciplined rather than ideological. Large batch is not always bad, small batch is not always virtuous, and throughput alone is not the metric. Measure the knee, preserve validation quality, and price the run by time to target quality.',
+        `In practice, a trainer estimates gradient statistics from measurements at different batch sizes. A small batch gives a noisy estimate. A larger batch reduces noise. By comparing gradient norms and variance, the training system can estimate how much of the update is stable signal and how much is sampling scatter. The critical batch is roughly the scale where extra examples stop reducing the error that matters.`,
+        `The estimate is not a universal constant. It depends on the model, dataset, optimizer, loss value, and training stage. McCandlish et al. reported that noise scale tends to increase as loss falls, which means the useful batch can grow during a run. That is why batch-size schedules can make sense. Early training may be efficient with smaller batches. Later training may benefit from larger batches because the signal is weaker and averaging noise is more valuable.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Do not treat the critical batch as a constant for a whole field. It depends on the model, dataset, optimizer, training stage, and loss value. McCandlish et al. report that noise scale can change over the course of training, which is why adaptive batch schedules are plausible. Also, sharp-minima arguments are useful diagnostics, not a universal proof that any large batch will generalize poorly.',
-        'Another trap is benchmarking only examples per second. A larger batch can improve throughput while increasing cost to reach the same validation score. For honest comparisons, report validation quality, number of optimizer updates, examples processed, hardware count, wall-clock time, and total cost.',
+        `The noise-meter view proves that batch size controls an estimator, not just a hardware load. The mean node is the useful push. The variance node is the sampling scatter. The GNS node exists because the ratio between those quantities is what decides whether another example in the batch is informative or mostly redundant.`,
+        `The scaling-decision view proves that two honest scoreboards can disagree. Time speedup can keep rising because devices stay busy. Data efficiency can fall because each update costs more examples. The critical batch marker is the bend where those curves stop telling the same story. The source map adds the historical lesson: large batches can work with warmup, small-batch noise can help generalization, and batch growth can cool training in a way that resembles learning-rate decay.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why the method works',
       paragraphs: [
-        'Primary sources: An Empirical Model of Large-Batch Training at https://arxiv.org/abs/1812.06162, ImageNet in 1 Hour at https://arxiv.org/abs/1706.02677, On Large-Batch Training and Sharp Minima at https://arxiv.org/abs/1609.04836, and Don\'t Decay the Learning Rate, Increase the Batch Size at https://arxiv.org/abs/1711.00489. Study Batch Size Scaling, Gradient Descent, Learning-Rate Schedules & Warmup, Loss Landscapes & Optimization Geometry, Regularization, Benchmark Variance & Model Selection, and GPU All-Reduce next.',
+        `The correctness argument is statistical rather than combinatorial. A minibatch gradient is an unbiased or approximately unbiased estimate of the gradient for the training objective under the sampling scheme. Averaging more independent examples reduces variance, but it does not change the expected direction. Once variance is small enough relative to the signal and learning-rate schedule, the next examples mostly refine an update the optimizer already knew how to take.`,
+        `This explains both the power and the limit. Gradient noise scale is useful because it measures the regime the run is in. It is not magic because the estimate can be noisy, the data may be correlated, the optimizer may use momentum or adaptive moments, and the validation target may care about generalization rather than only training loss. It should guide experiments, not replace them. Treat the number as a map of likely waste, then confirm the choice with real learning curves.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `The main tradeoff is compute efficiency versus time efficiency. Compute-efficient training spends examples carefully and accepts more optimizer updates. Time-efficient training spends more examples per update to finish sooner on a larger machine. A lab training a one-off frontier model, a startup paying cloud bills, and a researcher running ablations may choose different points even when the noise estimate is the same.`,
+        `Gradient accumulation needs separate accounting. Accumulation creates a larger effective batch when memory is tight, but it does not create the same wall-clock benefit as adding more parallel workers. It changes the gradient statistics without necessarily increasing device-level concurrency. Honest reports should include validation quality, optimizer updates, examples or tokens processed, hardware count, wall-clock time, and total cost to target quality.`,
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        `Gradient noise scale is useful when the training job is expensive enough that a small pilot measurement can prevent a much larger waste. It is especially helpful for distributed training plans, batch-size warmup, comparing compute-efficient and time-efficient settings, and explaining why a scaling run improved throughput but not cost to quality.`,
+        `It fails when treated as a slogan. The critical batch is not a field-wide number, and it is not guaranteed to transfer across architectures, data mixtures, optimizer settings, or training phases. Sharp-minima warnings are also diagnostics, not a proof that every large batch generalizes poorly. The safest stance is disciplined: measure the knee, preserve validation quality, and price the full path to the target metric.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: An Empirical Model of Large-Batch Training at https://arxiv.org/abs/1812.06162, ImageNet in 1 Hour at https://arxiv.org/abs/1706.02677, On Large-Batch Training and Sharp Minima at https://arxiv.org/abs/1609.04836, and Do not Decay the Learning Rate, Increase the Batch Size at https://arxiv.org/abs/1711.00489. In this curriculum, study Batch Size Scaling first, then Gradient Descent, Learning-Rate Schedules and Warmup, Natural Gradient and Fisher Information, Benchmark Variance and Model Selection, and GPU All-Reduce. The through-line is simple: optimization knobs are only useful when they are tied to the behavior they change.`,
       ],
     },
   ],

@@ -244,42 +244,85 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A liquid cooling rack thermal loop is the physical data structure that keeps dense AI racks inside safe temperature envelopes. It connects heat sources, cold plates, manifolds, coolant distribution units, facility water loops, heat rejection equipment, sensors, and derating policy.',
-        'The shift matters because AI racks are pushing densities where conventional air cooling becomes difficult or inefficient. NVIDIA GB200 and GB300 class rack systems document liquid-cooling and rack-level infrastructure as part of the system design, not an optional afterthought: https://docs.nvidia.com/dgx/dgxgb200-user-guide/hardware.html.',
+        'Dense AI racks turn heat into a scheduling constraint. The rack can have enough GPUs and enough power, but a job is still unsafe if the cooling path cannot carry the heat out under sustained load.',
+        'Air cooling becomes difficult when power density rises and heat must be removed from tightly packed accelerators. Liquid cooling moves heat through cold plates, manifolds, coolant distribution units, facility water, and heat rejection equipment. That loop is now part of the compute system.',
+        'A liquid-cooling thermal loop models that path explicitly: chips, cold plates, manifolds, CDU, facility water, heat rejection, sensors, and derating policy. NVIDIA GB200 rack documentation treats liquid cooling and rack-level infrastructure as part of the system design, not an optional add-on: https://docs.nvidia.com/dgx/dgxgb200-user-guide/hardware.html.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The easy answer is to certify the rack once and monitor average temperature. That feels reasonable because thermal design starts with envelopes, thresholds, and facility acceptance tests.',
+        'It breaks because AI load is bursty and local. Flow rate, pressure drop, inlet temperature, delta temperature, leak signals, pump state, and CDU margin can change faster than a quarterly facility model. Average temperature can hide the tray or loop that is about to lose margin.',
+        'Another shortcut is treating cooling as a facilities-only system. That misses the software consequence: thermal margin changes placement, quotas, job admission, and whether latency-sensitive serving should continue on a hot rack.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Store two things: a dependency graph and a telemetry ledger. The graph says which trays depend on which cold plates, manifolds, CDUs, facility loops, pumps, valves, and heat-rejection equipment. The ledger records the sensor evidence over time.',
+        'The invariant is heat conservation with guardrails. A tray can receive work only while its cooling path has enough flow, acceptable inlet temperature, safe pressure drop, leak-free state, CDU headroom, and facility-side rejection capacity. When any guard weakens, placement shifts from run to derate, drain, or maintenance.',
+        'The cooling loop is therefore a capacity graph, not just a monitoring chart. Heat generated at a GPU must travel through every edge. If any edge loses capacity, the safe compute capacity behind that edge drops too.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Direct-to-chip cooling pulls heat from GPU and CPU packages through cold plates. Rack manifolds distribute coolant to trays. A CDU exchanges heat between the technology cooling loop and the facility loop. Facility water or other rejection equipment then moves heat out of the datacenter.',
-        'The data structure stores a graph plus a telemetry ledger. The graph says which trays depend on which manifold, CDU, and facility loop. The ledger stores inlet temperature, outlet temperature, flow rate, pressure drop, heat load, leak signals, valve state, pump status, and safe operating envelope.',
+        'Direct-to-chip cooling starts at the heat source. Cold plates absorb heat from GPUs, CPUs, or accelerator modules. Coolant carries that heat through a rack manifold to a CDU, where heat is exchanged with a facility-side loop or other rejection path.',
+        'Sensors measure inlet temperature, outlet temperature, flow rate, pressure drop, leak detection, pump state, CDU state, and sometimes component-level thermal margin. Those values feed guardrails that decide whether the rack can run normally, derate, drain jobs, or require maintenance.',
+        'A scheduler can consume this information as conditional capacity. A rack with reduced thermal margin may still run low-priority batch jobs but should avoid synchronized training bursts or latency-critical decode traffic that would push it past the guardrail.',
+        'The operational loop closes when incidents update placement policy. If a rack repeatedly derates under one workload shape, that evidence should feed future quota, reservation, and placement decisions.',
       ],
     },
     {
-      heading: 'Standards and design constraints',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The Open Compute Project Advanced Cooling Solutions work publishes guidance for liquid-cooled datacenter environments and OAI-style rack cooling. Those documents are useful because they force thermal design into measurable envelopes instead of vague facility readiness claims: https://www.opencompute.org/documents/ocp-acs-dc-cooling-environment-2nd-edition-pdf and https://www.opencompute.org/documents/oai-system-liquid-cooling-guidelines-version-1-0-pdf.',
-        'NVIDIA also contributed DGX GB200 NVL72 design materials to OCP to accelerate standardization around high-density liquid-cooled AI racks: https://www.opencompute.org/blog/nvidia-contributes-dgx-gb200-nvl72-design-to-open-compute-project-to-accelerate-ai-infrastructure-innovation.',
+        'In the thermal-loop view, follow heat out of the compute tray. It moves from package to cold plate, manifold, CDU, facility loop, and heat rejection. The important lesson is that each edge is a capacity-limited dependency.',
+        'In the failure-guards view, each signal maps to an action. Low flow derates, high pressure drop creates a service ticket, leak detection drains or isolates, high inlet temperature reduces quota, and repeated thermal events change future placement scores.',
+        'The thermal-margin plot proves why load shape matters. A rack that is safe for steady work can have less margin for bursty synchronized workloads. The guardrail is dynamic, not a one-time certification.',
+        'The incident plot proves why early derating can be the safer product decision. Waiting for a hard shutdown turns a controllable event into sudden capacity loss.',
       ],
     },
     {
-      heading: 'Operational policy',
+      heading: 'Why it works',
       paragraphs: [
-        'The scheduler should consume thermal state. A rack with low thermal margin can be kept online for background work while avoiding latency-critical decode traffic, large synchronized training bursts, or jobs whose communication pattern heats one topology island. The clean abstraction is capacity with conditions, not binary up or down.',
-        'A good policy table maps signals to action: low flow derates, high pressure drop creates a service ticket, leak detection drains or isolates, high inlet temperature reduces quota, and repeated thermal events change future placement scores.',
+        'Liquid cooling works because it carries heat away more effectively than air across dense local heat sources. The coolant path can be engineered around high-power chips instead of relying only on air movement through a crowded rack.',
+        'The control layer works because thermal risk has observable precursors. Flow loss, rising delta temperature, abnormal pressure drop, leak signals, and CDU margin all change before a catastrophic shutdown. Good policy acts on those precursors.',
+        'The scheduler integration works because thermal state is just another capacity constraint. Like power, memory, and network topology, cooling margin decides which jobs can safely run where.',
+        'The graph model works because it localizes blast radius. A rack, manifold, or CDU issue does not have to become a cluster-wide mystery if the scheduler knows exactly which compute capacity depends on the affected cooling path.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'The first trap is treating cooling as a building problem that ends before software starts. For AI clusters, cooling state changes job placement, SLO, utilization, and capacity claims. The second trap is monitoring only average temperature; pressure, flow, delta temperature, leak signals, and transient burst behavior matter.',
-        'The third trap is separating incident evidence. Cooling incidents should update the same capacity and topology ledgers used by AI Datacenter Power Interconnection Queue and AI Rack Topology Power Thermal Ledger.',
+        'Liquid cooling adds plumbing, leak detection, service procedures, facility dependencies, sensor integration, and operational training. It can unlock denser compute, but it also creates new failure modes and maintenance workflows.',
+        'Derating protects equipment and SLOs, but it reduces available capacity. Draining a rack protects hardware, but it can move pressure to neighboring racks. Running through a warning preserves capacity briefly, but it risks a larger incident.',
+        'There is also a data tradeoff. Facilities telemetry must be exposed to compute schedulers without overloading operators with noise. The right abstraction is not every raw sensor; it is thermal capacity, guard state, confidence, and recommended action.',
+        'Maintenance windows become part of capacity planning. Filters, valves, pumps, CDUs, and quick-disconnect inspections all remove or reduce compute capacity, so the thermal ledger should feed reservation and failover plans before service work begins.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
+      paragraphs: [
+        'The scheduler should consume thermal state as conditional capacity. A rack with low thermal margin can keep running background work while avoiding latency-critical decode traffic, large synchronized training bursts, or jobs whose communication pattern heats one topology island.',
+        'The Open Compute Project Advanced Cooling Solutions work publishes guidance for liquid-cooled datacenter environments and OAI-style rack cooling: https://www.opencompute.org/documents/ocp-acs-dc-cooling-environment-2nd-edition-pdf and https://www.opencompute.org/documents/oai-system-liquid-cooling-guidelines-version-1-0-pdf. NVIDIA also contributed DGX GB200 NVL72 design materials to OCP: https://www.opencompute.org/blog/nvidia-contributes-dgx-gb200-nvl72-design-to-open-compute-project-to-accelerate-ai-infrastructure-innovation.',
+        'This pattern wins in AI training clusters, dense inference racks, high-performance computing, and any environment where thermal headroom changes faster than procurement or facility planning can respond.',
+        'It also wins for capacity planning. Thermal incident rows reveal which workload shapes, rack positions, and facility loops consume margin fastest, giving planners evidence for future rack layout and reservation policy.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The loop fails as an abstraction when cooling is treated as a building problem that ends before software starts. For AI clusters, cooling state changes placement, SLO, utilization, and capacity claims.',
+        'It also fails when incident evidence is separate from the capacity model. Cooling incidents should update the same ledgers used by AI Datacenter Power Interconnection Queue and AI Rack Topology Power Thermal Ledger, otherwise the scheduler keeps repeating the same bad placement.',
+        'Another failure is threshold-only thinking. A hard shutdown threshold is the last line of defense, not the control policy. Useful systems act on trend, flow, pressure, and margin before the rack reaches emergency state.',
+        'A final failure is hiding thermal derates from users of the cluster. Capacity that exists physically but cannot run a workload safely should not be sold as available capacity.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: NVIDIA DGX GB200 hardware guide at https://docs.nvidia.com/dgx/dgxgb200-user-guide/hardware.html, OCP Cooling Environments guidance at https://www.opencompute.org/documents/ocp-acs-dc-cooling-environment-2nd-edition-pdf, OCP OAI System Liquid Cooling Guidelines at https://www.opencompute.org/documents/oai-system-liquid-cooling-guidelines-version-1-0-pdf, and NVIDIA OCP contribution note at https://www.opencompute.org/blog/nvidia-contributes-dgx-gb200-nvl72-design-to-open-compute-project-to-accelerate-ai-infrastructure-innovation. Study AI Datacenter Power Interconnection Queue, NVLink/NVSwitch GPU Fabric, GPU Cloud Capacity Reservation Orderbook, and AIOps Incident Response next.',
       ],

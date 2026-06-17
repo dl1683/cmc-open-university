@@ -356,45 +356,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Long Tasks API exposes main-thread tasks that occupy the UI thread for 50 ms or more. A PerformanceObserver can subscribe to longtask entries and receive PerformanceLongTaskTiming records with start time, duration, name, and attribution details when available.',
-        'This is the measurement companion to The Event Loop, requestAnimationFrame Frame Budget, Browser Scheduler postTask Priority Queue, and requestIdleCallback Idle Deadline Queue. Those pages teach how to split and schedule work; this page teaches how to prove which work is still blocking users.',
+        `Users experience main-thread stalls as a page that ignores them. A click lands but the handler waits. A keypress queues behind rendering or script. A spinner freezes during the work that was supposed to make the interface feel responsive. The Long Tasks API exists because these stalls are easy to feel and hard to assign from aggregate metrics alone.`,
+        `A PerformanceObserver can subscribe to longtask entries and receive PerformanceLongTaskTiming records when an uninterrupted UI-thread task reaches the reporting threshold. The useful idea is not "find a bad function once." It is a measurement loop: collect field evidence, attach route and build context, route the work to an owner, change scheduling or architecture, and gate the release on user-visible metrics.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'A browser records a longtask performance entry when an uninterrupted main-thread task crosses the 50 ms threshold. PerformanceObserver reads those entries from the Performance Timeline, optionally with buffered entries so code can see records created before the observer was installed.',
-        'Attribution is intentionally privacy-aware and coarse. PerformanceLongTaskTiming.attribution returns TaskAttributionTiming records that can help distinguish same-window work, same-origin frames, or cross-origin descendants, but it is not a full JavaScript stack trace.',
+        `The naive approach is local profiling only. Open DevTools on a developer laptop, find one scary task, rewrite nearby code, and call the page faster. That can help, but it misses the shape of the real problem. Field devices differ. Routes differ. Third-party scripts differ. Iframes obscure ownership. Startup work and interaction work have different user impact.`,
+        `Another naive approach is treating 50 ms as the goal. The threshold is a diagnostic line, not a promise that everything below it is fine. A 45 ms task can still miss a frame on a busy page. Several smaller tasks can still create a delayed render. Long task entries are a strong signal, but they are not the whole responsiveness model.`,
       ],
     },
     {
-      heading: 'Data structures behind it',
+      heading: 'Where the naive approach breaks',
       paragraphs: [
-        'The practical data structure is an evidence packet: route, build id, entry type, start time, duration, attribution owner, nearby interaction, INP risk, and release channel. The observer callback should enqueue this packet and return; heavy analysis belongs off the critical path.',
-        'A second structure is the release gate. It compares long-task count, worst duration, field p75 metrics, INP, and Long Animation Frame evidence before and after a scheduling change. That keeps performance work from becoming a local demo that regresses real users.',
+        `Local traces break because responsiveness is a distribution. The worst task on one machine may not be the worst task on a low-end phone. A route with a small average delay may still have terrible p75 or p95 behavior. A task that happens during startup may annoy differently from a task that blocks a tap. Without field context, teams optimize the trace they can see rather than the experience users are having.`,
+        `The threshold-only model breaks because rendering has frame structure. A longtask entry reports a task that crosses the long-task threshold. It does not prove that every sub-threshold task was harmless, and it does not fully explain style, layout, paint, and script interactions inside a delayed frame. That is why Long Animation Frames and INP-style evidence can complement longtask data.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'A dashboard ships a new filter panel. Field traces show a 118 ms startup task, an 84 ms filter task after typing, a 62 ms DOM commit, and a 95 ms third-party tag task. The team assigns owners from attribution and route/build metadata.',
-        'The fix is split by cause: code-split startup, process filter rows with a cursor and postTask/yield, batch DOM reads and writes near rAF, sandbox/defer the third-party tag, and track longtask plus INP in canary. The feature ships only if the field gate stays green.',
+        `The core invariant is evidence first, heavy analysis later. The observer callback should record a small packet and return. A useful packet includes entry type, start time, duration, name or scope, available attribution, current route, build id, release channel, nearby interaction, and sampling metadata. Anything expensive should happen after the callback, off the hot path, or on the server.`,
+        `This turns performance work into an ownership problem. The browser entry says a long task happened. Product context says where it happened. Attribution may say whether the work came from the same window, a same-origin frame, or a cross-origin descendant. Interaction data says whether the task likely hurt responsiveness. Release data says whether the current build made it worse.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism and API shape',
       paragraphs: [
-        'Do not treat the 50 ms threshold as a target. A 45 ms task can still miss a frame, and several smaller tasks can still delay rendering enough to hurt INP. Chrome documents the Long Animation Frames API as a frame-centered signal that can catch cumulative UI delays not visible as one long task.',
-        'Do not make the observer callback expensive. Do not assume every browser exposes the same entry types or attribution detail. Do not turn attribution into blame without context; it is a routing hint that must be joined with code ownership, route, build, and field metrics.',
+        `The browser records longtask performance entries on the Performance Timeline. A PerformanceObserver watches selected entry types and receives entries through a callback. A production setup feature-detects supported entry types, observes longtask with buffered entries when available, batches reports, and keeps the callback small. The observer is instrumentation, not synchronous repair.`,
+        `PerformanceLongTaskTiming entries include timing fields such as start time and duration, and attribution records when the browser can expose them safely. The attribution array contains TaskAttributionTiming objects, but those records are intentionally privacy-aware and coarse. They are useful routing hints. They are not a complete JavaScript stack trace and should not be treated as courtroom evidence against a team or vendor.`,
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        `The observer-buffer view proves the data path. A task occupies the main thread, crosses the reporting threshold, becomes a performance entry, reaches the observer, and turns into a small evidence packet. The packet then flows to attribution, metrics, and a later fix. The visual is deliberately not a profiler flame chart. It is showing how a field signal becomes actionable without blocking the page again.`,
+        `The split-and-gate view proves that fixing responsiveness is not just deleting one bar. One 120 ms task can be split into chunks with gaps for input and paint, but the gate still checks whether long-task count, worst duration, field p75 metrics, INP, and long-animation-frame evidence improved or stayed safe. Cleaner code is not the acceptance criterion. Better user-visible behavior is.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: MDN PerformanceLongTaskTiming at https://developer.mozilla.org/en-US/docs/Web/API/PerformanceLongTaskTiming, MDN PerformanceObserver at https://developer.mozilla.org/en-US/docs/Web/API/PerformanceObserver, MDN PerformanceLongTaskTiming.attribution at https://developer.mozilla.org/en-US/docs/Web/API/PerformanceLongTaskTiming/attribution, the W3C Long Tasks API draft at https://www.w3.org/TR/longtasks-1/, web.dev Optimize Long Tasks at https://web.dev/articles/optimize-long-tasks, web.dev INP at https://web.dev/articles/inp, and Chrome Long Animation Frames at https://developer.chrome.com/docs/web-platform/long-animation-frames.',
-        'Study next: The Event Loop, Promise Microtask Queue, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, requestAnimationFrame Frame Budget, Browser Rendering, Tail Latency & p99 Thinking, Distributed Tracing, Web Workers: A Second Thread, and Backpressure & Flow Control.',
+        `The method works because it respects the event loop. JavaScript, style work, layout, paint preparation, and user input all compete for main-thread time. If a task monopolizes that thread, later work waits. A longtask entry does not need to know the entire application to be useful. It only needs to prove that the thread was occupied long enough to threaten responsiveness.`,
+        `The release gate works because it compares before and after behavior under field conditions. A scheduling change may reduce one long task while increasing total work, delaying frames, or hurting interaction latency. A good gate looks at route-level counts, worst durations, p75 field metrics, INP, Long Animation Frames, and rollback readiness. It also separates cause: startup parsing, framework commit work, forced layout, third-party tags, garbage collection, and CPU-heavy loops need different fixes.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `Instrumentation has overhead. The observer callback runs on the same main thread whose overload it is measuring, so it must avoid expensive aggregation, synchronous storage, large object creation, and heavy logging. Sampling, batching, beaconing, and server-side joins are part of the design. The more context you attach to every entry, the easier diagnosis becomes, but the more careful you must be about cost and privacy.`,
+        `Longtask data is also partial. Browser support and attribution detail vary. Cross-origin frames may expose only limited information. A longtask entry can tell you duration and broad scope, but it cannot replace a performance trace, source maps, code ownership, or a reproduction. Use it to prioritize and route investigation, then confirm the root cause with deeper tools.`,
+      ],
+    },
+    {
+      heading: 'Real use cases',
+      paragraphs: [
+        `Field instrumentation is the main use case. A dashboard ships a new filter panel. Reports show a 118 ms startup task on the dashboard route, an 84 ms task after typing, a 62 ms DOM commit, and a 95 ms task attributed to a third-party context. Those are not one problem. They are four work packets for four owners or tactics.`,
+        `The fixes should match the cause. Code-split startup so less JavaScript runs before interaction. Process filter rows with a cursor and yield between chunks. Batch DOM reads and writes near requestAnimationFrame. Move CPU-heavy work to a worker when transfer cost is worth it. Defer or sandbox a third-party tag. Ship through canary only if longtask and INP evidence stay safe.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first failure mode is blame without context. Attribution is a routing hint. It may point to a frame or scope, not the exact function or responsible team. A third-party task may be triggered by first-party code. A first-party task may be paying for data shape, hydration, layout, or garbage collection rather than one obvious loop. Treat the packet as the start of an investigation.`,
+        `The second failure mode is optimizing the threshold instead of responsiveness. Developers can split work into many sub-50 ms tasks and still starve input or paint if they do not leave useful gaps. Microtask chains can also delay rendering. Some work should be postponed, some chunked, some moved to workers, and some removed. The goal is not fewer red marks. The goal is a page that responds when users act.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study The Event Loop, Promise Microtask Queue, requestAnimationFrame Frame Budget, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, Browser Rendering, Web Workers, Tail Latency & p99 Thinking, Distributed Tracing, and Backpressure & Flow Control. Together they explain why measurement, scheduling, and ownership have to be designed as one system.`,
+        `Primary sources: MDN PerformanceLongTaskTiming at https://developer.mozilla.org/en-US/docs/Web/API/PerformanceLongTaskTiming, MDN PerformanceObserver at https://developer.mozilla.org/en-US/docs/Web/API/PerformanceObserver, MDN PerformanceLongTaskTiming.attribution at https://developer.mozilla.org/en-US/docs/Web/API/PerformanceLongTaskTiming/attribution, W3C Long Tasks API at https://www.w3.org/TR/longtasks-1/, web.dev Optimize Long Tasks at https://web.dev/articles/optimize-long-tasks, web.dev INP at https://web.dev/articles/inp, and Chrome Long Animation Frames at https://developer.chrome.com/docs/web-platform/long-animation-frames.`,
       ],
     },
   ],

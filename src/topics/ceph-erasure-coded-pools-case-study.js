@@ -265,37 +265,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'A Ceph erasure-coded pool stores objects by splitting them into k data chunks and m coding chunks. If some chunks are unavailable, the cluster can reconstruct the object from enough surviving chunks instead of keeping full replicas of every object.',
-        'Ceph documentation calls the original pieces data chunks and the parity pieces coding chunks. The storage goal is lower space overhead than replication while preserving durability under bounded failures.',
+        `Ceph stores data as objects spread across OSDs. The easiest durable design is replication: keep three full copies, place them on different failure domains, and read from any healthy copy. That design is valuable because it is simple. A write is a few full-object writes. A read does not need decoding. A repair copies a full object from a surviving replica to a replacement OSD.`,
+        `The price is raw capacity. Three-way replication spends roughly three bytes of disk for every logical byte before filesystem, compression, and operational overhead. For hot metadata, virtual machine images, and latency-sensitive small writes, that price can be justified. For cold logs, backup objects, media archives, and large analytical blobs, the space tax can dominate the cluster budget.`,
+        `Erasure-coded pools exist to move that tradeoff. Instead of storing whole copies, Ceph splits an object into k data chunks and computes m coding chunks. A 4+2 profile stores six chunks total and can reconstruct the object from any four suitable chunks. The pool may spend about 1.5x raw space instead of 3.0x, while accepting more CPU, more network traffic, heavier degraded reads, and a more demanding repair path.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive wall',
       paragraphs: [
-        'A pool has an erasure-code profile. The profile defines k, m, the coding plugin, and placement rule. Writes are encoded into chunks. CRUSH maps those chunks to OSDs according to the pool rule and failure-domain constraints.',
-        'On a degraded read, Ceph gathers enough surviving chunks and decodes the requested data. During recovery, it reconstructs missing chunks and backfills them to replacement OSDs. Until that repair completes, the pool has less failure budget left.',
+        `A naive attempt at saving space is to lower the replication factor. Two replicas are cheaper than three, but they narrow the failure budget sharply. A disk failure plus a second correlated fault during recovery can become a data-loss event. One copy is not a storage system; it is a wish with a checksum.`,
+        `Another naive attempt is to compress or deduplicate everything. Those techniques help when data has redundancy, but they do not replace a durability strategy. A compressed object still needs a failure model. A deduplicated chunk still needs placement and repair. Capacity optimization below the object layer cannot answer the question "how many independent failures can this placement group survive?"`,
+        `Erasure coding answers a different question: how can the cluster store enough independent information to recover the object without storing complete replicas? The wall it hits is that independence must be real, not just mathematical. If six chunks are placed across six OSDs under one rack, then a rack outage can remove all six at once. The code profile and the CRUSH rule must be designed together.`,
       ],
     },
     {
-      heading: 'Complete case study: cold log archive',
+      heading: 'The core insight',
       paragraphs: [
-        'A cluster stores a cold log archive in an EC 4+2 pool. Each stripe produces four data chunks and two coding chunks. CRUSH spreads those chunks across different hosts and racks. The archive uses less space than three full replicas, and batch reads can tolerate the decode cost.',
-        'One OSD fails. Reads involving chunks on that OSD enter degraded mode. The cluster reads four surviving chunks, decodes the missing chunk, serves clients, and backfills a replacement. Recovery traffic is throttled so foreground reads are not crushed by repair work.',
+        `Ceph combines erasure coding with deterministic placement. The erasure-code profile defines the coding contract: k data chunks, m coding chunks, the coding plugin, stripe behavior, and related parameters. CRUSH defines the placement contract: which OSDs should hold those chunks, and how the pool should spread them across hosts, racks, device classes, or other failure domains.`,
+        `The invariant has two halves. The coding half says that enough surviving chunks can reconstruct the original object. The placement half says that normal failures should not remove more chunks from a placement group than the code can tolerate. A 4+2 pool can tolerate two missing chunks only if the missing chunks are independent enough that real failures usually remove no more than two for the same object stripe.`,
+        `That is why k and m are not just capacity knobs. Larger k improves space efficiency but requires more chunks to read and repair. Larger m improves the missing-chunk budget but adds storage and write cost. A wider layout needs more healthy placement targets, more network fanout, and more careful topology. The right profile follows the workload and the fault model, not a generic best practice table.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Mechanism',
       paragraphs: [
-        'Erasure-coded pools save space, but they add CPU, network traffic, read-modify-write behavior, repair complexity, and tuning work. Small random writes are often a poor fit. Hot metadata and latency-sensitive data may still prefer replication.',
-        'The failure model is only as good as placement. A k+m profile does not help if multiple chunks land in the same real failure domain. CRUSH rules, OSD weights, host topology, and rack labels are part of the durability story.',
+        `On write, the client sends a logical object through RADOS. The object maps to a placement group. The acting OSD set applies the erasure-code profile, cuts the object into data chunks, computes coding chunks, and writes each chunk to the OSD selected by CRUSH. The client still sees one object. The cluster stores a stripe of related chunks with enough metadata to find, verify, and repair them later.`,
+        `On a healthy read, Ceph can often read the chunks needed for the requested range and return the logical bytes. On a degraded read, one or more chunks are unavailable. Ceph reads enough surviving chunks, decodes the missing data, and serves the request. The caller may not see an error, but the cluster has paid extra CPU and network cost, and the placement group is consuming its failure budget until recovery completes.`,
+        `Recovery is a distributed reconstruction job. Ceph chooses replacement OSDs using the current CRUSH map, reads surviving chunks, reconstructs missing chunks, writes the replacements, and marks the placement group clean only after the required chunk set is restored. Scrubbing and checksums matter because a silent corrupt chunk can be as dangerous as a missing one when the decoder needs that chunk during a later failure.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The coding part works because the coding chunks store independent equations over the data chunks. Reed-Solomon-style codes are the usual mental model: if enough independent chunks survive, the decoder can solve for the missing data. The cluster does not need to guess what was on the failed disk; it recomputes it from the surviving information.`,
+        `The placement part works because CRUSH makes the chunk location a function of cluster topology, pool rules, placement group, and current OSD state. That avoids a central lookup table for every object while still giving operators a way to express "do not put all chunks under one host" or "use this device class." Deterministic placement also lets clients and OSDs converge on the same map after topology changes.`,
+        `The abstraction works because object identity is separated from chunk identity. Applications do not manage D0, D1, C0, or C1. They read and write objects. Ceph manages striping, encoding, placement, peering, backfill, and degraded service beneath that API. The price of that abstraction is that operators must understand the hidden state well enough to tune and debug it.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Erasure-coded pools fit large, colder objects where capacity efficiency is more important than the simplest possible write path. Archive buckets, log retention, media libraries, backup repositories, and analytical object stores are common examples. These workloads often write in larger units, tolerate batch-oriented repair, and value a lower raw-capacity multiplier.`,
+        `They also fit clusters with enough physical spread to make the profile meaningful. A 4+2 pool is more convincing when the six chunks can be separated across real hosts or racks than when they are squeezed into a tiny cluster. The operator should be able to describe the intended failure: one host, two disks, one rack, one device class, or some combination. If that sentence is vague, the profile is probably not ready.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `The main tradeoff is space for work. Every encoded write performs coding. Many partial updates need read-modify-write behavior because the coding chunks must remain consistent with the data chunks. Degraded reads require more remote reads and decode work. Recovery reads survivors, reconstructs missing chunks, and writes replacements while foreground traffic still needs service.`,
+        `Small random writes are the classic danger zone. A replicated pool can update a small object or block by writing full copies. An erasure-coded pool may need to touch several chunks for the same logical change. Ceph has features that make overwrites possible for suitable clients and configurations, but the operator should still treat tiny hot overwrite workloads as suspicious until measured.`,
+        `The profile is also a long-lived contract. Moving an existing pool from one k/m layout to another is not a casual toggle because the stored chunks were created under the old layout. Operators often create a new pool, migrate data, and retire the old one when the layout decision changes. That makes initial profile selection important.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The obvious failure is losing more chunks than m for a placement group. The less obvious failure is losing independence. If CRUSH rules, host labels, rack labels, device classes, or OSD weights do not describe the physical world accurately, the pool can look redundant while several chunks share the same blast radius.`,
+        `Another failure mode is recovery overload. After an OSD loss, the cluster may be able to reconstruct every missing chunk, but the repair traffic can compete with client reads and writes. If recovery is too aggressive, users see latency spikes. If recovery is too slow, the cluster spends too long in degraded mode. The right throttle depends on service level, spare bandwidth, and the probability of a second failure.`,
+        `A third failure mode is treating erasure coding as a universal replacement for replication. Monitor metadata, hot indexes, tiny update-heavy objects, and latency-sensitive block workloads may be better served by replicated pools. Saving raw capacity is not a win if it forces constant degraded reads, long repair windows, or p99 latency that breaks the product.`,
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        `Watch degraded and misplaced placement groups, recovery bytes, backfill queue depth, OSD op latency, scrub errors, slow requests, and the distribution of chunks across failure domains. A healthy erasure-coded pool should not merely be "active+clean" most of the time; it should recover within the time budget assumed by the failure model.`,
+        `Capacity metrics need interpretation. Raw savings from 4+2 look attractive, but usable capacity also depends on nearfull ratios, backfill reserve, object size distribution, compression, and the need for replicated pools elsewhere in the same cluster. A cluster designed with no slack for recovery is fragile even if the erasure code is mathematically sound.`,
+        `Evaluation should include fault drills. Mark out an OSD, observe degraded read latency, measure repair bandwidth, and verify that CRUSH selects replacement locations in the expected domains. Then repeat for a host or rack scenario if that is part of the stated durability story. The important question is not "does EC work?" but "does this profile, on this topology, under this workload, recover within budget?"`,
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        `Suppose a company keeps twelve months of compressed request logs in Ceph. The logs are written once, read occasionally for investigations, and copied to a separate disaster-recovery region. Three-way replication would be easy but expensive. The operator creates a 4+2 erasure-coded pool with a CRUSH rule that spreads chunks across hosts and racks. Large object writes are batched, and the application does not require low-latency overwrites.`,
+        `During normal service, each object becomes four data chunks and two coding chunks. Reads are mostly healthy and sequential. When one OSD fails, placement groups containing chunks on that OSD become degraded. A read that needs a missing data chunk gathers four surviving chunks, decodes, and returns the requested bytes. Backfill reconstructs replacement chunks onto healthy OSDs selected by the current CRUSH map.`,
+        `The design is successful only if the measurements support it. If degraded reads stay within the investigation tooling budget, repair finishes quickly enough, scrub finds no recurring corruption, and failure drills show chunks spread across the intended domains, the pool is doing its job. If small overwrite latency dominates, recovery saturates the network, or topology labels are wrong, replication or a different profile is the better engineering choice.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Ceph erasure-code documentation at https://docs.ceph.com/en/reef/rados/operations/erasure-code/, Ceph erasure-code profile documentation at https://docs.ceph.com/en/reef/rados/operations/erasure-code-profile/, and CRUSH paper PDF at https://ceph.com/assets/pdfs/weil-crush-sc06.pdf. Study Reed-Solomon Erasure Coding, Ceph CRUSH Placement Case Study, S3 Object Storage Case Study, Backpressure & Flow Control, and Tail Latency & p99 Thinking next.',
+        `Primary sources: Ceph erasure-code documentation at https://docs.ceph.com/en/reef/rados/operations/erasure-code/, Ceph erasure-code profile documentation at https://docs.ceph.com/en/reef/rados/operations/erasure-code-profile/, and the CRUSH paper at https://ceph.com/assets/pdfs/weil-crush-sc06.pdf.`,
+        `Study Reed-Solomon Erasure Coding for the threshold math, Ceph CRUSH Placement Case Study for deterministic failure-domain placement, S3 Object Storage Case Study for object durability design, Backpressure and Flow Control for recovery throttling, and Tail Latency and p99 Thinking for degraded-read impact.`,
       ],
     },
   ],

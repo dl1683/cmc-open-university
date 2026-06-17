@@ -306,44 +306,120 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Problem',
       paragraphs: [
-        'Jump consistent hash is a compact placement algorithm from John Lamping and Eric Veach. Given a 64-bit key and a bucket count, it returns one bucket id in the range 0..N-1. It is consistent in the practical scale-out sense: when N grows to N + 1, only about 1 / (N + 1) of keys move, and the moved keys go to the new bucket.',
-        'That makes it a useful sibling to Consistent Hashing rather than a replacement for every ring. A ring stores token positions and finds the next clockwise owner. Rendezvous Hashing scores every candidate node and can naturally produce a top-k replica order. Maglev builds a table for packet-speed flow balancing. Jump does something narrower and very powerful: stable placement over dense, numbered buckets with essentially no placement metadata.',
+        'Distributed systems often need to place a key on one of N buckets: cache shards, table partitions, work queues, or logical tablets. The placement should be balanced, deterministic, and stable when capacity grows.',
+        'Modulo hashing gives deterministic balance with no metadata, but it is unstable under growth. Changing N changes most remainders. Jump consistent hash targets the narrower and very useful case where buckets are dense integers 0 through N - 1 and capacity is usually added by increasing N.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The wall',
       paragraphs: [
-        'The algorithm imagines each key moving through a pseudo-random sequence of bucket numbers. It starts at bucket 0, computes a jump to a larger bucket, then repeats until the next jump would be outside the current bucket count. The last in-range bucket is the owner. The sequence is deterministic because it is derived from the key, so every client with the same bucket count computes the same owner.',
-        'The animation uses photo:5 as a concrete key. With 9 buckets, its jump path is 0 -> 1 -> 4 -> 8, so bucket 8 owns the key. With only 8 buckets, the path stops at 4 because 8 is out of range. That exact behavior explains the low movement during growth: when bucket 8 appears, only keys whose next jump lands at 8 move.',
+        'A token ring gives stable movement by storing many virtual-node positions. Rendezvous hashing avoids a ring but scores every candidate node. Maglev precomputes a table for very fast packet lookup. Those are good tools, but each adds metadata, per-node scoring, or table rebuilds.',
+        'Jump asks a sharper question: if the only public input is a key and a bucket count, can a client compute a stable bucket without carrying a placement table? The answer is yes, as long as the system can preserve the dense logical-bucket abstraction.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core mechanism',
       paragraphs: [
-        'Jump uses constant placement memory. There is no ring array, no virtual-node table, and no per-node scoring loop. The original paper reports very small code and fast lookup, with average work that grows logarithmically with the bucket count. The memory win is especially attractive when many clients need to compute placement locally and shipping token metadata to all of them would be messy.',
-        'The main limitation is also simple: buckets must be numbered sequentially. If a server disappears from the middle of a fleet, bucket ids do not naturally close up without moving many keys. Real systems handle this by making buckets logical and mapping those bucket ids to physical servers through a separate control-plane table. Weighted capacity also needs extra design; a larger machine might receive more logical buckets, but that mapping is outside the core hash.',
+        'For each key, generate a deterministic increasing sequence of bucket numbers. Interpret each number as a bucket count threshold where that key would jump to a new owner. For a current bucket count N, the owner is the last generated bucket id that is still below N.',
+        'The published algorithm implements that idea with a small 64-bit recurrence. It keeps the current bucket b, computes the next jump j from the pseudo-random state, and stops when j >= N. No token ring, virtual-node table, or node list is needed on the lookup path.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Invariant and proof idea',
       paragraphs: [
-        'Imagine a sharded image-cache service with 8 logical buckets. Clients compute Jump(hash(image_id), 8), then consult a small bucket-to-server map. The team adds one cache node and creates bucket 8. During rollout, clients switch to bucket_count = 9 after the new bucket is ready. Roughly one ninth of image ids move to the new bucket; the rest continue hitting their old buckets, so cache churn is bounded and migration can be throttled.',
-        'This is cleaner than key mod N, where changing N tends to reshuffle nearly every key. It is operationally lighter than a token ring if the product already thinks in numbered partitions. The case study becomes stronger when linked to Sharding & Partitioning: Jump chooses the logical partition, while the storage or cache control plane decides where that partition lives today.',
+        'The invariant is monotonic ownership by bucket count: a key keeps the same owner while N lies between two consecutive jumps, and it changes owner only when N reaches the next jump. Therefore increasing N cannot reshuffle existing buckets among themselves.',
+        'For uniform 64-bit keys, the algorithm is designed so each bucket receives about the same fraction of keys and growth from N to N + 1 moves about 1 / (N + 1) of keys, all to the new bucket. That is the minimal-movement shape wanted from consistent hashing under pure bucket-count growth.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not use Jump as a blind replacement for Rendezvous Hashing. HRW is better when the candidate set is arbitrary, when nodes frequently leave, or when you need a deterministic top-k list for replicas and failover. Do not use it as a blind replacement for Maglev either. Maglev spends memory on a lookup table because packet balancing wants a tiny hot path and graceful backend churn.',
-        'The other trap is confusing the hash function with the distributed system. Jump does not detect failed nodes, agree on membership, warm a cache, drain traffic, throttle migration, or prevent stale clients from routing with the wrong bucket count. Those responsibilities belong to the same operational layer you study in Load Balancer, Circuit Breakers & Deadlines, Gossip Protocol, and Distributed Tracing.',
+        'The animation uses the key photo:5. With 5, 6, or 8 buckets, its jump path is 0 -> 1 -> 4, so bucket 4 owns the key. With 9 buckets, the next jump, 8, becomes valid, so ownership moves to bucket 8.',
+        'That example shows the whole contract. Adding bucket 8 does not cause photo:5 to choose a different old bucket. It either keeps bucket 4 or moves to the newly valid bucket 8.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Animation guide',
       paragraphs: [
-        'Primary source: Lamping and Veach, "A Fast, Minimal Memory, Consistent Hash Algorithm" at https://arxiv.org/abs/1406.2294 and the PDF at https://arxiv.org/pdf/1406.2294. For the older ring family, see Karger et al. at https://dl.acm.org/doi/10.1145/258533.258660 and the Dynamo paper at https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf. Study Consistent Hashing for token rings, Rendezvous Hashing (HRW) for node scoring and top-k placement, Maglev Load Balancer Case Study for table-based packet routing, Sharding & Partitioning for logical bucket ownership, and Hash Table for the underlying deterministic-key idea.',
+        'In the bucket-jumps view, follow the last valid node, not the first node after the key. The past-N node is the stopping proof: once the next jump is outside the current count, the previous bucket is final.',
+        'In the add-one-bucket view, read the movement column as an operations bill. Only rows marked move require migration or cache refill. In the tradeoff-map view, compare Jump against ring hashing, HRW, and Maglev by metadata and membership assumptions, not by a vague idea of "consistent hashing".',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Lookup uses constant placement memory and a short loop whose average work grows logarithmically with the bucket count. The implementation still needs careful 64-bit arithmetic; JavaScript versions should use BigInt or a tested 64-bit helper instead of normal Number multiplication.',
+        'The operational cost is outside the hash function. A real system still needs a source of truth for N, a bucket-to-server map, migration state, health checks, cache warming, and a stale-client plan.',
+      ],
+    },
+    {
+      heading: 'Tradeoffs',
+      paragraphs: [
+        'Compared with modulo hashing, Jump keeps the no-metadata lookup shape but avoids mass reshuffling on growth. Compared with ring hashing, it removes token management. Compared with HRW, it avoids scoring every node. Compared with Maglev, it avoids a precomputed lookup table.',
+        'The trade is flexibility. Jump is cleanest for logical buckets, not arbitrary physical membership. It handles adding one bucket naturally, but removals, weights, heterogeneous capacity, and replica ordering need another layer or another algorithm.',
+      ],
+    },
+    {
+      heading: 'Useful contexts',
+      paragraphs: [
+        'Jump fits cache buckets, partition ids, worker slots, tenant shards, feature-store partitions, and storage systems where clients can compute a logical bucket locally before consulting a small control-plane map.',
+        'A common pattern is controlled scale-out: create bucket N, prepare capacity for it, publish N + 1 to clients, then migrate only the keys that now jump to the new bucket.',
+      ],
+    },
+    {
+      heading: 'Limits',
+      paragraphs: [
+        'Do not use Jump alone when physical nodes appear and disappear by arbitrary ids, when replicas need a ranked top-k list, when buckets have unequal weights, or when a middle bucket must be removed without a logical indirection table.',
+        'Also do not confuse minimal movement with complete operational safety. If clients disagree about N or about the bucket-to-server map, the deterministic hash will deterministically send traffic to different places.',
+      ],
+    },
+    {
+      heading: 'Why modulo fails',
+      paragraphs: [
+        'Modulo hashing looks like the perfect baseline: hash the key, take hash mod N, and use the result as the bucket id. It is fast, balanced for good hashes, and stores no placement metadata. Its failure appears when N changes.',
+        'When a system grows from 8 to 9 buckets, the remainder for most keys changes because the divisor changed. The key is not moving only into the new bucket. It is being reassigned across old buckets as well. For caches, that means avoidable cold misses. For storage, it means a migration storm.',
+        'Consistent hashing is the family of techniques that tries to preserve most assignments as membership changes. Jump is the unusually small member of that family for the case where membership can be represented as a dense bucket count.',
+      ],
+    },
+    {
+      heading: 'Implementation details',
+      paragraphs: [
+        'The published Jump algorithm depends on 64-bit unsigned arithmetic. In JavaScript, ordinary Number multiplication cannot represent every 64-bit integer exactly. Use BigInt, a tested unsigned 64-bit helper, or a library implementation that has known cross-language test vectors.',
+        'Every client must use the same hash-to-64-bit function, byte encoding, bucket count, and integer arithmetic. A signed overflow difference between languages is enough to split traffic. This matters when one service is written in Go, another in JavaScript, and another in Rust.',
+        'The bucket ids are logical ids. A production system usually keeps a separate bucket-to-server table. Jump chooses B17; the control plane decides which machine currently owns B17, whether B17 is migrating, and what to do if that owner is unhealthy.',
+      ],
+    },
+    {
+      heading: 'Adding capacity',
+      paragraphs: [
+        'The clean growth path is deliberate. Create the new logical bucket, prepare its physical capacity, publish the new bucket count, and migrate only keys that now map to the new bucket. The hash function gives the target set, but the control plane still schedules the work.',
+        'For a cache, migration may be lazy. Keys that jump to the new bucket miss and refill. For durable storage, migration needs ownership state, copy progress, read repair, write routing, and a moment when the new bucket becomes authoritative.',
+        'Minimal movement is valuable because it bounds the blast radius of a scale-out event. It does not remove the need for backpressure, throttling, observability, or rollback when the new capacity is slower than expected.',
+      ],
+    },
+    {
+      heading: 'Removals and weights',
+      paragraphs: [
+        'Jump is most natural when buckets are added at the end. Removing bucket N - 1 can be modeled by decreasing the count, but removing bucket 3 from a 100-bucket system is not clean unless a logical indirection layer absorbs the change.',
+        'Unequal capacity is also outside the basic algorithm. If one server is twice as large as another, you can represent that with more logical buckets assigned to the larger server, but then the bucket map becomes part of the design. At that point Jump is still useful, but it is no longer the whole placement system.',
+        'Replica placement is another separate requirement. Jump returns one bucket. If the application needs a ranked list of independent owners, Rendezvous Hashing or another top-k placement method may be a better match.',
+      ],
+    },
+    {
+      heading: 'Testing the contract',
+      paragraphs: [
+        'Test determinism first. Fixed keys and bucket counts should produce fixed owners across every implementation language. Include edge cases such as bucket count 1, large bucket counts, empty keys, Unicode input after encoding, and maximum 64-bit hash values.',
+        'Test movement second. When growing from N to N + 1, keys should either stay where they are or move to the new bucket N. They should not move from one old bucket to another. A sampled movement rate close to 1 / (N + 1) is a useful sanity check.',
+        'Test operational disagreement too. Simulate clients with stale N and stale bucket maps. The hash function cannot protect you from split-brain metadata, so the system needs a rollout plan that tolerates mixed versions during deployment.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary source: Lamping and Veach, "A Fast, Minimal Memory, Consistent Hash Algorithm" at https://arxiv.org/abs/1406.2294 and https://arxiv.org/pdf/1406.2294. For the older ring family, see Karger et al. at https://dl.acm.org/doi/10.1145/258533.258660 and Dynamo at https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf.',
+        'Study Consistent Hashing for token rings, Rendezvous Hashing for node scoring and top-k placement, Maglev Load Balancer Case Study for table-based packet routing, Sharding and Partitioning for logical ownership, and Hash Table for deterministic key placement.',
       ],
     },
   ],

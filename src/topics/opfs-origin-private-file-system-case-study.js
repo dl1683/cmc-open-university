@@ -324,45 +324,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'The Origin Private File System, or OPFS, is a private file-system endpoint for a web origin. Code gets the root with navigator.storage.getDirectory(), then creates directory and file handles below it. Unlike a user-picked local folder, OPFS is not directly visible to the user; it is app-private browser storage.',
-        'MDN describes OPFS as optimized for performance and in-place write access: https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system. web.dev frames it as an origin-specific virtual filesystem for apps that need file-like storage: https://web.dev/articles/origin-private-file-system.',
+        `Some browser apps need files, not just records. An IDE wants project folders and build caches. A CAD tool wants large binary project files. A media editor wants chunks and temporary renders. A Wasm database wants pages, a journal, and byte-range writes. IndexedDB can store blobs and structured records, but it is awkward when the application wants to manage offsets, free space, and append logs directly.`,
+        `The Origin Private File System, or OPFS, exists for that file-shaped workload. It gives each origin a private virtual file tree managed by the browser. The user does not pick a visible folder, and other origins cannot browse the files. The app gets a root directory handle from navigator.storage.getDirectory(), creates child directories and files, and uses OPFS as fast app-private working storage.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious approach`,
       paragraphs: [
-        'The asynchronous File System API gives directory and file handles. For OPFS files, createSyncAccessHandle returns a FileSystemSyncAccessHandle in a dedicated Web Worker. That handle supports offset-based reads and writes, truncation, flush, and close, letting a worker treat a file as a byte-addressed store.',
-        'The worker restriction matters. Synchronous I/O on the main thread would block rendering and input. A good architecture sends small messages from the page to a dedicated storage worker; the worker owns handle lifetime, byte-range operations, flush boundaries, and close.',
+        `The tempting first version is one giant JSON object in IndexedDB. That works for a prototype and fails as the file grows. Every save becomes a deserialize, edit, serialize, and write cycle. A small page change can rewrite megabytes. Crash recovery becomes unclear because the app has no clean commit boundary. The same problem appears when a tool stores a whole project as one blob and repeatedly replaces it.`,
+        `Another tempting version is to use OPFS as if it were a user-visible backup folder. That is wrong in the other direction. OPFS is origin-private browser storage, not a document directory. The browser manages quota. Users or site-data policies can remove it. Critical user work still needs sync, export, or an explicit save path through a user-facing file picker.`,
       ],
     },
     {
-      heading: 'Data structures behind it',
+      heading: `Core model`,
       paragraphs: [
-        'OPFS is not a record database. It is closer to a private file tree plus byte arrays. That makes it a natural home for embedded SQLite or Wasm databases, browser IDE project stores, media chunk caches, append logs, page files, B-tree pages, free-space bitmaps, and write-ahead logs.',
-        'The contrast with IndexedDB Object Store Case Study is useful. IndexedDB gives ordered records, indexes, transactions, and cursors. OPFS gives byte placement and file layout. Cache Storage gives Request to Response maps. A serious browser app often uses all three for different storage shapes.',
+        `The core model is a private directory tree plus byte-addressed files. Directory handles contain child directories and file handles. File handles point at byte content. The asynchronous File System API can create, remove, and traverse the tree. For OPFS files, createSyncAccessHandle can open a FileSystemSyncAccessHandle in a dedicated worker, giving synchronous reads and writes by offset.`,
+        `That worker-only sync handle is the central design choice. Synchronous I/O is convenient for embedded databases and storage engines, but blocking the browser's main thread would freeze the UI. OPFS pushes that style of I/O into a dedicated worker, where a storage loop can own handle lifetimes, serialize operations, and answer page requests from the UI by message.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: `Byte layout`,
       paragraphs: [
-        'A browser CAD app stores a project in OPFS. The project directory contains manifest.json, model.bin, assets/, and a journal file. The page edits the scene graph in memory. A dedicated worker receives edit batches, appends them to the journal, writes dirty binary pages to model.bin by offset, flushes at commit boundaries, and closes handles on project unload.',
-        'The same pattern works for a browser IDE or Wasm SQLite database. The page owns UI and commands. The worker owns file handles and I/O serialization. IndexedDB stores searchable project metadata. Cache Storage stores offline shell assets. File picker export gives the user a visible backup outside origin-private storage.',
+        `Once an app owns offsets, browser storage starts to look like classic systems programming. Byte zero can hold a file header. The next region can hold fixed-size pages. A write-ahead log can append commit records. A free-space map can track reusable holes. A search index can store segment files. A media editor can store chunks without rewriting an entire project for a small edit.`,
+        `This does not mean every app should invent a storage engine. It means OPFS can host storage engines that already think in pages and logs, including Wasm ports of databases. The important invariant is offset plus length. A read or write should name a byte range, and the storage layer should know what structure lives there.`,
       ],
     },
     {
-      heading: 'Cost, quota, and risk',
+      heading: `What the visual proves`,
       paragraphs: [
-        'OPFS still counts against browser-managed origin storage. Browser Storage Quota & Eviction Manager covers the shared quota ledger in more detail. Apps should call navigator.storage.estimate(), compact or vacuum file layouts, request persistent storage when justified, and handle quota failures. User settings, Clear-Site-Data, browser eviction, private browsing modes, and profile resets can remove the data.',
-        'Fast local I/O is also a privacy surface. The 2026 FROST paper showed that OPFS timing can be used for remote SSD-contention side-channel measurements from JavaScript: https://hannesweissteiner.com/pdfs/frost.pdf. That does not mean every OPFS app is malicious, but it means storage-heavy designs deserve abuse review, rate limits, and awareness of browser mitigations.',
+        `The handle-tree visual proves the security boundary. The origin gets a private root. Directory and file handles live below that root. The nodes do not represent a user browsing local disk; they represent browser-managed storage scoped to a site. That distinction matters for permissions, backup, privacy, and user expectations.`,
+        `The sync-access visual proves the concurrency boundary. The page talks to a worker, and the worker owns the handle. Reads and writes name offsets, flush marks a persistence boundary, and close releases exclusive state. The quota-and-risk visual adds the operational boundary: storage is private, but not infinite; fast, but not automatically durable; local, but still relevant to privacy analysis.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Worker ownership`,
       paragraphs: [
-        'Primary sources: MDN OPFS at https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system, MDN File System API at https://developer.mozilla.org/en-US/docs/Web/API/File_System_API, MDN createSyncAccessHandle at https://developer.mozilla.org/en-US/docs/Web/API/FileSystemFileHandle/createSyncAccessHandle, MDN FileSystemSyncAccessHandle at https://developer.mozilla.org/en-US/docs/Web/API/FileSystemSyncAccessHandle, the File System Standard at https://fs.spec.whatwg.org/, web.dev OPFS at https://web.dev/articles/origin-private-file-system, and WebKit OPFS notes at https://webkit.org/blog/12257/the-file-system-access-api-with-origin-private-file-system/.',
-        'Study next: IndexedDB Object Store Case Study, Cache Storage Versioned Precache, Browser Storage Quota & Eviction Manager, Web Workers: A Second Thread, Structured Clone & Transferables, WebAssembly Linear Memory Case Study, SQLite B-Tree & Pager, Write-Ahead Log, fsync Rename Crash Consistency, File Descriptor Table & Open File Description, Linux Page Cache XArray, Browser Scheduler postTask Priority Queue, PerformanceObserver Long Task Attribution, and Data Leakage.',
+        `A clean architecture treats the worker as a storage service. The page sends commands such as open project, read page, append operation, commit, compact, export, and close. The worker keeps the sync handle private, validates offsets and sizes, serializes writes, and reports errors in a small protocol. UI components should not hold handles or write arbitrary ranges.`,
+        `This worker ownership also makes testing easier. The storage protocol can simulate quota errors, torn writes, crash points, and unsupported APIs. The page can stay responsive while a compaction job runs. If the worker crashes, the app has one place to reopen handles and replay a journal instead of many components with half-owned file state.`,
+      ],
+    },
+    {
+      heading: `Durability and recovery`,
+      paragraphs: [
+        `OPFS exposes flush and close, but the app still needs a recovery protocol. A database-like workload should write intent before data when it needs crash recovery, flush at commit boundaries, and replay or roll back on startup. A project-file workload may write a new version and then update a manifest. A cache can be more relaxed because it can refetch missing data.`,
+        `The right durability promise depends on the product. Temporary render files can be disposable. A user's only copy of a project cannot be. For important data, OPFS should be paired with export, sync, or a visible file save. The browser storage stack is a useful local substrate, not a substitute for a product-level backup story.`,
+      ],
+    },
+    {
+      heading: `Quota and lifecycle`,
+      paragraphs: [
+        `OPFS lives inside browser storage management. Serious apps should call navigator.storage.estimate(), keep their own usage index, compact or vacuum deleted ranges, and handle quota failures as normal events. Requesting persistent storage can reduce eviction risk in browsers that support it, but it is not a magic backup guarantee.`,
+        `Lifecycle matters too. Users can clear site data. Enterprise policies can wipe browser profiles. Private browsing modes may have different persistence behavior. A good app exposes storage status, export controls, and clear failure messages. It should never let users believe origin-private working storage is the same thing as a synced account or a file saved in their documents folder.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `OPFS wins for browser IDEs, CAD tools, media editors, embedded SQLite, local search indexes, package caches, large project files, and Wasm runtimes that need byte-range I/O. A good offline app may use OPFS for file-shaped state, IndexedDB for searchable metadata, Cache Storage for HTTP-style assets, and a file picker or cloud sync path for user-owned exports.`,
+        `It is less useful when the data is naturally relational or document-shaped and the app needs indexes, queries, and transactions more than byte offsets. In those cases IndexedDB may be the primary store. OPFS is also a poor fit when browser support is missing, when local data loss is unacceptable without sync, or when the team is not prepared to design recovery and compaction.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `The first failure mode is a leaked handle. If code opens a sync access handle and never closes it, other operations can block or fail. The second is quota surprise: writes fail after a project grows, and the app has no compaction or export path. The third is torn state: a crash lands between related writes, and startup has no journal or manifest rule to decide what is valid.`,
+        `Privacy is another failure mode. Fast local I/O can become a side-channel surface. The FROST result described OPFS timing as a way to observe SSD contention signals from JavaScript. Storage-heavy designs should be reviewed for abuse, rate limits, timing precision, and browser mitigations. Performance features are also measurement features.`,
+      ],
+    },
+    {
+      heading: `Study next`,
+      paragraphs: [
+        `Primary sources are MDN's OPFS guide at https://developer.mozilla.org/en-US/docs/Web/API/File_System_API/Origin_private_file_system, MDN's File System API reference, MDN createSyncAccessHandle, MDN FileSystemSyncAccessHandle, the File System Standard at https://fs.spec.whatwg.org/, web.dev's OPFS article at https://web.dev/articles/origin-private-file-system, and WebKit's OPFS notes at https://webkit.org/blog/12257/the-file-system-access-api-with-origin-private-file-system/.`,
+        `Study IndexedDB Object Store Case Study for record-shaped browser storage, Cache Storage Versioned Precache for HTTP response caching, Browser Storage Quota and Eviction Manager for lifecycle pressure, Web Workers: A Second Thread for worker ownership, Structured Clone and Transferables for page-worker messages, WebAssembly Linear Memory Case Study for Wasm storage clients, SQLite B-Tree and Pager for page files, Write-Ahead Log for recovery, fsync Rename Crash Consistency for durability thinking, and Data Leakage for privacy boundaries.`,
       ],
     },
   ],

@@ -192,45 +192,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Block Sparse Row, or BSR, stores a sparse matrix as rows of dense tiles. Instead of one column index per scalar nonzero, it stores one block-column index per nonzero block and one dense values tile per block.',
-        'BSR is useful when nonzeros cluster into regular blocks. It reduces index overhead and gives kernels dense inner loops, but it can waste work when blocks are mostly empty.',
+        'Block Sparse Row, or BSR, exists because some sparse matrices are not random dust. Their nonzeros appear in dense tiles. Scientific simulations, finite-element systems, graph blocks, and block-pruned neural networks often have structure at the block level even when the full matrix is sparse.',
+        'The obvious scalar sparse format is CSR: store row pointers, column indices, and one value per scalar nonzero. CSR is flexible, but it pays index overhead for every value and gives kernels irregular scalar work.',
+        'BSR changes the unit of sparsity from one scalar to one dense block. It stores sparse rows of blocks, then runs dense inner loops inside each stored block. The point is not just saving index bytes. The point is giving hardware regular tiles to compute on.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'What the diagram emphasizes',
       paragraphs: [
-        'BSR has block-row pointers, block-column indices, and a values tensor of dense blocks. The pointer array bounds each block row, the block-column array places each tile, and the values tensor holds the tile contents.',
-        'The outer loop is sparse: skip absent blocks. The inner loop is dense: multiply or accumulate a small tile. That inner regularity is why BSR can map well to vector units and GPU kernels.',
+        'In the block-layout view, watch the format compress block rows, not scalar rows. `bPtr` bounds the blocks in each block row. `bCol` says where each block sits. `vals` stores dense tiles. The sparse part chooses which tiles exist; the dense part computes inside a tile.',
+        'In the kernel-fit view, read the decision table as the warning label. BSR wins only if the data has enough filled blocks and the hardware has a good kernel for the chosen tile shape. A matrix with many scattered scalar nonzeros can look sparse and still be a terrible BSR candidate.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core layout',
       paragraphs: [
-        'BSR trades scalar sparsity for block regularity. If an r-by-c block has many useful values, one block index is cheaper than many scalar indices. If the block has one useful value, BSR stores and may compute many zeros.',
-        'The right decision depends on tile shape, density inside tiles, batch size, dtype, kernel availability, and fallback behavior. Measure the actual path.',
+        'BSR has three main arrays. `bPtr` stores offsets for block rows, like CSR row pointers. `bCol` stores the block-column index for each stored block. `vals` stores the dense block payloads, usually shaped as number-of-blocks by block-rows by block-columns.',
+        'If the block size is 16 by 16, one BSR entry represents up to 256 scalar positions. That entry needs one block-column index, not 256 scalar column indices. The kernel can then multiply or accumulate the 16 by 16 tile with regular inner loops.',
+        'The invariant is that each stored block represents a fixed rectangle in the logical matrix. The block-row offset and block-column index locate the rectangle; the value tile fills its contents. Missing blocks are logically zero.',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Why it works',
       paragraphs: [
-        'SciPy sparse array docs describe BSR as appropriate when nonzero regions occur in contiguous blocks: https://docs.scipy.org/doc/scipy/tutorial/sparse.html. PyTorch sparse docs document BSR and BSC compressed sparse tensor layouts: https://docs.pytorch.org/docs/stable/sparse.html.',
-        'NVIDIA cuSPARSE documents sparse matrix storage formats and generic sparse APIs for operations such as SpMV and SpMM: https://docs.nvidia.com/cuda/cusparse/. MLIR sparse tensor documentation shows sparse encodings including common and specialized formats: https://mlir.llvm.org/docs/Dialects/SparseTensorOps/.',
+        'BSR works when block regularity is real. The sparse outer loop skips entire absent rectangles. The dense inner loop gives the CPU or GPU a small regular computation with predictable memory access. That can reduce metadata traffic and improve arithmetic intensity.',
+        'The correctness argument is the same as CSR, lifted to blocks. Each block row slice lists the nonzero blocks in that block row. Each listed block column names the logical column block. The dense payload supplies the scalar values inside that rectangle. If every nonzero block is listed once and every missing block is treated as zero, the BSR matrix represents the intended sparse matrix.',
+        'The performance argument is conditional. If blocks are full enough, one block index plus a dense tile is efficient. If blocks are mostly empty, BSR stores zeros inside tiles and may compute on them. The format buys regularity by accepting some padding.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'BSR appears in finite element matrices, block-structured scientific simulations, pruned neural networks with block masks, and GPU sparse matrix-matrix multiply paths.',
-        'In AI systems, block sparsity should be treated as a kernel compatibility question. A mask pattern that looks elegant on paper may not map to a fast available kernel.',
+        'Storage is O(number of block rows + number of stored blocks + stored blocks times block area). That last term is the catch. A half-empty 16 by 16 block still stores 256 scalar slots unless the implementation adds another layer of sparsity.',
+        'Runtime depends on block shape, fill ratio, dtype, batch size, kernel implementation, memory layout, and hardware. A tile shape that works on one GPU kernel may be poor on another. A block size that improves index overhead may hurt occupancy or create ragged tails.',
+        'A production ledger should track scalar density, block density, average fill per stored block, padding waste, block shape, kernel name, fallback coverage, latency, memory, and accuracy or numerical drift if pruning created the sparsity.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins',
+      paragraphs: [
+        'BSR wins in finite element matrices, block-structured scientific simulations, batched graph blocks, sparse linear algebra with natural vector-valued variables, and pruned neural networks whose masks are block-aligned.',
+        'In AI systems, block sparsity should be treated as a kernel compatibility question. A mask pattern that looks elegant in a paper may not map to a fast available kernel. The useful question is: does this exact block shape, dtype, batch size, and hardware path beat dense or CSR after conversion costs?',
+        'BSR also helps teach sparse systems because it exposes a broader rule: sparsity is only valuable when the representation matches the structure. Scalar sparse, block sparse, structured N:M sparse, and dense are different bets about where the zeros are and what the hardware can skip.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
       paragraphs: [
         'Do not confuse scalar sparsity with useful block sparsity. A matrix can be 90 percent sparse and still have awful block fill. Do not ignore ragged tails and padding.',
         'Do not assume block sparse is automatically faster than dense. Sparse metadata, memory indirection, and kernel launch overhead can dominate.',
+        'BSR also fails when block size is chosen for aesthetics instead of measurement. Larger blocks reduce index overhead but increase padding waste. Smaller blocks reduce padding but can lose the dense-kernel benefit. There is no universal tile size.',
+        'Another failure mode is conversion churn. If the program builds COO, converts to CSR, converts to BSR, runs one small kernel, then throws the layout away, the conversion may dominate the compute. BSR pays off when the block layout is reused or when the kernel win is large enough to cover setup.',
+      ],
+    },
+    {
+      heading: 'A worked case',
+      paragraphs: [
+        'Suppose a 64 by 64 matrix is divided into 16 by 16 blocks. There are 16 possible blocks. If only four blocks are present and each is 90 percent full, BSR stores four block-column indices and four dense tiles. CSR would store hundreds of scalar column indices. BSR likely wins because the missing blocks are skipped and the present blocks are dense enough to compute efficiently.',
+        'Now change the pattern: the same number of scalar nonzeros are scattered as one or two values per 16 by 16 block. BSR now stores many mostly empty tiles. The kernel performs regular work, but much of that work is on zeros. CSR or COO may be better. The difference is not the word "sparse"; it is the distribution of the nonzeros.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Measure block fill before choosing a block size. Build histograms for candidate tile shapes, then record how many stored blocks are full, mostly full, half full, or nearly empty. A single average hides the tail that often decides whether BSR is useful.',
+        'Keep row pointers and block columns sorted by block row unless the kernel documents another contract. Sorted block columns make debugging easier, help deterministic tests, and let conversion code compare BSR output with CSR or dense references. If duplicates can appear during assembly, coalesce them before the kernel path.',
+        'Benchmark the whole lifecycle: mask creation, conversion, host-device transfer, kernel execution, fallback, and output validation. The BSR kernel may look fast alone while the conversion pipeline loses the end-to-end race.',
       ],
     },
     {

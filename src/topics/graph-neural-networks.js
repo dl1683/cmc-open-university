@@ -225,42 +225,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Graph Neural Networks learn on data where relationships matter. A node could be a molecule atom, user, product, paper, repository, bank account, road intersection, protein, or permission object. Edges encode bonds, purchases, citations, calls, friendships, transactions, roads, or relations. Ordinary Neural Network Forward Pass layers expect vectors in fixed positions. GNNs respect graph structure by letting each node update itself from its neighbors.',
-        'The dominant pattern is message passing. Every layer computes messages along edges, aggregates incoming messages at each node, and updates node embeddings with a learned function. After several layers, a node embedding contains information from its multi-hop neighborhood. A readout head then predicts node labels, edge existence, whole-graph properties, recommendations, rankings, or risk scores.',
+        'Graph Neural Networks exist because much of the world is not naturally a table, a sequence, or an image. A molecule is atoms connected by bonds. A citation network is papers connected by references. A fraud system sees accounts, devices, cards, merchants, and transactions. A recommender sees users, products, sessions, follows, purchases, and views. In these problems, the relationship is not decoration. It is part of the evidence.',
+        'A standard neural network layer expects features in fixed positions. Feature 17 means the same thing for every row. A graph breaks that assumption. One node may have two neighbors and another may have ten thousand. Node order is arbitrary. The same graph can be stored with nodes listed in any order, but the answer should not change just because the file was reordered. A graph model needs to be permutation-aware and relationship-aware.',
+        'A Graph Neural Network, or GNN, learns node embeddings by mixing each node with information from its neighbors. After one layer, a node knows about one-hop neighbors. After two layers, it can contain information from two-hop neighborhoods. A prediction head can then answer node questions, edge questions, whole-graph questions, or ranking questions using embeddings that carry both local features and graph structure.',
+      ],
+    },
+    {
+      heading: 'The naive approach',
+      paragraphs: [
+        'The naive approach is to flatten the graph. Put the adjacency matrix beside the node features, feed everything into a dense model, and hope the network learns the structure. This breaks as soon as graphs vary in size. It also wastes space, because most real graphs are sparse, and it ties the model to an arbitrary node order.',
+        'Another naive approach is hand-built graph features. Compute degree, PageRank, clustering coefficient, shortest-path counts, or neighborhood label histograms, then train a normal model. These features are useful and still show up in production. The problem is that they freeze the representation before learning starts. If the task needs a specific notion of neighborhood evidence, the model cannot easily learn it from the loss.',
+        'A third shortcut is to ignore the graph and train only on node attributes. That can work when attributes are strong, but it misses the reason the graph was collected. A paper about graph learning may be easier to classify because of the papers it cites. A suspicious account may be obvious because it shares devices with other suspicious accounts. A product recommendation may depend less on the product text than on the pattern of users who co-viewed it.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is message passing. Instead of flattening the whole graph, each node repeatedly asks its neighbors for messages. The node aggregates those messages with an operation that does not depend on neighbor order, combines the result with its own current state, and writes a new embedding.',
+        'This gives the model the right inductive bias. Local graph structure is used directly, weights are shared across nodes, and the same layer can run on graphs of different sizes. A node with three neighbors and a node with three thousand neighbors both use the same message, aggregate, and update pattern. The aggregate may be a sum, mean, max, attention-weighted sum, or typed relation-specific combine.',
+        'The depth of the network controls the receptive field. One message-passing layer sees immediate neighbors. Two layers let information travel through neighbors of neighbors. More layers can see farther, but depth is not automatically better. Graph information can become too mixed, too compressed, or too noisy. A good GNN is not simply the deepest GNN. It is a controlled information-flow system.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A message-passing layer has three pieces. First, transform each node and edge into messages. Second, aggregate messages with a permutation-invariant operation such as sum, mean, max, or attention. Third, combine the aggregate with the node state using an MLP, activation, normalization, residual connection, or gated update. Backpropagation trains the message and update functions from the task loss.',
-        'Graph Attention Networks replace uniform neighbor averaging with learned attention weights. Molecular Message Passing Neural Networks use edge types such as bond structure. Recommender GNNs propagate user and item signals. Authorization and social graph systems may use GNN-like embeddings, but production policy still needs explicit checks such as Zanzibar Authorization Case Study when correctness is non-negotiable.',
+        'A basic message-passing layer has three steps. First, compute messages on edges. A message can depend on the source node embedding, the target node embedding, the edge type, edge weight, timestamp, or direction. In a citation graph, a message might say that a neighboring paper has a systems topic. In a molecular graph, it might include bond type. In a recommender graph, it might include event type such as view, cart, purchase, or dislike.',
+        'Second, aggregate incoming messages at each node. The aggregate must be permutation-invariant because neighbors have no meaningful list order. Sum is common because it preserves count-like information. Mean controls scale when degree varies. Max selects strong signals. Attention lets the model weight neighbors differently, but attention weights should not be treated as complete explanations without validation.',
+        'Third, update the node embedding. The update function may be a linear layer, MLP, gated recurrent unit, residual block, normalization layer, or activation function. Backpropagation trains the message and update functions from the task loss. The same embedding can feed several heads: node classification, link prediction, graph classification, retrieval, recommendation, ranking, anomaly detection, or risk scoring.',
+        'Large graphs require extra machinery. Full-batch training over every edge can be too expensive, so systems use neighbor sampling, subgraph sampling, cached embeddings, mini-batches, partitioning, or offline refresh. Heterogeneous graphs may use separate parameters per relation type. Dynamic graphs must decide whether an edge was visible at training time or whether it leaks future information.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The cost is proportional to node embeddings, edge count, layer count, and sampling strategy. Full-batch message passing over a billion-edge graph is not practical for ordinary training. Large systems sample neighbors, train mini-batches of subgraphs, cache embeddings, or separate offline embedding refresh from online inference. Graphs also create data leakage traps: if train and test nodes share edges, the model may learn from future or forbidden structure.',
-        'Oversmoothing is the classic depth failure. Repeated averaging can make nearby nodes indistinguishable. Oversquashing is another failure: too much distant information is compressed through too few edges. Residual links, normalization, attention, positional features, careful depth, and graph rewiring all try to preserve useful signal while still moving information through the graph.',
+        'The first visual proves the message-passing contract on a citation graph. Paper D starts with its own features, but papers B, C, E, and F are attached to it. The active edges are not just lines on a diagram. They are the channels through which neighboring embeddings can become evidence for D.',
+        'The update table proves that a GNN layer is ordinary neural-network computation placed on graph structure. There is a self feature, a set of neighbor messages, an aggregate, and a new embedding. The prediction-head table proves that the same learned embeddings can be reused for several task shapes: node labels, missing edges, whole-graph properties, or rankings.',
+        'The oversmoothing view proves the main depth warning. At layer 0, nodes are distinguishable. After one layer, local neighborhoods mix in a useful way. After too many averaging layers, embeddings begin to look like the graph average. The visual is showing the balance every GNN has to manage: enough propagation to use relationships, enough preservation to keep identity.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'GNNs are used for molecular property prediction, fraud detection, recommender systems, citation classification, traffic prediction, knowledge graphs, code graphs, protein interaction networks, social graph embeddings, and supply-chain risk. They connect naturally to Graph BFS, PageRank, Embeddings & Similarity, and Multi-Index RAG because all of those topics treat relationships as first-class evidence.',
+        'GNNs work when the graph carries useful statistical structure. In homophilous graphs, connected nodes often share labels or properties. Friends may like similar pages. Papers in the same area cite each other. In molecular graphs, local bond neighborhoods determine chemical behavior. Message passing gives the model a way to learn these local patterns instead of receiving them as hand-coded features.',
+        'The reason this is trainable is parameter sharing. The model does not learn a separate rule for every node. It learns how to transform messages, combine neighborhoods, and update embeddings across the graph. That lets it generalize to nodes and edges not seen in exactly the same configuration during training.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'A GNN is not automatically better because the data can be drawn as a graph. If edges are noisy, stale, leaked, or policy-driven artifacts, message passing can spread bad evidence. Another misconception is that attention weights are explanations. They are learned routing coefficients and should be validated like Saliency Maps. Finally, graph splits must be designed carefully: random node splits can leak neighborhood information that would not exist at deployment time.',
+        'The basic cost grows with edges, embedding dimension, and layer count. If a layer sends messages over E edges using d-dimensional embeddings, the work is roughly proportional to E*d, plus update costs. Add more layers and the cost repeats. On a billion-edge graph, a naive full pass is not a classroom matrix multiply. It is a distributed systems problem.',
+        'Neighbor sampling reduces cost but introduces variance. Sampling too few neighbors can miss important evidence. Sampling too many can explode the batch. Caching embeddings reduces compute but can make features stale. Partitioning improves locality but can cut across important edges. Online inference may need fast lookups, while offline training may tolerate heavier subgraph construction.',
+        'The modeling tradeoffs are just as real. More layers expand the receptive field but increase oversmoothing. Long-range dependencies can be oversquashed when too much distant information must pass through narrow graph cuts. Attention can help select neighbors, but it costs more and can overfit. Positional features can break symmetries, but they add design choices. GNN engineering is mostly controlled information flow under cost constraints.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Real uses',
       paragraphs: [
-        'Primary sources: Graph Neural Networks: A Review of Methods and Applications at https://arxiv.org/abs/1812.08434, Neural Message Passing for Quantum Chemistry at https://arxiv.org/abs/1704.01212, and Graph Attention Networks at https://arxiv.org/abs/1710.10903. Study Graph BFS, PageRank, Embeddings & Similarity, Backpropagation, Saliency Maps, and Multi-Index RAG next.',
+        'GNNs are used in molecular property prediction, drug discovery screens, citation classification, fraud detection, recommender systems, traffic forecasting, knowledge graphs, program analysis, protein interaction networks, supply-chain risk, social graph embeddings, and entity resolution. They are especially natural when the question depends on both an item and its neighborhood.',
+        'A fraud system may score a transaction by combining merchant features, card history, device links, and nearby risky accounts. A molecule model may predict toxicity by passing messages along bonds. A recommender may propagate preferences between users and items. A code-analysis graph may use syntax, data flow, and call edges. These are not all the same model, but they share the same idea: relationships become trainable evidence.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure mode is believing that any graph-shaped data deserves a GNN. Bad edges spread bad signal. Stale edges can teach the past. Policy-generated edges can encode bias. Random train-test splits can leak neighborhood information because a test node may be directly connected to training nodes whose labels reveal the answer.',
+        'The second failure mode is oversmoothing. Repeated aggregation makes embeddings too similar, especially in deep GNNs with simple averaging. Oversquashing is different: useful distant information exists, but too many signals are compressed through too few edges. A third failure is degree domination, where high-degree nodes drown out low-degree local evidence unless aggregation is normalized or sampled carefully.',
+        'A fourth failure is explanation theater. Attention weights, influential neighbors, and subgraph saliency can be useful debugging tools, but they are not proof that the model is using the graph for the right reason. For safety, compliance, or authorization, learned graph scores should not replace explicit policy checks. A Zanzibar-style permission decision needs correctness guarantees that a GNN embedding does not provide.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Graph BFS and PageRank first to understand graph propagation without learning. Then study Embeddings and Similarity, Backpropagation, Activation Functions, and Attention. Graph Attention Networks, GraphSAGE, molecular message passing, heterogeneous graph neural networks, and temporal graph learning are natural next steps.',
+        'For system design, connect this topic to Feature Stores, Data Leakage and Contamination, Approximate Nearest Neighbor Search, Multi-Index RAG, and Zanzibar Authorization Case Study. For primary sources, read Graph Neural Networks: A Review of Methods and Applications, Neural Message Passing for Quantum Chemistry, Graph Attention Networks, and Inductive Representation Learning on Large Graphs.',
       ],
     },
   ],

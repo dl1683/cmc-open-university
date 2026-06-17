@@ -232,43 +232,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A Li Chao tree maintains a dynamic set of linear functions and answers minimum or maximum value queries at a point x. It is usually taught as a convex-hull-trick data structure, but its internal shape is a segment tree over the x-coordinate domain. Each node stores one line that is best at that node midpoint, and insertion pushes the line that loses at the midpoint into the half where it can still win.',
-        'CP-Algorithms reduces the motivating dynamic-programming problem to adding linear functions k*x+b and querying the minimum at x, then explains Li Chao insertion by comparing old and new lines at segment endpoints and midpoint: https://cp-algorithms.com/geometry/convex_hull_trick.html.',
+        'Many optimization problems reduce to one question: among all lines seen so far, which line has the smallest value at this x? Dynamic programming transitions, route costs, pricing formulas, and scheduling penalties often have exactly this shape.',
+        'A Li Chao tree exists for the online version of that question. Lines arrive over time, queries are interleaved with inserts, slopes may be unsorted, and query coordinates may jump around. The structure avoids maintaining the full lower envelope explicitly.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Baseline and wall',
       paragraphs: [
-        'Consider one node representing interval [l, r). It already stores an old line. A new line arrives. Compare both lines at the midpoint m. The line with lower value at m stays in the node because it is the best local representative for the center of this interval. If the other line can beat it at the left endpoint, recurse left with that other line. If it can beat it at the right endpoint, recurse right. Because two lines intersect at most once, only one side can matter.',
-        'A query for x follows the segment-tree path from root to the leaf containing x. It evaluates every stored line along that path and returns the minimum. The invariant from insertion guarantees that the globally best line at x appears somewhere on that path.',
+        'The naive baseline stores every line and evaluates all of them for every query. That is simple and exact, but it costs O(number of lines) per query. In a dynamic program with one insert and one query per state, that can turn a near-linear plan into quadratic work.',
+        'A monotone convex hull trick can do better when slopes arrive sorted or query x values move in one direction. The wall is that many problems do not give those promises. Maintaining exact intersection order dynamically is possible but more complex than the problem should require when all functions are just lines.',
+        'Li Chao has a different wall: it needs an x-domain. Its costs are logarithmic in the coordinate range or compressed coordinate set, so coordinate bounds, integer versus real x, and dynamic node allocation matter.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core invariant',
       paragraphs: [
-        'For an integer coordinate domain of size C, insertion and query are O(log C). A fixed array segment tree works when the coordinate range is small and known. A dynamic Li Chao tree allocates nodes only where lines are inserted, which is useful for very large coordinate ranges. Line segments can be supported by inserting a line only into the interval where it is valid.',
-        'The main limitation is deletion. A line is not stored in one clean bucket; insertion may push it into several structural decisions, and removing it would require repairing invariants. If deletions matter, use offline divide-and-conquer with rollback, rebuild periodically, or choose a different dynamic hull structure.',
+        'Build a segment tree over x-coordinates. Each node owns an interval and stores one line: the line currently best at that interval midpoint among the lines that have been routed through the node.',
+        'The invariant is path coverage. For every coordinate x, the true best line among inserted lines appears in at least one node on the root-to-leaf path for x. A query therefore evaluates only the lines on that path and takes the minimum.',
+        'The reason one stored line is enough per node is geometric: two distinct lines intersect at most once. If the new line loses at the midpoint, it can only beat the midpoint winner on one side of the midpoint, so the loser is pushed into only that child interval.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'The classic use is dynamic programming optimization: dp[i] = min over j of m_j*x_i + b_j. Each previous state j defines a line. Each new state i queries at x_i. After computing dp[i], it may insert a new line for future states. This appears in route planning, scheduling, cost optimization, and competitive-programming problems where transitions are linear in the query coordinate.',
+        'In the line insertion view, the midpoint marker is the key decision point. The line that is lower at the midpoint stays in the current segment-tree node. The other line is not discarded; endpoint comparisons decide whether it can still win on the left half or the right half.',
+        'In the tiny tree table, read each stored line as a certificate for some interval, not as the whole lower envelope. The root line is checked for every query. A child line is checked only for x values that pass through that child.',
+        'In the point query view, x = 7 follows one segment-tree path. The answer is not chosen by looking at neighboring x values or scanning all lines. It is chosen by evaluating the sparse list of lines stored along that one path.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'Do not use Li Chao tree when a simpler monotone convex hull trick fits. If slopes are inserted in sorted order and queries are monotone, a deque hull may be smaller and faster. Do not forget coordinate-domain assumptions. A Li Chao tree is logarithmic in coordinate range, not in number of lines, unless coordinates are compressed or dynamically bounded.',
-        'Also remember the one-intersection assumption. Ordinary lines satisfy it. Arbitrary functions do not. The midpoint swap proof relies on knowing that the loser can only become relevant on one side.',
+        'Insertion starts at the root interval. If the node is empty, store the new line there. Otherwise compare the old line and new line at the interval midpoint. Keep the lower line at the midpoint in the node and call the other one the loser for this midpoint.',
+        'Next compare the two lines at an endpoint. If the loser is better on the left side, recurse into the left child with the loser. If it is better on the right side, recurse into the right child. If it is not better on either side, insertion stops because the stored line dominates it on this interval.',
+        'A query for coordinate x descends from root to leaf. At each visited node, evaluate the stored line at x if there is one. The minimum value seen on that path is the answer. A max Li Chao tree is the same structure with comparisons flipped.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Correctness',
       paragraphs: [
-        'Source: CP-Algorithms Convex Hull Trick and Li Chao Tree at https://cp-algorithms.com/geometry/convex_hull_trick.html. Study Segment Tree, Dynamic Programming, Binary Search, Contour Maps, Slope Descent: Gradient Descent, and Segment Tree Beats next.',
+        'The proof is a preservation argument. Before insertion, every x has its true best line somewhere on its path. During insertion at one interval, the line stored at the node is made best at the midpoint. The line that loses at the midpoint can only cross the winner once, so if it is still relevant, it is relevant in only one child interval.',
+        'Pushing the loser into that child preserves the path-coverage invariant for the coordinates where the loser may matter. Coordinates on the other side already have the midpoint winner or some existing path line that is no worse. Recursing until a leaf or dominance case finishes the update.',
+        'Query correctness follows immediately from the invariant. Since the best line for x is stored somewhere on the path for x, evaluating every stored path line and taking the minimum must find it.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose the domain is x = 0..7 and the current root stores c: 0.4x + 3 because it is good near the root midpoint. Insert a: 2x + 1. At the midpoint, c may still be lower, but a is lower on the far left. The root keeps c and routes a into the left child.',
+        'Insert b: -x + 9. It is poor on the left but good on the right. Endpoint comparisons send it toward the right child. The tree now has a root candidate, a left-side candidate, and a right-side candidate instead of an explicit list of all pairwise intersections.',
+        'Query x = 7. The path checks the root line c, then the right child line b, then any local leaf line. b gives value 2, c gives 5.8, and a is not on the path. The minimum among path candidates is therefore b at 2.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'For an integer coordinate domain of size C, insertion and query are O(log C). A fixed array segment tree is straightforward when C is small and known. A dynamic Li Chao tree allocates only touched nodes and is better for large sparse domains.',
+        'The structure handles online insertion and point queries well, but deletion is not native because a line may have been swapped into several local decisions. Common workarounds are offline rollback, divide-and-conquer over time, periodic rebuilds, or using a different dynamic hull.',
+        'Line segments are supported by inserting a line only into the segment-tree intervals covered by its valid x-range. Coordinate compression works for a known set of query x values, but then the implementation should compare only on those compressed coordinates, not assume continuous behavior between them.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Li Chao wins for online dynamic programming of the form dp[i] = min_j(m_j * x_i + b_j), where each old state j contributes one line and each new state i asks for the best value at x_i. It is also useful in geometry and cost-model problems where candidates are linear and arrive in arbitrary order.',
+        'It is especially strong when slopes are unsorted, query x values are not monotone, and a simple deque hull would be invalid. It gives a predictable logarithmic update/query interface without maintaining the full envelope.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'If a monotone convex hull trick fits the input, that version is usually smaller and faster. If the functions are not lines, or if two functions can intersect many times, the one-intersection argument breaks and the standard Li Chao invariant no longer applies.',
+        'It also becomes awkward with deletions, poorly bounded coordinate domains, precision-sensitive real coordinates, or workloads where memory allocation dominates. In those cases, consider a different hull, an offline transformation, or a simpler scan if the line count is small.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Source: CP-Algorithms Convex Hull Trick and Li Chao Tree at https://cp-algorithms.com/geometry/convex_hull_trick.html. Study Segment Tree, Dynamic Programming, Binary Search, Convex Hull Trick, Divide and Conquer DP Optimization, and Segment Tree Beats next.',
+        'A useful practice path is to first implement the naive line scan, then a monotone deque hull, then a fixed-domain Li Chao tree, then a dynamic-node Li Chao tree with line-segment insertion. The differences make the assumptions of each optimization visible.',
       ],
     },
   ],

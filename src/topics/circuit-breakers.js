@@ -29,7 +29,7 @@ function* breaker() {
       ],
     }),
     highlight: { removed: ['c', 'bc'], compare: ['b', 'ab'] },
-    explanation: 'The cascade that motivates everything: service C sickens — not dead, WORSE: it hangs, answering in 30 seconds instead of 30 milliseconds. Every B thread that calls C now sits blocked for 30s holding its memory, its socket, its place in the pool. B\'s 200 threads fill in seconds; now B cannot answer anyone — including requests that never needed C. A blocks on B the same way. One slow leaf has frozen the whole tree, because a HANG holds resources hostage while an ERROR releases them instantly. This is the cascading failure behind most large outages, and Tail Latency & p99 Thinking\'s retries pour gasoline on it.',
+    explanation: 'The cascade starts with a dependency that hangs instead of failing. Every B thread waiting on C holds memory, a socket, and a place in the pool for 30 seconds. Soon B has no workers left for any request, including requests that do not really need C. A then blocks on B. The important idea is resource capture: a slow dependency can behave like a leak in every caller upstream.',
     invariant: 'Hangs propagate upstream through exhausted thread pools: a slow dependency is a resource leak, not just a delay.',
   };
 
@@ -48,7 +48,7 @@ function* breaker() {
       ],
     }),
     highlight: { active: ['closed'], compare: ['trip'], found: ['heal'] },
-    explanation: 'The cure is a three-state Finite State Machines classic wrapped around every risky call. CLOSED (normal): calls flow through, failures are counted in a sliding window. TRIP: when the failure rate crosses a threshold (say, 50% over 10 seconds), snap OPEN — and now every call FAILS IMMEDIATELY without touching C: no thread blocks, no timeout burns, the error returns in microseconds. After a cooldown, HALF-OPEN: allow exactly one probe request through. Probe succeeds → CLOSED, business as usual; probe fails → back to OPEN for another cooldown. Named after the electrical panel in your wall, and doing the same job: sacrifice the circuit to save the house.',
+    explanation: 'The breaker is a small state machine around the risky call. CLOSED means traffic flows and failures are counted. OPEN means the threshold was crossed, so calls fail immediately without touching the dependency. HALF-OPEN means the cooldown ended and one probe is allowed through. The point is not to hide failure; it is to stop spending scarce caller resources on a dependency that is unlikely to answer.',
     invariant: 'OPEN converts a 30-second hang into a microsecond failure: the breaker trades availability of one call for survival of the pool.',
   };
 
@@ -67,7 +67,7 @@ function* breaker() {
       format: (v) => ['', 'C starts hanging; failures climb', '12/200 blocked', '50% failures over 10s → breaker TRIPS', '38/200 — peak damage', 'all C-calls fail fast; C gets silence to recover', '3/200 (healthy!)', 'cooldown over → HALF-OPEN probe → success', 'CLOSED — full traffic resumes'][v],
     }),
     highlight: { removed: ['t1:event'], found: ['t4:event'], compare: ['t2:pool'] },
-    explanation: 'The same incident, replayed with the breaker installed. Ten seconds of climbing failures cost 38 blocked threads — then the trip, and B\'s pool drains back to healthy while every C-dependent request fails fast instead of hanging. Notice the second-order gift: C, drowning in a retry storm a moment ago, suddenly receives SILENCE — the load removal that overloaded systems actually need to recover (the lesson from Hot Rows & Append-and-Aggregate\'s death spiral, inverted into a cure). Thirty-one seconds later a single probe confirms recovery and traffic resumes. Total user pain: 42 seconds of degraded answers instead of a multi-hour cascading outage.',
+    explanation: 'With the breaker installed, the incident becomes bounded. A few threads block while the failure window fills, then the breaker trips and the pool drains. Calls that need C get a fast fallback or fast error; calls that do not need C keep moving. C also gets a recovery gift: less traffic. Overloaded systems often need silence more than they need enthusiastic retries.',
   };
 
   yield {
@@ -84,7 +84,7 @@ function* breaker() {
       format: (v) => ['', 'yesterday\'s exchange rate, marked stale (Cache Invalidation & Versioning\'s serve-stale)', 'empty recommendations row — the page still renders', 'search without personalization', '"try again shortly" in 2ms — beats a spinner in 30s'][v],
     }),
     highlight: { found: ['cache:ex', 'degrade:ex'] },
-    explanation: 'An open breaker raises the product question: fail to WHAT? The fallback ladder, best to worst: serve stale data clearly marked (most reads tolerate yesterday); return a neutral default so the page composes without the feature (Netflix pioneered this — a missing recommendations row, not a missing homepage); degrade the feature visibly; and when nothing else fits, an honest instant error — which still beats the hang, because users and Tail Latency & p99 Thinking agree: fast failure is a feature. The discipline: decide the fallback when you WRITE the call, not during the outage.',
+    explanation: 'An open breaker is only useful if the caller knows what to do next. The fallback ladder is practical: serve marked stale data, return a neutral default, degrade the feature, or give an honest fast error. The best time to decide that behavior is when adding the dependency call. During an outage, "what should this page do without recommendations?" is too late a question.',
   };
 }
 
@@ -104,7 +104,7 @@ function* deadlines() {
       format: (v) => (v === 0 ? 'GONE — user already saw the error' : `${v}ms`),
     }),
     highlight: { removed: ['c:left', 'arrive:t'], compare: ['queue:t'] },
-    explanation: 'The second protection attacks a subtler waste. A user\'s request carries an implicit 1,000ms patience budget. A spends 50ms; on a bad day B\'s queue eats 870 more; by the time C starts work, 80ms remain — and C\'s computation takes 400ms. C dutifully computes a beautiful answer and ships it upstream… where the user timed out 320ms ago. The work was DOOMED before it started: real CPU, real database load, spent on a response with no recipient — and during an overload spike, doomed work is most of the load, which is precisely when you can least afford it.',
+    explanation: 'Deadlines protect against work that can no longer help the caller. The timeline spends most of the user budget before C even starts. If C needs 400ms and only 80ms remain, doing the work is waste: CPU, database time, and queue capacity spent on an answer the user will never receive. During overload, doomed work can become a large share of total load.',
     invariant: 'Work on a request whose deadline has passed is pure waste — and it concentrates exactly during overload.',
   };
 
@@ -122,7 +122,7 @@ function* deadlines() {
       format: (v) => ['', 'spend 50ms, forward the REMAINDER in the request header', 'spend, forward remainder — every hop subtracts', 'needs 400ms < 610ms budget → do the work', 'needs 400ms > 60ms → REFUSE instantly, no work done'][v],
     }),
     highlight: { found: ['cGood:act'], removed: ['cBad:act'] },
-    explanation: 'The fix: make the budget EXPLICIT and pass it along — each hop receives the remaining deadline in a header (gRPC bakes this in as grpc-timeout; Go\'s context carries it in-process), subtracts its own spending, and forwards the remainder. Now C can act intelligently: 610ms remaining against a 400ms job → proceed; 60ms remaining → refuse in a microsecond, before touching the database. And the companion move, CANCELLATION, propagates the other way: when the user disconnects or the deadline passes mid-flight, the signal travels DOWN the chain and in-progress work stops — queries killed, loops exited. Refuse doomed work at the door; abandon it the moment it becomes doomed.',
+    explanation: 'Deadline propagation makes the budget visible at every hop. Each service receives the remaining time, spends some of it, and forwards the smaller remainder. A service can then refuse work it cannot finish before the deadline, before touching the database. Cancellation is the reverse signal: when the caller is gone, stop in-progress work instead of finishing a response nobody can use.',
     invariant: 'Each hop forwards deadline − own spending: any service can prove a request is doomed before working on it.',
   };
 
@@ -141,7 +141,7 @@ function* deadlines() {
       format: (v) => ['', 'a SICK dependency freezing your pool', 'doomed work consuming overloaded services', 'the occasional slow replica (Tail Latency & p99 Thinking)', 'retry storms amplifying outages', 'queues growing without bound past capacity'][v],
     }),
     highlight: { active: ['breakers:guards', 'deadline:guards'] },
-    explanation: 'The full kit on one card — five guards, five distinct failure modes, no redundancy: breakers handle sickness, deadlines handle waste, hedges handle stragglers, budgets handle storms, shedding handles overload. Production stacks bundle them (Netflix\'s Hystrix popularized the breaker; resilience4j, Envoy, and Istio ship the kit as configuration; gRPC carries deadlines natively), and Distributed Tracing is how you watch them work — a trace showing a breaker fast-fail or a deadline refusal is the system SUCCEEDING at failing. The closing creed of this whole Systems tour: in distributed systems you do not prevent failure, you choreograph it — and well-choreographed failure is indistinguishable from resilience.',
+    explanation: 'The kit works because each guard handles a different failure mode. Breakers handle persistent dependency sickness. Deadlines stop doomed work. Hedging masks stragglers. Retry budgets prevent storms. Load shedding protects overloaded front doors. Traces that show a breaker fast-fail or a deadline refusal are not necessarily bad news; they can be evidence that the system chose a controlled failure over a cascade.',
   };
 }
 
@@ -155,51 +155,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `A circuit breaker is a tiny state machine that sits between your service and a dependency. Its job is brutal simplicity: when the dependency sickens—not dies, sickens, producing timeouts and failures—the breaker TRIPS, failing every request instantly instead of letting threads pile up waiting for an answer that will never arrive. A dead dependency returns an error in microseconds; a hanging dependency returns an error in thirty seconds and paralyzes your thread pool in the meantime. The breaker converts hangs into fast failures, rescuing the threads upstream before the cascade spreads. It is named after the electrical panel in your wall: when current spiked, the breaker flipped a switch to break the circuit and save the house. Same principle, applied to distributed systems where a hung dependency is the circuit that burns.`,
-        `The second protection, deadline propagation, travels with every request: a budget of time that each hop consumes and forwards downstream. When the user's patience runs out, the deadline travels backward and stops in-flight work. Together—the breaker and the deadline—form the foundation of Tail Latency & p99 Thinking at scale: fast failures are features, not bugs, because they let the system recover instead of drowning in cascades.`,
+        `Distributed systems fail through waiting as often as through explicit errors. A clean error returns quickly. A hang keeps a thread, socket, database connection, memory allocation, queue slot, and user-visible request budget occupied while the caller hopes for an answer. Enough waiting calls can exhaust a healthy service even when the original failure is in a dependency several hops away.`,
+        `A circuit breaker exists to convert repeated slow failure into fast, controlled failure. It is a small state machine around a risky call. When recent evidence says the dependency is unlikely to answer, the breaker stops sending traffic for a while and returns a fallback or fast error instead. The goal is not to make the dependency healthy. The goal is to prevent one sick dependency from consuming every caller upstream.`,
+        `Deadlines solve the companion problem: doomed work. If the user has already timed out, finishing the request is not service. It is waste. A propagated deadline lets every hop know how much budget remains and refuse work that cannot finish in time. Circuit breakers protect shared resources from sick dependencies; deadlines protect the system from work whose answer can no longer be used.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The obvious approach`,
       paragraphs: [
-        `The breaker wraps three states in a Finite State Machines loop. CLOSED (normal state): calls pass through to the dependency; failures are counted in a sliding window. When the failure rate climbs—say, 50 percent of calls fail within a 10-second window—the breaker TRIPS and snaps OPEN. While OPEN, every incoming call fails immediately without touching the downstream service: no thread blocks, no timeout burns, the error bubbles back in microseconds. After a cooldown period (often 30 seconds), the breaker transitions to HALF-OPEN: a single probe request is allowed through. If the probe succeeds, the dependency has recovered, and CLOSED resumes normal flow; if the probe fails, the breaker relapses to OPEN for another cooldown. This loop repeats until the dependency is healthy again.`,
-        `In the demo's cascade scenario, service C sickens with 30-second hangs. Service B calls C; its 200 threads fill with blocked requests in seconds, exhausting its pool. Service A blocks on B the same way. One slow leaf freezes the tree—not because of cascading retries, but because hangs hold thread-pool resources hostage while the thread sits waiting. The breaker's solution: CLOSED counts failures; when 50 percent of calls to C fail in 10 seconds, TRIP to OPEN. Now B's threads stop calling C; instead, they fail fast. C, drowning in traffic a moment ago, suddenly receives silence—the load removal it needs to recover. Thirty seconds later, HALF-OPEN probes C once; the probe succeeds; CLOSED resumes traffic. Total degradation: 42 seconds of fast errors and fallbacks instead of a multi-hour cascade.`,
-        `Deadline propagation works parallel: each request carries a deadline in a header (gRPC bakes in grpc-timeout; Go's context carries it in-process). Each hop subtracts its own time and forwards the remainder. A service can check: "I need 400ms to compute this answer; only 60ms remain before the deadline expires." Smart move—refuse instantly, before queuing or touching the database. Cancellation propagates backward: when the user disconnects or the deadline passes mid-flight, the signal travels down the call chain and kills in-progress queries.`,
+        `The obvious approach is to set timeouts on remote calls. If a dependency does not respond within 30 seconds, the caller gives up. This is better than waiting forever, and it is usually the first safety rule a service team adds.`,
+        `The next obvious approach is to retry. Maybe the dependency had a transient network blip. Maybe one replica was slow and another will answer. Retries are useful when failures are rare and independent. They are dangerous when the dependency is already overloaded, because every retry turns one user request into more backend work.`,
+        `A plain timeout plus retries feels reasonable because it handles individual requests. The wall appears when the incident is collective. Hundreds of calls wait at the same time. Every caller holds resources while waiting. Retries amplify the traffic. The system needs a shared memory of recent failure, not only per-request impatience.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The wall`,
       paragraphs: [
-        `A circuit breaker is a tiny state machine—just three states and a rolling window counter. Memory: a few integers tracking success count, failure count, window start time, current state, and cooldown deadline. CPU: on each call, check the state; if CLOSED, update the window counter; if HALF-OPEN, allow one probe; otherwise fail instantly. All O(1) operations with microsecond latency. Production libraries (Hystrix, resilience4j, Envoy) implement these machines as building blocks you wire into your request path with a few lines of configuration—no rewriting your service.`,
-        `Deadline propagation adds a single header per request: a Unix timestamp of when the deadline expires, computed once at the entry point and checked at each hop. Checking the deadline—comparing current time to deadline—is a single integer comparison. Cancellation requires propagating a signal down the call stack or killing a query mid-execution; most modern frameworks (gRPC, Go's context, async frameworks with timeout awareness) have this built in.`,
-        `The real cost is operational: you must tune the breaker's thresholds (failure percentage, window size, cooldown, probe interval) to your dependency's characteristics. Too aggressive and you'll trip the breaker on normal jitter; too lenient and you'll cascade. The tool Distributed Tracing is how you watch the breaker and deadline in action—a trace showing a fast-fail from an OPEN breaker or a deadline refusal is the system SUCCEEDING at failing.`,
+        `The wall is resource capture. A dependency that hangs for 30 seconds does not merely add 30 seconds of latency. It captures workers for 30 seconds. If the caller has a fixed thread pool or connection pool, enough captured workers make the caller unavailable for unrelated requests. The dependency's slowness becomes the caller's outage.`,
+        `The second wall is positive feedback. Overloaded systems become slower. Slowness causes callers to wait longer, retry more, and queue more work. That extra work makes the overloaded system slower again. Local timeouts end individual waits, but they do not necessarily reduce incoming traffic quickly enough to let the dependency recover.`,
+        `The third wall is stale work. A service may continue computing an answer after the upstream caller has gone away. During overload, this doomed work can become a large fraction of total load. The system looks busy, but much of the work cannot improve user outcomes.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `The core insight`,
       paragraphs: [
-        `Circuit breakers are mandatory in any system with microservices and synchronized calls: a service talks to ten dependencies; one sickens; the breaker fails its calls fast while C recovers. Netflix popularized this pattern with Hystrix (2011), then open-sourced it; resilience4j and resilience frameworks built on it. Envoy and Istio ship circuit breakers as service-mesh primitives—you do not even need to change application code. They guard at the RPC level, protecting each service from cascading failures.`,
-        `Deadlines are equally critical: every large system has them. A user's web request times out after 30 seconds; a mobile app after 5. A single slow query that consumes most of a request's budget should not spawn retries from desperate timeouts upstream—that multiplies load exactly when you need to shed it. Google built deadline propagation into their infrastructure (Stubby, their RPC framework, was deadline-aware); gRPC inherited it; Go's context became the reference design. Amazon and Netflix enforce deadlines at service boundaries; Uber's Ringpop gossip protocol carries deadlines; every serious web system has them.`,
-        `The five-guard kit pairs breakers with deadlines, hedged requests, retry budgets, and load shedding (shedding rejects excess requests at the door, protecting overloaded services from the garbage in Hot Rows & Append-and-Aggregate death spirals). Together they form the resilience architecture: not preventing failure, but choreographing it. Well-choreographed failure is indistinguishable from resilience.`,
+        `A circuit breaker makes dependency health part of the call path. Instead of treating every request as independent, the caller remembers recent outcomes in a rolling window. If failures, timeouts, or slow responses cross a threshold, the breaker opens and new calls fail immediately without touching the dependency.`,
+        `The state machine is small because the policy should be understandable during an incident. CLOSED means traffic flows and outcomes are measured. OPEN means traffic is blocked for a cooldown period. HALF-OPEN means the caller allows a small number of probes to test recovery. A successful probe closes the breaker. A failed probe opens it again.`,
+        `The key invariant is resource preservation. When the breaker is OPEN, the caller spends almost no scarce dependency-call resources on a path that is currently unlikely to work. That controlled degradation keeps unrelated work alive and gives the dependency a quieter recovery window.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Mechanism`,
       paragraphs: [
-        `The first trap is mistaking a breaker for a retry mechanism. Retries make cascades worse: if C is hanging, retrying harder just fills the queue faster. The breaker stops retries by failing fast, cutting off the demand that is drowning C. Do not add retries inside an OPEN breaker; the combination is a death spiral.`,
-        `The second trap is tuning the breaker on code-happy days. A failure threshold of 50 percent over 10 seconds might work when your infrastructure is healthy, but during the load spike where you most need the breaker, legitimate slow requests mix with timeouts; you'll trip the breaker and hurt the very users you intended to shield. Simulate failures in production (chaos testing) to calibrate thresholds.`,
-        `Misunderstanding deadline deadline semantics: a deadline is not a "soft timeout for this operation." It is a global budget that cascades: if A burns 100ms of the user's 1000ms budget, and forwards the request to B, B sees 900ms remaining. If B queues for 800ms, C sees 100ms. If C needs 400ms and has 100ms, refusing is the right answer; proceeding is waste. Many systems implement deadlines only at leaf services and miss the compounding waste at interior hops.`,
-        `Fallback decisions made during the outage instead of at code-write time. The demo lists the fallback ladder—stale cache (marked clearly), sensible defaults (empty recommendation rows), degraded features, honest errors. Decide WHEN YOU WRITE THE CALL. "What should we return if the user-preferences service fails?" Answer it before it fails, not during the incident.`,
+        `A practical breaker wraps one dependency operation, not an entire service by default. The wrapper records successes, failures, timeout outcomes, and often latency. The failure window can be count-based, time-based, or a combination. The trip rule might require a minimum request volume plus an error rate, timeout rate, or slow-call rate above a threshold.`,
+        `When CLOSED, the wrapper checks the current state, sends the call, records the result, and possibly trips the breaker. When OPEN, it does not send the call. It returns a fallback, cached value, degraded response, queued task, or explicit fast error. When the cooldown expires, the breaker enters HALF-OPEN and lets through a limited number of probes.`,
+        `HALF-OPEN is where many implementations fail. If the system allows too many probes, recovery becomes a traffic flood. If it allows one unlucky probe to decide everything, recovery can flap. A good implementation keeps probe concurrency small, records probe outcomes separately, and changes state based on a deliberate success rule.`,
+        `Deadlines should travel beside the breaker state. The caller should pass an absolute deadline or remaining budget downstream. Each service subtracts time already spent and refuses work it cannot complete before the deadline. Cancellation should propagate too, so in-progress database queries, RPCs, and background tasks stop when the caller no longer needs the answer.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `The breaker works because it changes the failure mode from unbounded waiting to bounded refusal. While CLOSED, the caller samples real outcomes. Once the evidence crosses the trip rule, OPEN stops new resource capture. Existing blocked calls still need to drain, but the pool is no longer accepting more work on the broken path. That is why the incident table in the animation shows peak damage followed by recovery.`,
+        `The proof sketch is a resource argument. Suppose each hanging call occupies a worker for 30 seconds. If calls continue to enter faster than they complete, the occupied-worker count grows until the pool is exhausted. Opening the breaker changes the service time for new calls on that path from 30 seconds to near zero. That lets the pool drain and preserves capacity for other paths.`,
+        `Deadlines work for the same reason. If a request has 80 ms left and a downstream call normally needs 400 ms, the service can prove the work is doomed before starting. Refusing early saves CPU, queue capacity, database slots, and downstream calls. The user still sees a failure, but the system avoids spending scarce resources on an answer nobody can receive.`,
+      ],
+    },
+    {
+      heading: `Costs and tradeoffs`,
+      paragraphs: [
+        `The runtime overhead is small: a state check, a few counters, a clock read, and a deadline comparison. The real cost is policy. Thresholds that are too sensitive create false outages. Thresholds that are too slow let pools fill before the breaker reacts. Cooldowns that are too short hammer a recovering dependency. Cooldowns that are too long extend degraded service after recovery.`,
+        `Fallbacks are product decisions, not implementation details. A feed may serve stale recommendations. A checkout flow may need an honest fast error. A risk system may be unsafe with stale data and should fail closed. A search page might drop personalization while keeping keyword search. The breaker can protect resources without a fallback, but the user experience depends on choosing the right degraded behavior.`,
+        `A breaker also reduces traffic to the dependency, which can hide partial recovery if probes are too conservative or metrics are too coarse. Operators need dashboards that distinguish dependency failure, breaker OPEN, fallback served, deadline refused, and user-visible error. Otherwise a successful containment policy can be mistaken for a new outage.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Use circuit breakers around remote calls whose slowness can exhaust caller resources: RPCs, database queries, search clusters, payment providers, identity services, personalization systems, queue producers, third-party APIs, and internal services with limited pools. The stronger the shared resource constraint, the more valuable fast refusal becomes.`,
+        `Use deadlines across request chains with user-visible budgets. API gateways, RPC clients, worker queues, database drivers, and async jobs should know when the caller no longer needs the result. This matters even for background systems: a batch job can also have a deadline if late output is useless or harmful.`,
+        `Breakers are especially useful when paired with bulkheads. A breaker reacts after evidence of sickness. A bulkhead limits how much damage that sickness can do before the breaker reacts. Together they keep one dependency path from consuming the entire process, pod, host, or queue.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `A breaker is not a retry policy. Retries add load; breakers remove load. If an OPEN breaker triggers another layer to retry immediately against the same dependency, the protection is leaking. Retries need budgets, backoff, jitter, and respect for breaker state.`,
+        `A local timeout is not a propagated deadline. Local timeouts can still leave downstream work running after the caller has gone away. The deadline must travel with the request, and cancellation must reach the actual expensive work. Canceling the wrapper while the database query continues only moves the waste out of sight.`,
+        `Breaker metrics can lie when traffic is low. A 100% failure rate over one request may not be enough evidence to open. A 40% failure rate over thousands of requests may be severe. Good trip rules use minimum volume, rolling windows, and separate treatment for slow calls, hard errors, and caller cancellations.`,
+        `Fallbacks can also be unsafe. Stale exchange rates, old inventory, cached permission checks, or default fraud scores may be worse than a fast error. The fallback ladder should be chosen per operation, tested, and documented before the incident.`,
+      ],
+    },
+    {
+      heading: `Concrete example`,
+      paragraphs: [
+        `Service B calls service C for recommendations. C starts hanging for 30 seconds because its database pool is exhausted. Without a breaker, B's workers accumulate blocked calls. Soon B cannot answer unrelated requests, and service A begins timing out while calling B. The original problem was recommendations, but the visible incident becomes a broader outage.`,
+        `With a breaker, B counts C timeouts over a short window. Once the threshold is crossed, the breaker opens. Recommendation calls return an empty module or stale cache in a few milliseconds. B's pool drains. C receives less traffic, which gives its own queue and database pool a chance to recover. After the cooldown, B allows a small HALF-OPEN probe. If it succeeds, traffic resumes gradually. If it hangs, the breaker opens again.`,
+        `Deadlines add another guard. If A sends B a request with 1000 ms of budget, and B spends 900 ms waiting in a queue, B should not ask C to do 400 ms of work. It should refuse or degrade immediately because the result cannot arrive before the user timeout. That refusal is not laziness; it is conservation of useful work.`,
+      ],
+    },
+    {
+      heading: `Operational guidance`,
+      paragraphs: [
+        `Instrument the state transitions. Each call should be traceable as normal, fallback, fast error, deadline refusal, HALF-OPEN probe, or cancellation. Store the dependency name, operation, breaker state, deadline remaining, fallback chosen, and observed latency. During review, those fields show whether the system failed open, failed closed, or contained the blast radius as designed.`,
+        `Tune breakers with load tests and failure drills, not only production intuition. Simulate hard errors, slow responses, partial failures, high latency with success, and dependency recovery. Verify that probes are bounded, retry layers do not bypass the breaker, dashboards do not page on expected fast-fails alone, and fallbacks preserve product semantics.`,
+        `Keep breaker scope narrow enough to be useful. One endpoint on a dependency may be sick while another is healthy. One tenant, region, shard, or operation may have a different failure pattern. A single global breaker can be too blunt; thousands of per-key breakers can be too complex. Choose the boundary that matches resource risk and operational understanding.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `The breaker is a Finite State Machines classic: three states, explicit transitions, context-dependent behavior—go there to see the pattern in depth. Tail Latency & p99 Thinking explains why hangs are worse than fast failures and why retrying slow requests burns down systems. Hot Rows & Append-and-Aggregate shows a death spiral in action (a single hot row drowning a database, hammered by retries) and how load removal (the breaker's gift to the dependency) breaks the cycle. Distributed Tracing is how you see the breaker and deadline in the wild—a trace showing the transition from CLOSED to OPEN, or a deadline refusal mid-call, reveals the system protecting itself. Cache Invalidation & Versioning covers serve-stale fallbacks for when the breaker is OPEN. Finally, Saga Pattern extends these ideas to multi-step operations: choreographing failure across a transaction. The resilience kit—breakers, deadlines, hedges, budgets, shedding—is where systems become reliable.`,
+        `Study Finite State Machine for the CLOSED, OPEN, and HALF-OPEN shape. Study Tail Latency and p99 Thinking to see why slow failure hurts more than fast failure. Study Retries, Backoff, and Jitter to understand how clients can either relieve or amplify an outage.`,
+        `Then study Bulkheads and Resource Isolation, Load Shedding and Graceful Degradation, Deadline Propagation, and Distributed Tracing. Those topics complete the resilience kit: isolate scarce resources, reject excess work, stop doomed work, and preserve the evidence needed to debug the incident.`,
       ],
     },
   ],
 };
-

@@ -191,41 +191,67 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why TrivialAugment exists',
       paragraphs: [
-        'TrivialAugment is a tuning-free image augmentation method. For each training image, choose exactly one augmentation operation at random, choose a magnitude bin at random, apply it, and keep the label. The surprise in the paper is that such a small baseline can compete with or outperform more elaborate automatic augmentation methods: https://arxiv.org/abs/2103.10158.',
-        'This topic follows RandAugment Policy Search. RandAugment keeps two knobs, N and M. TrivialAugment removes even those knobs from the training recipe. The remaining design choice is the augmentation space: which operations are allowed and which magnitude bins are possible.',
+        `TrivialAugment is a data augmentation method for image classification that asks an uncomfortable question: how much of the gain from automatic augmentation comes from clever policy search, and how much comes from simply applying a reasonable random transformation during training? Its rule is intentionally small. For each training image, sample one augmentation operation from a fixed catalog, sample one magnitude from a fixed set of bins, apply that one transformation, and keep the original label. There is no controller, no reinforcement-learning search, no learned schedule, and no dataset-specific tuning loop for the number of operations or their strength.`,
+        `That simplicity matters because augmentation research had accumulated a lot of machinery. AutoAugment searched for policies over operations, probabilities, and magnitudes. RandAugment simplified the space, but still left two important knobs: how many operations to apply and how strong they should be. TrivialAugment removes those knobs and keeps only the augmentation space itself. The paper's central result is not that randomness is magic. It is that a brutally simple baseline can be strong enough that more expensive policy-search methods must prove their additional cost with clean evidence.`,
+        `The method exists to discipline experimentation. If a cheap tuning-free baseline gives most of the benefit, then a complex augmentation system is no longer automatically impressive. It has to beat variance, extra compute, implementation risk, and the maintenance burden of carrying a policy-search pipeline. That makes TrivialAugment useful even when it is not the final method: it is the first serious baseline a vision training recipe should have to beat.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach and the wall',
       paragraphs: [
-        'The algorithm samples one operation from a predefined catalog such as rotate, shear, translate, color, contrast, posterize, solarize, or cutout-style transforms. It then samples a magnitude bin for that operation. Because only one transform is applied per image, the method is cheap and easy to implement. The official repository describes it as a simple state-of-the-art performing augmentation algorithm: https://github.com/automl/trivialaugment.',
-        'The deeper lesson is baseline discipline. If a parameter-free random baseline works well, then complicated augmentation search must prove it is worth the extra search cost, implementation complexity, and benchmark variance. The simple method becomes a strong floor for future claims.',
+        `The naive approach to augmentation is manual recipe design. A practitioner decides that images should sometimes be cropped, flipped, rotated, color-shifted, or blurred, then tunes the exact probabilities and strengths by validation performance. That can work, but it turns preprocessing into a pile of hidden hyperparameters. Worse, the recipe often becomes dataset folklore: the settings that worked for one benchmark get copied elsewhere without checking whether the label-preserving assumptions still hold.`,
+        `Automatic augmentation tried to remove some of that hand design by searching over policies. The wall is cost and brittleness. A search method must train many candidate policies or proxy models, then transfer a selected policy to the final training run. Even when the search is cheaper than full training, it adds more moving parts than the underlying idea seems to deserve. If final gains are small, they can disappear under seed variance, different model sizes, different data preprocessing, or a slightly changed augmentation implementation.`,
+        `RandAugment was an important simplification because it removed policy probabilities and schedules. It kept a single shared magnitude and a count of operations per image. TrivialAugment pushes the reduction further. It says: before tuning operation count and magnitude, ask whether the operation catalog alone already gives enough useful stochasticity. If it does, then the optimization wall was partly self-inflicted.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'The runtime cost is one image transform per training sample, usually inside the input pipeline. There is no proxy-task controller, no learned policy, and no tuning loop for N or M. That makes TrivialAugment attractive when you want a robust augmentation default before spending search budget. The simplicity also makes ablations cheap: compare no augmentation, RandAugment, and TrivialAugment under the same seeds and budget before claiming policy search helps. NVIDIA DALI documents TrivialAugment as a parameter-free scheme where each sample receives one randomly selected augmentation and magnitude bin: https://docs.nvidia.com/deeplearning/dali/user-guide/docs/auto_aug/trivial_augment.html.',
+        `The core idea is that the augmentation space is the policy. A catalog contains operations such as identity, shear, translate, rotate, brightness, color, contrast, sharpness, posterize, solarize, equalize, autocontrast, and cutout-style masking. For each training example, the algorithm samples one operation uniformly and samples one magnitude bin uniformly from the allowed bins for that operation. It applies that transformation and sends the result to the learner with the same label.`,
+        `This is not the same as saying every transformation is equally safe. The operation catalog is a human-designed hypothesis about invariances in the data. A small rotation should not change whether a natural image contains a dog. A moderate color shift usually should not change whether a photograph contains a truck. But those assumptions are domain-dependent. Rotating a digit can turn a six into something closer to a nine. Cropping a medical scan can remove the evidence. Color changes can destroy signals in pathology or satellite imagery. TrivialAugment removes tuning, not judgment.`,
+        `The method's appeal comes from separating two questions that are often blurred together. First, do random label-preserving views improve generalization? Second, do we need a searched policy to choose those views? TrivialAugment answers the second question with a strong default: try the simplest random policy before paying for search.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'TrivialAugment is useful as a default image-classification augmentation baseline, a cheap competitor to RandAugment, and a sanity check for expensive augmentation research. Torchvision includes TrivialAugmentWide as a dataset-independent transform inspired by the paper: https://docs.pytorch.org/vision/main/generated/torchvision.transforms.TrivialAugmentWide.html.',
+        `A typical implementation starts by defining a fixed number of magnitude bins, often thirty-one in the wide version used by libraries. Each operation maps a bin index to an operation-specific strength. For rotation, a high bin means a larger angle. For translation, it means a larger pixel shift. For posterize, the direction of the mapping may be less intuitive because fewer bits means a stronger effect. Some operations, such as equalize or autocontrast, may ignore magnitude entirely. The algorithm can still sample a bin for every operation because the operation itself decides how to interpret it.`,
+        `During training, the input pipeline receives an image. It samples an operation from the catalog. It samples a magnitude bin. It applies the transformation. The transformed image is normalized and batched like any other training example. Nothing about the model architecture changes. The loss function does not know whether the view came from a hand-tuned crop recipe, RandAugment, TrivialAugment, or no augmentation at all.`,
+        `The method is cheap because it performs one image edit per sample. There is no outer loop that searches for a policy. There is no validation controller updating augmentation probabilities. There is no need to train a smaller proxy model first. The main operational concern is whether the input pipeline can keep the accelerators fed. If augmentation runs on CPU and becomes the bottleneck, the training job can slow down even though the algorithm itself is conceptually simple. Frameworks such as Torchvision and NVIDIA DALI provide implementations because the engineering details still matter at scale.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it can work',
       paragraphs: [
-        'Tuning-free is not domain-free. A transform that preserves labels on natural images can break labels for medical scans, digits, traffic signs, satellite imagery, or quality-control photos. The augmentation catalog must still be reviewed. Also, do not apply augmentation before splitting data; near-duplicate transformed samples can leak across train and validation, exactly as Data Leakage & Contamination warns.',
+        `TrivialAugment works when the catalog contains transformations that preserve the class while changing nuisance details. A classifier should not memorize that a dog class only appears under a certain brightness, crop, or color balance. Random transformations force the model to learn features that survive those changes. This is ordinary regularization, but applied through the data distribution rather than through the weights.`,
+        `The one-operation rule also avoids some failure modes of stacking many transformations. If every image receives several strong edits, the training distribution can drift too far from the test distribution. A single random edit gives diversity without always producing heavily distorted views. It also makes the effect easier to reason about. When performance drops, you can inspect the operation catalog and magnitude bins instead of debugging a long policy sequence.`,
+        `The deeper reason it can compete with searched methods is that the marginal value of precise policy choice may be smaller than expected. Once the catalog contains useful invariances, a model sees many different views across epochs. The learner does not need the optimal transform on every image. It needs enough plausible variation to avoid brittle shortcuts. In that regime, random coverage of the augmentation space can be surprisingly effective.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it is used',
       paragraphs: [
-        'Primary and official sources: TrivialAugment paper at https://arxiv.org/abs/2103.10158, official implementation at https://github.com/automl/trivialaugment, NVIDIA DALI TrivialAugment docs at https://docs.nvidia.com/deeplearning/dali/user-guide/docs/auto_aug/trivial_augment.html, and Torchvision TrivialAugmentWide docs at https://docs.pytorch.org/vision/main/generated/torchvision.transforms.TrivialAugmentWide.html. Study RandAugment Policy Search, Contrastive Learning: SimCLR, Dropout, Regularization, Data Leakage & Contamination, and Benchmark Variance & Model Selection next.',
+        `TrivialAugment is most useful as an image-classification default and as a research baseline. If a paper proposes a new automatic augmentation method, it should compare against no augmentation, conventional crop-and-flip recipes, RandAugment, and TrivialAugment under matched training budgets. If the new method only beats weak baselines, the claim is incomplete.`,
+        `In production work, it is useful during early model development. Teams often need a robust training recipe before they have time to run large sweeps. TrivialAugment gives a low-tuning way to test whether stronger augmentation helps at all. It is also attractive for repeated training pipelines where dataset shifts happen often, because fewer knobs mean fewer stale settings to retune after every data refresh.`,
+        `It is less natural for domains where transformations must be physically or semantically constrained. Medical imaging, industrial inspection, remote sensing, OCR, geospatial mapping, and fine-grained product recognition all require a more careful invariance audit. TrivialAugment can still be used there, but the catalog should be narrowed to transformations that domain experts agree preserve the target label.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study ordinary data augmentation first: random crops, flips, color jitter, Cutout, MixUp, and RandAugment. Then study validation leakage and distribution shift, because augmentation policies can quietly improve benchmark numbers while harming the target distribution.',
+        'For model-selection context, study calibration, robustness benchmarks, AutoAugment, RandAugment, and ablation design. The lasting lesson is that augmentation is a distribution-design choice, not decoration around the training loop.',
+      ],
+    },
+    {
+      heading: 'Failure modes and tradeoffs',
+      paragraphs: [
+        `The biggest failure mode is label corruption. If an operation changes the class, the model is trained on noisy labels. This can be subtle. A traffic sign classifier may depend on orientation. A medical label may depend on a small structure that cutout removes. A satellite class may depend on color bands that ordinary photo augmentations distort. Tuning-free does not mean validation-free; the catalog is still a scientific claim about the data.`,
+        `The second failure mode is data leakage. Augmentation must happen inside the training pipeline after the train-validation-test split. If augmented near-copies are generated first and then split, validation examples can become transformed siblings of training examples. That makes performance look better without improving generalization. Data Leakage and Contamination is the right companion topic because augmentation pipelines are a common source of accidental leakage.`,
+        `The main tradeoff is between simplicity and adaptivity. TrivialAugment has almost no search cost and few knobs, but it cannot learn that some operations are especially useful for a dataset or that some classes are harmed by certain transformations. Searched policies can, in principle, adapt more precisely. The engineering question is whether that precision is worth the complexity. A good workflow treats TrivialAugment as the floor: if a more complicated method cannot beat it by more than noise under honest evaluation, the simple method wins.`,
+        `Study the original TrivialAugment paper at https://arxiv.org/abs/2103.10158, the official implementation at https://github.com/automl/trivialaugment, Torchvision TrivialAugmentWide, and NVIDIA DALI's auto-augmentation docs. Then study RandAugment Policy Search, Contrastive Learning: SimCLR, Dropout, Regularization, Data Leakage and Contamination, and Benchmark Variance and Model Selection. Those topics explain the larger lesson: augmentation is not just image editing; it is a claim about invariance, evaluation discipline, and the cost of tuning.`,
       ],
     },
   ],

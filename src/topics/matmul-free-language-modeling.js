@@ -226,42 +226,67 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Scalable MatMul-free Language Modeling asks a direct question: can a language model remove dense matrix multiplication from its main architecture while keeping competitive quality? Matrix multiplication dominates Transformer attention and feed-forward layers. It also dictates hardware economics, because GPUs and TPUs are built around dense matmul throughput.',
-        'The paper proposes a MatMul-free LM built around ternary weights, quantized activations, a MatMul-free Linear GRU token mixer, and a MatMul-free GLU-style channel mixer using BitLinear layers. The goal is not merely to store a normal Transformer in fewer bits. The goal is to change the primitive operations the model uses.',
+        `Modern language models are built around repeated linear projections. In a Transformer block, attention projects tokens into queries, keys, and values, then the feed-forward network applies large dense matrices to every token. Those matrix multiplications are exactly what current accelerators are good at, but they also define the energy, memory bandwidth, kernel design, and serving economics of the model.`,
+        `MatMul-free language modeling asks whether that dependency is fundamental. The paper is not asking whether a trained Transformer can be compressed after the fact. It asks whether the architecture itself can be rebuilt so the main token and channel mixing operations avoid dense floating-point matrix multiplication, while still learning useful language representations at large scale.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Ternary weights restrict parameters to -1, 0, and +1. That turns multiplication into subtract, skip, or add. Activations are quantized, commonly to low precision, and RMSNorm helps stabilize the scale. Because quantization and ternary projection are not normally differentiable, training uses straight-through estimator style gradients so backpropagation can still update the underlying parameters.',
-        'The token mixer is MLGRU, a simplified recurrent unit that avoids dense matmul-heavy self-attention. The channel mixer uses BitLinear layers and gating to replace dense feed-forward blocks. The local corpus writeup emphasizes fused BitLinear: perform normalization, quantization, and ternary accumulation with fewer trips through memory. That is exactly the kind of kernel detail that decides whether an architecture is practical.',
+        `The reasonable first attempt is to keep the Transformer and make its matrices cheaper. Quantize activations and weights. Use sparsity. Fuse kernels. Batch requests so tensor cores stay full. This is not a weak baseline; it is the reason dense Transformers became practical at all. The hardware, compilers, and serving stacks already know how to multiply dense tiles extremely fast.`,
+        `The wall is that these techniques usually keep the same operation shape. A quantized matrix multiply is still a matrix multiply. A sparse matrix multiply can lose regularity and become bandwidth-bound. A smaller dense model may save compute but also lose capacity. If the goal is to run language models on cheaper, colder, or more specialized hardware, improving dense matmul may not be enough. The operation mix itself becomes the design target.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The promise is lower memory traffic and simpler arithmetic. The paper reports strong scaling behavior up to billion-parameter models, large memory reductions in optimized implementations, and a custom FPGA demonstration. The risk is that modern accelerators are extraordinarily good at dense matmul. Removing matmul helps only if the replacement operations map well to actual hardware and do not lose too much model quality.',
-        'This is why the topic belongs next to Transformer Inference Roofline. A change in arithmetic changes the roofline point, but it may expose another bottleneck: memory bandwidth, kernel launch overhead, recurrence scheduling, or custom hardware constraints. The win must be measured end to end, not inferred from fewer multiplies alone.',
+        `The core move is to restrict many learned weights to the ternary set {-1, 0, +1}. Multiplication by +1 is addition, multiplication by -1 is subtraction, and multiplication by 0 is a skipped contribution. The dot-product shape is still recognizable, but the arithmetic units and weight storage no longer look like ordinary floating-point matmul.`,
+        `That restriction alone would not make a language model. The architecture still needs two jobs: mix information across tokens and transform channels inside each token representation. MatMul-free LM pairs a MatMul-free Linear GRU token mixer with BitLinear-based channel mixing and GLU-style gates. The model keeps normalization, residual structure, gating, and training dynamics, but it changes the expensive primitive underneath those components.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'MatMul-free models are research-stage, but the direction matters for edge inference, battery-limited devices, low-cost serving, specialized accelerators, and the economics of LLM deployment. If language modeling can tolerate ternary weights and recurrent token mixing at scale, future hardware may optimize for additions, bit operations, compact memory layouts, and fused low-precision kernels rather than only larger dense tensor cores.',
+        `A BitLinear layer begins by normalizing the input activation, commonly with RMSNorm, so the following low-precision arithmetic has a stable scale. Activations are quantized. The weight side is represented with ternary values. Accumulation becomes a sequence of adds, subtracts, and skips, followed by the scale factors needed to bring the result back into the residual stream.`,
+        `Training needs a bridge around the fact that ternary projection is not smoothly differentiable. Like many quantization-aware systems, the method keeps trainable underlying parameters and uses straight-through estimator style gradients so optimization can move the hidden real-valued weights even though the forward pass uses restricted values. The trick is not that gradients become exact; the trick is that the noisy approximation is good enough for learning when the architecture, normalization, and scale are arranged around it.`,
+        `For token mixing, MLGRU removes the dense hidden-state matrix work that makes ordinary recurrent units expensive. For channel mixing, BitLinear and gating replace the Transformer feed-forward block. Fused kernels matter because a naive implementation could spend the saved multiplications on extra memory reads and writes. The useful implementation tries to fuse normalization, quantization, ternary accumulation, and scaling so the data moves through the memory hierarchy once instead of bouncing between kernels.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it can work',
       paragraphs: [
-        'MatMul-free does not mean computation-free. It means the dominant primitive changes. Addition, subtraction, gating, recurrent state updates, quantization, and memory movement still cost real time and energy. Another misconception is that this is just ordinary Quantization or Structured Pruning and N:M Sparsity. Those compress a model or mask; MatMul-free language modeling redesigns the model around quantized, ternary-friendly components. Quality comparisons also need scale, data, training recipe, and hardware context.',
+        `There is no simple correctness proof like there is for binary search. This is a learned architecture, so the argument is about representational capacity and optimization behavior. The invariant is that every block must still provide token mixing, channel mixing, nonlinearity, gating, and residual information flow. If those roles are preserved, the network may learn to compensate for restricted weights by distributing information differently across width, depth, gates, and normalization.`,
+        `The paper's scaling claim is important for this reason. A tiny ternary model can look bad because the constraint removes too much freedom. At larger scale, redundancy can help: many cheap constrained operations may approximate the useful behavior of fewer expensive dense operations. That does not prove equivalence to a Transformer, but it explains why the research question becomes more plausible as model size grows.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Primary sources: Scalable MatMul-free Language Modeling at https://arxiv.org/abs/2406.02528 and the implementation at https://github.com/ridgerchu/matmulfreellm. For related efficiency ideas, study BitNet at https://arxiv.org/abs/2310.11453 and the roofline model at https://dl.acm.org/doi/10.1145/1498765.1498785. Study Quantization, Structured Pruning and N:M Sparsity, FNet Fourier Token Mixing Case Study, RWKV Recurrent Transformer, Selective State Space Models: Mamba, Transformer Inference Roofline, KV Cache, and Gradient Flow next.',
+        `The headline savings come from compact weights, simpler arithmetic, and lower memory traffic. A ternary weight can be represented with far fewer bits than a floating-point weight, and zero weights skip work entirely. If the kernel is fused well, fewer bytes move through memory and fewer expensive arithmetic units are needed per token.`,
+        `The hidden costs are just as real. Recurrent token mixing may change parallelism across sequence positions. Quantization and scaling add bookkeeping. Custom kernels add engineering risk. On GPUs, dense matmul benefits from years of hardware and compiler investment, so a theoretically cheaper operation can lose if it maps poorly to the machine. On FPGAs or future specialized accelerators, the balance may change because additions, bit-level storage, and simple datapaths can be designed directly into the hardware.`,
+        `This is why the right comparison is end to end: quality at a fixed training budget, latency at realistic batch sizes, memory use under the serving stack, and energy on the target device. Counting fewer multiplies is only a proxy. The bottleneck may move to memory bandwidth, recurrence scheduling, kernel launch overhead, or the cost of keeping enough model capacity after the weight restriction.`,
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        `The strongest use case is not a cloud GPU fleet that already runs dense Transformer kernels near peak utilization. The interesting use case is the frontier around edge inference, battery-limited devices, local assistants, low-cost serving, privacy-preserving offline models, and custom accelerators where dense tensor cores are not the only possible hardware story.`,
+        `It is also useful as a research lens. MatMul-free LM forces a precise question: which parts of the Transformer are essential, and which parts are artifacts of the hardware we optimized around? If token mixing can be recurrent, if channel mixing can use ternary projections, and if low-precision gates can preserve quality, then some future language models may be co-designed with hardware in a deeper way than ordinary post-training compression allows.`,
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        `MatMul-free is not a drop-in replacement for every pretrained Transformer. You cannot usually take an arbitrary dense checkpoint, replace all matrices with ternary weights, and expect the same behavior. The architecture and training recipe are part of the claim. Data, scale, optimizer details, normalization, kernel quality, and evaluation tasks all matter.`,
+        `It is also not the same as quantization, pruning, or sparsity. Quantization changes numeric precision. Pruning removes selected weights or structures. N:M sparsity constrains local sparsity patterns so hardware can skip work. MatMul-free language modeling changes the architecture around operations that are intended to avoid dense matrix multiplication in the first place. Those ideas are related, but they answer different engineering questions.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Scalable MatMul-free Language Modeling at https://arxiv.org/abs/2406.02528 and its implementation at https://github.com/ridgerchu/matmulfreellm. The next topics to study are Quantization for low-precision training and inference, Structured Pruning and N:M Sparsity for hardware-friendly skipping, Transformer Inference Roofline for the bytes-versus-FLOPs view, RWKV Recurrent Transformer and Selective State Space Models: Mamba for alternatives to attention, and Gradient Flow for the training-side reason straight-through estimators are both useful and risky.`,
       ],
     },
   ],

@@ -224,45 +224,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'IndexedDB is the browser database API for structured client-side data. It gives a web origin one or more databases, each database contains object stores, and each object store contains records addressed by keys. That makes it a direct browser-facing case study in ordered dictionaries, secondary indexes, transactions, serialization, quota, and offline-first application design.',
-        'The Indexed Database API 3.0 specification defines records as key-value pairs and defines indexes over the stored records: https://www.w3.org/TR/IndexedDB/. MDN describes IndexedDB as a low-level API for significant structured client-side data and notes that it can store objects supported by the structured clone algorithm: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API.',
+        "A serious web app needs storage that survives reloads, works offline, and answers more than one query shape. An in-memory Map disappears when the page closes. localStorage gives synchronous string slots, which is useful for small settings but wrong for large structured data. IndexedDB exists because browser apps sometimes need a real local database.",
+        "The Indexed Database API models data as records with keys and values, object stores, indexes, transactions, key ranges, cursors, and schema versions. That makes it a data-structure topic, not just a browser API. A local-first editor, mail client, map app, or analytics console can keep durable structured state near the user while the network is slow, unavailable, or deliberately avoided.",
       ],
     },
     {
-      heading: 'Data structure model',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core abstraction is an ordered object store. MDN\'s IDBObjectStore reference states that records in an object store are sorted according to their keys: https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore. The W3C spec also says an indexed database can be implemented with a persistent B-tree, but the exact browser implementation is not the contract. The contract is the behavior: key lookup, key range scan, cursor iteration, and secondary-index lookup.',
-        'An index is an alternate sorted projection over the object store. You might store documents by primary key id, then index by updatedAt for recent documents, by ownerId for a user view, or by syncStatus for a pending queue. That is Database Indexing in the browser: every index speeds a query but adds write cost, schema cost, and migration risk.',
+        "The first design most people try is one JSON blob. Load the whole app state, mutate it in JavaScript, stringify it, and write it back. That works for a tiny todo list. It feels simple because there is only one persistence path and no schema migration plan.",
+        "The blob breaks as soon as the app needs pagination, offline replay, partial updates, multiple tabs, or search by a secondary field. Every edit rewrites too much. Every query scans too much. A crash between mutation and write can lose too much. The browser main thread can also pay for serialization at exactly the moment the UI needs to stay responsive.",
       ],
     },
     {
-      heading: 'Transactions and versions',
+      heading: 'The wall',
       paragraphs: [
-        'Every read or write runs inside a transaction with a scope and a mode. A readonly transaction can read stores consistently. A readwrite transaction can change records and abort as a group if something fails. Schema changes happen during a versionchange upgrade, where code can create object stores and indexes. Old open tabs matter because they can block an upgrade until those older connections close.',
-        'The practical data-structure lesson is that browser storage has concurrency rules. You are not mutating a JavaScript Map in memory; you are asking an asynchronous database to schedule work across tabs, workers, service workers, transactions, storage quota, and browser shutdown.',
+        "The wall is access paths. A browser database is useful only if the app can reach the needed records without materializing everything. A recents view wants order by updatedAt. A detail view wants exact lookup by id. A sync engine wants pending mutations by status and sequence. One blob gives none of those paths.",
+        "Indexing everything is not the answer either. Each index is another ordered projection the browser must maintain on writes and migrate during upgrades. Good IndexedDB schema starts from questions: which exact lookup, which range scan, which cursor page, which queue drain, and which count must be fast? The stores and indexes should match those questions.",
       ],
     },
     {
-      heading: 'Complete case study: offline document editor',
+      heading: 'Core model',
       paragraphs: [
-        'A robust offline editor keeps a docs object store keyed by document id, an index on updatedAt for recents, an index on syncStatus for pending changes, and an outbox object store keyed by monotonically increasing mutation id. The UI reads from IndexedDB immediately, so reloads and airplane mode still show documents. Edits update docs and append outbox mutations in the same readwrite transaction.',
-        'A Web Worker can own heavier persistence and query work so large structured clones, compression, search indexing, or conflict preparation do not block the page. Structured Clone & Transferables explains the serialization boundary IndexedDB shares with worker messages. OPFS Origin Private File System covers the byte-addressed file path for embedded databases and large project files. A Service Worker can keep the shell available and can participate in replay, while Background Sync Outbox Queue turns the outbox store into a retryable sync path. Study Local-First Sync Engine Case Study, Web Workers: A Second Thread, Service Workers & Offline-First, Cache Storage Versioned Precache, OPFS Origin Private File System, Write-Ahead Log, and Message Queue next because this is the browser version of durable append-and-retry.',
+        "The core abstraction is an ordered object store. Each record has a key and a value. The key is the durable address and the main sort axis. The value is structured data copied through the structured clone algorithm, not a live object reference into the JavaScript heap.",
+        "An index is an alternate sorted projection over records in an object store. A document can be keyed by id while an updatedAt index supports a recents view and a syncStatus index supports a pending-sync view. The same stored record becomes reachable through several ordered routes. The invariant is that writes must keep the primary store and every affected index consistent within the transaction.",
       ],
     },
     {
-      heading: 'Cost and pitfalls',
+      heading: 'Keys, ranges, and cursors',
       paragraphs: [
-        'The common mistake is treating IndexedDB like unlimited localStorage. Structured clone has a cost, large objects can be awkward, indexes add write amplification, migrations can strand old tabs, and quota can fail writes. Browser Storage Quota & Eviction Manager expands the quota ledger and recovery paths. MDN documents storage quotas and eviction criteria for browser storage, including the distinction between best-effort and persistent storage: https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria.',
-        'Another mistake is indexing everything. Each index is a second ordered structure that must be maintained when records change. Good IndexedDB schema design starts from access paths: exact lookup by id, bounded range by time, pending queue by status, cursor for pagination, and only then the object stores and indexes.',
+        "Keys are not incidental metadata. They determine lookup and order. A key path can extract the key from the stored value, such as id. A key generator can create monotonically increasing keys. Compound keys can encode a query path, such as [projectId, updatedAt], when the app needs ordered records inside a partition.",
+        "Key ranges turn sorted order into an API. A range can mean one key, a bounded interval, all keys after a prefix-like lower bound, or all pending operations after a sequence number. Cursors matter because they let the app walk that range gradually, update UI progressively, stop after a page, or process a queue without pulling the whole result set into memory.",
+      ],
+    },
+    {
+      heading: 'Transactions and upgrades',
+      paragraphs: [
+        "Every useful read or write happens inside a transaction. A readonly transaction gives a consistent view over its scope. A readwrite transaction changes records as a group or aborts them as a group. That group boundary is the difference between local durability and a pile of race-prone callback code.",
+        "Schema upgrades are versioned. Opening a higher database version runs a versionchange transaction where stores and indexes can be created, deleted, or migrated. Old open tabs can block the upgrade. Production IndexedDB code needs blocked and versionchange handling, because the user may have several tabs from different app versions open at once.",
+      ],
+    },
+    {
+      heading: 'Offline sync pattern',
+      paragraphs: [
+        "An offline-first app usually keeps at least two stores: the current local view and a durable outbox. When the user edits a document, the app writes the document update and appends a replayable mutation in one transaction. The UI can continue immediately, but the sync engine has an explicit record of what must reach the server.",
+        "The atomic boundary matters. If the document update lands without the outbox row, the app can lose sync intent. If the outbox row lands without the document update, replay describes a change the user cannot see locally. IndexedDB is useful here because it lets the app commit both facts together and drain them later through a service worker or foreground sync loop.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        "Imagine a local-first notes app. The docs store is keyed by document id. It has an updatedAt index for the recents list and a projectId, updatedAt compound index for project pages. The outbox store is keyed by mutation sequence. It has a status index so the sync worker can find pending operations quickly.",
+        "When a user edits a note offline, the app opens a readwrite transaction over docs and outbox. It updates the note, records a mutation with an idempotency key, and commits. Later, the sync worker opens a cursor over pending outbox entries, sends them to the API, records acknowledgments, and updates local documents with server versions or conflict markers. The same database supports UI reads and durable replay because the access paths were designed together.",
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "IndexedDB works because it gives the browser app ordered durable records plus transaction scope. Ordered keys make range scans and cursor pagination possible. Secondary indexes make alternate lookup orders possible. Transactions keep related changes from being partially committed. Structured clone turns JavaScript values into stored snapshots instead of shared mutable references.",
+        "The correctness argument for an app is schema-specific. If every user-visible mutation and every sync-intent record are committed in the same transaction, the sync engine can recover after a crash. If every screen query has a matching store or index, the UI can avoid whole-database scans. If every schema upgrade is versioned, old data can move forward deliberately instead of being guessed at runtime.",
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "IndexedDB is asynchronous, but it is not free. Structured clone copies data. Large values can create memory pressure and latency. Indexes add write amplification because each indexed field must be maintained. Long cursor operations can keep resources alive. Large migrations can block startup. Quota limits can reject writes, and browsers may evict best-effort storage under pressure.",
+        "The browser also owns scheduling. Requests complete later through events or promises, and transaction lifetimes depend on the event loop. A design that opens a transaction and then waits on unrelated async work can accidentally let the transaction finish before the next operation. Good IndexedDB code keeps transaction work tight and moves expensive parsing, compression, or conflict preparation into workers when needed.",
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        "IndexedDB wins for structured client-side data, offline workflows, large local caches, search indexes, media metadata, map tiles, local-first documents, and durable mutation queues. The fit is strongest when queries are key-shaped or range-shaped and the app can name its access paths ahead of time.",
+        "It is also the right tool when storage must be available in workers. MDN notes that IndexedDB is available in Web Workers, which lets an app keep heavy persistence work away from the main UI path. A worker can own database access, batch writes, compact old records, and coordinate sync without blocking pointer input or rendering.",
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "IndexedDB is not an unlimited file system, a relational database with joins, or a replacement for server reconciliation. It does not make conflicts disappear. It does not remove the need for export, backup, quota handling, or clear-data recovery. For file-like byte storage, OPFS may be a better fit. For small preferences, localStorage or cookies may be simpler.",
+        "Common mistakes are storing one giant blob, creating indexes for every field, forgetting multi-tab upgrades, ignoring QuotaExceededError, keeping critical data only in best-effort storage, using non-idempotent outbox mutations, and assuming cursor order matches business order without a key that encodes it.",
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        "Start with a query inventory. Write down every screen and worker job that needs data: get document by id, list recent documents, list project documents by update time, find pending mutations, count failed sync attempts, and delete old cache entries. Build stores and indexes only for those paths.",
+        "Treat upgrades like migrations, not initialization. Test old-version databases, blocked tabs, failed upgrades, retry behavior, and downgrade assumptions. Keep mutation records idempotent. Store enough server acknowledgment metadata to know whether a replay is safe. Use navigator.storage.estimate and persistence requests where justified, but design for the user or browser deleting origin data.",
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary references: Indexed Database API 3.0 at https://www.w3.org/TR/IndexedDB/, MDN IndexedDB API at https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API, IDBObjectStore at https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore, IDBIndex at https://developer.mozilla.org/en-US/docs/Web/API/IDBIndex, IDBKeyRange at https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange, IDBCursor at https://developer.mozilla.org/en-US/docs/Web/API/IDBCursor, and the structured clone algorithm at https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm.',
-        'Practical web platform companions: web.dev on working with IndexedDB at https://web.dev/articles/indexeddb, web.dev on storage choices at https://web.dev/articles/storage-for-the-web, and the WHATWG Storage Standard at https://storage.spec.whatwg.org/. Study B-Trees, Database Indexing, Local-First Sync Engine Case Study, Service Workers & Offline-First, Cache Storage Versioned Precache, OPFS Origin Private File System, Browser Storage Quota & Eviction Manager, Background Sync Outbox Queue, Web Push Subscription Delivery, Web Workers: A Second Thread, Structured Clone & Transferables, Browser Message Channels & Broadcast Coordination, Web Locks API Lock Manager, Cache Invalidation & Versioning, and WebAssembly Linear Memory Case Study next.',
+        "Primary references: Indexed Database API 3.0 at https://www.w3.org/TR/IndexedDB/, MDN IndexedDB API at https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API, IDBObjectStore at https://developer.mozilla.org/en-US/docs/Web/API/IDBObjectStore, IDBIndex at https://developer.mozilla.org/en-US/docs/Web/API/IDBIndex, IDBKeyRange at https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange, IDBCursor at https://developer.mozilla.org/en-US/docs/Web/API/IDBCursor, and storage quotas at https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria.",
+        "Study B-Trees and Database Indexing for the ordered-access model. Study Local-First Sync Engine, Background Sync Outbox Queue, Service Workers, Web Workers, Structured Clone Transferable Objects, Browser Message Channels, Web Locks API Lock Manager, OPFS Origin Private File System, Cache Storage Versioned Precache, and Browser Storage Quota Eviction Manager for production browser storage design.",
       ],
     },
   ],

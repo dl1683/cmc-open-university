@@ -174,6 +174,41 @@ export const article = {
       ],
     },
     {
+      heading: `How the visual model teaches it`,
+      paragraphs: [
+        `In the first view, ignore the hidden accuracy curve at first and count trials projected onto the learning-rate axis. Grid spends nine runs but only tests three distinct learning rates; random spends the same nine runs and tests nine. That projection is the whole reason random search is a serious baseline.`,
+        `In the smarter-search view, separate two questions. Bayesian optimization asks what to try next by balancing predicted score and uncertainty. Successive halving asks how long a weak candidate deserves to train. Real AutoML systems often combine both, then report the search budget because tuning itself can overfit validation.`,
+      ],
+    },
+    {
+      heading: `The obvious approach`,
+      paragraphs: [
+        `The obvious approach is grid search. Pick a few values for each knob, train every combination, and choose the best validation score. That feels fair and organized, but it wastes budget when only a few dimensions matter. A 3 by 3 grid in two dimensions tests only three learning rates, even though learning rate may be the dominant knob.`,
+        `The other naive approach is manual tuning. Try a setting, look at the curve, change a knob, and repeat. That can work for experts, but it is hard to reproduce and easy to overfit to a favorite validation slice. A serious search treats the trial budget as part of the experiment.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `Hyperparameter search is expensive black-box optimization. You cannot take a gradient through "train a model and score it later" in the simple way gradient descent updates weights. The search strategy has to decide where to spend trials under noise, partial information, and limited budget.`,
+        `Random search is strong because many spaces are sparse in importance. If one or two knobs matter and the rest barely move the score, random sampling gives more distinct values on the important axes than a grid with the same trial count.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `Random search works by preserving projection coverage. In a grid, many trials differ only along dimensions that may not matter, so the important dimension receives few distinct values. Independent random draws give every trial a new chance to land near a good value on each important axis.`,
+        `Bayesian and halving methods work by using evidence rather than treating every trial equally. Bayesian optimization spends the next trial where the model predicts high value or high uncertainty. Successive halving spends little budget on many candidates and moves real budget only to survivors. Both are ways to buy more information per unit of training cost.`,
+      ],
+    },
+    {
+      heading: `Complete case study`,
+      paragraphs: [
+        `A team tunes a classifier with learning rate, weight decay, dropout, depth, and batch size. A full grid is impossible. They start with random log-scale sampling for learning rate and weight decay, wide ranges for dropout and depth, and cross-validation on a fixed split plan. The first pass finds that learning rate dominates.`,
+        `The second pass narrows learning rate, keeps the test set sealed, and uses successive halving to stop bad configurations early. The final report includes the winning config, the search space, the number of trials, failed runs, validation variance, and the untouched test score. That report is the artifact that makes the result credible.`,
+      ],
+    },
+    {
       heading: `Cost and complexity`,
       paragraphs: [
         `Grid cost is k^d full trainings. Random cost is exactly the number of sampled trials. Bayesian optimization adds surrogate fitting, often O(n^3) for a Gaussian process, but n is usually small compared with model-training cost. Hyperband and halving spend unevenly, giving cheap tests to many configs and real budget only to survivors. The accounting must include failed runs too; a leaderboard result that ignores the search bill is not an honest engineering number.`,
@@ -189,6 +224,28 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `Always report the search budget. A 94% model after nine trials and a 94% model after 9,000 trials are not the same claim. Every trial is also another chance to overfit validation, the forking-paths danger from A/B Testing & p-values and Multiple Testing & False Discoveries. Use log scales for magnitude knobs, keep the test set sealed, and beat random before celebrating fancy search. Be careful with slow starters: aggressive halving can kill a configuration that needs warmup before it shines.`,
+      ],
+    },
+    {
+      heading: `Operational signals`,
+      paragraphs: [
+        `Track trial id, config, seed, data version, code version, training budget, early-stop reason, validation score, score variance, runtime, memory, and failure mode. A tuning run without that ledger cannot be audited or resumed intelligently.`,
+        `Also track marginal value of additional trials. If the best score has not improved after many trials and variance is larger than the gain, the right move may be to improve data or evaluation rather than keep searching the same space.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `Search fails when the space is badly designed. If the best learning rate is outside the chosen range, no search strategy can find it. If all values are sampled linearly for a knob that spans orders of magnitude, most trials waste resolution in the wrong place.`,
+        `It also fails when the validation protocol is weak. A search can exploit noise, benchmark quirks, or data leakage because every trial is another chance to get lucky. That is why the final test set must stay sealed and why repeated searches should be reported honestly.`,
+      ],
+    },
+    {
+      heading: `What to remember`,
+      paragraphs: [
+        `Hyperparameter search is part of the model claim. The result depends on the space, budget, random seeds, evaluation protocol, and early-stopping rule. Report those details or the score is not comparable.`,
+        `For course design, teach random search before Bayesian optimization. Students should understand why grid wastes projections, why log scales matter, and why the test set stays sealed until the search is complete.`,
+        `The best search strategy cannot rescue a bad measurement. Before spending hundreds of trials, make sure the validation set reflects the real task, the baseline is strong, and the score variance is small enough that improvements are meaningful.`,
       ],
     },
     {

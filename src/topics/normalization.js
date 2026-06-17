@@ -181,42 +181,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `BatchNorm and LayerNorm keep layer activations in a usable numerical corridor. The first view shows why this matters: if each layer scales activations by 1.75, layer 8 is about 50x too large; if each scales by 0.55, the signal nearly disappears by layer 6. Vanishing & Exploding Gradients is the backward version of the same compounding problem. Normalization measures activations, standardizes them, then learns scale gamma and shift beta so expressiveness is preserved instead of forced into a fixed standard normal shape.`,
+        'Deep networks fail when the numbers inside them drift out of range. If each layer makes activations a little larger, later layers saturate and gradients become unreliable. If each layer makes activations a little smaller, the signal fades into numerical static. Initialization helps at step zero, but training moves the weights, so scale must be managed throughout training.',
+        'BatchNorm and LayerNorm are two answers to that problem. Both standardize intermediate activations and then let the model learn scale and shift parameters. They do not make the network less expressive. They make the optimization geometry easier to navigate by keeping intermediate signals in a usable corridor.',
+        'This page is about the axis choice. BatchNorm normalizes a feature across a batch of examples. LayerNorm normalizes one example across its features. That one difference explains much of the split between CNN-era vision models and transformer-era sequence models.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The three operations are measure mean and standard deviation, convert x to (x - mean)/std, then re-dress with gamma*xhat + beta. That makes the coordinate system friendlier for Gradient Descent and lets Learning-Rate Schedules & Warmup start higher without detonating. Santurkar et al. later showed the old internal-covariate-shift story was incomplete: BatchNorm helps mostly by smoothing the optimization landscape, a direct bridge to Loss Landscapes & Optimization Geometry. The demo mirrors that result with the normalized curve training faster at a much larger rate.`,
-        `The second view is the axis war. BatchNorm normalizes each feature down the batch column, so sample output depends on its batchmates and inference needs saved running averages. LayerNorm normalizes each sample across its feature row, so the same input gives the same output at batch size 1 or 1000. That operational difference is why The Transformer Block uses LayerNorm while CNNs often keep BatchNorm.`,
+        'The obvious approach is careful initialization. Xavier and He initialization choose weight scales so signals begin in a reasonable range. That is necessary, but it is not enough. The optimizer immediately changes the weights, and the input distribution to each layer shifts as earlier layers learn.',
+        'Another obvious approach is to lower the learning rate until nothing explodes. That can make training stable, but it slows learning and does not solve the deeper problem: every layer is still operating with changing input scale. Normalization gives the optimizer a better coordinate system instead of merely asking it to tiptoe.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The wall',
       paragraphs: [
-        `Both are O(number of activations), tiny next to the matrix multiply in Neural Network Forward Pass. BatchNorm stores running means and variances; LayerNorm does not need batch running statistics. Both learn two parameters per normalized feature. The real benefit is training stability, higher usable learning rates, and less dependence on perfect initialization. The price is extra memory traffic and, for BatchNorm, mode complexity between training and inference.`,
+        'The wall is compounding. A tiny scale error at one layer is tolerable. The same error repeated across dozens or hundreds of layers becomes a training failure. This is the forward-pass cousin of vanishing and exploding gradients.',
+        'The second wall is operational. BatchNorm uses statistics from the current batch during training, then running averages during inference. That creates a train/eval mode split and makes behavior sensitive to batch size. LayerNorm avoids that coupling, but it uses a different statistic and does not get the same population-level feature normalization that BatchNorm gets.',
+        'The third wall is explanation. BatchNorm was introduced with the language of internal covariate shift, but later work showed that story was incomplete. The stronger lesson is that normalization smooths the optimization landscape and makes larger, more reliable gradient steps possible.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'The core insight',
       paragraphs: [
-        `BatchNorm became standard in fixed-shape, big-batch vision models. LayerNorm became standard in sequence models because generation often runs with batch size 1 and variable lengths. RMSNorm, common in modern LLMs, is LayerNorm without subtracting the mean: divide by root-mean-square and scale. Activations as 3D Origami shows the geometric side: activations bend space, while normalization keeps that bending numerically trainable.`,
+        'Normalize intermediate activations, then give the network learned parameters to restore any useful scale and offset. The normalized value is usually computed as (x - mean) / standard deviation, then transformed as gamma * normalized + beta. Gamma and beta are learned like other parameters.',
+        'The learned scale and shift matter. Without them, normalization would force every layer into a fixed standardized shape. With them, the network can learn the scale it needs while the optimizer still benefits from stable coordinates.',
+        'BatchNorm and LayerNorm differ mainly in what set of values produces the mean and variance. BatchNorm asks: how unusual is this feature compared with the same feature in the batch? LayerNorm asks: how large is this activation compared with the other features in the same example?',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the animation teaches',
       paragraphs: [
-        `Forgetting evaluation mode with BatchNorm is a real bug: the layer may use one-sample batch statistics instead of training averages. Small batches make BatchNorm noisy. LayerNorm is more predictable but less population-aware. Dropout can complement normalization, but it does not replace it; Activation Functions still supply the nonlinearity, and normalization only controls scale. Gamma and beta are learned parameters, not fixed constants, so the network can recover useful scale when standardization would otherwise be too blunt.`,
+        'The drift view shows why normalization is needed before formulas matter. Slightly too-large activations compound into saturation. Slightly too-small activations compound into silence. Normalization recenters and rescales the signal at each layer, so the next layer receives numbers it can use.',
+        'The BatchNorm-versus-LayerNorm grid teaches the axis. BatchNorm uses a column statistic across examples in a batch, so one sample\'s normalized value depends on its batchmates. LayerNorm uses a row statistic inside one sample, so the same example receives the same normalization regardless of batch size.',
+        'The animation also shows why gamma and beta are not cosmetic. After standardization, the model gets to re-dress the signal with learned scale and shift. That is what lets normalization help optimization without permanently removing representational flexibility.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'How BatchNorm works',
       paragraphs: [
-        `After this page, connect scale control to gradient stability, activation saturation, and transformer block design. The lasting idea is that deep learning is not only about having expressive functions; it is about keeping every intermediate number in a range where optimization can still hear useful signal.`,
-        `A useful debugging move is to print activation means and standard deviations by layer. If they drift by orders of magnitude, changing the optimizer is usually premature. Fix the scale path first, then revisit the learning rate and loss curve.`,
-        `The visualization is deliberately small, but the lesson scales: a thousand-layer stack only works when each layer hands the next one numbers in a range it can use during long runs.`,
+        'For each feature or channel, BatchNorm computes a mean and variance over the mini-batch, normalizes the activations, then applies learned gamma and beta. During training, the batch statistics are live. During inference, the layer uses running averages accumulated during training.',
+        'This works especially well in many convolutional networks because images often arrive in reasonably large, homogeneous batches and each channel has enough examples to estimate useful statistics. BatchNorm can make training faster, allow higher learning rates, and reduce sensitivity to initialization.',
+        'The cost is coupling. A sample\'s normalized activation depends on the other samples in the batch. Small batches produce noisy estimates. Inference uses a different statistics path. Forgetting evaluation mode in a framework can cause a model to normalize with one-sample batch statistics and behave badly.',
+      ],
+    },
+    {
+      heading: 'How LayerNorm works',
+      paragraphs: [
+        'LayerNorm computes mean and variance within one sample, across its hidden features. It then applies learned scale and shift. There is no dependence on other samples in the batch and no running-average train/inference split.',
+        'That makes LayerNorm a natural fit for sequence models and transformers. Generation often runs with batch size one, sequence lengths vary, and coupling one token or sentence to unrelated batchmates is undesirable. LayerNorm gives stable behavior for the same input whether it appears alone or inside a larger batch.',
+        'Modern transformer variants often use RMSNorm, which removes the mean subtraction and divides by root-mean-square before applying a learned scale. RMSNorm keeps much of the practical benefit with slightly less computation and memory movement, which matters at LLM scale.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Normalization works by changing the geometry of optimization. Gradients become less sensitive to uncontrolled activation scale. The optimizer can take larger steps without sending later layers into saturation or silence.',
+        'The historical explanation said BatchNorm reduced internal covariate shift: the changing input distribution seen by each layer. Later analysis by Santurkar and coauthors showed that reducing that shift was not the main mechanism. BatchNorm still helped even when distribution shift was deliberately reintroduced after normalization. The stronger measured effect was smoother optimization.',
+        'That distinction matters for learning. A technique can be useful even when its first explanation is incomplete. The practical lesson is not to memorize a slogan. The practical lesson is to ask what property of the optimization problem changed.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Take a mini-batch with three examples and four features. Feature two might have values near 90, 110, and 130, while feature three has values near 0.2, 0.4, and 0.6. BatchNorm treats each feature column separately: feature two gets standardized using the mean and variance of the feature-two column.',
+        'LayerNorm looks at one row at a time. For sample one, it computes statistics across that sample\'s four feature values and normalizes those values relative to each other. If sample one is later evaluated alone, it receives the same LayerNorm result. It would not receive the same BatchNorm result unless the same batch statistics were used.',
+        'This is why BatchNorm feels natural in big-batch image classification and LayerNorm feels natural in autoregressive generation. They solve the same scale-control problem, but their operational contracts are different.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'BatchNorm wins in many vision models with stable shapes and sufficiently large batches. It is fast, well supported, and historically central to training deep convolutional networks. It can regularize slightly because the batch statistics add noise during training.',
+        'LayerNorm wins in transformers, RNNs, autoregressive models, and variable-length sequence work. Its independence from batchmates makes it easier to reason about in serving, generation, and distributed training settings. RMSNorm wins when the model wants the LayerNorm-style contract with less arithmetic.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'BatchNorm struggles with tiny batches, distribution shifts between training and inference, unusual evaluation modes, and workloads where batchmates should not influence one another. It also requires careful handling in distributed training, where per-device batch statistics may be too small unless synchronized.',
+        'LayerNorm is not automatically better. It does not use population statistics across a feature, and in some convolutional settings it may underperform BatchNorm. Normalization can also interact badly with residual placement, optimizer settings, mixed precision, and activation checkpointing if the whole block is not designed coherently.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'The main idea is scale control with learned escape hatches. Normalize the signal so optimization is stable, then let gamma and beta restore whatever scale and shift the network needs.',
+        'The main choice is the axis. BatchNorm normalizes down the batch column. LayerNorm normalizes across the feature row. That axis choice decides batch coupling, inference behavior, and where each method fits best.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Vanishing and Exploding Gradients, Activation Functions, Learning-Rate Schedules & Warmup, Loss Landscapes & Optimization Geometry, The Transformer Block, Residual Networks, RMSNorm, and Neural Network Forward Pass next. A useful debugging habit is to log activation means and standard deviations by layer before changing optimizers or blaming the dataset.',
       ],
     },
   ],

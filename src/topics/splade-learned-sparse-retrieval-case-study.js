@@ -79,7 +79,7 @@ function* learnSparseWeights() {
   yield {
     state: sparseGraph('SPLADE keeps neural retrieval inside sparse vectors'),
     highlight: { active: ['text', 'bert', 'mlm'], compare: ['post'] },
-    explanation: 'SPLADE starts like a Transformer retriever, but it does not collapse text into one dense vector. The model predicts weights over the vocabulary, then keeps only a sparse set of important terms.',
+    explanation: 'Read this as a neural model writing a weighted inverted-index query. The Transformer proposes vocabulary terms, but only a small nonzero set survives into the sparse retrieval structure.',
   };
 
   yield {
@@ -104,7 +104,7 @@ function* learnSparseWeights() {
       ],
     ),
     highlight: { active: ['refund:weight', 'refund:role'], found: ['renewal:weight', 'invoice:weight'] },
-    explanation: 'The model can assign weight to terms that were implied by the text, not only terms that appeared literally. That is the neural expansion move: sparse search gets semantic reach without leaving the vocabulary axis.',
+    explanation: 'The highlighted expansion terms are the point: the document can match through words implied by context, while the serving engine still looks up vocabulary terms in postings lists.',
     invariant: 'The vector is vocabulary-sized, but most coordinates are zero.',
   };
 
@@ -156,7 +156,7 @@ function* serveOnPostings() {
   yield {
     state: servingGraph('Learned sparse vectors still query postings lists'),
     highlight: { active: ['query', 'terms', 'dict', 'post'], compare: ['rerank'] },
-    explanation: 'At serving time, the query becomes a sparse weighted term vector. The engine looks up only nonzero terms in the term dictionary and reads their postings lists, just like a search engine.',
+    explanation: 'Follow the nonzero query terms into postings. SPLADE changes the weights and expansion terms, but query-time work is still term lookup, postings traversal, accumulation, and pruning.',
   };
 
   yield {
@@ -233,31 +233,57 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The retrieval problem SPLADE attacks',
       paragraphs: [
-        'SPLADE, the Sparse Lexical and Expansion Model, is a learned sparse retrieval method. It uses a Transformer and masked-language-model head to produce vocabulary-sized sparse vectors for queries and documents. The result behaves like weighted keywords, but the weights are learned and can include expansion terms that were implied by context.',
-        'This makes SPLADE a bridge between Inverted Index and dense Embeddings & Similarity. BM25 is sparse and efficient but mostly lexical. Dense retrieval is semantic but opaque and usually served through ANN structures. SPLADE keeps the inverted-index serving model while letting the neural model choose and weight terms.',
+        'SPLADE, the Sparse Lexical and Expansion Model, attacks a central retrieval problem: exact words are efficient but brittle, while dense vectors are semantic but harder to inspect and serve with classic search infrastructure. BM25 can retrieve documents quickly through an inverted index, but it struggles when a query and a relevant document use different vocabulary. Dense retrieval can close vocabulary gaps, but it usually depends on approximate nearest-neighbor indexes and opaque embedding dimensions.',
+        'SPLADE sits between those worlds. It uses a Transformer to produce vocabulary-sized sparse vectors for queries and documents. The active coordinates are terms. The weights are learned. Some active terms may be literal words from the text; others may be expansion terms implied by context. The result behaves like weighted keyword retrieval, but the keywords and weights come from a neural model.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approaches and why they are incomplete',
       paragraphs: [
-        'A document or query is tokenized and passed through a Transformer. The model produces scores over the vocabulary. Pooling and log-saturation turn token-level predictions into one sparse weighted vector. Training uses ranking losses plus sparsity regularization so the vector is useful for retrieval but not so dense that the inverted index becomes unusable.',
-        'At index time, each nonzero document term becomes a posting with a learned weight. At query time, each nonzero query term reads postings, accumulates sparse dot-product scores, and returns a top-k list. Because the system still uses postings lists, search engines can reuse term dictionaries, compression, WAND-style pruning, segment merging, caching, and reranking cascades.',
+        'The first naive approach is plain lexical retrieval. It is fast, explainable, and operationally mature. It also misses many relevant documents when the wording differs. A query for "cancel after renewal invoice" may need a document about refunds, annual plans, or billing policy even if those exact words do not line up neatly.',
+        'The second naive approach is to replace lexical search with dense embeddings. That improves semantic matching, but dense dimensions are not human-readable terms. Serving uses vector indexes, approximate search, and different failure modes. Dense retrieval can retrieve broad paraphrases while missing exact identifiers, product codes, legal clauses, or rare terms that lexical search handles well.',
+        'The third naive approach is manual query expansion. Synonym lists and rule-based expansions help in narrow domains, but they are brittle and hard to maintain. SPLADE learns expansion from data while preserving the sparse inverted-index shape that search systems already know how to optimize.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core insight and mechanism',
       paragraphs: [
-        'A support-search user asks, "Can I cancel after renewal invoice?" Plain BM25 may miss a policy section that talks about refunds and annual-plan exceptions without using the same wording. Dense vector search may retrieve broad billing articles. SPLADE can expand renewal and invoice toward terms such as refund, annual, cancellation, and policy, then score documents through the same inverted-index path that makes exact search fast and inspectable.',
-        'In a production RAG system, SPLADE is usually one candidate generator. BM25 preserves exact identifiers. SPLADE closes vocabulary gaps while staying sparse. Dense ANN catches broader paraphrase. Reciprocal Rank Fusion merges the lists, and a Cross-Encoder Reranker or ColBERT layer chooses final evidence. The key data-structure point is that learned expansion becomes postings traffic, so term sparsity, postings length, and pruning bounds directly control latency.',
+        'A query or document is tokenized and passed through a Transformer with a masked-language-model style head. The model emits scores over the vocabulary. Pooling and transformations such as log saturation turn token-level scores into one sparse weighted vector. Most vocabulary entries are zero. The nonzero entries become learned lexical and expansion terms.',
+        'Training balances ranking quality with sparsity. If the vector is too sparse, it behaves like weak lexical search and misses semantic matches. If it is too dense, the inverted index becomes expensive because too many terms produce too many postings. SPLADE is therefore not only a modeling method; it is a retrieval-systems method where sparsity is a first-class constraint.',
+        'At index time, each nonzero document term becomes a posting with a learned weight. At query time, each nonzero query term opens a postings list. Scores are sparse dot products over shared vocabulary coordinates. Because the serving path still uses postings, a search engine can reuse term dictionaries, compression, segment merging, cache behavior, WAND-style pruning, and reranking cascades.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'The main cost is index bloat. If the model emits too many nonzero terms per document, postings lists become long, WAND bounds weaken, cache pressure rises, and query latency can approach a scan. If the model is pruned too hard, expansion disappears and recall falls. SPLADE therefore makes sparsity a first-class systems knob.',
-        'The second cost is training and refresh. Learned sparse terms depend on the model, tokenizer, corpus, and domain. Reindexing can be required after model updates. Teams need shadow evaluation, latency dashboards, and query-slice metrics rather than only one average nDCG number.',
+        'SPLADE works because it turns semantic expansion into something an inverted index can serve. The neural model can infer that a document about refunds may be relevant to a query about cancellation, but the final representation is still a sparse set of vocabulary terms. That gives the retrieval system both learned matching and term-level structure.',
+        'The method also preserves a useful form of explainability. A dense embedding dimension does not tell an engineer much. A learned sparse term does. If a query activates cancellation, refund, annual, and policy, those terms can be inspected, debugged, and measured. The weights are learned, but the coordinates remain words or subwords.',
+        'The serving advantage depends on sparsity. Inverted indexes are fast because a query touches a small number of postings lists and pruning can skip documents that cannot reach the top-k. If SPLADE emits too many active terms, the system loses that advantage. The model must learn not only what to expand but how little to expand.',
+      ],
+    },
+    {
+      heading: 'A production RAG example',
+      paragraphs: [
+        'Suppose a support-search user asks, "Can I cancel after renewal invoice?" Plain BM25 may miss a policy section that uses refund, annual plan, billing cycle, and exception language instead of the user\'s exact wording. Dense retrieval may return broad billing articles but miss the precise cancellation policy. SPLADE can expand the query toward relevant terms while still scoring through an inverted index.',
+        'In a RAG system, SPLADE is often one candidate generator rather than the whole retrieval stack. BM25 preserves exact identifiers and rare terms. SPLADE closes vocabulary gaps while staying sparse. Dense ANN catches broad paraphrases. Reciprocal Rank Fusion merges candidate lists. A cross-encoder or late-interaction reranker chooses final evidence. The important systems point is that every expansion term becomes postings traffic, so retrieval quality and latency are tied together.',
+        'This makes SPLADE especially useful in domains where exact words and semantic variants both matter: support search, legal search, biomedical search, enterprise documentation, source-code documentation, and product knowledge bases. It is less useful when evidence is visual, multimodal, highly cross-lingual, or better represented by dense similarity alone.',
+      ],
+    },
+    {
+      heading: 'Costs and failure modes',
+      paragraphs: [
+        'The main cost is index bloat. If the model emits too many nonzero terms per document, postings lists become long, WAND bounds weaken, cache pressure rises, and query latency can approach a scan. If the model is pruned too hard, expansion disappears and recall falls. SPLADE makes sparsity an operational knob, not a cosmetic regularizer.',
+        'Training and refresh are also expensive. Learned sparse terms depend on the model, tokenizer, corpus, and domain. A model update can require reindexing. Domain drift can make expansions stale. Teams need offline retrieval metrics, shadow indexes, latency dashboards, query-slice analysis, and human inspection of surprising expansion terms.',
+        'The method can also overexpand. A query may pick up plausible but wrong terms, pulling in documents that are topically nearby but not actually relevant. This is dangerous in source-cited or high-stakes systems because a fluent downstream answer can hide weak retrieval. Reranking and citation verification remain necessary.',
+      ],
+    },
+    {
+      heading: 'How to evaluate it',
+      paragraphs: [
+        'Offline retrieval metrics should include recall at k, nDCG, MRR, and query-slice performance for exact identifiers, synonyms, rare terms, head queries, and tail queries. But those are not enough. A SPLADE deployment also needs index-size measurements, nonzero terms per document, postings length distributions, cache hit rates, WAND pruning effectiveness, and p95 query latency.',
+        'A good ablation compares BM25, SPLADE, dense retrieval, and fused retrieval under the same reranker. If SPLADE improves recall but the reranker discards most of its unique candidates, the index cost may not be worth it. If SPLADE improves source grounding in a RAG answer set, the systems cost may be justified.',
       ],
     },
     {
@@ -265,6 +291,14 @@ export const article = {
       paragraphs: [
         'Do not call SPLADE simply "BM25 with synonyms." The expansion weights come from a trained neural model, not a fixed thesaurus. Also do not assume sparse means cheap by default. A vocabulary-sized vector with too many active terms can be worse than a well-tuned lexical index. The production question is how many terms survive, how long their postings are, and whether pruning still works.',
         'SPLADE also does not remove the need for dense retrieval, ColBERT, or reranking. It is strongest when exact terms matter but vocabulary mismatch hurts recall. Very visual, cross-lingual, multimodal, or highly paraphrased evidence may still need other retrievers.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'SPLADE is learned sparse retrieval. It uses a neural model to choose vocabulary terms and weights, then serves retrieval through inverted-index machinery. That is the core bridge: semantic expansion with sparse operational structure.',
+        'The deep tradeoff is recall versus postings cost. Expansion helps only while the representation stays sparse enough for efficient pruning. A good SPLADE system is measured by nDCG or recall, but also by postings length, index size, query latency, and reranker quality.',
+        'For learners, the important connection is that model output becomes an index data structure. The Transformer does not replace the inverted index; it writes a smarter sparse representation into it. That makes SPLADE a strong example of machine learning and classic search engineering meeting in one system.',
       ],
     },
     {

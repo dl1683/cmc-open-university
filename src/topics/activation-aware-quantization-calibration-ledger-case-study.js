@@ -98,7 +98,7 @@ function* calibLedger() {
       format: (value) => value.toFixed(2),
     }),
     highlight: { active: ['act:c1', 'act:c4', 'score:c1', 'score:c4'], compare: ['abs:c2'] },
-    explanation: 'Round-to-nearest quantization looks only at weight values. Activation-aware quantization also records which channels become large on representative prompts. AWQ argues that salient channels are better found from activation distribution than from weights alone.',
+    explanation: 'The highlighted channels are not the largest weights; they are the channels that become large under representative activations. Round-to-nearest sees only weights. Activation-aware quantization keeps calibration evidence so it can protect channels that matter at runtime.',
     invariant: 'The calibration packet is part of the compressed model artifact.',
   };
 
@@ -259,7 +259,7 @@ function* serveGate() {
       ],
     }),
     highlight: { active: ['int4', 'kern'], compare: ['bad'], found: ['int8'] },
-    explanation: 'Compression and speed are separate gates. A quarter-sized weight file can still run slowly if the runtime unpacks poorly, falls back to fp16, or uses a layout the accelerator cannot consume directly.',
+    explanation: 'The bad-pack point separates storage from serving speed. A quarter-sized weight file can still run slowly if the runtime unpacks poorly, falls back to fp16, or uses a layout the accelerator cannot consume directly.',
   };
 
   yield {
@@ -329,48 +329,75 @@ export function* run(input) {
   else throw new InputError('Pick an activation-aware quantization view.');
 }
 
+const activationAwareQuantizationArticleSections = [
+  {
+    heading: 'Why This Exists',
+    paragraphs: [
+      'Basic quantization asks how many bits are needed to store a model. Activation-aware quantization asks a harder production question: which low-bit representation preserves behavior on the prompts the model will actually see, and can the serving stack execute that representation quickly? Large language models are often limited by weight memory, memory bandwidth, and device RAM. A 4-bit checkpoint can make a model fit where fp16 cannot. The danger is that a bit-width label hides the evidence that created the checkpoint. Two int4 models can differ in calibration data, group size, protected channels, scale rules, zero-points, packing layout, and kernel support. This case study exists because production quantization is not just compression. It is a ledger of measurements and decisions.',
+    ],
+  },
+  {
+    heading: 'The Obvious Approach',
+    paragraphs: [
+      'The obvious baseline is round-to-nearest. Pick a scale for a tensor or group, divide each weight by that scale, round to the closest small integer, and store the result. This is not a foolish baseline. It is simple, fast, and gives a clear first measurement of how much error the model tolerates. If the weights are well behaved and the target precision is moderate, RTN can be surprisingly strong. The baseline also teaches the important failure mode. It sees weights but not how those weights are used. A channel with modest weights can dominate runtime behavior if real activations make it large. A channel with a large isolated weight can force a coarse scale that damages many smaller values.',
+    ],
+  },
+  {
+    heading: 'The Wall',
+    paragraphs: [
+      'The wall is activation outliers. Transformers often contain channels that are quiet on average but large on important prompts. A weight-only view can miss them, and a global scale can spend too much numeric range on one outlier while collapsing useful small weights toward zero. The serving wall is separate. A checkpoint can be accurate in an offline script and still be useless if the runtime cannot load the packed format, if the group size does not match the kernel, or if dequantization erases the expected speedup. Evaluation adds a third wall. Average perplexity can look fine while code, math, tool calling, refusal behavior, or a narrow customer domain regresses. The ledger exists to keep these failures inspectable.',
+    ],
+  },
+  {
+    heading: 'Core Insight',
+    paragraphs: [
+      'The core insight is that calibration evidence must travel with the compressed model. Activation-aware methods collect representative samples, record activation statistics, identify salient channels, choose transforms or reconstruction rules, and then pack the low-bit weights with metadata that the loader can verify. AWQ protects activation-salient channels through an equivalent scaling transform while keeping a hardware-friendly weight-only path. GPTQ treats quantization as a layer-wise reconstruction problem using approximate second-order information. SmoothQuant targets W8A8 execution by migrating activation-outlier difficulty into weights with an equivalent transform. These methods differ, but they share the same operational lesson: a quantized checkpoint is a data structure, not just a smaller tensor file.',
+    ],
+  },
+  {
+    heading: 'How It Works',
+    paragraphs: [
+      'A production run starts from a frozen fp16 or bf16 checkpoint. The team selects calibration prompts that represent the deployment workload, then records sample ids or hashes so the run can be reproduced. During a forward pass, the quantizer collects per-channel activation statistics such as p99 or max values. It combines those statistics with weight magnitudes, reconstruction estimates, or method-specific scores. The method chooses scales, group sizes, zero-points or equivalent transforms, and sometimes protected channels. The weights are then quantized and packed into records the runtime understands: integer payloads plus scale metadata, group layout, format id, and method version. A loader test verifies that the exact serving kernel can consume the artifact. An evaluation gate checks task slices and latency before the model ships.',
+    ],
+  },
+  {
+    heading: 'What The Visual Proves',
+    paragraphs: [
+      'The calibration matrix proves why looking only at weight magnitude is incomplete. The highlighted channels are important because their activations become large under representative inputs, not because their raw weights are the largest. The AWQ-style table shows the control move: salient channels receive scaling protection while the layer still packs into a uniform low-bit format. The packed int4 group record proves that the checkpoint is not smaller floats. It is integer nibbles plus scale and zero-point metadata. The method map shows that RTN, GPTQ, AWQ, and SmoothQuant consume different evidence. The serve-gate plots prove the last point: quality drop, packed bytes, speedup, p99 latency, and loader compatibility are separate axes. A quarter-sized file is not a deployment win if it routes through a slow fallback.',
+    ],
+  },
+  {
+    heading: 'Why It Works',
+    paragraphs: [
+      'Activation-aware quantization works when calibration statistics predict which numeric errors will matter at inference. If a channel is often amplified by real activations, small weight error in that channel can cause large output error. Protecting that channel can reduce downstream damage more than spending equal precision everywhere. Equivalent transforms preserve the mathematical function before quantization: scale one side of a multiplication and compensate on the other side, then quantize the easier representation. GPTQ uses a different argument, trying to minimize layer reconstruction error after quantization so the layer output stays close on calibration inputs. The correctness is empirical rather than absolute. The ledger protects the claim by tying every scale and pack decision to data identity, method version, target kernel, and evaluation slices.',
+    ],
+  },
+  {
+    heading: 'Cost And Tradeoffs',
+    paragraphs: [
+      'The cost starts with calibration. More samples can reveal rare activation outliers, but they increase quantization time and can overfit if the set is narrow. Smaller groups reduce outlier damage because each scale covers fewer weights, but they add metadata and can reduce kernel efficiency. Four-bit weight-only quantization saves memory bandwidth, but activations may still be fp16 or bf16. W8A8 paths can accelerate matrix multiplication more directly, but activation quantization is often harder and more sensitive to outliers. The serving system must track p50 and p99 latency, memory, tokens per second, fallback rate, loader format, and quality by slice. The headline bit width is only the starting point. The tax is operational complexity.',
+    ],
+  },
+  {
+    heading: 'Where It Wins',
+    paragraphs: [
+      'Activation-aware quantization wins when weights or memory bandwidth are the bottleneck and the model has enough redundancy to tolerate low-bit storage. It is especially useful for on-device inference, desktop GPUs with limited VRAM, edge deployments, and high-throughput serving where moving fewer bytes changes the roofline. AWQ-style weight-only paths are attractive when the runtime has efficient int4 kernels and activation quantization would be too risky. SmoothQuant-style W8A8 paths are attractive when the hardware has strong int8 matrix multiplication and activation outliers can be smoothed safely. The ledger is useful even when the chosen method fails, because it tells the team whether to resample calibration data, shrink group size, protect different channels, repack for the loader, or block rollout.',
+    ],
+  },
+  {
+    heading: 'Where It Fails',
+    paragraphs: [
+      'The method fails when the calibration set does not match deployment. A customer may use legal documents, code, math, multilingual text, or long prompts that never appeared in the calibration packet. It also fails when average benchmarks hide fragile slices. Some errors appear only in rare safety decisions, structured output, or exact arithmetic. Kernel mismatch is another common failure: the model may load but silently dequantize to fp16, expand weights on the CPU, or use a layout the accelerator cannot consume efficiently. Overcompression can push the model past a cliff where no scale trick recovers behavior. Treat every quantized checkpoint as a new model variant with its own evidence, not as a harmless storage optimization.',
+    ],
+  },
+  {
+    heading: 'Study Next',
+    paragraphs: [
+      'Study the basic Quantization page first for scale, rounding, clipping, and error maps. Then read Transformer Inference Roofline to understand why fewer bytes only help when memory movement is the bottleneck. Accelerator Kernel Compatibility Matrix explains why a packed checkpoint needs a legal dispatch path. KV Cache Quantization & Compression covers request-state compression, which becomes the bottleneck for long contexts even after weights shrink. Structured Pruning and N:M Sparsity shows a different compression contract between masks and kernels. Knowledge Distillation explains how to train a smaller model before compressing it. Primary method sources are GPTQ, AWQ, and SmoothQuant; format sources include compressed-tensors and LLM Compressor compression schemes.',
+    ],
+  },
+];
+
 export const article = {
-  sections: [
-    {
-      heading: 'What it is',
-      paragraphs: [
-        'Activation-aware post-training quantization compresses a frozen LLM by using calibration activations to choose scales, protected channels, group sizes, and packed formats. The simple Quantization page shows rounding weights into small integers. This case study explains the production ledger around that operation: calibration data, activation outliers, group metadata, checkpoint packing, kernel compatibility, and evaluation gates.',
-        'The main lesson is that low-bit quantization is a data-structure problem. A 4-bit model is not just a model with smaller numbers. It is quantized payloads plus scales, zero-points or equivalent transforms, grouping rules, outlier handling, method version, loader metadata, and serving evidence.',
-      ],
-    },
-    {
-      heading: 'Methods',
-      paragraphs: [
-        'GPTQ uses approximate second-order information to quantize large GPT-family models layer by layer while preserving outputs: https://arxiv.org/abs/2210.17323. AWQ finds activation-salient channels and protects them through scaling while keeping a low-bit weight-only path friendly to hardware: https://arxiv.org/abs/2306.00978. SmoothQuant targets W8A8 execution by migrating activation-outlier difficulty into weights through an equivalent transform: https://arxiv.org/abs/2211.10438.',
-        'Those methods answer different questions. GPTQ asks how to reconstruct layer behavior after quantization. AWQ asks which weight channels matter under real activations. SmoothQuant asks how to make activation quantization efficient enough for INT8 matrix multiplication. Round-to-nearest is the baseline because it shows how much the evidence side table buys.',
-      ],
-    },
-    {
-      heading: 'Complete case study',
-      paragraphs: [
-        'A team wants to ship a 7B model on desktop and mobile GPUs. They freeze the fp16 checkpoint, collect calibration prompts from real task slices, record activation p99s and channel scores, choose AWQ for a 4-bit weight-only path, and pack weights into group records with scales. A separate loader test verifies the compressed-tensors metadata and runtime kernel agree on layout.',
-        'The rollout gate checks perplexity, coding, math, policy behavior, p50/p99 latency, memory, and exact loader compatibility. If code completion regresses, the team can inspect which calibration slices and channels were used. If latency does not improve, they inspect pack format and kernel route. The ledger turns a failed quantization run into a debuggable artifact instead of a mystery checkpoint.',
-      ],
-    },
-    {
-      heading: 'Formats and serving',
-      paragraphs: [
-        'Serving systems need a shared representation for compressed weights. LLM Compressor documents compression schemes such as WNA16, GPTQ, AWQ, and newer low-bit formats in terms of weights, activations, calibration, symmetry, strategy, and dynamic behavior: https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/compression_schemes/. Hugging Face compressed-tensors extends safetensors-style checkpoints to store quantized and packed tensor metadata: https://huggingface.co/docs/transformers/en/quantization/compressed_tensors.',
-        'This is where Accelerator Kernel Compatibility Matrix matters. A model can be accurately quantized and still serve poorly if the loader unpacks on the CPU, the GPU lacks the expected low-bit kernel, group sizes do not match the runtime, or activation quantization forces a fallback.',
-      ],
-    },
-    {
-      heading: 'Pitfalls',
-      paragraphs: [
-        'Calibration data can overfit or miss the task slice that matters. Group size can hide outliers. A format can load but route to a slow fallback. A headline bit width can hide different scale strategies. Average perplexity can miss code, math, multilingual, refusal, or tool-call regressions. Treat every quantized checkpoint as a new model variant, not a harmless storage optimization.',
-        'Activation-aware quantization also composes with Structured Pruning and N:M Sparsity, Knowledge Distillation, KV Cache Quantization & Compression, and On-Device LLM Inference Cost Crossover. The right stack depends on whether the bottleneck is model bytes, KV bytes, p99 latency, battery, or quality.',
-      ],
-    },
-    {
-      heading: 'Study next',
-      paragraphs: [
-        'Study Quantization first for the basic scale-and-round recipe. Then read Structured Pruning and N:M Sparsity for mask-and-kernel compression, Transformer Inference Roofline for why byte savings must change the bottleneck, Accelerator Kernel Compatibility Matrix for legal dispatch, KV Cache Quantization & Compression for request-state compression, On-Device LLM Inference Cost Crossover for edge deployment, and Benchmark Variance Model Selection before trusting a single quantized benchmark.',
-      ],
-    },
-  ],
+  sections: activationAwareQuantizationArticleSections,
 };

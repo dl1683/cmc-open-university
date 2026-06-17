@@ -222,17 +222,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'HTTP Vary is the bridge between a URL cache and a variant map. A cache normally starts from method plus target URI, but a response can say that selected request header fields also shaped the representation. The cache must compare those field values before reusing the stored body.',
-        'MDN describes Vary as the response header that names request-message parts that influenced the response and are used to create cache keys: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary. RFC 9111 defines the cache-key and Vary matching rules in HTTP caching: https://www.rfc-editor.org/rfc/rfc9111.',
+        'HTTP Vary exists because one URL can produce several valid representations. The same /guide may differ by language, compression, device bucket, or CORS origin. A URL-only cache can either serve the wrong bytes or avoid caching useful responses.',
+        'The problem is cache identity. The cache must know which request dimensions changed the response without letting every accidental header become a unique key.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core structure is a map from a primary key to a bounded list of variants. The primary key is usually method plus URL. Each variant stores the Vary field names, normalized request field values, response metadata, freshness lifetime, validator, and body pointer.',
-        'Normalization is the hard part. Accept-Encoding can usually collapse to br, gzip, or identity. Accept-Language may collapse to supported locale buckets such as en, fr, and es. Full User-Agent, Cookie, and per-request tracing headers are usually too large or private to become shared cache dimensions.',
+        'The obvious approach is to key the cache by method and URL. That is simple and works for static assets, because /app.abc123.js is the same representation for everyone.',
+        'The wall appears when request headers select the representation. If the cache ignores Accept-Language, it can serve French to an English user. If it varies on full User-Agent or Cookie, it may create a cold key for every request.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Vary turns a URL entry into a bounded variant map. The primary key is usually method plus target URI. Each variant stores the Vary field names, normalized request field values, response metadata, freshness lifetime, validator, and body pointer.',
+        'The insight is two-sided: include every dimension that changes the representation, and normalize or exclude dimensions that do not. Correctness without bounded cardinality becomes an origin-load problem.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the variant-map view, read one URL as a small table of representations. The URL is the primary key, and the selected Vary request fields choose which variant is safe to reuse.",
+        "In the normalization-traps view, watch cardinality. `Accept-Encoding` can collapse to a few useful buckets. Full `User-Agent` or `Cookie` can create one variant per request. The cache can be correct and still useless if the key space explodes.",
+        "The highlighted cache hit is valid only when the incoming request matches the stored variant on the fields the origin declared. A missing Vary is a correctness bug; an excessive Vary is a performance bug.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A documentation page has English and French versions and supports Brotli or gzip. The response includes `Vary: Accept-Language, Accept-Encoding`. The cache stores variants such as English+Brotli, English+gzip, French+Brotli, and French+gzip. A later French request with Brotli support can reuse the French+Brotli body without contacting origin.',
+        'Now add `Vary: User-Agent` using the raw header. The same page can produce thousands of variants because browsers, versions, devices, extensions, and bots send different strings. If the real product only needs mobile versus desktop, normalizing to a small device bucket is the difference between a useful cache and a miss generator.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A response declares Vary: Accept-Language, Accept-Encoding, Origin, or another request field. Later, the cache can reuse that response only when the new request matches the stored variant on those fields according to HTTP caching rules.',
+        'In production, caches often normalize values before keying. Accept-Encoding can collapse to br, gzip, or identity. Accept-Language can collapse to supported locale buckets. Full User-Agent, Cookie, and tracing headers usually need a different strategy because they are high-cardinality or private.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Vary works because the origin declares which request fields influenced the response. The cache does not have to guess whether language, encoding, or origin mattered; it uses the declared fields to decide representation compatibility.',
+        'Correctness depends on honesty and scope. Missing Vary serves wrong variants. Excessive Vary preserves correctness by avoiding sharing, but it destroys the cache benefit.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The main cost is variant cardinality. One URL with two encodings and three languages has six variants. Add full User-Agent, Cookie, or a request id and the map can become effectively unbounded.',
+        'Operationally, under-varying shows up as correctness bugs. Over-varying shows up as lower hit ratio, more origin traffic, worse p99 latency, and less useful CDN shielding.',
+        'There is also an invalidation cost. Every variant has freshness state, validator state, and purge behavior. A deployment that changes one URL may need to invalidate all variants for that URL, not just the first body the operator remembers.',
+      ],
+    },
+    {
+      heading: 'Normalization guidance',
+      paragraphs: [
+        'Normalize only with a clear contract. `Accept-Encoding` can become `br`, `gzip`, or `identity`. `Accept-Language` can become supported locale buckets. Device behavior can become a small set of layout variants. Avoid keying on raw high-cardinality headers unless isolation is more important than sharing.',
+        'Keep privacy boundaries separate from representation negotiation. Browser cache partitioning, credentials mode, authorization, and `Cache-Control` decide whether sharing is allowed at all. Vary then decides which shared representation matches the request.',
+      ],
+    },
+    {
+      heading: 'Observability',
+      paragraphs: [
+        'A cache should report variant count, hit ratio by variant dimension, origin revalidation rate, and top key-sprawl causes. Without those numbers, teams often see only the symptom: more origin traffic and worse p99 latency after a harmless-looking header change.',
+        'Cache-Status headers and CDN logs can make Vary behavior inspectable. During an incident, you want to know whether misses come from freshness expiry, validator failure, purge, cache partitioning, or a variant key that became too specific.',
+        'A useful review includes both correctness probes and hit-ratio probes. Correctness probes ask whether English users get English and French users get French. Hit-ratio probes ask whether those variants are reused enough to justify caching. You need both, because a cache can be wrong and fast, or correct and ineffective.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Vary wins for negotiated compression, language-specific pages, dynamic CORS echoes, device buckets that are deliberately small, and any response where a small set of request headers selects a stable representation.',
+        'It is strongest when each dimension has a clear product reason and a bounded set of normalized values.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Vary is not a privacy system by itself. Authorization-scoped account data still needs correct Cache-Control and often no-store. Varying on Cookie can both destroy sharing and remain unsafe if the cache policy is wrong.',
+        'It also fails when teams add Vary defensively without measuring hit ratio. A header can be correct in theory and still make the cache useless in practice.',
+        'It also fails when the origin and CDN disagree about normalization. If origin semantics depend on one header shape while the CDN collapses that header differently, the cache may serve a representation that neither side can explain during an incident.',
       ],
     },
     {
@@ -240,17 +314,11 @@ export const article = {
       paragraphs: [
         'A documentation site serves /guide in English and French, compressed with Brotli or gzip. The response includes Vary: Accept-Language, Accept-Encoding. A CDN stores variants such as /guide|fr|br and /guide|en|gzip, then revalidates each variant independently with ETag. Users get the right language and encoding without sending every request to origin.',
         'The same team also runs an API that dynamically echoes Access-Control-Allow-Origin for a small allowlist. Those responses include Vary: Origin, and account responses use no-store. The lesson is not "always add Vary"; it is "make every correctness dimension explicit, then keep the key space bounded."',
+        'During rollout, the team purges or revalidates all variants for changed content, not just one URL-body pair. That detail matters because each variant can have its own freshness, validator, and edge-cache state.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'Vary is not a privacy system by itself. If the response is authorization scoped, a shared cache still needs the right Cache-Control behavior and sometimes no-store. Varying on Authorization or Cookie often collapses sharing and can still be dangerous if the cache policy is wrong.',
-        'Over-varying can be as damaging as under-varying. Under-varying serves the wrong bytes. Over-varying silently lowers cache hit ratio, increases origin load, and makes tail latency worse. Use explicit buckets, avoid request-id headers in cache keys, and observe Cache-Status when available.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: RFC 9111 HTTP Caching at https://www.rfc-editor.org/rfc/rfc9111, MDN Vary at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Vary, MDN HTTP caching at https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching, MDN Cache-Control at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cache-Control, and RFC 9211 Cache-Status at https://www.rfc-editor.org/rfc/rfc9211.',
         'Study next: HTTP Cache ETag Revalidation for validators, No-Vary-Search Query Key for URL search canonicalization, Cache-Status HTTP Observability for measuring cache behavior, Browser Cache Partitioning Network Key for the privacy wrapper around browser cache keys, CDN Stale-While-Revalidate Shield for stale policies, CORS Preflight Cache for Vary: Origin pitfalls, CDN Request Flow for edge cache placement, Cache Invalidation & Versioning for deployment strategy, LRU Cache and W-TinyLFU Cache Admission for eviction and admission, and Tail Latency & p99 Thinking for the cost of key-sprawl misses.',

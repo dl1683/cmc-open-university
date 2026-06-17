@@ -208,9 +208,36 @@ export const article = {
       'Leapfrog Triejoin is a worst-case optimal multiway join algorithm. It represents relations through trie-like indexes over variable orders and searches assignments variable by variable, intersecting sorted candidate iterators at each level.',
       'The key shift is from binary joins to multiway constraint search. A binary plan chooses pairwise joins and may materialize large intermediates. Triejoin keeps all relevant constraints active while binding each variable.',
     ] },
+    { heading: 'Why this exists', paragraphs: [
+      'Binary join plans are excellent for many SQL workloads, but cyclic joins and graph patterns can create intermediates much larger than the final output. The triangle query is the standard example: materializing two-hop paths can be wasteful when few of them close into triangles.',
+      'Worst-case optimal joins exist to respect the theoretical output-size bound of the whole query instead of the accidental size of a chosen pairwise intermediate.',
+    ] },
+    { heading: 'The obvious approach and its wall', paragraphs: [
+      'The obvious approach is to pick two relations, join them, then join the result with the next relation. That creates a simple plan tree but commits early to an intermediate relation.',
+      'The wall appears when the intermediate is mostly doomed. Triejoin delays materialization and binds variables only when all relations that mention the variable agree on a candidate value.',
+    ] },
+    {
+      heading: 'Reading the visualization',
+      paragraphs: [
+        `In the trie-intersection view, each variable level is a synchronized intersection. For x, only relations that mention x participate. For y and z, the current prefix narrows the relevant trie iterators. A candidate survives only when all participating indexes agree.`,
+        `In the triangle-query view, compare this with a binary plan. A pairwise join might materialize many two-hop paths before checking the closing edge. Leapfrog Triejoin keeps all three edge constraints active while binding x, y, and z, so impossible candidates die before becoming a large intermediate table.`,
+      ],
+    },
     { heading: 'How it works', paragraphs: [
       'Choose a variable order such as x, y, z. For each relation, use an index that can seek within that order or a compatible projection. At variable x, intersect all relation iterators that constrain x. For each surviving x, open child iterators and repeat for y, then z. When all variables are bound, emit a result tuple.',
       'The leapfrog part is synchronized intersection. Sorted iterators advance the smallest current value until every iterator agrees or one iterator is exhausted. This is the same spirit as merge intersection, but nested inside trie levels.',
+    ] },
+    { heading: 'Core insight', paragraphs: [
+      'A join tuple is a satisfying assignment to variables. Leapfrog Triejoin treats the query as constraint solving over sorted domains. Each variable assignment must survive every relation that constrains it under the current prefix.',
+      'The trie interface is what makes this efficient: open a prefix, seek to a value, advance to the next value, and close the prefix. The algorithm is only as practical as those index operations.',
+    ] },
+    { heading: 'Index contract', paragraphs: [
+      'The algorithm depends on indexes that behave like tries over the chosen variable order. At each level, the engine needs to open the current prefix, seek to a candidate value, advance to the next value, and enumerate children under that prefix.',
+      'That contract is why Leapfrog Triejoin is not just a clever loop over ordinary row stores. If relations are not available in compatible orders, the engine must build or maintain the right indexes, and that cost belongs in the plan.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'It works because sorted iterators can be intersected without scanning all combinations. When one iterator lags behind the others, leapfrog seek advances it to the current maximum candidate. Agreement means the value is valid for every relation at that prefix.',
+      'The worst-case optimal property comes from respecting the whole query hypergraph instead of committing to one binary intermediate. The algorithm is designed around the AGM-style output bound for conjunctive queries, not around the accident of SQL join order.',
     ] },
     { heading: 'Cost and complexity', paragraphs: [
       'Worst-case optimal join algorithms are designed to match theoretical output-size bounds for conjunctive queries, avoiding some pathological intermediates produced by binary plans. The practical cost is index availability, variable-order choice, and integration with an optimizer that already has hash, merge, and nested-loop joins.',
@@ -218,6 +245,23 @@ export const article = {
     ] },
     { heading: 'Complete case study', paragraphs: [
       'A social-graph triangle query asks for x, y, z where edge(x,y), edge(y,z), and edge(x,z) all hold. A binary plan can first build all two-hop paths, then filter by the third edge. If the graph has many two-hop paths but few triangles, that intermediate is wasteful. Triejoin intersects adjacency indexes as it binds variables and rejects impossible candidates earlier.',
+      'At level x, all three edge relations restrict which nodes can begin a triangle. After x is fixed, the y iterator is opened under the relevant edge prefixes. After y is fixed, z must satisfy both edge(y,z) and edge(x,z). The closing edge is never an afterthought; it participates during candidate generation.',
+    ] },
+    { heading: 'Where it wins / Where it fails', paragraphs: [
+      'It wins for cyclic joins, RDF/SPARQL patterns, Datalog rules, graph motifs, and workloads where binary joins create large rejected intermediates.',
+      'It fails when indexes are unavailable, variable order is poor, or ordinary selective binary joins are already cheap. It is a physical strategy for a particular shape of query, not a universal replacement for the relational optimizer.',
+      'It can also lose on engineering overhead. A mature SQL engine already has statistics, join reordering, hash joins, merge joins, spilling, and vectorized execution. A worst-case optimal join operator must earn its place by improving the hard query shapes without slowing the ordinary ones.',
+    ] },
+    { heading: 'Implementation checklist', paragraphs: [
+      'Choose the variable order from the query hypergraph and data distribution, not from surface syntax. Materialize or maintain trie indexes for the relation projections the order requires. Track iterator seeks, prefix opens, candidate counts, and emitted tuples so bad variable orders are visible.',
+      'Keep a binary-join fallback. Worst-case optimal joins are a powerful operator for cyclic patterns, but selective star joins, key lookups, and small joins may still be faster through traditional plans.',
+    ] },
+    { heading: 'Operational guidance', paragraphs: [
+      'Use benchmark queries that include both the hard cyclic shape and ordinary joins. A triejoin implementation that wins triangles but slows down selective business queries is an operator, not a replacement planner. The optimizer needs a clear rule for when to consider it.',
+      'Expose iterator-level counters. If a variable order causes millions of failed seeks before emitting a few tuples, the plan may be theoretically attractive but practically poor. Candidate counts by level make those mistakes visible to the optimizer and to humans debugging the plan.',
+      'Remember that the worst-case guarantee is about asymptotic output bounds, not about all constants. Memory layout, index construction time, cache locality, and integration with existing execution pipelines decide whether the idea wins in a real database.',
+      'For learners, the key habit is to stop thinking of a join as a left-deep tree by default. A cyclic query is a set of simultaneous constraints, and sometimes the right execution model is to keep those constraints alive together.',
+      'For implementers, the key risk is paying index costs for queries that do not need them. A good system can recognize graph-pattern workloads, reuse indexes across related rules, and avoid rebuilding expensive trie projections for one-off queries in ordinary reporting workloads and dashboards.',
     ] },
     { heading: 'Sources and study next', paragraphs: [
       'Sources: Veldhuizen, "Leapfrog Triejoin: A Simple, Worst-Case Optimal Join Algorithm", https://www.openproceedings.org/2014/conf/icdt/Veldhuizen14.pdf; arXiv version, https://arxiv.org/abs/1210.0481; and index-structure discussion for worst-case optimal joins, https://db.in.tum.de/~schmidt/papers/bachelor-thesis.pdf?lang=de. Study SQL Join Algorithms Primer, Selinger DP Join Order Optimizer, Cascades Memo Query Optimizer, Inverted Index, and Trie next.',

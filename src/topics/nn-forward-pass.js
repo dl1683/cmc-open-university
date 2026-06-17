@@ -104,43 +104,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why This Exists`,
       paragraphs: [
-        `A forward pass is the computation a trained neural network runs to turn input numbers into output numbers. In this demo, the network has 2 inputs, 3 hidden neurons, and 1 output. It applies a first affine layer, a nonlinearity, and a second affine layer: xW1 + b1, then ReLU, then aW2 + b2. The 13 trainable parameters are 6 first-layer weights, 3 first-layer biases, 3 second-layer weights, and 1 output bias.`,
-        `Nothing learns during a forward pass. The weights are fixed, and data flows left to right. Backpropagation is the separate reverse computation that later measures blame. Gradient Descent is the optimizer that changes weights using those gradients. In production, the same idea scales from a tiny fraud classifier to The Transformer Block inside a language model: multiply, add, normalize or activate, repeat.`,
+        `A neural network forward pass is the computation that turns input tensors into output tensors using the network's current parameters. The input might be two numbers, an image, a token sequence, a graph, or a table row. The parameters are weights, biases, normalization statistics, embeddings, and other learned arrays. During a forward pass, those parameters are read, not changed. Data flows through layers, each layer applies a mathematical transform, and the final layer produces a prediction, score, embedding, reconstruction, or next-token logit.`,
+        `The demo uses a tiny 2-3-1 network: two inputs, three hidden neurons, and one output. It computes an affine transform, applies ReLU, then computes another affine transform. That small example is enough to show the contract used by much larger models. A transformer block, a convolutional classifier, and a recommender tower all run forward passes. They differ in layer types and tensor shapes, but they share the same discipline: apply fixed learned parameters to activations in a defined order.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Obvious Approach And The Wall`,
       paragraphs: [
-        `For input x = [2, -1], each hidden neuron computes a weighted sum plus bias. The demo's numbers give z1 = 0.7, z2 = -2.3, and z3 = 1.95 before the activation. ReLU, one of the core Activation Functions, keeps positive values and clips negatives to zero, so the hidden activation becomes [0.7, 0, 1.95]. That "zero" is not a bug; it is input-dependent gating. A different input might wake that second neuron and silence another.`,
-        `The output layer repeats the same affine recipe: combine hidden activations with W2, add the output bias, and produce one prediction. For regression, the number itself can be the answer. For classification, logits usually pass through Softmax & Temperature to become probabilities. For deep networks, BatchNorm & LayerNorm may rescale activations between layers to keep distributions stable.`,
+        `The obvious approach to prediction is to hand-write a rule: if income is high and debt is low, approve the loan; if a pixel pattern looks like an edge, mark the image; if a sentence contains certain words, classify it as spam. Hand-written rules hit a wall because real patterns are too numerous, noisy, and interacting. Neural networks replace thousands of brittle rules with arrays of parameters learned from data. The forward pass is how those learned parameters are applied after training.`,
+        `A second wall appears if the model is only linear. A stack of affine layers without nonlinearities collapses into one affine layer. It can rotate, scale, and shift data, but it cannot carve curved decision regions or build input-dependent features. Activations such as ReLU, sigmoid, tanh, GELU, and softmax add the bends that make composition useful. The forward pass therefore alternates linear mixing with nonlinear operations and sometimes normalization, pooling, attention, or residual addition.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The Core Insight`,
       paragraphs: [
-        `For a dense layer with input width m and output width n, the main cost is O(mn) multiply-adds and O(mn) parameter storage. This tiny network performs 9 multiplications for the two weight matrices, plus bias additions and ReLU comparisons. A 7B-parameter model in fp16 stores about 14 GB of weights before activations, optimizer state, cache, or runtime overhead; fp32 would be about 28 GB. Quantization can store weights in 8-bit, 4-bit, or mixed formats, trading memory bandwidth and sometimes accuracy for speed.`,
+        `The core insight is that a neural network is a composed function whose intermediate values are learned representations. The first layer does not need to solve the whole task. It only needs to transform raw input into features that later layers can use. A hidden activation is not just a number produced on the way to the answer; it is the current representation of the example at that depth. Later layers recombine those representations into more task-specific evidence.`,
+        `This also explains why the same forward pass is central to both inference and training. In inference, the output is consumed by an application. In training, the output is compared with a target to compute a loss. The backward pass then reuses many stored forward values to compute gradients. Without a correct forward pass, there is no prediction, no loss, and no useful gradient.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Mechanism And Data Structures`,
       paragraphs: [
-        `Every deployed neural model is mostly forward passes. A phone face-unlock model runs one over an image. A bank fraud model runs one over transaction features. A recommender scores user-item pairs. A language model runs one forward pass for the prompt prefill and then one smaller decode step per generated token. Attention Mechanism layers add token mixing, convolution layers add local image filters, and feed-forward layers add per-token transformations, but the execution mindset is the same: tensors flow through fixed learned parameters.`,
-        `Training also uses forward passes. Each batch first runs forward to compute predictions and loss; only then does the backward pass compute gradients. Inference skips the backward half, which is why serving a model is usually much cheaper than training it.`,
+        `The main data structures are tensors. A single example is often represented as a vector. A batch is a matrix or higher-rank tensor whose leading dimension is batch size. A dense layer stores a weight matrix and a bias vector. If activations have shape B by M and the layer maps M inputs to N outputs, the weight matrix has shape M by N, the bias has shape N, and the output has shape B by N. The layer computes output = input * weight + bias, with broadcasting used to add the bias to every row in the batch.`,
+        `The demo's hidden layer follows exactly that rule. For input x = [2, -1], each hidden neuron reads one column of the first weight matrix, computes a weighted sum, and adds its bias. The pre-activation values are z1 = 0.7, z2 = -2.3, and z3 = 1.95. ReLU converts them to [0.7, 0, 1.95]. The zero is meaningful: for this input, the second hidden neuron is inactive and sends no positive signal to the next layer. The output layer then combines the three hidden activations with a second weight matrix and one output bias.`,
+        `Implementations also store metadata: tensor shape, dtype, device placement, memory layout, and sometimes strides. During training, the framework stores activations or recomputes them later so the backward pass can calculate gradients. During inference, many of those saved training buffers are unnecessary, but large models still store temporary activations, key-value caches, attention masks, and output logits. The forward pass is simple in concept, but the runtime is a careful schedule of matrix multiplications, memory reads, kernel launches, and reductions.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Why It Works`,
       paragraphs: [
-        `A neuron is not a miniature mind. It is a parameterized function: weighted sum, bias, activation. Interpretability becomes hard because millions or billions of such functions compose, not because any one neuron is magical. Another misconception is that deeper always means smarter. Depth increases expressivity and cost, but without data, optimization, normalization, and regularization, extra layers can make training worse.`,
-        `Do not confuse logits with probabilities. The output number may need calibration, thresholding, or softmax. Do not confuse inference with learning either: if weights are not updated, the network is only applying what training already stored.`,
+        `A forward pass works because training has already shaped the parameters into useful transformations. A random network also has a forward pass, but its outputs are usually meaningless. Training adjusts weights so that useful signals survive and unhelpful signals are suppressed. Once learned, those weights define a function that can be evaluated quickly on new inputs. The model does not look up a stored answer for each example. It applies a parameterized computation that can generalize when the learned structure matches the data distribution.`,
+        `Composition is the reason this scales. One layer can detect simple features, the next can combine them, and deeper layers can represent more abstract relationships. In language models, embedding layers turn token ids into vectors, attention mixes information across positions, feed-forward layers transform each position, and the final projection produces logits over the vocabulary. The output is still the result of a forward pass: read current activations, apply learned tensors, pass the result onward.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Evaluation And Operational Signals`,
       paragraphs: [
-        `Study Activation Functions for the bends, then Backpropagation for the reverse-mode gradient calculation and Gradient Descent for the update rule. Softmax & Temperature explains classifier and decoder probabilities. The Transformer Block shows how this same feed-forward recipe sits beside attention in LLMs. BatchNorm & LayerNorm covers stabilization, and Quantization explains how the fixed weights can be stored more cheaply for inference.`,
+        `For correctness, inspect output shapes, dtype, value ranges, and whether the final activation matches the task. Regression may need an unconstrained number. Binary classification may need a logit passed through sigmoid. Multiclass classification usually produces logits passed through softmax. Ranking systems may use scores without calibrated probabilities. If the downstream system expects probabilities, calibration matters; a high logit margin is not automatically a trustworthy probability.`,
+        `For operations, monitor latency, throughput, memory use, batch size, device utilization, and numerical stability. On GPUs, dense layers are often limited by matrix-multiplication throughput or memory bandwidth. Small batches may underuse the device; huge batches may increase latency or exceed memory. In language models, prompt prefill is dominated by processing the input sequence, while token decoding repeatedly runs smaller forward passes that reuse a key-value cache. Quantization, fused kernels, compilation, and batching all change forward-pass economics without changing the mathematical function in the article's tiny example.`,
+      ],
+    },
+    {
+      heading: `Where It Is Useful`,
+      paragraphs: [
+        `Every deployed neural application is built around forward passes. A fraud model scores a transaction. A medical classifier scores an image. A recommender ranks candidate items. A speech model turns audio frames into token probabilities. A vision encoder produces embeddings for search. A language model runs a forward pass over the prompt and then another step for each generated token. Even when a system includes retrieval, rules, caching, or tools, the neural component still enters through this same left-to-right tensor computation.`,
+        `Training workloads also spend much of their time in forward passes. Each mini-batch runs forward to compute predictions and a loss before backpropagation begins. Debugging training often starts by checking the forward pass on one batch: Are shapes correct? Are logits finite? Is the loss nonzero? Do activations saturate? Does a tiny model overfit a tiny dataset? These checks catch many errors before optimizer settings matter.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `A forward pass is only as good as the learned parameters and the input representation. If features at serving time differ from training features, the computation can be perfectly executed and still wrong. If a classifier receives out-of-distribution examples, it may produce confident logits because the function is forced to output something. If preprocessing is inconsistent, token ids, normalized values, or image channels can be shifted before the network even begins.`,
+        `Do not anthropomorphize individual neurons. A neuron computes a weighted sum, bias, and activation. Interpretability becomes difficult because many such computations compose across layers and because features may be distributed. Do not confuse inference with learning either. Unless weights, adapter parameters, memory, or some external state are updated, a forward pass is applying what training already stored. Prompting a language model changes the input context; it does not update the model weights.`,
+      ],
+    },
+    {
+      heading: `What To Study Next`,
+      paragraphs: [
+        `Study activation functions to understand the bends that make neural networks more than linear maps. Study backpropagation and gradient descent to see how the same computation becomes trainable. Study softmax, logits, and calibration for classifier outputs. Study layer normalization, residual connections, attention, convolution, and transformer blocks to see richer layer contracts. For serving systems, study quantization, batching, key-value caches, and GPU memory bandwidth, because most production cost is paid while running forward passes at scale.`,
       ],
     },
   ],

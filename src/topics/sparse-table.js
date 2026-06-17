@@ -1,6 +1,5 @@
-// Sparse table: precompute the min of every power-of-two window, and any
-// range-minimum query collapses to TWO overlapping lookups — O(1), forever,
-// because min doesn't care that the middle got counted twice.
+// Sparse table: precompute power-of-two windows so static idempotent range
+// queries, such as range minimum, answer with two overlapping lookups.
 
 import { arrayState, matrixState, InputError } from '../core/state.js';
 
@@ -8,17 +7,15 @@ export const topic = {
   id: 'sparse-table',
   title: 'Sparse Table: O(1) Range Minimum',
   category: 'Data Structures',
-  summary: 'Precompute power-of-two windows once, answer every range-min in exactly two overlapping lookups — idempotence makes the double-count free.',
+  summary: 'Precompute power-of-two windows once, then answer static range minima with two overlapping lookups.',
   controls: [
     { id: 'view', label: 'View', type: 'select', options: ['build: doubling windows', 'query: two windows, one answer'], defaultValue: 'build: doubling windows' },
   ],
   run,
 };
 
-// Same numbers as the Fenwick and Segment Tree pages: [3, 2, -1, 6, 5, 4, -3, 3].
 const VALUES = [3, 2, -1, 6, 5, 4, -3, 3];
 const N = VALUES.length;
-// table[k][i] = min of the window of length 2^k starting at index i (0-based).
 const TABLE = [VALUES.slice()];
 for (let k = 1; (1 << k) <= N; k++) {
   const prev = TABLE[k - 1];
@@ -27,9 +24,8 @@ for (let k = 1; (1 << k) <= N; k++) {
   for (let i = 0; i + (1 << k) <= N; i++) row.push(Math.min(prev[i], prev[i + half]));
   TABLE.push(row);
 }
-const ids = (lo, hi) => Array.from({ length: hi - lo + 1 }, (_, j) => `i${lo + j}`);
 
-// The demo query: positions 2…7 (0-based), length 6 → k = 2 (window 4).
+const ids = (lo, hi) => Array.from({ length: hi - lo + 1 }, (_, j) => `i${lo + j}`);
 const QLO = 2;
 const QHI = 7;
 const QLEN = QHI - QLO + 1;
@@ -43,7 +39,7 @@ function* build() {
   yield {
     state: arrayState(VALUES),
     highlight: {},
-    explanation: `Third tool on the same eight numbers, third trade. Fenwick Tree (Binary Indexed Tree) and Segment Tree & Lazy Propagation both answer in O(log n) and accept updates. The sparse table makes a harder promise on a narrower contract: if the array NEVER CHANGES, every range-minimum query costs O(1) — not log, constant, two array lookups — after one O(n log n) preprocessing pass. Static data is everywhere (yesterday's logs, a genome, a published dataset), and for it, this is the endgame.`,
+    explanation: 'Sparse table chooses a narrow contract: the array never changes, but range-minimum queries should be as fast as possible. It precomputes answers for every power-of-two window.',
   };
 
   for (let k = 1; k < TABLE.length; k++) {
@@ -51,8 +47,8 @@ function* build() {
     yield {
       state: arrayState(TABLE[k]),
       highlight: { active: ['i0'], compare: [`i${half < TABLE[k].length ? half : TABLE[k].length - 1}`] },
-      explanation: `Level ${k}: the min of every window of length ${1 << k}. Slot i is computed in O(1) from the level below — min(level${k - 1}[i], level${k - 1}[i + ${half}]): two half-windows that tile the full one exactly. Slot 0 here covers positions 0…${(1 << k) - 1} = ${TABLE[k][0]}. ${k === TABLE.length - 1 ? `That's the whole structure: ${TABLE.length} rows of shrinking length, ~n·log₂(n) = ${TABLE.flat().length} stored values total. The doubling construction is Binary Exponentiation's trick applied to ranges: to know a power-of-two window, combine two windows of half the size.` : `Each level is built from the previous in one sweep — no recursion, no pointers.`}`,
-      invariant: 'table[k][i] = min(table[k−1][i], table[k−1][i + 2^(k−1)]): every level is two lookups per slot into the one below.',
+      explanation: `Level ${k} stores windows of length ${1 << k}. Each slot combines two half windows from level ${k - 1}: min(table[${k - 1}][i], table[${k - 1}][i + ${half}]). Slot 0 covers positions 0..${(1 << k) - 1} and has minimum ${TABLE[k][0]}.`,
+      invariant: 'table[k][i] stores the minimum of the length 2^k window starting at i.',
     };
   }
 }
@@ -61,45 +57,38 @@ function* query() {
   yield {
     state: arrayState(VALUES),
     highlight: { range: ids(QLO, QHI) },
-    explanation: `Query: minimum of positions ${QLO}…${QHI} — length ${QLEN}, which is NOT a power of two, so no precomputed window fits exactly. The trick that makes the whole structure work: pick k = ⌊log₂(${QLEN})⌋ = ${QK}, the largest power-of-two window (length ${W}) that fits inside the range. TWO such windows — one flush against each end — are guaranteed to COVER the range completely, because each is more than half its length. They will overlap in the middle. Let them.`,
-    invariant: 'Two windows of length 2^⌊log₂(len)⌋, one per end, always cover the range: each spans more than half of it.',
+    explanation: `Query positions ${QLO}..${QHI}, length ${QLEN}. Choose k = floor(log2(length)) = ${QK}, so the lookup window length is ${W}. One window is flush left and one is flush right.`,
+    invariant: 'Two power-of-two windows of length 2^floor(log2(len)) cover the query range.',
   };
 
   yield {
     state: arrayState(VALUES),
     highlight: { range: ids(QLO, QLO + W - 1), active: [`i${QLO}`] },
-    explanation: `Lookup one: the window flush LEFT — positions ${QLO}…${QLO + W - 1}, precomputed at level ${QK}: min = ${LEFT}. One array access, nothing computed.`,
-    invariant: 'Lookup 1 = table[k][lo]: the left-anchored power-of-two window, already on the shelf.',
+    explanation: `Left lookup: positions ${QLO}..${QLO + W - 1}, precomputed at level ${QK}, minimum ${LEFT}.`,
   };
 
   yield {
     state: arrayState(VALUES),
     highlight: { range: ids(QHI - W + 1, QHI), active: [`i${QHI - W + 1}`], compare: ids(QHI - W + 1, QLO + W - 1) },
-    explanation: `Lookup two: the window flush RIGHT — positions ${QHI - W + 1}…${QHI}: min = ${RIGHT}. Notice the highlighted overlap with lookup one: positions ${QHI - W + 1}…${QLO + W - 1} sit in BOTH windows and get examined twice. For a SUM that would be a bug — the overlap would double-count, which is exactly why Fenwick Tree (Binary Indexed Tree) needs disjoint pieces. For MIN it is nothing at all: min(x, x) = x, seeing an element twice changes no answer. The property is IDEMPOTENCE — the same law that lets CRDTs: Conflict-Free Replicated Data Types absorb duplicated merges lets this query ignore its own double-counting.`,
-    invariant: 'Idempotent operations forgive overlap: min(x, x) = x, so coverage is all that matters — disjointness is not required.',
+    explanation: `Right lookup: positions ${QHI - W + 1}..${QHI}, minimum ${RIGHT}. The two windows overlap, and that is fine because min(x, x) = x.`,
+    invariant: 'Idempotent operations forgive overlap. Disjointness is not required for min.',
   };
 
   yield {
     state: matrixState({
-      title: `min(${LEFT}, ${RIGHT}) = ${ANSWER} — and the complete ladder`,
+      title: `min(${LEFT}, ${RIGHT}) = ${ANSWER}`,
       rows: [
         { id: 'prefix', label: 'prefix array' },
         { id: 'sparse', label: 'sparse table' },
         { id: 'fenwick', label: 'Fenwick tree' },
-        { id: 'segment', label: 'segment tree + lazy' },
+        { id: 'segment', label: 'segment tree' },
       ],
       columns: [{ id: 'query', label: 'query' }, { id: 'update', label: 'update' }, { id: 'needs', label: 'operation must be' }],
       values: [[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]],
-      format: (v) => ['',
-        'O(1)', 'O(n) — static only', 'invertible (sums: range = prefix − prefix)',
-        'O(1)', 'none — static only', 'idempotent (min/max/gcd — overlap is free)',
-        'O(log n)', 'O(log n) point', 'invertible',
-        'O(log n)', 'O(log n) RANGE', 'merely associative — the most general',
-      ][v],
+      format: (v) => ['', 'O(1)', 'O(n)', 'invertible', 'O(1)', 'none', 'idempotent', 'O(log n)', 'O(log n) point', 'invertible', 'O(log n)', 'O(log n) range', 'associative'][v],
     }),
     highlight: { active: ['sparse:query', 'sparse:needs'] },
-    explanation: `Answer: min(${LEFT}, ${RIGHT}) = ${ANSWER}, in exactly two lookups — the same cost for a range of 6 or 6 million. The ladder is now complete, and it is really a map of algebra to data structures: what your operation CAN do determines what structure you need. Invertible (subtraction exists) → prefix arrays and Fenwick. Idempotent (double-counting is free) → sparse table, O(1) on static data. Merely associative → segment tree, the general worker. The deepest pattern on these four pages: you never chose a data structure at all — you identified which algebraic law your problem satisfies, and the structure followed.`,
-    invariant: 'RMQ = min(table[k][lo], table[k][hi−2^k+1]): two lookups, any range — the algebra of the operation picked the structure.',
+    explanation: `Answer: ${ANSWER}. The important distinction is algebra: sparse tables use idempotence, Fenwick uses invertible prefix algebra, and segment trees use associativity.`,
   };
 }
 
@@ -113,43 +102,113 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why This Exists`,
       paragraphs: [
-        `A sparse table is a 2D array of precomputed answers to every range-minimum query on static data. The name comes from its structure: table[k][i] holds the minimum of a power-of-two window of length 2^k starting at position i. Sparse means it does not store the answer for every possible length — only powers of two. For any range, two overlapping power-of-two windows (one per end) cover it completely, and because min ignores duplicate counts (idempotence), the overlap is free. The payoff: O(1) query time forever, after O(n log n) preprocessing, with no updates allowed. This is the endgame for static data.`,
+        `A sparse table exists for a narrow but common situation: the data is fixed, and the program must answer many range queries quickly. The array might be an Euler tour depth list for lowest common ancestor, a suffix-array support table, an immutable metric series, or an offline dataset used by many queries.`,
+        `If the array never changes, every repeated scan is wasted work. The sparse table spends time once to precompute answers for carefully chosen windows. After that, each range-minimum query can be answered with two lookups and one comparison.`,
+        `The structure is a good example of choosing a data structure from the shape of the problem. It is not trying to be general. It is trying to be extremely fast for static idempotent range queries, especially range minimum and range maximum.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Obvious Approach and the Wall`,
       paragraphs: [
-        `Build the table bottom-up by doubling. Start with level 0: table[0][i] = VALUES[i], the minimum of each single element (windows of length 2^0 = 1). For level k, compute table[k][i] = min(table[k−1][i], table[k−1][i + 2^(k−1)]). Each slot combines two windows from the level below whose lengths sum to 2^k. This is Binary Exponentiation's trick applied to ranges: to learn a power-of-two window, build it from two half-size windows. With eight values, the table has ⌊log₂(8)⌋ + 1 = 4 levels, storing 8 + 4 + 2 + 1 = 15 values total, plus the original array: roughly n·log n storage.`,
-        `To query a range [lo, hi], let len = hi − lo + 1, and k = ⌊log₂(len)⌋. The window 2^k fits inside [lo, hi]. Place one window at lo (flush left) and another at hi − 2^k + 1 (flush right). These two windows always overlap because each is longer than half the range. Return min(table[k][lo], table[k][hi − 2^k + 1]). Two array lookups, always O(1), no computation.`,
-        `Why overlap does not break the answer: min(x, x) = x. Seeing an element in both windows changes its contribution to the final min not at all. The operation is idempotent — the same algebraic property that lets CRDTs: Conflict-Free Replicated Data Types merge duplicate updates safely.`,
+        `The obvious approach is to scan the range from left to right and keep the smallest value. That is correct, simple, and often fine for a few queries. Its cost is O(length) per query. If queries overlap heavily, the same elements are inspected again and again.`,
+        `A segment tree is the next obvious improvement. It answers range queries in O(log n) and supports updates. That is a powerful trade when the array changes. But if the array is static and the query operation is minimum, the update machinery is unused overhead.`,
+        `A prefix array gives O(1) range sums because subtraction removes the part before the range. That trick depends on invertibility. Minimum does not have an inverse: knowing min(0..r) and min(0..l-1) does not reveal min(l..r). The sparse table is the answer when prefix subtraction is impossible but overlap is harmless.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core Insight`,
       paragraphs: [
-        `Preprocessing: O(n log n) time, O(n log n) space. Build one level (n cells) at a time, one level per iteration, ⌊log₂(n)⌋ + 1 iterations total. Query: O(1) time, two table lookups and one min. No updates allowed — the moment data changes, the table is stale. This is the hard contract: static data, or the structure fails. Compare to Fenwick Tree (Binary Indexed Tree) and Segment Tree & Lazy Propagation, which accept O(log n) updates. The choice between them rests entirely on algebra: invertible operations (sums) use Fenwick; idempotent operations (min/max/gcd) use sparse table on static data; merely associative operations use Segment Tree.`,
+        `Precompute answers for every power-of-two window. Level 0 stores windows of length 1. Level 1 stores length 2. Level 2 stores length 4. Level k stores length 2^k. The key invariant is table[k][i] equals the minimum of the subarray starting at i with length 2^k.`,
+        `Any query length has a largest power of two inside it. For range [lo, hi], choose k = floor(log2(hi - lo + 1)) and w = 2^k. One length-w window starts at lo. Another length-w window ends at hi. Those two windows cover the whole query range, usually with overlap.`,
+        `Overlap is the trick. Minimum is idempotent: min(x, x) = x. If the same index appears in both windows, counting it twice does not change the answer. This is why sparse tables give O(1) range minimum but not ordinary range sum.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Build Mechanics`,
       paragraphs: [
-        `Sparse tables compute the lowest common ancestor (LCA) of two nodes in a tree via Euler tour: flatten the tree into an array, convert LCA to a range-minimum query on a derived array, answer in O(1) per query. Used in bioinformatics and compiler optimization. Range-minimum queries appear in suffix-array construction (computing LCP — Longest Common Prefix — arrays, which guide BWT and full-text indices). Sliding-window analytics on immutable logs: compute the min value in any historical window without recomputing, essential for monitoring systems analyzing unchanging production data.`,
+        `The build starts with table[0][i] = array[i]. That row is already correct for every length-1 range. Each higher row combines two adjacent half windows from the row below.`,
+        `For k > 0, table[k][i] = min(table[k - 1][i], table[k - 1][i + 2^(k - 1)]). The first term is the left half of the window. The second term is the right half. Together they exactly cover the length-2^k window starting at i.`,
+        `The build has O(n log n) time because there are log n levels and O(n) starting positions per level. It has O(n log n) space for the same reason. The table is called sparse because it stores only power-of-two window sizes, not every possible interval.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Query Mechanics`,
       paragraphs: [
-        `Sparse table is NOT a data structure for dynamic ranges — the moment you insert, delete, or update an element, every precomputed window becomes wrong. Do not attempt to patch single cells; rebuild the entire table or switch to Fenwick or Segment Tree. Another trap: the name "sparse" does not mean the table is small. For n = 10^6, you store roughly 20 million values. Memory grows linearly with n, not sublinearly. Finally, sparse tables only work for idempotent queries (min, max, gcd). Sums, products, XOR, or any invertible operation will double-count the overlap and give wrong answers; those operations need prefix arrays or Fenwick.`,
+        `To answer [lo, hi], compute len = hi - lo + 1. Then compute k = floor(log2(len)) and w = 2^k. The left answer is table[k][lo]. The right answer is table[k][hi - w + 1]. The result is min(left, right).`,
+        `A production implementation usually precomputes floor logs for every length from 1 to n. Then k is a table lookup instead of a floating-point calculation. The query path becomes integer arithmetic, two memory reads, and one operation.`,
+        `The two lookup windows need not be disjoint. For length 6, the largest power of two is 4. The left window covers positions lo through lo+3. The right window covers hi-3 through hi. They overlap in the middle, but every index in the query is covered by at least one window.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Animation Notes`,
       paragraphs: [
-        `Read Segment Tree & Lazy Propagation to see how to handle range updates and queries together. Study Fenwick Tree (Binary Indexed Tree) to learn point updates with O(log n) cost on invertible operations. Revisit Binary Exponentiation to deepen your intuition for the doubling trick — it appears in sparse tables, binary lifting for LCA, and everywhere exponents matter. Strengthen your foundations with Binary Search, which underpins lower_bound queries in many range structures. Together: sparse table is the O(1) query winner on static idempotent data; Fenwick is the O(log n) winner on dynamic invertible data; Segment Tree is the general-purpose associate structure. Algebra picks the data structure.`,
+        `The build view shows the doubling rule. Each level is not a new array problem; it is a reuse of the row below. A length-4 minimum is made from two length-2 minima. A length-8 minimum is made from two length-4 minima.`,
+        `The query view shows the two-window answer. The selected range is larger than one precomputed block, but two blocks of the largest fitting size cover it. The comparison table at the end separates sparse tables from prefix arrays, Fenwick trees, and segment trees by the algebra each one needs.`,
+      ],
+    },
+    {
+      heading: `Correctness`,
+      paragraphs: [
+        `The build invariant follows by induction. Level 0 is correct because each entry is a one-element minimum. Assume level k - 1 is correct. A length-2^k window is exactly the union of two adjacent length-2^(k-1) windows, so taking the minimum of their stored answers gives the correct answer for the larger window.`,
+        `The query proof uses coverage plus idempotence. Let w be the largest power of two no larger than the query length. The left window covers the beginning of the range. The right window covers the end. Because 2w is at least the query length, the two windows together cover every position from lo to hi.`,
+        `If the windows overlap, the overlapped values are considered twice. For minimum, maximum, and gcd, duplicate consideration is harmless. That algebraic fact is the reason the query can use two overlapping blocks instead of a logarithmic decomposition into disjoint blocks.`,
+      ],
+    },
+    {
+      heading: `Worked Example`,
+      paragraphs: [
+        `Take the array [3, 2, -1, 6, 5, 4, -3, 3]. Level 0 is the array itself. Level 1 stores minima of adjacent pairs: min(3, 2), min(2, -1), min(-1, 6), and so on. Level 2 stores minima of length-4 windows by combining two level-1 answers.`,
+        `Now ask for the minimum from positions 2 through 7. The range length is 6. floor(log2(6)) is 2, so the lookup window length is 4. The left window is positions 2..5, whose minimum is -1. The right window is positions 4..7, whose minimum is -3. The answer is min(-1, -3) = -3.`,
+        `Notice what did not happen. The query did not scan six values. It did not walk a tree. It did not subtract a prefix. It used precomputed windows and the fact that minimum tolerates overlap.`,
+      ],
+    },
+    {
+      heading: `Complexity and Storage`,
+      paragraphs: [
+        `Preprocessing costs O(n log n) time and O(n log n) memory. Query time is O(1). Updates are not supported efficiently. Changing one array element may affect one entry on level 0, two nearby entries on level 1, several entries on higher levels, and many query answers. Rebuilding is usually the honest response to mutation.`,
+        `The memory layout matters. Many implementations store table[k][i] by level because build and query naturally address one level at a time. Others store per-index vectors for cache locality in specific workloads. For simple JavaScript, an array of rows is easiest to explain and plenty fast for educational input sizes.`,
+        `The log table is small but important. Precomputing logs avoids repeated Math.log calls and avoids subtle floating-point boundary issues. logs[1] = 0, logs[2] = 1, logs[3] = 1, logs[4] = 2, and so on.`,
+      ],
+    },
+    {
+      heading: `Algebraic Boundary`,
+      paragraphs: [
+        `Sparse tables need an operation that is associative and idempotent for the two-overlapping-window O(1) query. Minimum works. Maximum works. GCD works because gcd(x, x) = x. Bitwise AND and OR can also work under the same duplicate-safe rule.`,
+        `Sums do not work with this query trick because an overlapped value would be counted twice. XOR does not work with overlapping windows in the same way because duplicate values cancel, changing the answer. For those operations, use prefix arrays, Fenwick trees, segment trees, or a disjoint sparse table depending on whether updates matter and whether the operation is invertible.`,
+        `This distinction is the main lesson. Sparse table is not just a table of cached answers. It is a table that exploits a specific algebraic permission: overlapping coverage is allowed because duplicate participation does not change the result.`,
+      ],
+    },
+    {
+      heading: `Implementation Guidance`,
+      paragraphs: [
+        `Define the operation and identity clearly before building. For minimum over numbers, JavaScript Infinity is a natural identity for defensive helper code, but normal sparse-table queries do not need an identity because they always read two valid windows.`,
+        `Validate indices at the boundary. Reject empty ranges, negative indices, and hi values beyond the array. Decide whether your public API accepts inclusive [lo, hi] or half-open [lo, hi). Internally, inclusive ranges match the usual sparse table formula, while half-open ranges may match JavaScript slice conventions better.`,
+        `Be careful with bit shifts for very large arrays. JavaScript bitwise shifts operate on 32-bit signed integers. For educational arrays this is fine. For huge arrays, compute powers with multiplication or exponentiation and store lengths explicitly.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `Sparse tables win for static range minimum, static range maximum, static gcd, lowest common ancestor through Euler tour plus range minimum, suffix-array longest-common-prefix support, immutable telemetry windows, offline analytics, and contest problems with many queries and no updates.`,
+        `They also win pedagogically. The structure shows how preprocessing, powers of two, and algebra can collapse query time. It is a clean companion to binary lifting, where powers of two are used for jumps instead of range windows.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `It fails when the array changes frequently. A segment tree or Fenwick tree is usually better if updates are part of the problem. Sparse-table rebuilds are simple but expensive.`,
+        `It fails when memory is tight and query count is low. O(n log n) space is a real cost. If there are only a few queries, scanning may be simpler and faster in practice.`,
+        `It fails when the operation does not tolerate overlap. If you want sum, average, product, or other non-idempotent results, the classic sparse table query is the wrong tool. The right structure follows from the algebra of the operation, not from the desire for O(1) at any cost.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Study Segment Tree for dynamic associative queries, Fenwick Tree for invertible prefix algebra, Prefix Sums for static sums, Binary Lifting LCA for another power-of-two table, Disjoint Sparse Table for static associative queries without idempotence, and Sqrt Decomposition for a simpler preprocessing tradeoff.`,
+        `A good exercise is to implement range maximum by changing only the operation, then try to implement range sum with the same overlapping query. The failure will make the idempotence requirement concrete.`,
       ],
     },
   ],
 };
-

@@ -228,10 +228,104 @@ export const article = {
     { title: 'NVIDIA GPUDirect Storage Benchmarking and Configuration Guide', url: 'https://docs.nvidia.com/gpudirect-storage/configuration-guide/index.html' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['NUMA GPU affinity is the placement discipline that keeps CPU worker threads, host buffers, NICs, GPUs, and cache tiers close to each other. For LLM serving, bad affinity can silently turn a fast model into a tail-latency problem because control traffic, pinned memory, or RDMA paths cross the wrong socket.', 'The local inference-scaling notes mention topology as a final-tier lever. This case study makes it explicit: placement is a data structure. Store the topology matrix, bind workers, record where pages live, and route requests with that information.'] },
-    { heading: 'How it works', paragraphs: ['A multi-socket server has several memory domains. A GPU and NIC may share a PCIe root complex with one CPU socket, while a different worker thread runs on another socket. The request still completes, but it can pay extra interconnect hops. GPUDirect RDMA and GPUDirect Storage are most valuable when the peer path is actually direct and the process is placed correctly.', 'The serving control plane should maintain a placement ledger: GPU id, NIC id, PCIe locality, CPU set, NUMA node for pinned memory, cache tier, and observed p95 or p99 transfer latency. That ledger feeds SLO-Aware LLM Request Router and AI Rack Topology Power Thermal Ledger.'] },
-    { heading: 'Complete case study', paragraphs: ['A retrieval-heavy inference worker receives prompt chunks over RDMA and serves a model shard on GPU0. Discovery shows GPU0 and NIC0 are near CPU0. The runtime pins the worker to CPU0, allocates host buffers on NUMA node 0, confirms the peer path, and emits span fields for gpu_id, nic_id, cpu_set, numa_node, and topology_code. If autoscaling starts the worker on CPU1, the router sees the affinity score drop and avoids the host for latency-sensitive traffic.', 'This is not a unit-test problem. It is an operations invariant: topology can change when hardware fails, pods move, drivers update, or an autoscaler creates new workers. The audit has to run continuously.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not assume a direct path because the feature exists. Confirm the GPU, NIC, CPU, and memory placement. Do not optimize only mean throughput. Remote placement often appears fine at low load and then bends p99 under concurrency. Do not let batch traffic and interactive traffic share the same affinity policy without separate SLO weights.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: NVIDIA GPUDirect RDMA at https://docs.nvidia.com/cuda/gpudirect-rdma/, NVIDIA GPUDirect overview at https://developer.nvidia.com/gpudirect, and NVIDIA GPUDirect Storage benchmarking guide at https://docs.nvidia.com/gpudirect-storage/configuration-guide/index.html. Study RDMA Queue Pair Work Request Case Study, GPUDirect RDMA Peer Memory Case Study, CXL Memory Pooling Type-3 Fabric Case Study, SLO-Aware LLM Request Router, and AI Rack Topology Power Thermal Ledger next.'] },
+    {
+      heading: 'What it is',
+      paragraphs: [
+        'NUMA GPU affinity is the placement discipline that keeps CPU worker threads, pinned host buffers, NICs, GPUs, and nearby cache tiers on the shortest practical path. In LLM serving, bad affinity can turn a fast model into a tail-latency problem because host copies, control traffic, page faults, or RDMA setup cross the wrong socket.',
+        'This topic exists because hardware topology is easy to ignore when the code still works. A request can complete while paying an avoidable inter-socket hop. At low load that tax may hide in the noise. Under concurrency it can bend p99 and make the serving stack look worse than the model or engine actually is.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious attempt is to let the operating system and scheduler place workers wherever capacity is available. If a GPU is free, send work to it. If a thread can run, let it run. This is simple, portable, and good enough for many CPU-only services.',
+        'The wall appears when the server has several NUMA domains and multiple PCIe paths. A worker on CPU1 can drive GPU0 near CPU0. A pinned buffer can live on the wrong memory node. A NIC can reach a GPU through a slower path. None of that changes the API result, but it changes latency and jitter.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is to treat placement as data. The system needs a topology matrix, not a comment in a runbook. The matrix should map CPU sockets, memory nodes, GPUs, NICs, PCIe root complexes, RDMA capability, cache tiers, and observed transfer latency.',
+        'That matrix becomes a placement ledger for each worker: CPU set, NUMA node for host pages, GPU id, NIC id, topology code, cache tier, and p95 or p99 transfer evidence. Once the ledger exists, routers and admission controls can consume affinity instead of discovering it after p99 breaks.',
+      ],
+    },
+    {
+      heading: 'How to inspect placement',
+      paragraphs: [
+        'Inspect placement as a topology proof. A good trace should say which CPU set ran the worker, where host pages were allocated, which GPU executed the model, which NIC handled network traffic, and whether the measured path matched the intended affinity group.',
+        'The key distinction is between available capacity and good capacity. A remote GPU may be available, and the request may still finish, but the extra socket hop can turn into p99 jitter. Serious serving systems need to record when they used a local path, when they accepted a remote path, and why.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A multi-socket server has separate memory domains. Local memory is cheaper for the CPU attached to that socket. GPUs and NICs attach through PCIe paths that may be near one socket and far from another. GPUDirect RDMA is most useful when the GPU and peer device have a supported direct path, commonly requiring the devices to share the right upstream PCIe relationship.',
+        'A serving runtime should discover the topology, pin worker threads, allocate host buffers on the intended NUMA node, confirm the GPU/NIC path, and emit trace fields for the path each request used. The router can then add affinity to the same scorecard that already considers queue depth, cache locality, and SLO class.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is a locality invariant. If a request uses worker CPU, host pages, GPU, and NIC that all match the recorded topology path, the system avoids avoidable remote hops for that path. It does not make the model faster; it removes accidental placement latency from the critical path.',
+        'The ledger also makes failures diagnosable. If p99 rises after an autoscale event, the operator can compare the old and new topology fields. Without that record, the team may waste time tuning kernels while the real regression is a worker that moved to the wrong socket.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Affinity control adds operational friction. Pinning can reduce scheduler flexibility. Reserving local buffers can fragment memory. Per-GPU worker pools can leave some resources idle. Topology discovery and RDMA validation add startup checks and ongoing drift detection.',
+        'There is also a fairness tradeoff. A latency-sensitive request may defer instead of using a remote GPU, while batch work may accept the remote path. That means placement should be weighted by SLO class rather than enforced as one global rule.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins on multi-socket GPU servers, RDMA-heavy serving paths, retrieval-heavy systems that move large prompt chunks, disaggregated KV-transfer paths, and hosts where GPUs, NICs, and CPU sockets are not symmetric. It is a final-tier lever only after the team can measure the path.',
+        'A strong use case is an inference worker that receives context over RDMA and serves a shard on GPU0. Discovery shows GPU0 and NIC0 are near CPU0. The runtime pins the worker to CPU0, allocates host buffers on NUMA node 0, verifies the peer path, and writes the placement fields into every trace.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It is not worth much on a simple single-socket system or a workload dominated by model compute with little host or network traffic. It also fails when teams assume a feature name proves the path. GPUDirect, RDMA, and pinned memory still need hardware support, driver support, and verified placement.',
+        'The common production failure is drift. Hardware fails, pods move, drivers update, autoscalers create workers on cold nodes, and cache tiers change. A one-time startup script is not enough. The audit has to run continuously and feed the scheduler.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        'A retrieval-heavy inference worker receives prompt chunks over RDMA and serves a model shard on GPU0. Discovery shows GPU0 and NIC0 near CPU0. The runtime pins the worker to CPU0, allocates host buffers on NUMA node 0, confirms the peer path, and emits gpu_id, nic_id, cpu_set, numa_node, topology_code, and transfer_p99 in every span.',
+        'If autoscaling starts the next worker on CPU1 with GPU0, the router sees the affinity score drop. Interactive traffic waits for a local path or chooses another host. Batch traffic may still use the remote worker if its deadline can absorb the tax. The decision is explicit instead of accidental.',
+      ],
+    },
+    {
+      heading: 'Placement algorithm',
+      paragraphs: [
+        'A practical placement algorithm starts by building a topology table at node admission time. It records CPU sockets, NUMA nodes, GPUs, NICs, PCIe relationships, peer-access support, measured copy latency, RDMA validation, and any reserved memory pools. Startup should fail or degrade loudly when the table is incomplete.',
+        'At request time, the router scores candidate workers by SLO class, queue depth, cache locality, and topology fit. Local topology should not always win. A saturated local worker can be worse than a lightly loaded remote worker for batch traffic. The point of the score is to make the tradeoff explicit and measurable instead of accidental.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track transfer latency by CPU-GPU-NIC tuple, remote-memory rate, pinned-buffer node, RDMA fallback count, queue depth by affinity group, GPU utilization, network throughput, page-fault rate, and p99 by placement code. The point is not to admire topology diagrams; it is to connect topology to user-visible latency and cost.',
+        'A deployment gate should reject unknown topology, missing peer-path validation, or traces that omit placement fields. Otherwise the platform can drift into a slower configuration while dashboards still report that GPUs are healthy and pods are ready.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'NUMA/GPU affinity is the lesson that hardware topology is part of the algorithm. The router cannot make good placement decisions if the topology lives only in a runbook. The state has to be measured, logged, and fed into admission and routing policy.',
+        'For course design, teach this after basic scheduling and before advanced LLM serving optimization. It grounds abstract placement in concrete data structures: topology matrix, worker ledger, route score, and trace fields.',
+        'The mistake to avoid is tuning kernels while ignoring placement. Kernel fusion, batching, and KV-cache policy matter, but a bad CPU-GPU-NIC path can tax every request before the model gets a chance to run efficiently.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: NVIDIA GPUDirect RDMA at https://docs.nvidia.com/cuda/gpudirect-rdma/, NVIDIA GPUDirect overview at https://developer.nvidia.com/gpudirect, and NVIDIA GPUDirect Storage benchmarking guide at https://docs.nvidia.com/gpudirect-storage/configuration-guide/index.html.',
+        'Study RDMA Queue Pair Work Request Case Study for the transport primitive, GPUDirect RDMA Peer Memory Case Study for GPU/peer access, CXL Memory Pooling Type-3 Fabric Case Study for memory tiers, SLO-Aware LLM Request Router for consuming affinity scores, and AI Rack Topology Power Thermal Ledger for rack-level placement constraints.',
+      ],
+    },
   ],
 };

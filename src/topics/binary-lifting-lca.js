@@ -182,31 +182,109 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'Binary lifting is a preprocessing technique for rooted trees. For each node v, it stores ancestors at distances 1, 2, 4, 8, and so on. Those jump pointers answer kth-ancestor and lowest-common-ancestor queries in logarithmic time.',
-      'The idea is binary decomposition. Any climb of d edges can be written as a sum of powers of two, so the query performs only the jumps corresponding to set bits. This connects directly to Binary Exponentiation and Sparse Table.',
-      'Binary lifting is most useful when the tree topology is fixed and there are many ancestry or path queries. It trades O(n log n) memory for predictable O(log n) query time.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'Root the tree and run DFS to record depth and immediate parent. Then build up[v][k] = up[up[v][k-1]][k-1]. The kth column jumps twice as far as the previous column.',
-      'For LCA(u, v), first lift the deeper node until depths match. Then scan jump powers from high to low. If up[u][k] and up[v][k] are different, lift both. Their parent after this loop is the LCA.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'Preprocessing costs O(n log n). Each kth-ancestor or LCA query costs O(log n). Memory is also O(n log n), which is usually fine for static trees but can be high for massive trees or memory-constrained systems.',
-      'The common implementation bugs are off-by-one log sizes, null ancestors above the root, and mixing vertex-path and edge-path metadata. If storing max edge on jumps, each table cell must carry both ancestor and aggregate.',
-      'The technique is also cache-friendly compared with pointer-heavy dynamic-tree structures because the jump table is usually stored in arrays. That makes it a good default for static trees in ordinary application code, not only programming contests.',
-    ] },
-    { heading: 'Real-world uses', paragraphs: [
-      'Binary lifting appears in tree databases, routing trees, compiler dominator queries, static organization hierarchies, game scene graphs, and graph algorithm preprocessing.',
-      'A complete case study is permission inheritance in a static folder tree. LCA finds the shared ancestor of two folders, and jump metadata can answer whether a deny rule appears on either path.',
-      'Another useful case is incident navigation in a service ownership tree. If every service points to an owning team and every team points to a broader organization, binary lifting can quickly find the nearest common escalation owner for two failing services.',
-      'Binary lifting is also the usual preprocessing behind Virtual Tree LCA Compression. The virtual-tree build calls LCA on adjacent marked nodes in Euler order, then runs a query-specific DP on the compressed tree.',
-    ] },
-    { heading: 'Pitfalls and misconceptions', paragraphs: [
-      'Binary lifting does not support arbitrary link and cut updates efficiently. If topology changes, use Link-Cut Tree, Euler Tour Tree, or a rebuild strategy. It also does not replace Heavy-Light Decomposition when path updates and segment queries dominate.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: CP-Algorithms LCA binary lifting at https://cp-algorithms.com/graph/lca_binary_lifting.html and USACO Guide binary jumping at https://usaco.guide/plat/binary-jump. Study Virtual Tree LCA Compression, Heavy-Light Decomposition, Sparse Table, Tree Traversals, Link-Cut Tree, and Euler Tour Tree next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        `Tree ancestry questions look small until they appear inside a hot path. A filesystem may need the nearest shared directory. A permission system may need the common owner of two resources. A compiler may need dominance relations. A graph algorithm may compress marked nodes into a virtual tree. In every case, the question is not "is this node connected?" The question is "where do these two rooted paths first meet?"`,
+        `Lowest common ancestor, or LCA, names that meeting point. Given two nodes in a rooted tree, their LCA is the deepest node that is an ancestor of both. Binary lifting exists because a fixed tree often receives many ancestry queries, and walking parent pointers one edge at a time wastes the fact that the topology is already known.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The first attempt is direct climbing. Store parent[v] and depth[v]. To find the kth ancestor of v, repeat v = parent[v] exactly k times. To find LCA(u, v), lift the deeper node until both depths match, then move both upward one parent at a time until they meet. This is easy to write and easy to check.`,
+        `The approach fails on tall trees. A tree can be a chain, so height can be n - 1. One LCA query may cost O(n), and a large batch of queries can become O(nq). Even if the tree is balanced most of the time, one adversarial hierarchy or one generated chain can break the performance promise.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `The insight is to store ancestors at power-of-two distances. For each node v, keep up[v][0] for the 1-step ancestor, up[v][1] for the 2-step ancestor, up[v][2] for the 4-step ancestor, then 8, 16, and so on. Any climb distance can be written as a sum of powers of two, so a long climb becomes a short sequence of jumps.`,
+        `The recurrence is the whole data structure: up[v][k] = up[up[v][k - 1]][k - 1]. A jump of length 2^k is two jumps of length 2^(k - 1). This is the same doubling pattern used by binary exponentiation and sparse tables, applied to parent pointers instead of numbers or array ranges.`,
+      ],
+    },
+    {
+      heading: 'The invariant',
+      paragraphs: [
+        `The invariant is precise: up[v][k] is the ancestor reached by moving exactly 2^k parent edges above v, or null if that ancestor does not exist. Depth is measured in edges from the root. Parent pointers always move toward smaller depth. The table never invents a new relationship; it only caches relationships already implied by parent links.`,
+        `For LCA convergence, the second invariant is that after depth equalization, u and v remain at the same depth. When the algorithm accepts a jump for both nodes, the jumped ancestors must be different. That means the true LCA is still above both jumped nodes, so the algorithm has not crossed it.`,
+      ],
+    },
+    {
+      heading: 'Table construction',
+      paragraphs: [
+        `Root the tree first. A DFS or BFS records depth[v] and up[v][0]. Then build table columns from small jumps to large jumps. If mid = up[v][k - 1] is null, then up[v][k] is null. Otherwise up[v][k] = up[mid][k - 1]. The maximum column is floor(log2(n)) for n nodes, or a fixed constant if the maximum input size is known.`,
+        `The construction is O(n log n) time and memory because every node receives about log n ancestor entries. In JavaScript, a practical implementation often uses arrays of arrays for clarity, or typed arrays when n is large and null can be represented by -1. The important part is not the container; it is the column-by-column order that makes every smaller jump available before it is needed.`,
+      ],
+    },
+    {
+      heading: 'Answering kth ancestor',
+      paragraphs: [
+        `The kth-ancestor query is the simplest use of the table. Scan the bits of k. If bit i is set, replace v with up[v][i]. Stop early if v becomes null. To climb 13 edges, use 13 = 8 + 4 + 1, so the query applies the 2^3 jump, then the 2^2 jump, then the 2^0 jump.`,
+        `This query is a useful test for the table. If kth ancestor works for random nodes and distances, the base parent column, null handling, and power-of-two recurrence are probably correct. LCA adds a convergence rule on top of the same primitive.`,
+      ],
+    },
+    {
+      heading: 'Answering LCA',
+      paragraphs: [
+        `To compute LCA(u, v), first make the depths equal. If u is deeper, lift u by depth[u] - depth[v]. If v is deeper, lift v by the opposite difference. If the two nodes are equal after this step, that node is the LCA because one original node was an ancestor of the other.`,
+        `If they are still different, scan jump powers from high to low. For each k, compare up[u][k] and up[v][k]. If both exist and are different, move both nodes to those ancestors. After the loop, u and v are distinct children below the same ancestor, so parent[u] is the LCA. The algorithm uses large safe moves first, then narrows to the edge just below the split.`,
+      ],
+    },
+    {
+      heading: 'Visual cues',
+      paragraphs: [
+        `In the jump-table view, each column is a larger stride through the rooted tree. The 2^0 column stores the immediate parent, the 2^1 column stores the grandparent, and the 2^2 column stores the ancestor four edges above. The highlighted recurrence shows that a four-step climb is two two-step climbs chained together.`,
+        `In the LCA view, the useful event is the rejected jump. For nodes 5 and 7, both 2^1 ancestors are 1. Taking that jump would land both nodes on the same ancestor, which is too high for the convergence loop. The 2^0 jump sends 5 to 2 and 7 to 3, keeping them below the answer. Their shared parent is then 1.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The kth-ancestor part works by binary decomposition. Every nonnegative distance has a unique binary representation, and each selected table column moves exactly that many edges upward. Because every move follows real parent links, the composition of selected jumps reaches the same node as k one-step climbs.`,
+        `The LCA part works because the algorithm preserves order around the answer. Depth equalization puts both candidates on the same level. During convergence, a jump is accepted only when the two jumped ancestors differ, which proves neither candidate has moved to or above the LCA. Once no such jump remains, the candidates are as high as they can be while still separate. Their parent is therefore the deepest shared ancestor.`,
+      ],
+    },
+    {
+      heading: 'Path metadata',
+      paragraphs: [
+        `Binary lifting often carries more than ancestor ids. Each table cell can also store an aggregate over the climbed segment: maximum edge weight, minimum permission level, xor label, sum, bitwise-or flags, or whether some condition appears on the path. The recurrence combines metadata from the first half jump and the second half jump.`,
+        `This works cleanly for associative operations with a clear identity value. For example, max edge on a path can combine max(leftHalf, rightHalf). Direction-sensitive metadata needs more care because a climb from u to an ancestor and a climb from v to an ancestor may need opposite orders. Vertex metadata and edge metadata also need separate definitions, or off-by-one bugs will appear at the LCA.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `Preprocessing costs O(n log n). Each kth-ancestor or LCA query costs O(log n). Memory is O(n log n). Those bounds are attractive for static trees with many queries, but the memory table can be heavy for very large n, especially in languages where nested arrays have object overhead.`,
+        `Euler tour plus sparse table can answer LCA in O(1) after O(n log n) preprocessing, and Euler tour plus RMQ can be optimized further. Binary lifting remains a strong default because it also answers kth ancestor, supports path metadata naturally, has simple code, and does not require reducing the tree to an RMQ array before doing useful work.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Choose a root and be consistent. For a forest, either add a synthetic root or build one table per component and reject cross-component LCA queries. Store tin/tout timestamps if you want a fast isAncestor(u, v) helper, but the depth-equalization version works without timestamps.`,
+        `Common bugs are small but persistent: using Math.log2(n) without rounding up, reading up[-1][k], forgetting that the root has no parent, scanning jump powers in the wrong direction during LCA, and mixing 0-based node ids with 1-based input. A good test suite includes a chain, a star, a balanced tree, ancestor-descendant pairs, same-node queries, root queries, and random comparisons against a slow parent-climb implementation.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Binary lifting wins when the tree is static and query volume is high. It is common in competitive programming, taxonomy search, organization charts, compiler trees, static routing hierarchies, virtual-tree construction, and permission inheritance. The table turns a global hierarchy into local array lookups.`,
+        `A concrete permission example: two folders inherit rules from ancestors. LCA finds their nearest shared scope. Jump metadata can tell whether a deny rule appears on either path to that scope. The same pattern appears in network trees, scene graphs, and dependency trees whenever the path to a shared ancestor carries information.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Binary lifting is the wrong tool when the topology changes often. If edges are linked and cut dynamically, rebuilding the whole table can dominate the workload. Link-Cut Trees, Euler Tour Trees, or batched rebuild strategies fit dynamic forests better, although they cost more implementation complexity.`,
+        `It can also be the wrong tool for rich path updates. If queries ask for range updates and aggregates over arbitrary tree paths, Heavy-Light Decomposition with a segment tree may be more natural. If the workload only asks one or two ancestry questions on a small tree, a parent-set climb is simpler and easier to inspect.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: CP-Algorithms LCA binary lifting at https://cp-algorithms.com/graph/lca_binary_lifting.html and USACO Guide binary jumping at https://usaco.guide/plat/binary-jump. After this, study Virtual Tree LCA Compression, Heavy-Light Decomposition, Sparse Table, Tree Traversals, Euler Tour Tree, Link-Cut Tree, Binary Exponentiation, and Range Minimum Query.`,
+      ],
+    },
   ],
 };

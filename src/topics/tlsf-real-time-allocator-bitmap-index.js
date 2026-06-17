@@ -406,44 +406,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'TLSF means Two-Level Segregated Fit. It is a dynamic memory allocator designed for real-time systems, where malloc and free should have bounded execution time rather than occasionally walking an unbounded free list.',
-        'The data structure is a matrix of free lists indexed by two bitmap levels. The first-level index chooses a coarse size class, usually based on the most significant bit of the block size. The second-level index subdivides that size range into finer bins. A free block lives in exactly one bin list, and bitmap words tell which bins are nonempty.',
+        'Real-time systems care about the worst allocation, not the average allocation. An RTOS task, audio callback, robot control loop, or game frame can miss its deadline if malloc occasionally walks a long free list or performs delayed cleanup.',
+        'TLSF, Two-Level Segregated Fit, exists to make the allocator lookup path bounded. It does not promise infinite memory or zero fragmentation. It promises that finding, splitting, freeing, and coalescing blocks can be done through fixed-size metadata rather than an unbounded heap walk.',
+      ],
+    },
+    {
+      heading: 'The reasonable first attempt',
+      paragraphs: [
+        'A first-fit allocator keeps a list of free blocks and returns the first block large enough. A best-fit allocator searches for the tightest block. Both are easy to understand, and both can behave well in small or batch workloads.',
+        'The problem is that the search path depends on heap state. Fragmentation can make the allocator inspect many blocks before it finds a fit. A real-time system needs a bound that does not depend on how messy the free list became.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'A single broad size class can find blocks quickly but wastes memory through internal slack. A very fine set of size classes improves fit quality, but finding the next nonempty class can become another scan.',
+        'Deferred coalescing creates a second wall. If free only marks blocks and cleanup happens during a later allocation, the deadline-sensitive allocation path may pay for old garbage. TLSF keeps free-side cleanup bounded and immediate.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Use two levels of bins and make the bins searchable with bitmaps. The first level chooses a coarse power-of-two size band. The second level subdivides that band into finer slots. Each slot has a free list, and bitmap words record which slots and bands are nonempty.',
+        'The bitmap index is the real data structure. A request maps to a starting first-level and second-level bin. Find-first-set style operations jump to that bin or the next nonempty bin without walking arbitrary free blocks.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the bin-map view, watch a request become coordinates in a two-level table. The highlighted bitmap words matter more than the drawn block: they show how the allocator proves where a suitable free list begins without scanning the heap.',
+        'In the allocate and free views, focus on metadata movement. Allocation removes one block from a bin, optionally splits a useful tail, and reinserts the tail under its own size. Free checks neighboring physical blocks, removes old free neighbors from their bins, merges, and inserts the merged block once.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Allocation rounds the requested size for headers and alignment, maps it to FL and SL indexes, and searches the current or next nonempty bin using bitmap operations. It removes a block from that free list, splits a useful tail when possible, updates headers, and returns the payload pointer.',
-        'Freeing checks physical neighbors through block headers, immediately coalesces adjacent free blocks, removes old neighbors from their bins, and inserts the merged block into the bin matching its new size. This immediate coalescing is part of the bounded-time story: the allocator does not defer arbitrary cleanup to a future allocation.',
+        'Allocation first adjusts the requested size for alignment, headers, and minimum block size. The adjusted size maps to a first-level band and a second-level slot. If that exact slot is empty, the second-level bitmap or first-level bitmap finds the next nonempty slot that can hold the request.',
+        'The allocator removes a block from the chosen free list. If the block is larger than needed and the remainder can form a legal free block, it splits the tail and inserts that tail into the correct bin. The returned pointer points to the payload after the block header.',
+        'Freeing uses boundary metadata. The allocator marks the block free, checks whether the previous or next physical neighbor is free, removes those neighbors from their old bins, merges adjacent free space, updates headers, and inserts the merged result into the bin for its new size.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'TLSF is designed so allocation and deallocation take O(1) time with respect to the number of free blocks. The constant includes size mapping, bit scans, a small number of list edits, optional split, and optional neighbor coalescing. That is different from a naive first-fit allocator whose search can lengthen as fragmentation grows.',
-        'The tradeoff is metadata and tuning. More second-level bins reduce fit slack but increase bitmap and table footprint. Alignment, minimum block size, headers, pool count, and concurrency policy all affect real behavior. TLSF bounds allocator work; it does not guarantee an allocation succeeds if the pool lacks a sufficiently large contiguous free block.',
+        'The main invariant is that every free block appears in exactly one free list matching its current size, and the bitmap bits mirror whether those lists are empty. If a list becomes empty, its bit is cleared. If a block is inserted, the bit is set.',
+        'Splitting and coalescing preserve that invariant. A split removes one large block and inserts at most one leftover tail. A coalesce removes old neighboring free blocks before inserting the merged block once. The bitmap table remains a truthful index of available memory.',
+        'The real-time claim follows from that index. Size mapping, bitmap scans, list unlinking, split checks, and neighbor coalescing each touch a bounded amount of metadata. The bound is on allocator work, not on application memory demand.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'Consider a real-time audio engine that allocates small control objects during scene changes and larger buffers during preset loads. A general malloc with occasional long free-list searches can create audible glitches. A TLSF pool gives the engine a bounded allocator path: size maps to bins, bitmaps choose a nonempty list, and free immediately coalesces returned buffers.',
-        'The release gate is not just average allocation time. The team measures worst-case alloc/free latency under a fixed workload, peak fragmentation, largest free block, allocation failure behavior, and whether any lock can block the audio thread. Some systems still choose arena preallocation for the audio callback itself and reserve TLSF for bounded but less critical real-time work.',
+        'Suppose the adjusted request is 100 bytes. It maps into the 64-127 first-level band and the second-level slot that starts at 96. If that slot has a free block, the allocator pops it. If not, the bitmap search chooses the next populated slot in that band or the next populated larger band.',
+        'If the chosen block is 160 bytes and the adjusted allocation needs 112 bytes, the allocator returns 112 bytes and keeps a 48-byte tail only if that tail can hold the minimum free-block metadata. The tail is inserted into the bin for 48-byte blocks, and the corresponding bitmap bit is set.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'TLSF is not magic memory. If the requested size cannot fit any free block, allocation fails. If the application fragments the pool into incompatible holes, the bitmap lookup remains fast but may still find no adequate block. Pool sizing and lifetime discipline still matter.',
-        'Also distinguish bounded allocator operations from bounded system behavior. If malloc takes a global lock held by another thread, or if allocation failure triggers slow recovery code, the allocator data structure cannot save the deadline. Real-time use requires synchronization, failure paths, and pool ownership to be designed with the same discipline.',
+        'TLSF allocation and free are O(1) with respect to the number of free blocks. The constant includes mapping arithmetic, bitmap operations, a small number of free-list edits, optional splitting, and optional neighbor coalescing.',
+        'The tax is metadata and tuning. More second-level slots improve fit quality but increase bitmap and table footprint. Headers, alignment, minimum block size, pool count, and lock policy affect memory overhead. TLSF can be fast and bounded while still wasting memory if the size-class tuning is poor.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it is useful',
       paragraphs: [
-        'Primary sources: Masmano, Ripoll, Crespo, and Real, TLSF: a New Dynamic Memory Allocator for Real-Time Systems, https://www.gii.upv.es/tlsf/files/papers/ecrts04_tlsf.pdf; the UPV TLSF project page, https://www.gii.upv.es/tlsf/; Matthew Conte TLSF implementation, https://github.com/mattconte/tlsf; and RIOT OS package docs, https://api.riot-os.org/group__pkg__tlsf.html. Study Buddy Allocator Free Lists, Slab Allocator & Size Classes, Rank/Select Bitvector, Linked List, Big-O Growth Rates, GPU Memory Pool Fragmentation Ledger, and WebAssembly Linear Memory next.',
+        'TLSF fits bounded-latency heaps in RTOS services, embedded systems, robotics, games, audio-adjacent systems, packet processing, and fixed memory pools where missed deadlines matter more than peak allocator throughput.',
+        'A serious rollout measures worst-case alloc and free time, largest free block, fragmentation trend, allocation failure behavior, lock hold time, and pool pressure by subsystem. Average allocation time is not enough evidence for real-time use.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'TLSF is often the wrong allocator for general server workloads where thread caches, arenas, per-size-class slabs, and throughput under contention matter more than a strict bound on a single allocation path.',
+        'It is also the wrong answer for the hardest real-time callbacks if allocation itself is forbidden. In those paths, preallocation or static buffers may be the correct design, with TLSF reserved for less critical bounded dynamic allocation.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'A fast failed allocation is still a failed allocation. If the pool lacks a sufficiently large contiguous block, TLSF cannot manufacture one. Mixed lifetimes in one pool can keep the bitmap lookup bounded while fragmentation slowly destroys usable capacity.',
+        'Other failures sit outside the core algorithm: a global lock can make the system unbounded, a slow out-of-memory path can miss the deadline, corrupted block headers can poison the free lists, and second-level tuning can trade too much memory for too little fit quality or the reverse.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Masmano, Ripoll, Crespo, and Real, TLSF: a New Dynamic Memory Allocator for Real-Time Systems, https://www.gii.upv.es/tlsf/files/papers/ecrts04_tlsf.pdf; the UPV TLSF project page, https://www.gii.upv.es/tlsf/; Matthew Conte TLSF implementation, https://github.com/mattconte/tlsf; and RIOT OS package docs, https://api.riot-os.org/group__pkg__tlsf.html.',
+        'Study Buddy Allocator Free Lists for power-of-two splitting, Slab Allocator and Size Classes for object caches, Rank/Select Bitvector for bitmap navigation, Linked List for free-list mechanics, Big-O Growth Rates for bounded-work reasoning, GPU Memory Pool Fragmentation Ledger for fragmentation accounting, and WebAssembly Linear Memory for another bounded-memory environment.',
       ],
     },
   ],

@@ -171,6 +171,27 @@ export const article = {
       ],
     },
     {
+      heading: `How the visual model teaches it`,
+      paragraphs: [
+        `In the weather view, arrows are not paths you choose; they are probability flow. The table rows show the whole distribution after repeated matrix multiplication. The point is not that day 10 weather is known, but that the long-run proportions stabilize and stop remembering the starting day.`,
+        `In the funnel view, watch probability pile up in states with no exits. Churn and upgraded are absorbing: once mass reaches them, it stays there. The final percentages answer eventual-outcome questions without simulating individual users.`,
+      ],
+    },
+    {
+      heading: `The obvious approach`,
+      paragraphs: [
+        `The obvious way to model a sequence is to remember the whole history. Weather could depend on every previous day. A customer journey could depend on every prior touch. That quickly becomes impossible to estimate because each longer history creates a new state.`,
+        `The Markov move is to choose a state that contains enough information for the next transition, then deliberately forget the older path. That is an assumption, not a law of nature. The quality of the model depends on whether the chosen state really captures the memory that matters.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `A Markov chain is a state machine with probabilistic edges. The current state is the sufficient summary for the next step. Once the transition matrix is defined, short-term prediction is repeated matrix multiplication and long-run behavior is fixed-point analysis.`,
+        `The stationary distribution is the fixed point. Absorbing probabilities are another kind of fixed point. Both tell you something powerful: repeated local transition rules can produce global behavior without simulating every individual path.`,
+      ],
+    },
+    {
       heading: `How it works`,
       paragraphs: [
         `Build a matrix P where row i contains the probabilities of leaving state i. Each row sums to 1. A current distribution like (1, 0, 0) means "certainly sunny." One step is matrix multiplication: pi P. Day 1 becomes (0.7, 0.25, 0.05); day 2 multiplies again; day 10 has nearly stopped changing. Eigenvalues & Eigenvectors explains the hidden reason: power iteration is finding the eigenvector with eigenvalue 1.`,
@@ -190,10 +211,39 @@ export const article = {
       ],
     },
     {
+      heading: `Complete case study`,
+      paragraphs: [
+        `A subscription product has three live states: trial, active, and paused, plus two absorbing states: upgraded and churned. Each month, trial users may become active or churn. Active users may upgrade, pause, churn, or remain active. Paused users may return or churn.`,
+        `The product team wants two answers: eventual upgrade probability and expected time before absorption. A Markov chain answers both by treating the current account state as the summary. If adding "number of support tickets" changes the transition probabilities, then the original state was too small and the chain needs a richer state definition.`,
+      ],
+    },
+    {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `Do not assume every chain converges to one friendly answer. Reducible chains can get trapped in a subset of states; periodic chains can bounce forever. PageRank adds teleportation precisely to avoid those failures. Also, a stationary distribution is a long-run average, not a near-term forecast. The demo's day 1 weather is still (0.7, 0.25, 0.05), even though the long-run mix is different.`,
         `Finite State Machines look similar because they also walk a graph of states, but their arrows are deterministic rather than probabilistic. A Markov chain says "70% this way, 25% that way"; an FSM says "on this symbol, go exactly there." Mixing up those two models leads to wrong guarantees.`,
+      ],
+    },
+    {
+      heading: `Operational signals`,
+      paragraphs: [
+        `Track row sums, impossible transitions, estimated transition counts, confidence intervals for transition probabilities, mixing time, absorbing probability, and sensitivity to state definition. Many bad chains fail because the transition matrix was estimated from thin data or because the state left out a decisive memory variable.`,
+        `For deployed models, compare predicted state distributions with observed distributions over time. If the chain predicts the right one-step movement but the wrong long-run mix, the independence assumption or transition stationarity may be broken.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `The Markov assumption fails when the present state is not a sufficient summary. A user who has failed three payments may behave differently from a user in the same account state with no failed payments. If that history matters, it must be added to the state or modeled another way.`,
+        `Transition probabilities can also drift. Weather, customer behavior, queues, and networks change under seasonality, product changes, incidents, and incentives. A matrix estimated last quarter may not describe this quarter. The chain is only as current as its transition evidence.`,
+      ],
+    },
+    {
+      heading: `What to remember`,
+      paragraphs: [
+        `A Markov chain is useful when the present state is a good enough summary of the past. The transition matrix gives local movement. Repeated multiplication gives distribution over time. Fixed points and absorbing probabilities reveal long-run behavior.`,
+        `For course design, teach this after finite state machines and before PageRank, HMMs, queueing, and reinforcement learning. Students should see the same state graph become deterministic, probabilistic, hidden, or decision-driven depending on what the edges mean.`,
+        `The recurring lesson is state design. If the state is too small, the chain lies by forgetting. If the state is too large, the transition matrix becomes sparse and hard to estimate. Good Markov modeling is the art of choosing enough memory, but not too much.`,
       ],
     },
     {

@@ -196,10 +196,27 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A counting Bloom filter replaces each bit in a classic Bloom filter with a small counter. Inserting a key increments the k counters selected by the hash functions. Query checks whether all k counters are nonzero. Deleting a key decrements those same counters. This makes deletion possible without clearing shared evidence that other keys still need.',
-        'The contract is still approximate membership. Positive answers are maybe present. Negative answers are supposed to be definite when inserts and deletes are well formed. Counting adds a new danger: counter overflow, underflow, or deleting a key that was not inserted can break the no-false-negative property.',
+        'Counting Bloom filters exist because ordinary Bloom filters are good at compact membership checks but bad at deletion. A normal Bloom filter stores bits. If two keys share a bit and one key is deleted, clearing the bit can accidentally erase evidence for the other key.',
+        'Counting replaces each bit with a small counter. Insert increments the counters selected by the hash functions. Delete decrements those same counters. Query still asks whether all selected counters are nonzero.',
+        'The structure is useful when approximate membership is valuable but the set changes over time: cache summaries, mutable network filters, duplicate suppression windows, distributed stores, and streaming systems.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to use a classic Bloom filter and clear bits on delete. That breaks because multiple keys can share the same bit. Clearing a shared bit can create a false negative for another key that is still present.',
+        'Another shortcut is to rebuild the whole filter whenever deletes matter. That can be correct, but it may be too expensive if updates are frequent or the source set is distributed.',
+        'Counting Bloom filters are the middle ground: keep local update support while preserving the basic Bloom-filter query contract, as long as operations are well formed and counters do not overflow or underflow.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is shared evidence accounting. A bit says "at least one inserted key touched this cell." A counter says "how many inserts currently contribute to this cell." That count lets one key leave without erasing another key\'s footprint.',
+        'The membership semantics stay approximate. If all counters are nonzero, the key may be present because other keys could have produced the same pattern. If any counter is zero, the key is definitely absent, provided updates were correct.',
+        'The new risk is that the data structure is no longer monotone. Ordinary Bloom filters never create false negatives after insertion. Counting Bloom filters can create false negatives if counters overflow, underflow, or receive deletes without matching inserts.',
       ],
     },
     {
@@ -207,30 +224,55 @@ export const article = {
       paragraphs: [
         'For insert(x), compute k hash positions and increment each counter. For query(x), compute the same positions and return definitely absent if any counter is zero. For delete(x), decrement each counter. Overlapping keys are safe because shared counters can stay positive after one key is removed.',
         'Stable Bloom filters adapt the counter idea for unbounded streams. Before inserting a new item, randomly decrement some counters. Then insert the new item by setting or incrementing its counters. The system reaches a stable fill rate, so memory stays bounded, but old items can disappear and later query as absent.',
+        'Counter width matters. Small counters save memory but can saturate under hot keys or high load. Wide counters reduce overflow risk but move the structure farther from the compactness that made Bloom filters attractive.',
+        'Concurrent updates also need care. If multiple threads insert and delete without atomic counter operations or proper ownership rules, the counter array can drift away from reality.',
+        'Deletion should normally be tied to an authoritative store. The filter is a summary; it should not be the only record of whether a key exists. The source of truth decides whether a delete is legal.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'Read counters as removable Bloom-filter bits. Insertion increments every hashed counter; deletion decrements them. Query still checks whether all corresponding counters are nonzero, so it inherits false positives while adding support for removals.',
+        'The failure mode is counter honesty. If you delete an item that was never inserted, decrement too far, overflow a tiny counter, or race updates, you can create false negatives. Counting Bloom filters buy deletion with more memory and stricter update discipline.',
+        'The stable-stream view proves a different contract. Random aging makes the filter forget old evidence on purpose. That is unacceptable for exact membership summaries but useful for bounded-memory stream deduplication.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because each counter is a reference count for approximate evidence. If A and B share two positions and A is removed, the shared counters remain positive because B still contributes.',
+        'It preserves the Bloom-filter advantage because query still touches only k cells. The structure does not store the keys themselves. It stores only the compact hashed footprint.',
+        'Stable filters work because aging and insertion reach equilibrium. Old items gradually lose evidence, while recent or repeated items refresh their counters. The result is a recency-biased approximate set for streams.',
+        'The correctness line is therefore conditional: no false negatives require valid deletes and healthy counters. Once the system deliberately ages counters, as stable filters do, it has chosen a different contract.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
       paragraphs: [
         'Insert, query, and delete are O(k). Space is larger than a bit Bloom filter because every cell stores several bits of counter. Four-bit counters are common in teaching examples, but real choices depend on overflow risk, expected multiplicity, and memory budget. Stable filters add per-insert aging work, chosen to control the steady-state false-positive rate.',
+        'Counting filters trade memory for deletion. Stable filters trade the no-false-negative guarantee for bounded memory over infinite streams. Cuckoo filters and quotient filters make different tradeoffs around deletion, locality, fingerprints, and load factor.',
+        'The practical design question is not which approximate filter is best in the abstract. It is which contract the system needs: no deletes, safe deletes, recency windows, compact transfer, or fast local lookup.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Where it wins',
       paragraphs: [
         'Counting Bloom filters were motivated by mutable approximate-membership workloads such as cache summaries. A proxy or distributed cache may need to advertise compact summaries while its contents change. Counting counters support local deletion and update, then a standard bit-style summary can be derived for sharing.',
         'Stable Bloom filters target duplicate detection over data streams where exact all-time memory is impossible. The Deng and Rafiei SIGMOD work framed the problem directly: in an unbounded stream, old duplicate evidence must eventually be evicted, so the structure deliberately trades some false negatives for bounded memory.',
+        'They also fit approximate replay suppression, crawling windows, telemetry dedupe, cache admission, and systems that can tolerate false positives but need compact state. When deletion correctness is critical, the application must guarantee matched insert/delete operations.',
+        'Counting filters are also useful during rebuild transitions. A system can maintain a mutable approximate summary while a larger exact index is being compacted or refreshed, as long as the summary is treated as a hint rather than final truth.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Failure modes',
       paragraphs: [
         'Counting does not make Bloom filters exact. A positive answer remains a false-positive-prone maybe. Counting also does not make arbitrary deletes safe. If an application deletes absent keys, counters can be decremented below the evidence needed by real keys. Saturating counters can avoid wraparound but complicates deletion semantics.',
         'Stable Bloom filters are not drop-in replacements for ordinary filters. They can forget real old items, which is a false negative under the classic Bloom contract. Use them only when recency-window behavior is acceptable.',
+        'Another failure is ignoring adversarial or skewed inputs. Hot keys can drive counters toward saturation, and poor hash independence can cluster evidence. Approximate filters need load-factor monitoring, rebuild policy, and test data that reflects production skew.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Bonomi et al., An Improved Construction for Counting Bloom Filters at https://www.eecs.harvard.edu/~michaelm/postscripts/esa2006b.pdf, Deng and Rafiei, Stable Bloom Filters at https://webdocs.cs.ualberta.ca/~drafiei/papers/DupDet06Sigmod.pdf, Broder and Mitzenmacher survey context at https://www.eecs.harvard.edu/~michaelm/NEWWORK/postscripts/BloomFilterSurvey.pdf, Cuckoo Filter paper at https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf, and Cuckoo Filter NSDI paper at https://www.usenix.org/system/files/nsdip13-paper6.pdf. Study Bloom Filter, Cuckoo Filter, Quotient Filter, Count-Min Sketch, and Heavy Hitters next.',
       ],

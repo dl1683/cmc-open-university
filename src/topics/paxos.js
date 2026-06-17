@@ -54,7 +54,7 @@ function* chooseValue() {
       ['—', '—', 'unreachable'],
     ]),
     highlight: { active: ['a1:promised', 'a2:promised', 'a3:promised'] },
-    explanation: 'Phase 1 is a permission round that doubles as an interview. P1 picks ballot 1 and sends prepare(1). Each acceptor that hasn\'t promised a higher ballot replies with a PROMISE — "I will never accept anything with a ballot below 1" — and, crucially, reports the last value it ever accepted (here: none). P1 has a majority of promises (A1–A3), so it now knows two things: its ballot is currently the highest in play among a quorum, and no value has been chosen yet, so it is free to propose its own. Note what phase 1 did NOT do: no value was sent. It only froze the past and read it.',
+    explanation: 'Phase 1 is a permission round that doubles as an interview. P1 picks ballot 1 and sends prepare(1). Each acceptor that hasn\'t promised a higher ballot replies with a PROMISE — "I will never accept anything with a ballot below 1" — and reports the last value it ever accepted (here: none). P1 has a majority of promises (A1–A3), so it now knows two things: its ballot is currently the highest in play among a quorum, and no value has been chosen yet, so it is free to propose its own. Note what phase 1 did NOT do: no value was sent. It only froze the past and read it.',
     invariant: 'A promise is a one-way door: an acceptor that promised ballot n is dead to every ballot below n, forever.',
   };
 
@@ -188,40 +188,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why This Exists`,
       paragraphs: [
-        `Paxos is a consensus algorithm that solves a fundamental problem in distributed systems: how can a group of machines agree on a single value (a log entry, a committed transaction, a lock holder) when machines crash and messages are lost, yet no one machine is trusted to coordinate? Unlike Two-Phase Commit (2PC), which blocks forever if its coordinator dies at the wrong moment, Paxos has no fixed coordinator. ANY proposer can try to get agreement using monotonically increasing ballot numbers, and a simple majority of machines suffices. Once a value is chosen (accepted by a majority), it survives future crashes. The algorithm, written by Leslie Lamport in 1989 but not published until 1998, is the safety argument every modern consensus system borrows — from Google's Chubby and Spanner to etcd and Raft.`,
+        `Paxos exists because distributed systems need decisions that survive partial failure. A lock service must decide who owns a lock. A replicated database must decide the next log entry. A configuration service must decide which membership change is committed. The hard part is not computing the value on one machine; it is making a group of machines agree even when messages are delayed, duplicated, lost, or delivered out of order, and when some machines crash after writing only part of their local state.`,
+        `The basic Paxos problem is single-decree consensus: choose one value exactly once. Multi-Paxos repeats that problem for a sequence of log slots. Production systems usually care about the log, but the single-value algorithm is the proof kernel. If the group can choose one value safely, then a log can be built by choosing slot 1, slot 2, slot 3, and so on under additional leadership and recovery rules.`,
+        `The word "consensus" has two separate promises. Safety says two different values are never chosen for the same decision. Liveness says the system eventually chooses something when enough nodes and communication are available. Paxos is famous because its safety proof is strong under very hostile timing. It is also famous because liveness requires extra engineering: in a purely asynchronous model, two proposers can keep outbidding each other forever without violating safety.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `Why The Obvious Approach Fails`,
       paragraphs: [
-        `Paxos runs in two phases. Phase 1 (prepare): a proposer picks a unique increasing ballot number and sends it to a quorum of acceptors. Each acceptor that hasn't promised a higher ballot replies with a PROMISE — "I will never accept anything lower than your ballot" — and reports the last value it ever accepted (if any). This is not a value vote; it's permission to proceed plus a historical interview. Phase 2 (accept): if the proposer has a majority of promises and the promises reported no prior acceptance, the proposer may propose its own value. If one promise reported a prior acceptance, the proposer MUST adopt that value (the adoption rule). Acceptors record the (ballot, value) pair. The instant a majority accepts it, that value is CHOSEN — even if no proposer knows yet. Chosen-ness is a system property (a quorum all agree), not a fact in any single machine.`,
-        `The crash story: When proposer P1 crashes after a value "X" is chosen, proposer P2 can prepare with a higher ballot via a different majority (the partition heals). Some member of P2's prepare-quorum was in P1's accept-quorum and will report (ballot₁, "X"). The adoption rule forces P2 to propose "X", not its own "Y". Any two majorities of five share at least one member — so history rides the quorum intersections forward forever. Acceptors persist their promises to disk before replying; a forgotten promise breaks the chain.`,
+        `The easiest design is a single coordinator. Every participant asks the coordinator what value won, and the coordinator writes the answer somewhere durable. That is essentially the shape of Two-Phase Commit. It is simple until the coordinator crashes after some participants have heard the decision and others have not. The survivors cannot safely infer whether the value was committed, because the one machine allowed to decide is gone.`,
+        `Another tempting design is majority voting without history. Let each proposer send a value to a majority, and whichever value gets enough acknowledgments wins. That breaks when two proposal attempts overlap. One majority might accept X, another later majority might accept Y, and the two majorities may share a node that forgot or ignored the earlier value. The system needs a rule that forces later attempts to carry earlier accepted history forward.`,
+        `The third tempting design is "highest ballot wins" by itself. Ballot numbers do order attempts, but order is not enough. If a higher ballot can freely replace the value from a lower ballot that was already accepted by a majority, safety is lost. Paxos uses ballots for authority and a separate adoption rule for value preservation.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core Insight And Mechanism`,
       paragraphs: [
-        `Basic Paxos requires two round-trips: prepare then accept. In a network with latency L, consensus takes 2L. The real cost surfaces in the duel scenario: two uncoordinated proposers can enter a livelock where each prepare outbids the other's pending accept, forever making progress but never choosing a value. This is not a Paxos bug; it's the FLP theorem (Fischer, Lynch, Paterson, 1985) showing through — no deterministic async algorithm guarantees both safety and liveness when even one crash is possible. Paxos chose to keep safety unconditional and accept that livelock can happen. Multi-Paxos solves this: elect ONE distinguished proposer (via randomized timeouts) and run prepare once for all future slots, then stream accepts — one round-trip per command. That hoisting is where Paxos becomes teachable and Raft emerges.`,
+        `Paxos has proposers, acceptors, and learners. A proposer tries to get a value chosen. An acceptor stores promises and accepted values. A learner eventually finds out what was chosen. These can be separate roles or combined in the same server process; the proof depends on the acceptor state and quorum rules.`,
+        `Phase 1 is prepare and promise. A proposer chooses a unique ballot number n and sends prepare(n) to acceptors. An acceptor promises ballot n if it has not already promised a higher ballot. That promise means it will reject future accept requests with ballot numbers lower than n. The acceptor also reports the highest-numbered value it has already accepted, if any.`,
+        `Phase 2 is accept and accepted. If the proposer receives promises from a quorum, it may send accept(n, value). If none of the promises reported an already accepted value, the proposer can use its own value. If any promise reported a prior accepted value, the proposer must choose the value from the highest-numbered accepted report. Acceptors that have not promised a higher ballot record the accepted pair. When a quorum has accepted the same ballot's value, the value is chosen.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Why It Works`,
       paragraphs: [
-        `Google Chubby and Spanner run Multi-Paxos: each data shard holds a consensus group over replicas, with the leader chosen to run for a lease period. ZooKeeper (and Kafka, Hadoop) runs ZAB, a Multi-Paxos-shaped protocol, managing cluster coordination for billions of operations a day. Raft (2014) reimplemented the same quorum-intersection theorem with better pedagogy — the RequestVote / AppendEntries split is clearer than prepare / accept, and the up-to-dateness eligibility rule (push history) is easier to reason about than adoption (pull history). Raft conquered the open-source world: etcd powers Kubernetes, Consul runs service discovery, CockroachDB uses Raft for distributed transactions. At Google, Spanner still uses Paxos; at everyone else, Raft.`,
+        `The safety proof rests on quorum intersection. In a five-acceptor system, any quorum of three shares at least one acceptor with any other quorum of three. More generally, any two strict majorities intersect. Once a value X is accepted by a quorum, every later prepare quorum must include at least one acceptor from that chosen quorum, assuming acceptors keep their durable state.`,
+        `That shared acceptor is the carrier of history. When a later proposer asks for promises, the acceptor reports the accepted value it remembers. The adoption rule then forces the later proposer to continue X rather than replace it with Y. The new ballot can supersede old authority, but it cannot supersede the chosen value. Authority moves forward; value safety is preserved through the overlap.`,
+        `The proof is inductive. For the first chosen value, a quorum accepted it. For any higher ballot that reaches phase 2, its phase-1 quorum intersects the earlier chosen quorum or a later quorum that already carried the same value forward. The highest accepted report visible to the proposer therefore leads it back to the chosen value. No future ballot can choose a different value without violating the promise/adoption rule.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Worked Example`,
       paragraphs: [
-        `The first trap: thinking chosen-ness requires a proposer to announce it. It doesn't. The instant a majority records (ballot, value), it's chosen, whether any proposer ever hears back. Learning that it happened — and telling clients — is a separate concern and can fail gracefully. Second trap: confusing phase 1 (which gathers promises, not votes) with a vote. The promise quorum is interviewed about the past, not consulted about the future. Third: assuming a higher ballot number can "undo" a choice. It can't. The adoption rule ensures every higher ballot MUST propose the same value, so safety is monotonic. Finally, don't assume Paxos guarantees livelock-free progress with two proposers — it doesn't. The duel is real and deterministic algorithms can't avoid it. That's why all production systems elect a leader.`,
+        `Use five acceptors: A1 through A5. A quorum is any three. Proposer P1 wants value X and sends prepare(1) to A1, A2, and A3. None has promised a higher ballot, so they promise ballot 1 and report no accepted value. P1 then sends accept(1, X) to those same acceptors. A1, A2, and A3 write the pair (1, X). At that instant X is chosen, even if P1 crashes before it tells any client.`,
+        `Now proposer P2 wants value Y. It uses ballot 2 and reaches A3, A4, and A5. A4 and A5 report no accepted value, but A3 reports (1, X). Because A3 is in the intersection of the old chosen quorum and the new prepare quorum, P2 learns the prior history. P2 must send accept(2, X), not accept(2, Y). If A3, A4, and A5 accept, the system has not chosen a second value; it has re-established X under a newer ballot.`,
+        `This example shows why chosen-ness is not the same as notification. A value can be chosen before any learner knows. Clients usually need a leader or learner path that confirms the chosen value before returning success, but the safety property exists as soon as the acceptor quorum has written the accepted pair.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Cost And Liveness`,
       paragraphs: [
-        `Read "Raft Leader Election" to see how term election (randomized timeouts) eliminates the duel. Study "Raft Log Replication" to see Multi-Paxos recast as a log machine. Continue into "Byzantine Fault Tolerance: When Nodes Lie" and "HotStuff BFT Quorum Certificate Case Study" to see how the quorum-intersection proof changes when nodes can lie instead of merely crash. Explore "Two-Phase Commit (2PC)" to understand why 2PC blocks forever on coordinator failure while Paxos doesn't. Understand "Clocks & Ordering: Lamport to TrueTime" to see ballot numbers as Lamport clocks enforcing a happens-before order. Finally, learn "CAP Theorem" to understand why Paxos safety (consistency + availability) trades off partition tolerance with live-leader requirement — and why leased leaders (Chubby, Spanner, Raft with lease) form the bridge to practical systems.`,
+        `Single-decree Paxos needs two message round trips in the uncontended case: prepare/promise, then accept/accepted. That is expensive if every log entry pays the full cost. Multi-Paxos amortizes phase 1. A stable leader runs prepare once for a ballot and then sends accept messages for many log slots. In steady state, each command usually needs one quorum round trip, plus any client and disk latency around it.`,
+        `Paxos does not guarantee progress under arbitrary scheduling. Two proposers can duel: P1 prepares ballot 1, P2 prepares ballot 2, P1's accept for ballot 1 is rejected, P1 prepares ballot 3, P2's accept for ballot 2 is rejected, and so on. Every node may be healthy, and every safety rule may be obeyed, yet no value is chosen. This is the practical face of the FLP result: deterministic consensus cannot guarantee termination in a fully asynchronous system with possible crashes.`,
+        `Production protocols add a liveness strategy. They choose a distinguished proposer, often called the leader, and arrange for other nodes not to compete while it appears healthy. Randomized election timeouts, leases, heartbeats, backoff, and failure detectors are engineering tools around the Paxos safety core. The algorithm's safety does not depend on the leader being perfect, but throughput does.`,
+      ],
+    },
+    {
+      heading: `Operational Guidance`,
+      paragraphs: [
+        `Persist acceptor state before replying. The highest promised ballot and highest accepted pair are not cache entries; they are part of the proof. If an acceptor forgets a promise after a crash, it may accept an older ballot that should have been dead. If it forgets an accepted value, a later proposer may fail to carry chosen history forward.`,
+        `Use ballot numbers that are globally unique and monotonically ordered. A common pattern is a counter combined with a node id, or a term/epoch assigned by a membership layer. Reusing a ballot number for different attempts is a safety bug. Letting clocks alone define ballots is risky unless the system has a carefully specified clock and fencing model.`,
+        `Specify membership and reconfiguration. The simple majority proof assumes a fixed acceptor set. Real systems change replicas, replace disks, move shards, and recover from long outages. Joint consensus, epochs, or carefully staged configuration changes are needed so old and new quorums intersect while the membership changes.`,
+        `Instrument both safety and liveness signals. Safety bugs are rare but severe: conflicting accepted values for the same slot, non-monotonic promises, lost durable state, or ballot reuse. Liveness bugs show up as repeated preemption, leader churn, long accept latency, and slots stuck without a chosen value. The operational question is not only "is Paxos correct in a paper?" but "does this deployment preserve the assumptions the proof needs?"`,
+      ],
+    },
+    {
+      heading: `Where It Matters`,
+      paragraphs: [
+        `Paxos matters anywhere a service needs a replicated decision with crash faults rather than Byzantine faults. Lock services, metadata stores, configuration stores, distributed databases, replicated logs, and lease managers all need the same core property: a client should not observe two different committed answers for the same slot just because one replica crashed or a network partition healed.`,
+        `Google's Chubby and Spanner made Multi-Paxos a production centerpiece. ZooKeeper's ZAB and Raft-style systems use a closely related leader-and-quorum shape. Even when a system advertises Raft rather than Paxos, the underlying proof vocabulary is often the same: terms or ballots establish epochs, quorums intersect, and log history must be transferred or restricted so two leaders cannot commit conflicting entries.`,
+      ],
+    },
+    {
+      heading: `Failure Modes And Misconceptions`,
+      paragraphs: [
+        `The most dangerous misconception is that a higher ballot can erase a chosen value. It cannot. A higher ballot can preempt lower ballots, but once the proposer hears accepted history from a quorum, it must adopt the highest accepted value reported. If the implementation treats ballot victory as permission to choose any value, it is not Paxos.`,
+        `Another misconception is that prepare is a vote on the proposed value. During phase 1, the proposer is not asking acceptors whether they like X or Y. It is asking for authority to run a ballot and for a report of prior accepted values. The value decision is constrained by the history returned in those promises.`,
+        `A practical failure is returning success too early. If a leader tells a client that a write committed before an accept quorum is durable, a crash can make the client observe a promise the system did not actually keep. Another failure is ignoring stale leaders. A leader that lost its ballot must be fenced from serving reads or writes that assume it still owns the current epoch.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Study Two-Phase Commit (2PC) to see the blocking coordinator baseline Paxos avoids. Study Raft Leader Election for the liveness layer that prevents dueling proposers in common deployments. Study Raft Log Replication to see Multi-Paxos expressed as an understandable replicated log. Study Raft Joint Consensus for safe membership change. Study CAP Theorem for the availability consequences of choosing consistency during partitions. Study Byzantine Fault Tolerance: When Nodes Lie when the failure model changes from crash faults to malicious or arbitrary behavior.`,
       ],
     },
   ],

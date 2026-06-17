@@ -166,35 +166,78 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'ext4 uses the JBD2 journaling layer to make filesystem metadata updates crash-consistent. A transaction can include inode, extent, bitmap, directory, and other metadata changes. Recovery replays committed transactions and ignores incomplete ones.',
-        'The Linux kernel ext4 docs describe data=ordered as journaling metadata while writing associated data blocks before metadata commit, and the JBD2 docs explain journal structure and fast commits: https://docs.kernel.org/admin-guide/ext4.html and https://docs.kernel.org/filesystems/ext4/journal.html.',
+        'ext4 uses JBD2, the Journaling Block Device layer, to make filesystem metadata recoverable after a crash. File operations do not change one isolated record. Creating, extending, truncating, linking, or renaming a file can touch directory entries, inode fields, extent trees, allocation bitmaps, block group descriptors, timestamps, and quota state. If power fails halfway through those updates, the disk can contain a mixture that no longer describes a valid filesystem.',
+        'The journal is a redo log for those related metadata changes. ext4 can write a transaction to the journal, mark it committed, and later checkpoint the same changes to their normal home locations. On restart, recovery replays committed transactions and ignores incomplete ones. The result is not that every application write is durable. The result is that the filesystem structure can return to a coherent state quickly.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'The real problem',
       paragraphs: [
-        'A journal transaction has descriptor records, metadata buffers, a commit record, and later checkpointing into home locations. Ordered mode ties data writeout to the metadata transaction so newly committed metadata does not expose stale block contents.',
-        'The journal is not the same as a database WAL for user transactions. It protects filesystem structures. Applications that need their own transaction semantics still use fsync, directory fsync, SQLite journals, PostgreSQL WAL, or another higher-level protocol.',
+        'The naive filesystem would update metadata in place: allocate blocks, edit the bitmap, update the inode size and extent tree, insert the directory entry, and write everything to its final disk location. That is simple until failure lands in the middle. A directory entry can point at an inode whose initialization did not finish. An inode can claim blocks that the allocation bitmap still thinks are free. A file size can expose blocks whose new contents were never written.',
+        'A crash-consistency mechanism must answer two questions after reboot. Which groups of metadata changes were complete enough to keep? Which partial groups must be ignored? ext4 also needs a data-ordering rule for the common case where metadata points at newly written file data. Otherwise recovery could leave a structurally valid filesystem whose metadata points at stale or uninitialized block contents.',
+      ],
+    },
+    {
+      heading: 'Core insight and mechanism',
+      paragraphs: [
+        'JBD2 groups dirty metadata buffers into transactions. A transaction is written to the journal with records that describe the modified blocks and a commit record that marks the transaction complete. After the commit is durable, checkpointing can copy the metadata from the journal to the normal filesystem locations. If the system crashes before checkpointing, replay can redo the committed transaction. If it crashes before the commit record is complete, recovery drops the partial transaction.',
+        'The common ext4 mode is data=ordered. In that mode ext4 journals metadata but does not journal normal file data. Instead, it orders the associated data blocks so they reach disk before the metadata commit that could expose them. That rule prevents a recovered inode or extent from pointing at old garbage for a newly written block. It is a filesystem ordering guarantee, not a promise that the application transaction reached durable storage unless the application used fsync or an equivalent protocol.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the ordered-commit view, follow one buffered file update as it splits into file data and metadata. The data blocks go toward their home location. The metadata buffers enter a JBD2 transaction and then the journal. The important highlighted transition is the ordering gate: in data=ordered mode, associated data must be written before the metadata commit can make those new references recoverable.',
+        'In the mode-tradeoffs view, read the table as three different contracts. data=ordered journals metadata and orders data before metadata commit. data=writeback journals metadata but does not provide the same data-before-metadata ordering. data=journal sends both data and metadata through the journal, increasing write amplification while changing crash behavior. The fast-commit frame shows a newer optimization: when eligible, ext4 can log a compact metadata delta instead of a full traditional transaction.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Consider an append. The new bytes are dirty in the page cache. The inode size may change. An extent may be added. Allocation bitmaps may be updated. ext4 attaches the metadata buffers to the running journal transaction. When the transaction closes, JBD2 writes descriptor information and metadata contents to the journal, then writes the commit record. Later, checkpointing writes the committed metadata to its home locations so journal space can be reused.',
+        'Recovery is intentionally mechanical. Scan the journal. Find transactions with valid commit records. Replay their metadata updates to the home filesystem. Ignore incomplete transactions. Because replay is based on journaled metadata blocks, the filesystem can repair its own structure without running a full fsck over every relationship. The Linux kernel ext4 docs describe the data modes, and the journal docs describe JBD2 transaction structure and fast commits: https://docs.kernel.org/admin-guide/ext4.html and https://docs.kernel.org/filesystems/ext4/journal.html.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The journal works because it converts many in-place metadata writes into one recoverable decision. The commit record is the decision boundary. If the commit record made it, recovery has enough information to redo the transaction. If it did not, recovery has a clear reason to discard it. That avoids guessing from a half-updated inode, bitmap, or directory entry.',
+        'Ordered mode adds the missing dependency between data and metadata. Metadata that exposes new blocks should not commit before those blocks have been written. This avoids a common stale-data exposure after recovery. It still does not make a user-level operation atomic. A database, editor, package manager, or mail server must use fsync, directory fsync after rename when needed, write-ahead logging, or a higher-level transaction protocol to define its own durable boundary.',
+      ],
+    },
+    {
+      heading: 'Mode tradeoffs',
+      paragraphs: [
+        'data=ordered is the normal compromise. It journals metadata, orders associated data before metadata commit, and avoids writing every data block through the journal. That gives good metadata recovery with less write amplification than full data journaling. The cost is commit latency when dirty data must be forced out before metadata can safely commit.',
+        'data=writeback loosens the data-ordering rule. It can reduce ordering pressure but permits weaker post-crash data contents for recently written files. data=journal writes both data and metadata to the journal before checkpointing, which can improve some crash semantics but increases journal traffic and changes performance behavior. Fast commits reduce latency for eligible metadata-only deltas, but they are an optimization inside the same correctness story, not a replacement for the journal.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'A process appends to a file. The data blocks become dirty in the page cache, and inode size or extent metadata changes join a JBD2 transaction. In ordered mode, ext4 writes the data blocks before committing the metadata transaction. After a crash, committed metadata can be replayed into a consistent filesystem.',
-        'If the application prints saved before fsync, that is still an application-level durability decision. ext4 may keep the filesystem coherent while the last user-level write is absent after crash recovery.',
+        'A service appends one line to a log file. The bytes enter the page cache. ext4 may allocate a new block and update the inode size or extent tree. In data=ordered mode, the data block associated with that metadata must be written before the metadata transaction commits. JBD2 commits the metadata transaction to the journal. Later, checkpointing moves those metadata updates into their home locations.',
+        'Now crash the machine at three different times. If the crash happens before commit, recovery ignores the incomplete metadata transaction. If it happens after commit but before checkpoint, recovery replays the metadata. If the application returned "saved" before calling fsync, the filesystem can still recover cleanly while the last application-level record is missing. That distinction is the central lesson: ext4 journaling protects filesystem consistency; application durability is a separate protocol.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Failure modes',
       paragraphs: [
-        'Filesystem journaling is not a substitute for application fsync. It is possible for the filesystem to be consistent while the application-level latest state is not durable. Atomic rename also needs directory fsync when the name update itself is part of the durable contract.',
-        'data=journal is not simply better. It changes write amplification, feature interactions, and latency. data=ordered is the common balance because it protects metadata consistency while avoiding full data journaling for every write.',
+        'The most common mistake is believing that journaling means recent file contents are safely durable. It means the filesystem can recover its own metadata. Applications that need "save means durable" still need to flush the file and, for rename-based replacement patterns, often the containing directory. Databases still need WAL or another transaction log because their invariants live above the filesystem metadata layer.',
+        'Another mistake is assuming the strongest-looking mode is always best. data=journal increases write amplification and can interact badly with workload shape. data=writeback may be acceptable for some workloads but weakens data exposure guarantees. Mount options, barriers, storage write-cache behavior, and whether the device honestly reports flush completion all matter. A journal cannot compensate for storage that lies about durability.',
+      ],
+    },
+    {
+      heading: 'Useful contexts',
+      paragraphs: [
+        'JBD2 journaling matters for ordinary filesystem operations: file creation, unlink, rename, append, truncate, chmod, directory updates, extent allocation, and mount-time recovery after sudden power loss. General-purpose systems need the filesystem to come back mountable quickly without asking every application to repair inode and directory structure by hand.',
+        'It also teaches the same pattern used in databases and storage systems: write intent to a recoverable log, mark a clear commit point, replay committed work, and ignore partial work. The details differ from PostgreSQL WAL or SQLite journaling, but the core idea is the same. Crash recovery needs an authoritative history that is safer than scattered in-place updates.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: ext4 admin guide at https://docs.kernel.org/admin-guide/ext4.html, ext4 journal docs at https://docs.kernel.org/filesystems/ext4/journal.html, JBD2 API docs at https://docs.kernel.org/filesystems/journalling.html, and ext4 allocators at https://docs.kernel.org/filesystems/ext4/allocators.html. Study fsync Rename Crash Consistency, Filesystem Extent Tree & Delayed Allocation, Readahead & Dirty Writeback, Linux Page Cache XArray, Write-Ahead Log, and SQLite B-Tree & Pager next.',
+        'Primary sources: ext4 admin guide at https://docs.kernel.org/admin-guide/ext4.html, ext4 journal docs at https://docs.kernel.org/filesystems/ext4/journal.html, JBD2 API docs at https://docs.kernel.org/filesystems/journalling.html, and ext4 allocators at https://docs.kernel.org/filesystems/ext4/allocators.html.',
+        'Study fsync Rename Crash Consistency, Filesystem Extent Tree & Delayed Allocation, Readahead & Dirty Writeback, Linux Page Cache XArray, Write-Ahead Log, SQLite B-Tree & Pager, PostgreSQL WAL Checkpoint & Recovery, and Transaction Savepoint Stack next.',
       ],
     },
   ],

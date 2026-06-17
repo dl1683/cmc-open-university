@@ -84,7 +84,7 @@ function* completionLedger() {
       ],
     ),
     highlight: { active: ['comp:role', 'par:role', 'back:role'], found: ['dead:risk'] },
-    explanation: 'The central fields are completions, parallelism, backoffLimit, and activeDeadlineSeconds. Together they bound how much work can run, retry, and continue.',
+    explanation: 'completions is the success target, parallelism is the in-flight cap, backoffLimit caps retries, and activeDeadlineSeconds caps wall-clock time. The controller may create Pods only inside those bounds.',
   };
 
   yield {
@@ -114,7 +114,7 @@ function* completionLedger() {
       ],
     ),
     highlight: { active: ['spec:state', 'ok:state', 'done:state'], compare: ['pods:note'] },
-    explanation: 'A batch import runs 100 chunks with parallelism 10. When 100 chunks complete successfully, the Job stops creating Pods. Completed Pods can remain long enough for logs and diagnostics.',
+    explanation: 'The success count is monotonic. Once 100 chunks have succeeded, new Pods would only create duplicate work, so the controller stops and leaves completion evidence for debugging.',
   };
 }
 
@@ -176,7 +176,7 @@ function* indexedShards() {
       ],
     ),
     highlight: { active: ['idx:rule', 'out:rule'], found: ['ttl:why'] },
-    explanation: 'A production Job design records the shard key, bounded parallelism, output idempotency, cleanup policy, and owner. Otherwise finished batch work becomes control-plane clutter.',
+    explanation: 'The shard key and cleanup policy make the ledger usable after the run. Without bounded parallelism, idempotent output, and TTL cleanup, retries can corrupt data and finished Jobs can fill the control plane.',
   };
 }
 
@@ -190,24 +190,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A Kubernetes Job runs finite work to completion. It creates Pods, retries failed execution according to policy, tracks successful completions, and stops when the goal is reached or a failure condition wins.',
-        'The official Job documentation says Jobs represent one-off tasks that run to completion, create one or more Pods, retry until enough Pods successfully terminate, and keep status/log evidence after completion: https://kubernetes.io/docs/concepts/workloads/controllers/job/. The Job API reference describes completionMode, including NonIndexed and Indexed, where Pods receive completion indexes: https://kubernetes.io/docs/reference/kubernetes-api/batch/job-v1/.',
+        'Some cluster work has a finish line. A data import, migration, report, model evaluation, or image-processing batch should run until enough units succeed, then stop. A steady workload controller is the wrong shape because success is a count, not a desired replica level.',
+        'A Job gives finite work a controller-owned ledger. It creates Pods, observes success and failure, retries inside policy, records terminal status, and stops when either the completion target or a failure condition wins.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The data structure is a completion ledger: desired completions, active Pods, succeeded indexes, failed attempts, backoff counters, deadlines, and terminal conditions. NonIndexed mode counts successful Pods. Indexed mode tracks each completion index as its own shard.',
-        'That ledger is why Jobs are different from Deployments. A Deployment keeps a desired number of replicas alive. A Job wants a finite set of successes, then it should stop creating more Pods.',
+        'The simple approach is to run a script by hand, launch a Pod, or use a Deployment with restart policy and watch the logs. That works while the task is tiny, the operator is present, and one failed attempt is easy to reason about.',
+        'It breaks when the work has many chunks, nodes fail, the controller restarts, or retries must not duplicate output. A Deployment tries to keep Pods running. It does not know that 100 successful chunks means the work is finished.',
+      ],
+    },
+    {
+      heading: 'The core mechanism',
+      paragraphs: [
+        'The data structure is a completion ledger: desired completions, active Pods, succeeded count or succeeded indexes, failed attempts, backoff counters, deadlines, and terminal conditions. NonIndexed mode treats each successful Pod as interchangeable. Indexed mode gives each completion a stable index in the range 0 through completions minus one.',
+        'The official Job documentation describes one-off tasks, parallel Jobs with fixed completion counts, retry backoff, activeDeadlineSeconds, terminal conditions, and retained Pods for logs: https://kubernetes.io/docs/concepts/workloads/controllers/job/. The API reference defines completionMode, including NonIndexed and Indexed: https://kubernetes.io/docs/reference/kubernetes-api/batch/job-v1/.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the completion-ledger view, track counts as controller state. Active Pods are attempts, succeeded Pods advance the ledger, failed Pods consume retry budget, and terminal conditions decide whether the Job is complete or failed.",
+        "In the indexed-shards view, the index is the identity of the work unit. A retry for index 42 is not a random replacement Pod; it is another attempt to complete shard 42. That stable identity is what lets external outputs dedupe safely.",
+        "The useful reading question is: what would make more Pods duplicate work? Once the completion target is satisfied, the controller should stop creating Pods because the finite task has reached its finish line.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A benchmark run has 1,000 test cases. An Indexed Job uses completions 1,000 and parallelism 50. Pod index 317 runs test case 317, writes results under key `run_id/317`, and exits. If the node dies, the replacement Pod for index 317 writes to the same key, so the result store can overwrite or reject duplicates deterministically.',
+        'In NonIndexed mode, the controller only cares that 1,000 Pods succeed. That is fine for interchangeable work such as "process any item from a queue" if the queue provides its own claiming semantics. It is weaker for fixed shards because the Job controller does not know which logical unit each successful Pod completed.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is monotonic progress plus bounded replacement. A succeeded completion is recorded and does not need to run again. A failed attempt can be replaced only while backoff and deadline policy still allow it. When the ledger reaches the target, more Pods would be duplicate work, so the controller stops creating them.',
+        'Indexed mode adds a stronger invariant: retrying index 42 means retrying shard 42. The index is the identity of the work unit, so the output store can dedupe late duplicates by shard key instead of guessing which result belongs to which input.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Work cost grows with completions. Control-plane cost grows with active Pods, completed Pods retained for evidence, and status updates. parallelism caps how many Pods can run at once, so increasing completions increases total work without necessarily increasing burst size.',
+        'Failures are intentionally not free. backoffLimit and backoffLimitPerIndex prevent infinite retry loops. activeDeadlineSeconds caps elapsed time across all attempts. A cleanup TTL can remove finished Jobs after the audit window, which keeps etcd and list operations from accumulating old batch objects.',
+        'Large Jobs should be reviewed as control-plane load too. Thousands of Pods create scheduling work, status writes, logs, image pulls, and quota pressure. The right parallelism is the amount the cluster and downstream systems can absorb, not simply the number of shards available.',
+      ],
+    },
+    {
+      heading: 'Failure semantics',
+      paragraphs: [
+        'A failed Pod is not automatically a failed Job. The controller compares failures with retry policy, deadlines, and per-index limits. That distinction is why Jobs are useful: transient node loss can produce another attempt, while repeated failure for the same shard can eventually mark the run failed rather than spin forever.',
+        'The external side effect still needs its own ledger. If a Pod writes output and then crashes before Kubernetes observes success, a replacement may repeat the shard. Indexed identity makes that repeat manageable, but the storage layer still needs idempotent writes, transactional commit, or a shard-level completion marker.',
+      ],
+    },
+    {
+      heading: 'Choosing Indexed or NonIndexed',
+      paragraphs: [
+        'Use Indexed mode when the work already has stable partition identity: test case number, file id, shard range, simulation seed, model-evaluation prompt index, or database key range. The Pod can derive its input from the completion index, and every retry has the same logical target.',
+        'Use NonIndexed mode when the work is interchangeable or claimed elsewhere. For example, each Pod might pull the next item from a queue that owns locking and dedupe. In that design, Kubernetes tracks how many workers succeeded, while the queue tracks which business items are done. Mixing those responsibilities is where duplicate or missing work often appears.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Jobs fit finite, retryable work with a clear success condition: imports, migrations, exports, test shards, model evaluations, image transforms, and one-shot maintenance. Indexed Jobs fit work that already has a deterministic partition key, such as file number, database range, or evaluation shard.',
+        'The best Job workloads are idempotent or deduped. If a replacement Pod repeats a shard, the external system should accept the same result once, overwrite by shard key, or reject a duplicate safely.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A Job is the wrong tool for a service that should keep serving traffic, a queue with open-ended work arrival, or a workflow that needs branching dependencies between steps. Use Deployments for steady replicas, queue workers for unbounded streams, and workflow engines when the dependency graph matters.',
+        'The dangerous case is non-idempotent side effects. If a failed or late Pod can charge a card, send an email, or append a row twice, the Job ledger is not enough. The external system also needs idempotency keys, transactions, or write-ahead recovery.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
         'A data import has 100 files. An Indexed Job runs with completions 100 and parallelism 10. Each Pod reads its completion index through the downward API, maps it to one file, writes output under the same shard key, and exits. If shard 42 fails, replacement work for index 42 retries the same file. The output table dedupes by shard index so a late duplicate cannot corrupt results.',
-        'The operational checks are backoffLimit, activeDeadlineSeconds, cleanup TTL, logs retention, resource requests, and whether retries are safe. Batch work without idempotency can turn a retry into double writes.',
+        'The review checklist is small but strict: retry policy, deadline, cleanup TTL, logs retention, resource requests, shard idempotency, and whether failed indexes should fail the whole run or be reported for repair.',
+        'For curriculum design, this page should make one idea unavoidable: a Kubernetes Job is not just a Pod launcher. It is a controller-maintained progress ledger for finite work. Once learners see that ledger, CronJobs, workflow engines, queues, and retry-safe output systems become easier to compare.',
       ],
     },
     {

@@ -132,42 +132,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Evolutionary search is a family of black-box optimization methods. Keep many candidates, produce variations, score them, and let better candidates survive. The candidates can be numbers, neural architectures, prompts, compiler flags, routing policies, or whole programs. The evaluator can be a formula, a simulator, a benchmark, a unit test suite, or a human preference model.',
-        'The core idea is useful whenever Gradient Descent is unavailable or dishonest. If the objective is discrete, non-differentiable, noisy, or hidden behind an API, gradients may not exist. Evolutionary search only asks one question: did this candidate score better than the old one?',
+        'Evolutionary search exists for optimization problems where you can score a candidate but cannot use a trustworthy gradient. The candidate might be a vector, prompt, compiler flag set, routing policy, neural architecture, controller, or whole program. The evaluator might be a simulator, benchmark, unit test suite, loss function, or preference model.',
+        'The method is useful when the objective is discrete, non-differentiable, noisy, delayed, or hidden behind an API. It only asks a blunt question: did this candidate score better than the alternatives under the evaluator?',
+        'That makes it a useful companion to modern AI workflows. When a model can propose variants but only an external judge, test suite, simulator, or benchmark can score them, evolutionary search provides the outer loop that turns generation into improvement.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is random search: sample many candidates, keep the best one, and hope. That can work when evaluation is cheap and the space is small. It fails when useful structure is rare, when good partial solutions should be reused, or when the search needs to keep improving over generations.',
+        'Gradient Descent is the other obvious approach. It fails when there is no differentiable path from candidate to score, or when the objective is a simulator, compiler, judge, or real-world trial that only returns a number.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The canonical loop has four parts: initialize a population, evaluate every candidate, select parents or survivors, then generate variants by mutation and crossover. Mutation explores local neighborhoods. Crossover recombines partial structure from multiple candidates. Selection turns random variation into directed improvement.',
+        'Differential Evolution makes the mutation step more geometric. For each target vector, choose two other population members a and b, compute a - b, scale it, and add it to a base candidate. The resulting trial competes against the target. This adapts step size to population spread: early search jumps widely, later search narrows naturally.',
+        'The deeper insight is that search pressure comes entirely from the evaluator. The algorithm does not know what a good design means. It preserves and recombines candidates only because measured scores say they are worth keeping.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The canonical loop has four parts: initialize a population, evaluate every candidate, select parents or survivors, then generate variants by mutation and crossover. Mutation explores local neighborhoods. Crossover recombines partial structure from multiple candidates. Selection turns random variation into directed improvement.',
-        'Differential Evolution makes the mutation step more geometric. For each target vector, choose two other population members a and b, compute a - b, scale it, and add it to a base candidate. The resulting trial competes against the target. This simple difference vector adapts step size to population spread: early search jumps widely, later search narrows naturally.',
+        'A generation begins with a population of candidates. The evaluator scores each one. Selection chooses parents, survivors, or elites. Variation creates children through mutation, crossover, recombination, or model-generated edits. The next generation repeats the cycle.',
+        'Mutation rate controls exploration. Too little mutation causes premature convergence. Too much mutation turns the search into random sampling. Crossover is useful when candidates have reusable parts, such as hyperparameter blocks, code fragments, or controller subroutines.',
+        'Differential Evolution is a concrete numeric variant. It creates a trial vector from population differences, then keeps the trial only if it beats the target. The population itself supplies the step scale, which is why the method is simple and often strong on black-box numeric problems.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The dominant cost is evaluation count: population_size times generations. If a generation has 64 candidates and each benchmark run takes 20 seconds, one generation costs over 21 minutes of serial time, though most evaluations can run in parallel. Memory is usually small compared with the evaluator, unless candidates are large programs or models. The right metric is not Big-O alone; it is evaluator calls per useful improvement.',
+        'In the classic loop view, watch the population rather than one marker. Selection keeps high-scoring parents, variation creates children near or between them, and survivor selection moves the population toward better regions without ever drawing a gradient arrow.',
+        `In the Differential Evolution view, the difference between two candidates becomes a mutation direction. Read the population spread as the algorithm's step-size memory: wide spread creates broad exploration, while convergence naturally shrinks moves.`,
+        'The leaderboard proves the role of selection. The search is not magic because it mutates; mutation alone is noise. It becomes search when evaluation decides which variants survive.',
+        'The final cluster near the optimum proves both success and risk. The population has found a good region, but it may also have lost diversity. That is when restarts, islands, or novelty pressure become useful.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'Evolutionary search appears in hyperparameter tuning, neural architecture search, compiler optimization, trading-rule search, robotics controllers, feature selection, and fuzzing. Modern AI systems use the same pattern at larger scale: generate many candidate solutions, verify them with tests or automated judges, and keep the best. AlphaEvolve is a high-end example where LLMs propose code and automatic evaluators supply the selection pressure.',
+        'Evolutionary search works when useful candidates are locally or compositionally related. Mutation can improve a candidate by small changes, and crossover can preserve useful pieces from different candidates.',
+        'It also works when the evaluator is cheaper than deriving a gradient or when no gradient exists. The method treats the objective as a black box and spends evaluator calls to map the landscape.',
+        'Population diversity is the hedge against local traps. Multiple candidates can explore different regions at once, and selection can keep several promising directions alive instead of committing to one path too early.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        `The evaluator is the product. If your benchmark is weak, the search will exploit it. This is not a flaw unique to evolution; it is Goodhart's law applied to optimization. Add holdout tests, adversarial examples, and multiple metrics when possible. Another trap is premature convergence: once every candidate looks similar, mutation loses useful diversity. Keep random restarts, novelty pressure, or island populations when the search space is broad.`,
-        'Evolutionary search is not magic proof of creativity. It explores the space you encode and optimizes the score you provide. Its strength is operational: it turns weak proposal mechanisms into strong search when evaluation is cheap, objective, and reliable.',
+        'The dominant cost is evaluation count: population_size times generations. If a generation has 64 candidates and each benchmark run takes 20 seconds, one generation costs over 21 minutes of serial time, though most evaluations can run in parallel.',
+        'Memory is usually small compared with the evaluator, unless candidates are large programs or models. The right metric is not Big-O alone; it is evaluator calls per useful improvement.',
+        'The tradeoff is sample efficiency versus generality. Gradient methods can be far more efficient when gradients are valid. Evolutionary search is broader but may burn many evaluations. It is strongest when evaluation is parallelizable and gradients are unavailable or misleading.',
+        'There is also a representation tradeoff. A mutation operator that changes meaningless syntax or random bits wastes evaluations. A mutation operator that changes meaningful structure, such as a hyperparameter block or code function, gives selection better material to work with.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Evolutionary search appears in hyperparameter tuning, neural architecture search, compiler optimization, trading-rule search, robotics controllers, feature selection, and fuzzing. Modern AI systems use the same pattern at larger scale: generate many candidate solutions, verify them with tests or automated judges, and keep the best.',
+        'AlphaEvolve is a high-end example where LLMs propose code and automatic evaluators supply the selection pressure. The pattern is strongest when generation is cheap enough, evaluation is reliable enough, and the search space rewards incremental variation.',
+        'It is also useful when many candidates can be evaluated independently. A cluster can score a generation in parallel, making wall-clock time depend more on the slowest evaluator than on the number of candidates.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `The evaluator is the product. If your benchmark is weak, the search will exploit it. This is not a flaw unique to evolution; it is Goodhart's law applied to optimization. Add holdout tests, adversarial examples, and multiple metrics when possible.`,
+        'Another trap is premature convergence: once every candidate looks similar, mutation loses useful diversity. Keep random restarts, novelty pressure, or island populations when the search space is broad. Evolutionary search is overkill when gradients are cheap and trustworthy, and dangerous when the evaluator can be gamed.',
+        'A third failure is noisy selection. If score variance is high, the algorithm may promote lucky candidates. Reruns, confidence intervals, tournament rules, or robust aggregations can keep noise from becoming the selection signal.',
+        'A fourth failure is forgetting the deployment constraint. A candidate can win the offline score while being too slow, too brittle, too expensive, or too hard to audit. Treat latency, cost, safety, and interpretability as part of the fitness function when they matter in production.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
         'Read AlphaEvolve Case Study to see evolutionary search scaled with LLM-generated code. Study Hyperparameter Search for a practical ML version of the same loop. Self-Organizing AI Design Pattern shows why evolutionary and archive-based search matter when the objective is many robust outcomes, not one champion. Then connect it to Beam Search: both keep multiple partial candidates, but beam search expands structured sequences while evolutionary search mutates complete candidates.',
+        'For implementation practice, build the simplest loop first: a population array, a scorer, an elitism rule, a mutation operator, and a log of every candidate. Once that is honest, add crossover, restarts, islands, or learned proposal models only when the baseline shows where it is stuck.',
       ],
     },
   ],

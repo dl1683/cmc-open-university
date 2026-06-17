@@ -241,35 +241,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Subset construction converts an NFA into an equivalent DFA by making each DFA state represent a set of NFA states. If the NFA matcher would carry the active frontier {repeat, alt, a1, a2, c}, the DFA gives that whole set one state id such as D0.',
-        'This is the data-structure bridge between elegant regex theory and fast production scanning. The algorithm uses eps closure, symbol moves, a work queue, a canonical set key, a hash map for interning, and a transition table for the finished DFA.',
+        'An NFA is a compact way to represent many possible paths through a regular expression. A Thompson-style matcher can simulate those paths safely by carrying the whole active frontier after each input character.',
+        'That is reliable, but it still does work during every scan. Lexers, tokenizers, protocol filters, and hot regexes often want the scan loop to be as small as possible: current state plus input byte gives next state.',
+        'Subset construction moves work from matching time to construction time. It turns each reachable NFA frontier into one deterministic DFA state, so the runtime scanner no longer has to reason about eps edges or multiple active paths.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and its limit',
       paragraphs: [
-        'Start with epsClosure(NFA start). That set is the DFA start state. For each input symbol, move from every NFA state in the set along that symbol, then take eps closure of the result. If the resulting set has not been seen, assign it a new DFA id and enqueue it. Record the transition from the old DFA id to the new one.',
-        'A set is accepting if it contains any accepting NFA state. A set is dead if it is empty or cannot reach acceptance for the relevant alphabet. The algorithm is essentially BFS over possible NFA frontiers, with a hash table preventing duplicate work.',
+        'The direct approach is NFA simulation. Start with the eps closure of the NFA start state. For each input character, follow all matching labeled edges from the active set, then close over eps edges again.',
+        'This approach is compact because the matcher stores only the NFA and the current frontier. It is also robust because it avoids backtracking explosions. The limit is repeated frontier computation.',
+        'If the same frontier appears many times, the same move and closure calculation will be repeated many times. Subset construction names that frontier once and reuses the answer.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'For (ab|a)*c, the start closure is D0 = {repeat, alt, a1, a2, c}. On a, both a-labeled branches can move, producing D1 = {b1, repeat, alt, a1, a2, c}. From D1, b returns to D0 because the long branch ab has completed a repetition. From either D0 or D1, c reaches DM, the set containing match.',
-        'That compact DFA now scans deterministically: D0 on a goes to D1, D1 on b goes to D0, and either D0 or D1 on c goes to DM. The original NFA choices disappeared into state-set names.',
+        'A set of NFA states can itself be a state. If the NFA frontier after some input prefix is {R, A, L, S, C}, assign that set a DFA id such as D0. If reading a from D0 always leads to another set, assign that set D1 and store the transition D0 --a--> D1.',
+        'The data-structure move is interning. Represent each set with a canonical key, usually a bitset or sorted state-id list. A hash map turns that key into one stable DFA id. The queue explores only sets that have not been seen before.',
+        'Deterministic does not mean the underlying language became simpler. It means the representation has one next state per symbol. The complexity was pushed into the state identity.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Mechanics',
       paragraphs: [
-        'Full subset construction can create up to 2^m DFA states from m NFA states. That worst case is why production engines rarely build unbounded DFAs eagerly for arbitrary user patterns. Matching a completed DFA is O(n), but compilation memory can dominate.',
-        'Lazy DFA construction computes state sets on demand and caches them. If the cache grows too large, the engine can evict cold states or fall back to Thompson NFA simulation. This keeps the performance benefit of DFA table lookup without pretending memory is infinite.',
+        'The start DFA state is epsClosure(startNfaState). For each DFA state S and each input symbol c, compute move(S, c), then epsClosure of that move result. That closed set is the target DFA state.',
+        'If the target set has no id yet, intern it, assign a new DFA state number, and enqueue it. Then record the transition from the source id on c to the target id. If the set is empty, send the transition to a dead state or leave it implicit depending on the engine design.',
+        'A DFA state is accepting when its NFA-state set contains at least one accepting NFA state. If multiple accepting states are present, a lexer also needs priority rules such as earliest rule order or longest-match handling.',
       ],
     },
     {
-      heading: 'Primary sources and study next',
+      heading: 'Invariant and proof sketch',
+      paragraphs: [
+        'The invariant is prefix reachability. After reading any input prefix p, the DFA state names exactly the set of NFA states reachable after p.',
+        'The start state satisfies the invariant because epsClosure(start) is exactly what the NFA can reach before consuming input. The transition step preserves it because move(S, c) follows all c-labeled edges out of the current reachable set, and epsClosure adds all zero-cost states reachable after consuming c.',
+        'Acceptance follows immediately. If the current DFA set contains an accepting NFA state, then the NFA has at least one accepting path for the consumed input. If it does not, no active NFA path is accepting.',
+      ],
+    },
+    {
+      heading: 'Cost and blowup',
+      paragraphs: [
+        'A completed DFA scans in O(n) time for n input symbols, with one transition lookup per symbol. That is the reason DFAs are attractive for hot scanning workloads.',
+        'The construction cost can be exponential. An NFA with m states has at most 2^m subsets, and some patterns really can force a large fraction of that space. Each reachable subset may need transitions across the alphabet or across compressed byte classes.',
+        'Lazy construction changes the cost profile. Build a state only when the scanner reaches it, cache it if memory allows, and fall back to NFA simulation or evict cold DFA states when the cache hits its budget.',
+      ],
+    },
+    {
+      heading: 'Implementation details that matter',
+      paragraphs: [
+        'The set key should be cheap to compare and hash. Bitsets are fast for dense state numbers. Sorted vectors can be smaller for sparse frontiers. Either way, canonical representation is required; two equivalent sets must map to the same key.',
+        'Eps closure should be cached or computed with care. A compiler can precompute closure for each NFA state and combine bitsets, or it can run graph search from the current move set. The right choice depends on NFA size and memory budget.',
+        'The alphabet is usually compressed. Regex engines rarely build a separate transition for every Unicode scalar value. They group input bytes or characters into equivalence classes so many symbols share one transition column.',
+        'Accepting-state priority also belongs in the state metadata. A lexer must know which rule won when a subset contains several accepting NFA states, otherwise determinization can preserve language membership while losing token-selection semantics.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins when a pattern is reused or the input is large enough to amortize construction. Lexers, tokenizers, network filters, log scanners, syntax highlighters, and high-throughput regex services all benefit from table-driven scanning.',
+        'It is also the conceptual bridge behind hybrid engines. Thompson simulation is compact and predictable. DFA execution is fast once states exist. Lazy DFA caching combines them by determinizing hot frontiers and keeping a fallback for cold or explosive regions.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Eager full construction is a bad default for arbitrary user-supplied patterns. The deterministic representation can be far larger than the NFA even though both accept the same language.',
+        'Subset construction also does not support non-regular features such as backreferences. It can be part of a regex engine, but it only applies to the regular portion of the language.',
+        'The failure mode in production is usually resource exhaustion, not mathematical incorrectness. Without limits on state count, transition-table size, cache memory, and compile time, determinization can become the expensive operation an attacker targets.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the state-sets view, read each DFA label as a named NFA frontier. D0 is not a single original NFA node; it is the whole eps-closed start set. D1 is the set reached after reading a.',
+        'The matrix row for each D state is the deterministic transition table being built. The cells on a, b, and c are the result of move plus eps closure. Once a cell points to an interned set, future scans use that id directly.',
+        'In the dfa-blowup view, the important contrast is between accepted language and representation size. The NFA and DFA recognize the same strings, but the DFA cache and table nodes show why engines need budgets and fallbacks.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Aho and Verma, Regular Expressions and Finite Automata lecture notes at https://www.cs.columbia.edu/~aho/cs3261/Lectures/L4-Regular_Expressions_and_Finite_Automata.html; Russ Cox, Regular Expression Matching Can Be Simple And Fast at https://swtch.com/~rsc/regexp/regexp1.html; and Google RE2 README at https://github.com/google/re2.',
         'Study Thompson NFA Regex Engine Case Study first, then Regex Backtracking & ReDoS Case Study for the contrasting execution model. Finite State Machines, Graph BFS, Hash Table, Stack, UTF-8 Decoder DFA Case Study, and Parser Design Patterns Primer provide the surrounding structures.',

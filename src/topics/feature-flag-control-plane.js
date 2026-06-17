@@ -209,42 +209,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A feature flag control plane lets teams change behavior without deploying new code. Applications ask for typed flag values. The SDK merges evaluation context, calls a provider, applies targeting rules, returns a variant, and emits metadata or telemetry. That turns release, experimentation, and operational kill switches into runtime decisions instead of build-time branches.',
-        'OpenFeature describes itself as an open specification for a vendor-agnostic feature flagging API: https://openfeature.dev/docs/reference/intro. The flag evaluation specification defines an evaluation API independent of any flag control plane or vendor: https://openfeature.dev/specification/sections/flag-evaluation.',
+        'A feature flag control plane exists because deploying code and releasing behavior are different actions. A team may want the new code path deployed everywhere but enabled only for employees, one enterprise tenant, one region, or one percent of stable users. It may also need to kill a broken feature without building and shipping a new artifact.',
+        'The control plane turns behavior into a runtime decision. The application asks for a typed flag value. The SDK builds an evaluation context, the provider applies rules, the result resolves to a variant, and hooks emit telemetry. That small path lets teams dark launch, canary, experiment, degrade, and roll back with more precision than a deployment alone can provide.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive switch',
       paragraphs: [
-        'The application calls the SDK with a flag key, expected type, and default value. The SDK combines global, client-level, and invocation-level context. A provider evaluates rules using attributes such as user, tenant, region, plan, device, or service version. It returns a value plus metadata such as reason, variant, and provider details. Hooks can run before, after, on error, or finally to enrich context, record telemetry, validate outcomes, or capture failures.',
-        'OpenFeature evaluation context is the container for contextual data used in dynamic evaluation: https://openfeature.dev/docs/reference/concepts/evaluation-context/. Providers perform flag evaluation and abstract the underlying management system: https://openfeature.dev/docs/reference/concepts/provider. Hooks allow behavior at well-defined points in the evaluation lifecycle: https://openfeature.dev/docs/reference/concepts/hooks/.',
+        'The obvious approach is an environment variable or a boolean in a config file. That works for a single global switch in one service. It fails when a rollout needs typed values, tenant targeting, stable percentage cohorts, audit history, experiment metadata, safe defaults, provider outage behavior, and cleanup ownership.',
+        'The hidden problem is distribution. Once many services evaluate a flag at runtime, a flag is no longer a scattered if-statement. It is a control plane. It needs consistent rule evaluation, context shape, fallback semantics, observability, and lifecycle management. Without those, flags become invisible branches that change production behavior with weak accountability.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Flag evaluation often sits in the request path, so latency and failure behavior matter. SDKs commonly cache rules or stream updates, but stale cache policy must be explicit. Provider outages need safe defaults. Percentage rollout requires a stable targeting key; otherwise users bounce between variants. Experiment flags need statistical discipline, while ops kill switches need reliability even during incidents.',
-        'Flags also create long-term code debt. Release flags should have owners, expiry dates, and cleanup tickets. Permission flags can accidentally become authorization systems. Experiment flags can leak into permanent product behavior. A mature control plane tracks ownership, audit logs, metadata, and telemetry, not just boolean values.',
+        'A feature flag should behave like a pure decision function over four inputs: key, default value, rules, and context. The application supplies the question. The provider evaluates the rules. The output is a value plus metadata explaining the reason. That reason is important because a rollout that cannot be explained cannot be debugged.',
+        'OpenFeature captures this idea as a vendor-neutral feature flagging API. Its flag evaluation specification separates the application-facing evaluation call from any specific backend control plane. That separation is the systems lesson: application code should depend on a stable contract, while providers and storage backends can change behind it.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Evaluation path',
       paragraphs: [
-        'Feature flags enable dark launches, internal rollouts, canaries, A/B tests, geo-specific releases, tenant allowlists, plan entitlements, kill switches, and graceful degradation. They connect directly to A/B Testing, Cache Invalidation & Versioning, AIOps Incident Response, OpenTelemetry Collector pipelines, and Load Shedding because safe rollout requires both control and measurement. LLM Model Rollout Shadow Canary Ledger is the model-serving version: canary cohorts, shadow traffic, prompt-cache versioning, eval gates, and rollback proof all sit behind the same flag-control-plane discipline. They also matter for On-Device LLM Inference Cost Crossover and Accelerator Kernel Compatibility Matrix: local model packages and new accelerator routes both need staged rollout, device gates, and kill switches.',
+        'Evaluation starts when the application asks for a typed value such as boolean, string, number, or object. The call includes a flag key and a safe default. The SDK merges global context, client context, invocation context, and a stable targeting key. The provider evaluates rules against that context and returns the variant.',
+        'The safe default matters. If the provider is down, the network is slow, or the local cache is stale beyond policy, the application still has to decide. For a release flag the safe default may be off. For an ops kill switch the safe default may be degraded mode. The default is part of the control-plane design, not an afterthought.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Control-plane records',
       paragraphs: [
-        'A flag is not automatically safe because it can be switched off. If the default is unsafe, the provider is unavailable, or the SDK cache is stale, the wrong behavior can persist. A percentage rollout is not a valid experiment unless assignment is stable and analysis avoids peeking and multiple-testing traps. A permission flag is not a substitute for authorization unless it is built and audited like authorization.',
+        'A mature flag record has more than a key and a value. It carries type, allowed variants, targeting rules, percentage rollout salt, owner, description, creation date, expiry date, dependencies, approval state, audit history, and linked metrics. Experiment flags also need hypothesis, randomization unit, exposure event, analysis window, and guardrail metrics.',
+        'The evaluation context is another record with a schema. It may include service, environment, tenant, user, region, device, plan, build version, request attributes, and targeting key. The targeting key must be stable for percentage rollout. If it changes between requests, users bounce between variants and both experiments and rollouts become misleading.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Official sources: OpenFeature intro at https://openfeature.dev/docs/reference/intro, flag evaluation API at https://openfeature.dev/specification/sections/flag-evaluation, evaluation context at https://openfeature.dev/docs/reference/concepts/evaluation-context/, providers at https://openfeature.dev/docs/reference/concepts/provider, and hooks at https://openfeature.dev/docs/reference/concepts/hooks/. Study A/B Testing, Multi-Armed Bandits, LLM Model Rollout Shadow Canary Ledger, Cache Invalidation & Versioning, OpenTelemetry Collector Case Study, AIOps Incident Response, On-Device LLM Inference Cost Crossover, Accelerator Kernel Compatibility Matrix, and Load Shedding & Graceful Degradation next.',
+        'The evaluation-path view proves that a flag decision is a pipeline, not a global variable lookup. The application sends a key and default to the SDK. Context and provider rules meet at evaluation. The resolved variant flows back with reason metadata. Hooks record what happened.',
+        'The rollout-safety view proves that exposure is gradual and observable. A dark launch may run code without user-visible behavior. Internal users test the path. A one percent canary checks guardrails. A ramp expands only if metrics hold. The flag-type table proves that release, experiment, ops, and permission flags have different lifecycles and risks.',
+      ],
+    },
+    {
+      heading: 'Rollout mechanics',
+      paragraphs: [
+        'Progressive delivery usually moves through a ladder: dark launch, internal cohort, small canary, larger ramp, and full release. The exact ladder depends on blast radius. A checkout change may require slow regional rollout and revenue guardrails. A UI copy change can move faster. A database migration gate needs a plan for both old and new code paths.',
+        'Percentage rollout should use deterministic hashing over a stable subject. The result is a cohort, not a random coin flip on every request. Sticky assignment keeps users in the same variant, makes canary metrics meaningful, and lets support teams reproduce behavior by checking the evaluation reason.',
+      ],
+    },
+    {
+      heading: 'Observability loop',
+      paragraphs: [
+        'A flag is only safe if its impact is visible. Evaluation events should include key, variant, reason, targeting key, service, environment, and request correlation metadata. Metrics should connect exposure to errors, latency, saturation, conversion, revenue, support tickets, or model-quality scores, depending on the flag.',
+        'Hooks are the place for cross-cutting behavior such as context enrichment, audit events, and telemetry. They must be bounded because flag evaluation often sits in the request path. A slow hook can turn a safety control into a latency regression. The control plane should record enough to debug without adding unbounded work to hot paths.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Feature flags buy control by adding runtime branches, provider dependencies, cache policy, metadata, and cleanup work. SDKs often cache rules or stream updates to avoid network calls on every request, but then teams must decide how stale a decision can be. Strong consistency is expensive. Eventual consistency is usually fine for release flags but risky for safety kill switches.',
+        'Flags also create code debt. Release flags should expire after rollout. Experiment flags should not become permanent product policy without review. Permission flags can drift into authorization logic. Ops flags must be reliable during incidents, when the control plane itself may be under pressure.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Feature flags win when behavior needs precise exposure. They support dark launches, canaries, A/B tests, geo releases, tenant allowlists, plan entitlements, safety kills, graceful degradation, and model rollouts. They let teams decouple code deployment from business release and incident response.',
+        'The same structure appears in LLM systems. A model rollout can use cohorts, shadow traffic, prompt-cache version gates, eval thresholds, and rollback proof. On-device model delivery can gate by hardware, battery, locale, and accelerator support. A new accelerator route can be enabled for a small device family before it becomes the default.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure mode is an unsafe default. If the provider fails and the default enables the risky path, the flag amplifies the outage. The second is unstable targeting, where users bounce between variants because the targeting key changes. The third is stale cache behavior that keeps old rules active longer than the team expects.',
+        'The fourth is flag debt. Old release flags leave dead branches that no one tests. Permission flags can contradict real authorization. Experiment flags can be read as causal truth without statistical discipline. A control plane needs owner metadata, expiry dates, audit logs, and cleanup pressure to stay useful.',
+        'A fifth is emergency dependence on an unhealthy control plane. Kill switches should work when the normal release system is degraded. That often means local cached rules, predeclared safe defaults, and an operational path that has been tested before the incident.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Official sources include the OpenFeature introduction at https://openfeature.dev/docs/reference/intro, the flag evaluation specification at https://openfeature.dev/specification/sections/flag-evaluation, evaluation context at https://openfeature.dev/docs/reference/concepts/evaluation-context/, providers at https://openfeature.dev/docs/reference/concepts/provider, and hooks at https://openfeature.dev/docs/reference/concepts/hooks/.',
+        'Study A/B Testing, Multi-Armed Bandits, LLM Model Rollout Shadow Canary Ledger, Cache Invalidation and Versioning, OpenTelemetry Collector Case Study, AIOps Incident Response, On-Device LLM Inference Cost Crossover, Accelerator Kernel Compatibility Matrix, Load Shedding and Graceful Degradation, Circuit Breakers, and Distributed Configuration next.',
       ],
     },
   ],

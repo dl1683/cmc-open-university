@@ -182,37 +182,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Async context propagation keeps request-local data available across asynchronous JavaScript boundaries. Instead of passing traceId, tenant, deadline, or logger through every function, a runtime-managed store follows the async execution chain.',
-        'The data structure is a mapping from async execution resources to context records. APIs such as Node AsyncLocalStorage expose a store that stays coherent through asynchronous operations.',
+        'A JavaScript server handles many overlapping requests inside one process. A route can await a database query, schedule a timer, call a queue client, emit logs, create spans, and call library code that the route author did not write. The synchronous stack that started the request disappears between those steps, but the request is still logically the same piece of work.',
+        'Deep code often needs request-local facts: trace id, request id, tenant, deadline, logger, transaction id, locale, feature flags, or cancellation state. Passing every value through every function is explicit, but it pollutes signatures that are not about observability or infrastructure. A process-wide global variable is quieter, but it is wrong as soon as two requests overlap.',
+        'Async context propagation exists to attach a small store to a logical async execution and make that store available across the boundaries that belong to that execution. It gives framework and instrumentation code a way to carry request identity without confusing one request with another.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious safe approach is manual parameter passing. Every helper receives `traceId`, `logger`, `tenantId`, `deadline`, and any other request-scoped value it might need. This is easy to reason about in small programs. It becomes painful when the values are needed by logging, tracing, database, and HTTP clients several layers below the application code.',
+        'The tempting shortcut is a module-level `currentRequest` variable. Request A sets it, awaits a database call, and yields. Request B starts and overwrites it. Request A resumes and writes logs under request B. The program did not use threads, but it still interleaved logical work.',
+        'The wall is that the JavaScript call stack is not the same thing as a logical request. After an `await`, timer callback, event listener, stream callback, native callback, or worker boundary, the old synchronous stack is gone. The runtime needs a separate mapping from async work to the context that caused it.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Context should follow causality, not wall-clock time and not a mutable global. If request A schedules a promise continuation, that continuation should see request A values even if request B ran in the middle. If a background worker starts a new job, it should receive only the context the system chose to send with that job.',
+        'Node models this with async resources and APIs such as `AsyncLocalStorage`. A store is associated with an async execution chain. When the runtime creates related async work, the association can be preserved. Later, deep code can ask for the current store and receive the values for the logical operation that is running.',
+        'The invariant is isolation by async lineage. Two overlapping requests may use the same functions, same database client, and same logger, but their stores should remain separate. If that invariant breaks, observability becomes misleading and authority-bearing context can become dangerous.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'The request-context view shows one request entering the server, creating a store, and then moving through promise work, timer work, database calls, logs, spans, and the response. The visual point is that the store is attached to the logical path, not to a visible stack frame.',
+        'The propagation-map view changes the lesson from one request to boundary types. Promise continuations, timer callbacks, queue messages, worker messages, and native callbacks do not all behave the same way. Some boundaries can inherit automatically. Some need a snapshot or bound callback. Some need explicit message fields. Some should start a fresh context.',
+        'The failure-mode table is just as important as the success path. Blank logs mean context was lost. Mixed request ids mean the wrong context was restored. Stale tenant or auth data means the system carried authority past its lifecycle. The visual model treats those as different bugs because their fixes are different.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'At request entry, code runs a handler inside a context store. Promise continuations, timers, callbacks, and async resources preserve or restore that store. Deep library code can call getStore to read the current context.',
-        'Context propagation is not the same as task scheduling or error handling. It is a carrier for values across async hops. Some boundaries need snapshot, bind, explicit message fields, or a new context root.',
+        'At request entry, middleware creates a store such as `{ traceId, requestId, tenantId, deadline, logger }` and runs the handler inside that store. Libraries below the handler can call a getter to read the current store. The code that reads the store does not need every route and helper to pass the values by hand.',
+        'Promise continuations usually preserve context through runtime hooks. Callback-style APIs may need binding so the callback runs under the store that was current when it was registered. Timers may need the store to be captured when the timer is scheduled. Streams and event emitters need care because one emitter can deliver events for many logical operations.',
+        'Queues and worker threads require a different rule. A message crossing a process or thread boundary does not magically carry process-local context. The sender must serialize selected fields, and the receiver must create a new store for the new execution. That store may continue the trace, but it should not blindly copy every request value.',
+        'Snapshot-style APIs capture the current context for later use. They are useful for instrumentation wrappers and callback APIs. They can also outlive the request, so the code that creates a snapshot should know whether it is preserving observability identity, business authority, or both.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'An API server receives GET /cart. It creates a context with trace id, tenant id, deadline, and request logger. The route awaits a database query, emits logs, calls a payment service, and schedules a retry. All spans and logs share the request trace. The retry job receives a sanitized new context instead of inheriting user authority after the response ends.',
-        'This connects The Event Loop, Promise Microtask Queue, Distributed Tracing, OpenTelemetry Collector Case Study, and UI State Machine Workflow. Async context explains how correlation data survives the event loop without becoming one global mutable variable.',
+        'It works because async work still has parent-child relationships after the synchronous call stack has disappeared. A promise continuation was scheduled by some execution. A timer callback was registered by some execution. A database wrapper created a callback that will later run with a result. If the runtime records those relationships, it can restore the right store before the continuation runs.',
+        'This gives observability libraries a clean integration point. A logger, tracer, database wrapper, metrics helper, or error reporter can read the current request id and trace id without changing every business function signature. The application stays readable while the infrastructure layer still gets correlation data.',
+        'The correctness boundary is that the runtime can restore only the context it knows about. If a library stores a callback and calls it later outside the tracked async resource, or if work crosses a message boundary without serialized context, the propagation chain is broken. Correctness is therefore a contract between runtime, framework, libraries, and application code.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Do not put high-authority data into implicit context and forget explicit checks. Auth, tenant, and permission context should be validated at trust boundaries. Missing context causes poor observability; leaked context can cause a security incident.',
-        'Do not assume context crosses workers, message queues, or process boundaries automatically. Those edges need explicit carriers such as trace headers, message metadata, or snapshot-aware wrappers.',
+        'The benefit is cleaner infrastructure code. The cost is hidden input. A function that reads context may depend on request state even though its parameters do not show it. That can make tests, command-line scripts, and background jobs fail in surprising ways unless they create context deliberately.',
+        'There is runtime overhead. The runtime tracks async resources and stores. Most request tracing and logging workloads tolerate that cost, but hot paths should avoid large mutable stores, repeated expensive lookups, and context values that change many times inside one request.',
+        'The biggest tradeoff is authority. Trace ids and request ids are low risk. Tenant, user, role, and permission values are high risk. Missing context can produce poor logs. Leaked or stale authority can produce an isolation bug. Treat those classes of values differently.',
+        'There is also a debugging tradeoff. Async context can make code look simpler while moving important state into ambient access. Teams need clear conventions: what may live in context, who may write it, whether values are immutable, and what boundaries must reset it.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Node.js async context tracking and AsyncLocalStorage at https://nodejs.org/api/async_context.html, TC39 Async Context proposal at https://github.com/tc39/proposal-async-context, TC39 AsyncContext draft at https://tc39.es/proposal-async-context/, and Node AsyncResource docs in the same Node async_context reference. Study The Event Loop, JavaScript Promise Microtask Queue, Distributed Tracing, OpenTelemetry Collector Case Study, Message Queue, and AbortController Cancellation Graph next.',
+        'Async context wins for request-scoped logging, distributed tracing, database spans, HTTP client spans, transaction correlation, deadlines, cancellation metadata, and low-authority labels that many libraries need to read.',
+        'It is especially useful at framework and instrumentation boundaries. Application code can stay focused on the domain, while logging and tracing code still attaches the right request identity. A database wrapper can create a child span. A logger can include the request id. An error reporter can link a thrown error to the same trace.',
+        'It also helps migrations. A team can add trace ids and structured logging across a large codebase without editing every function signature first. Manual parameters still have a place, but context gives the infrastructure layer a practical path into existing code.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when a boundary does not propagate context: custom callback APIs, native addons, worker threads, message queues, event emitters shared across requests, and detached jobs are common places to lose or mix context.',
+        'It also fails when used as hidden authorization. Tenant and user identity should be checked explicitly at trust boundaries. A handler may read tenant context for logging and routing, but a database authorization decision should still be visible and testable.',
+        'Long-lived work is another failure point. A retry scheduled after a response, a cache refresh, or a batch job may need to continue the trace lineage, but it should not retain the original user permissions forever. The right behavior is often a new context with selected safe fields.',
+      ],
+    },
+    {
+      heading: 'Worked case study',
+      paragraphs: [
+        'An API server receives `GET /cart`. Middleware creates a store with `traceId=req-42`, `tenant=acme`, `deadline=200 ms`, and a request logger. The route awaits a database query, calls a pricing service, writes logs, and creates spans. The database wrapper and logger read the current store, so every event is tied to `req-42` without passing `traceId` through every function.',
+        'Inside the request, a timer records a slow-operation warning. The timer callback must run under the store captured when the timer was scheduled. If it runs with no store, the warning is useless. If it runs with another request store, the warning is actively misleading.',
+        'The route also schedules a retry job after the response. That job should not inherit the whole request context. The queue message carries a new trace root or a linked parent, plus safe fields such as tenant id and job id. It does not carry user permissions from the completed request. The practical rule is to propagate context for causality, then choose carefully at lifecycle boundaries.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Keep the store small and mostly immutable. Store ids, deadlines, logger handles, and trace state. Avoid large request objects, mutable user records, database clients with transaction state unless that is the intended contract, and data that must be cleared at response end.',
+        'Name the boundary rules in code. Middleware should create context. Queue publishers should serialize selected context. Queue consumers should create a new store. Background jobs should start a new trace unless there is a clear parent. Tests should include concurrent requests that interleave awaits and verify that ids do not mix.',
+        'Instrument risky libraries explicitly. Custom event emitters, native addons, callback registries, workers, and queue clients should have small integration tests that prove context is preserved, reset, or intentionally dropped. Do not assume propagation across a boundary until it has been checked.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study the JavaScript event loop and promise microtask queue first. Then study Node.js `AsyncLocalStorage`, `AsyncResource`, OpenTelemetry context propagation, W3C Trace Context, W3C Baggage, distributed tracing, and cancellation with `AbortController`.',
+        'The next practical exercise is to build a tiny HTTP server that logs two concurrent requests through nested promises and timers. First break it with a global variable. Then fix it with async context. Then add a queue boundary and decide which fields should cross that boundary.',
       ],
     },
   ],

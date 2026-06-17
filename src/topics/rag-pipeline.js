@@ -89,49 +89,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `A RAG system, short for retrieval-augmented generation, gives a language model a searchable memory. Instead of hoping the model memorized the right fact during pretraining, the system retrieves relevant documents at question time and places them in the prompt. Lewis et al. named the pattern in the 2020 RAG paper, building on dense retrieval work such as DPR. The contract is simple: documents remain the source of truth; the model becomes the reader and writer.`,
-        `The pattern is especially useful when facts are private, fresh, or too numerous to fit in model weights: company policies, product catalogs, legal memos, support tickets, research notes, and codebases. It is not fine-tuning. Fine-tuning changes behavior; retrieval changes context. A good answer depends on both retrieval quality and the model's ability to use the retrieved evidence.`,
+        "A language model can write fluently without knowing the current, private, or exact facts a user needs. A company handbook, support queue, product catalog, codebase, or legal repository changes faster than model pretraining. Retrieval-augmented generation exists to keep those facts outside the model and bring the right ones into the prompt at answer time.",
+        "The contract is simple but demanding: documents remain the source of truth, retrieval chooses evidence, and the model reads that evidence to produce the answer. RAG is not fine-tuning. Fine-tuning changes behavior and style; retrieval changes context. A good system needs both strong retrieval and a model that obeys the retrieved evidence.",
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Offline, documents are cleaned, split into chunks, embedded, and stored with metadata. Chunk sizes commonly land between 200 and 800 tokens, but tables, code, and legal sections often need structure-aware splitting. At query time, the question is embedded with the same model, Embeddings & Similarity scores candidate chunks, and HNSW (Vector Search at Scale) or another ANN index returns the top matches. A reranker may then rescore the top 50 or 100 candidates before the final prompt is built.`,
-        `The prompt usually contains the user question, retrieved passages, source IDs, and instructions to cite only supported claims. Attention Mechanism lets the model compare the question against the evidence token by token. KV Cache makes repeated prefill cheaper during generation, but long contexts still cost money and latency. The hard part is not wiring APIs together; it is making sure the right evidence reaches the context window.`,
+        "The naive approach is to paste a large pile of documents into the prompt. That works for toy examples, but it burns tokens, raises latency, and hides the relevant paragraph among noise. The model may answer from the wrong passage simply because the context is crowded.",
+        "Another naive approach is to fine-tune the model on the documents. That can teach tone or domain vocabulary, but it is a poor fit for fast-changing facts. Every document update becomes a training problem, and the model still cannot cite the exact source unless the system keeps provenance separately.",
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The wall',
       paragraphs: [
-        `Index storage is roughly vectors plus text. One million 1,536-dimensional float32 vectors require about 6.1 GB before graph or metadata overhead; float16 cuts vectors to about 3.1 GB. Retrieval can be 5 to 50 ms with a warm ANN index, while reranking and generation often dominate latency. Ingest is O(number of chunks) embedding calls plus index construction. The expensive operational work is refresh: deleting stale chunks, preserving citations, rebuilding or incrementally updating indexes, and evaluating whether retrieval actually improved answer quality.`,
+        "The wall is evidence selection. Most RAG failures are retrieval failures first: the answer passage was not indexed, was chunked badly, was filtered out by metadata, was ranked too low, or was buried below irrelevant matches. A perfect generator cannot quote a paragraph that never reached the context window.",
+        "The second wall is faithfulness. Supplying evidence does not force the model to use it. The model can overgeneralize, combine incompatible chunks, cite a chunk that merely sounds related, or answer from prior knowledge when the retrieved documents disagree. A RAG system needs controls around both retrieval and generation.",
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'The core insight',
       paragraphs: [
-        `RAG powers enterprise assistants over Confluence, Google Drive, Slack, GitHub, Zendesk, and internal databases. Legal and medical products use it to ground answers in source documents. Search systems use it to synthesize over retrieved web pages. Developer tools use it to answer questions over repositories. Common stacks include pgvector, Pinecone, Weaviate, Milvus, Elasticsearch vector search, LanceDB, and FAISS. K-Means Clustering appears in some vector indexes and compression schemes, while graph-based HNSW dominates many low-latency deployments.`,
+        "Turn the corpus into an index that can answer a narrower question than generation: which passages should the model read right now? Embeddings, lexical search, metadata filters, rerankers, and context packing all serve that selection step.",
+        "This makes RAG a data system as much as an AI feature. The user sees one answer, but the system has already made decisions about ingestion, chunk boundaries, vector representation, index refresh, filtering, ranking, deduplication, source attribution, and prompt assembly.",
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the animation teaches',
       paragraphs: [
-        `The biggest myth is that RAG prevents hallucination by itself. It only supplies evidence; the generator can still ignore it, overgeneralize it, or cite chunks it did not truly use. Another mistake is retrieving too much. Top-20 noisy chunks can bury the one useful passage, especially when the answer needs an exact policy sentence. Chunking also fails quietly: split too small and definitions separate from conditions; split too large and retrieval returns bloated context.`,
-        `Evaluation must test the whole pipeline. Measure retrieval recall, citation faithfulness, answer correctness, and latency separately. Tokenization (BPE) matters because chunk size and context budget are token budgets, not word counts. Cross-Validation & Honest Evaluation is the right discipline: build a held-out question set and resist tuning on examples you report.`,
+        "The animation shows the basic loop: embed the question, retrieve nearby document chunks, place evidence in the prompt, and generate an answer. The important thing to watch is not just which dot is nearest. It is whether the retrieved evidence actually contains the answer the user asked for.",
+        "When the question changes from cats to plants to transformers, the retrieval set should change. If the nearest chunks are off-topic, the model is being asked to write from the wrong facts. In RAG, retrieval quality is not a preprocessing detail; it is the product surface.",
       ],
     },
     {
-      heading: `Sources and production details`,
+      heading: 'How it works',
       paragraphs: [
-        `The original RAG paper frames retrieval-augmented generation as combining parametric memory in a pretrained generator with non-parametric memory in a dense vector index, improving knowledge-intensive generation while giving a path to provenance and updateable knowledge: https://arxiv.org/abs/2005.11401. FAISS is one canonical vector-search library for this retrieval layer; its documentation describes efficient similarity search and clustering over dense vector sets, including collections that may not fit in RAM: https://faiss.ai/index.html.`,
-        `Microsoft's Azure AI Search RAG overview describes the production pattern as grounding LLM responses in proprietary content and notes the operational challenges behind the simple architecture: https://learn.microsoft.com/en-us/azure/search/retrieval-augmented-generation-overview. The Microsoft Foundry RAG/indexes guide adds the current platform framing around indexes and agentic retrieval: https://learn.microsoft.com/en-us/azure/foundry/concepts/retrieval-augmented-generation.`,
+        "Offline, documents are cleaned, split into chunks, embedded, and stored with metadata. Chunk sizes often land between 200 and 800 tokens, but tables, code, legal sections, and API references need structure-aware splitting. The system should preserve source IDs, section headings, timestamps, permissions, and canonical URLs because those fields become retrieval filters and citations later.",
+        "At query time, the question is normalized and embedded with a compatible model. A vector index such as HNSW, FAISS, ScaNN, Milvus, pgvector, Elasticsearch vector search, or another ANN backend returns candidates. Many systems combine vector retrieval with BM25 or keyword search because exact names, error codes, and policy numbers are often lexical.",
+        "A reranker may rescore the top candidates before context is built. Then the prompt contains the user question, selected passages, source IDs, and instructions about grounded answers. The model generates from that context, ideally citing the source spans that support each material claim.",
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Worked example',
       paragraphs: [
-        `Start with Embeddings & Similarity, then HNSW (Vector Search at Scale) for retrieval at scale. Tokenization (BPE) explains chunk budgets, Attention Mechanism explains evidence reading, and KV Cache explains context serving cost. Then study Multi-Index RAG, RAG Context Packing Token Budget, RAG Index Lifecycle and Alias Swap, RAG Citation Span Index Case Study, RAG Dedup, MinHash, and Chunk Canonicalization, Filtered Vector Search and Bitset Gates, and RAG Evaluation so the simple loop becomes a production retrieval system.`,
+        "A support assistant gets the question: `Can enterprise customers export audit logs for the last year?` The retriever should find the audit-log retention policy, the enterprise-plan feature matrix, and perhaps the export API reference. It should not fill the prompt with generic security marketing pages just because they mention audit logs.",
+        "The final answer should say what the policy allows, name the plan boundary, mention any export limits, and cite the exact documents. If the relevant policy changed yesterday, the correct answer depends on index freshness. If the chunk split separated the retention period from the export instructions, retrieval may find only half of the answer.",
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "RAG works when the retrieval step has higher recall for the needed evidence than the model's parametric memory, and when the context window is clean enough for the model to use that evidence. Dense embeddings help find semantically similar passages. Lexical search catches exact terms. Reranking improves precision. Metadata filters enforce tenant, permission, date, language, or product boundaries.",
+        "It also works because knowledge becomes updateable. Add a document, re-embed it, and the system can use it without retraining the generator. Delete or expire a document, and a well-built index should stop retrieving it. That separation is the practical reason RAG became a default pattern for enterprise AI.",
+      ],
+    },
+    {
+      heading: 'Cost and complexity',
+      paragraphs: [
+        "Index storage is roughly vectors plus text plus metadata plus ANN overhead. One million 1,536-dimensional float32 vectors require about 6.1 GB before graph or metadata overhead; float16 cuts the vector payload roughly in half. Product systems also pay for embeddings, indexing, reranking, prompt tokens, generation latency, and monitoring.",
+        "Operational complexity lives in refresh. Documents move, permissions change, pages are duplicated, chunks become stale, and source links break. A serious RAG system needs ingestion jobs, deletion handling, alias swaps or incremental updates, versioned indexes, evaluation sets, and rollback for bad retrieval changes.",
+      ],
+    },
+    {
+      heading: 'Evaluation',
+      paragraphs: [
+        "Evaluate retrieval and generation separately. Retrieval recall asks whether the gold evidence appears in the candidate set. Ranking quality asks whether that evidence appears high enough to reach the final prompt. Answer quality asks whether the response is correct. Citation faithfulness asks whether the cited source actually supports the claim.",
+        "A useful test set contains real questions, expected source documents, answer rubrics, permission boundaries, stale-document traps, and unanswerable questions. The unanswerable cases matter because a RAG system should know when the corpus does not contain the answer. Refusing from missing evidence is often better than confident synthesis.",
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        "RAG wins for private knowledge, fast-changing facts, large document collections, citation-heavy workflows, and systems where the answer should be traceable to a source. It is a natural fit for enterprise search, support assistants, policy assistants, legal document review, codebase Q&A, research notebooks, and product documentation.",
+        "It is also useful as a teaching pattern because it joins data structures and model behavior. Embeddings map text to vectors, ANN indexes trade exactness for speed, rerankers refine candidate order, context packing is a constrained selection problem, and the language model becomes the final reader.",
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "RAG fails when the corpus is bad, the answer requires computation rather than lookup, permissions are loose, documents contradict each other without precedence rules, or the relevant evidence is hidden in tables, images, code, tickets, or logs the chunker did not preserve. It also fails when teams use vector search alone for exact identifiers.",
+        "The biggest myth is that RAG prevents hallucination by itself. It only supplies evidence. The generator can still ignore evidence, overgeneralize it, cite weakly related chunks, or answer from prior knowledge. Grounded generation requires prompt discipline, refusal rules, citation checks, and evaluation.",
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        "Primary sources: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks at https://arxiv.org/abs/2005.11401, Dense Passage Retrieval at https://arxiv.org/abs/2004.04906, FAISS documentation at https://faiss.ai/index.html, and Azure AI Search RAG overview at https://learn.microsoft.com/en-us/azure/search/retrieval-augmented-generation-overview.",
+        "Study Embeddings and Similarity, HNSW Vector Search at Scale, Tokenization BPE, Attention Mechanism, KV Cache, Multi-Index RAG, RAG Context Packing Token Budget, RAG Index Lifecycle and Alias Swap, RAG Citation Span Index, RAG Dedup MinHash and Chunk Canonicalization, Filtered Vector Search and Bitset Gates, and RAG Evaluation.",
       ],
     },
   ],

@@ -191,6 +191,13 @@ export const article = {
       ],
     },
     {
+      heading: `Core insight`,
+      paragraphs: [
+        `Leader replacement is safe only when authority is monotonic. A newer term, ballot, view number, lease epoch, or fencing token must dominate older authority everywhere the old leader can still act. The protocol cannot rely on the old leader understanding that it lost; it must make stale authority fail by construction.`,
+        `The same idea appears twice. Inside the consensus group, terms and quorums make stale leaders step down and carry committed entries forward. Outside the group, fencing tokens make stale writes bounce at the resource itself. A handover is not complete until both boundaries are protected.`,
+      ],
+    },
+    {
       heading: `How it works`,
       paragraphs: [
         `Detection starts with a timeout: the followers wait for a heartbeat from the leader, and if silence lasts longer than the timeout, they assume it is dead and hold an election. But here is the rub — silence looks identical whether the leader has crashed or just paused (a 20-second garbage-collection pause, a packet queue, an overloaded network card). The FLP lesson from "Paxos: Consensus Without a Leader" surfaces as an operational parameter: every system on this page knows its timeout is imperfect and tunes it between two failure modes. If the timeout is too short, healthy leaders get deposed mid-pause and the cluster wastes energy on duel elections. If the timeout is too long, every real failure becomes a full outage of that length. Raft Leader Election randomizes between 150–300ms; production etcd defaults to ~1s. Both systems accept failure modes at the edges — they have to.`,
@@ -198,6 +205,13 @@ export const article = {
         `Outside the consensus group, resources need their own fence. A deposed leader can no longer win a Raft vote, but it can still happily corrupt a file or lose writes to a database that knows nothing about elections. The fix is the fencing token: the lock service hands out a monotonically increasing number with every grant (A gets 33, B gets 34), and the protected resource enforces one rule — never accept a write with a token lower than the highest seen. A's stale write with 33 bounces off a store that has seen B's 34, one integer compare, regardless of whether A believes itself to be the leader. This is Kleppmann's famous critique of naive distributed locks: a lock without fencing protects you only from processes polite enough to stay dead.`,
         `Carrying committed state across the handover rests on the quorum-intersection theorem: any committed entry lives on a quorum, any new regime needs a quorum, and the quorums overlap. The three protocol families differ only in who does the carrying. Raft moves the work before the election — unfit candidates simply cannot win, so the winner's own log already contains all committed entries. Multi-Paxos moves it after — anyone can win, but the promise messages from phase 1 force the winner to adopt the highest values previous ballots accepted. PBFT can trust neither voters nor winner, so the evidence travels as signed prepared certificates that any replica can verify. Raft's figure-8 teaches the subtle point: an entry from an old term sitting on a MAJORITY can still be erased, because election eligibility compares terms before lengths. So majority replication alone is not commitment — a leader commits an entry from its CURRENT term, and everything beneath becomes safe by log-prefix implication. The lesson generalizes: "how many copies" is never the whole commit condition. Which regime stamped the copies matters as much as the count.`,
         `Even reads need the regime check. A zombie leader believes exactly as strongly that it is the leader and serves reads from its stale cache. The honest options both re-verify: ReadIndex exchanges one heartbeat round with a quorum before answering (the leader proves it is still leader); leases amortize that proof over a time window, but correctness now leans on clocks drifting less than the slack budgeted — it pays a physics assumption for latency. Production systems offer both and let the read choose its currency.`,
+      ],
+    },
+    {
+      heading: `How the visual model teaches it`,
+      paragraphs: [
+        `Read leader replacement as failure detection plus handoff, not merely "pick a new primary." The system must notice the old leader is unavailable, prevent split-brain writers, transfer or rebuild authority, and let clients converge on the new leader.`,
+        `The animation is strongest when you track leases, terms, or fencing tokens. A new leader is safe only if stale leaders cannot keep committing writes. Leader replacement is a correctness protocol before it is an availability feature.`,
       ],
     },
     {

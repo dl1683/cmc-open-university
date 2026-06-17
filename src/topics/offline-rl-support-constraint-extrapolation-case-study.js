@@ -65,7 +65,7 @@ function* datasetSupport() {
   yield {
     state: offlineGraph('Offline RL starts with static logged experience'),
     highlight: { active: ['logs', 'beh', 'data', 'e-logs-beh', 'e-logs-data'], compare: ['pi'] },
-    explanation: 'Offline RL tries to learn a better policy from a fixed dataset of transitions. Unlike online RL, the learner cannot safely try arbitrary new actions to discover what happens.',
+    explanation: 'The graph starts with logged behavior, not a live simulator. Offline RL wants a better policy, but every claim must come from transitions already in the dataset because unsafe new actions cannot be tried during training.',
   };
 
   yield {
@@ -89,14 +89,14 @@ function* datasetSupport() {
       ],
     ),
     highlight: { active: ['seen:policy', 'rare:policy', 'ood:policy'], found: ['mix:meaning'] },
-    explanation: 'The key data structure is a support map over state-action regions. Actions well covered by the behavior policy are learnable; out-of-distribution actions are guesses unless constrained or tested.',
+    explanation: 'Read the support map as an evidence boundary. Seen actions can be learned, rare actions need caution, and OOD actions have no logged proof. A high Q-value outside support is a hypothesis, not evidence.',
     invariant: 'A Q-value for an unsupported action is a story, not evidence.',
   };
 
   yield {
     state: offlineGraph('OOD actions create extrapolation error', { risky: true }),
     highlight: { active: ['support', 'q', 'pi', 'gate', 'e-support-q', 'e-q-pi'], compare: ['data'] },
-    explanation: 'Function approximation can assign high Q-values to actions never present in the dataset. A greedy policy then selects those unsupported actions and compounds the error.',
+    explanation: 'The risky path shows extrapolation error. A function approximator can invent a high value for an unsupported action, and a greedy policy will select it because the table has no counterexample.',
   };
 
   yield {
@@ -111,7 +111,7 @@ function* datasetSupport() {
       ],
     }),
     highlight: { active: ['plain', 'danger'], compare: ['cons'] },
-    explanation: 'The conceptual curve is the offline-RL hazard: error is largest where support is weakest. Conservative methods try to keep unsupported values pessimistic rather than letting the policy exploit hallucinated value.',
+    explanation: 'The curve states the offline-RL hazard: as support falls, value error rises. The conservative curve stays lower because pessimism prevents unsupported actions from looking better than actions the data actually covers.',
   };
 }
 
@@ -119,7 +119,7 @@ function* conservativeUpdate() {
   yield {
     state: offlineGraph('Conservative learning penalizes unsupported optimism'),
     highlight: { active: ['support', 'q', 'pi', 'ope', 'e-support-q', 'e-q-pi', 'e-q-ope'], compare: ['sim'] },
-    explanation: 'CQL-style methods learn a conservative Q-function so the policy is less tempted by unsupported high-value actions. IQL-style methods avoid explicit evaluation of out-of-dataset actions during value learning.',
+    explanation: 'The conservative update changes what the policy is allowed to trust. CQL pushes unsupported Q-values down; IQL learns values from in-dataset actions and extracts a policy from in-sample advantages.',
   };
 
   yield {
@@ -145,13 +145,13 @@ function* conservativeUpdate() {
       ],
     ),
     highlight: { active: ['bc:move', 'cql:move', 'iql:move'], compare: ['ope:risk', 'sim:risk'] },
-    explanation: 'Offline RL is a family of constraints. Behavior cloning stays on support. CQL adds pessimism. IQL learns in-sample values and extracts a policy. OPE and simulation decide whether a policy deserves an online trial.',
+    explanation: 'Each row is a defense against leaving support. Behavior cloning copies the logger, CQL adds pessimism, IQL stays in data during value learning, and OPE plus simulation decide whether improvement is credible enough to test.',
   };
 
   yield {
     state: offlineGraph('Deployment needs OPE plus stress tests'),
     highlight: { active: ['pi', 'ope', 'sim', 'gate', 'e-pi-sim', 'e-ope-gate', 'e-sim-gate'], compare: ['q'] },
-    explanation: 'A high offline score is not enough. The gate should combine off-policy evaluation, simulator stress, constraint checks, coverage slices, and a small guarded online rollout if the domain allows it.',
+    explanation: 'The gate combines independent evidence because offline score can be inflated by unsupported values. OPE checks logged evidence, simulator stress checks dynamics, slices check coverage, and a canary rollout bounds live risk.',
   };
 
   yield {
@@ -177,7 +177,7 @@ function* conservativeUpdate() {
       ],
     ),
     highlight: { active: ['support:must', 'q:must', 'ope:must'], found: ['roll:blocker'] },
-    explanation: 'The ledger makes offline RL auditable: dataset version, support threshold, conservative-value behavior, effective sample size, canary boundary, and rollback condition are all explicit.',
+    explanation: 'The ledger is the release contract. It records dataset version, minimum support, conservative-value behavior, OPE confidence, effective sample size, canary boundary, and rollback condition so a policy is not promoted on a single score.',
   };
 }
 
@@ -191,42 +191,78 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Offline reinforcement learning learns from a fixed dataset of logged transitions instead of interacting with the environment while training. That is attractive for robotics, recommender systems, healthcare, operations, and safety-critical settings where exploration is expensive or dangerous.',
-        'D4RL was introduced as a benchmark suite for offline RL, explicitly focusing on dataset properties such as human demonstrations, hand-designed controllers, multitask data, and mixtures of policies: https://arxiv.org/abs/2004.07219. The benchmark exists because online-RL benchmarks do not expose the hard parts of learning from static logs.',
+        'Reinforcement learning usually assumes the learner can try actions, observe rewards, and improve through interaction. That is a bad fit for many real systems. A robot can break hardware while exploring. A recommender can damage user trust. A medical policy cannot try unsafe treatments just to learn their value. Offline reinforcement learning exists for settings where historical logs are available but live exploration is expensive, unethical, slow, or dangerous.',
+        'The input is a fixed dataset of transitions: state, action, reward, next state, and sometimes the probability that the old behavior policy took the action. The goal is to learn a better policy without collecting new training data during learning. That sounds close to supervised learning, but it is not. A policy changes which actions are taken, and those actions change future states. That feedback loop is what makes offline RL hard.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'The main data structure is a support map over state-action regions. If the dataset contains many examples of a state-action pair, the learner has evidence. If the dataset contains none, a Q-network can still hallucinate a high value, but the policy has no logged proof that the action is safe or useful. This is extrapolation error.',
-        'Conservative Q-Learning addresses this by learning pessimistic Q-values that lower-bound policy value estimates and reduce unsupported optimism: https://arxiv.org/abs/2006.04779. Implicit Q-Learning takes a different route: it avoids evaluating out-of-dataset actions during value learning and extracts a policy from in-sample advantages: https://arxiv.org/abs/2110.06169.',
+        'A reasonable first attempt is to take an online RL algorithm, replace live experience with logged experience, and train a value function from the static dataset. If the Q-network predicts that action A has higher return than action B, choose action A. This is the same greedy improvement step that works in many online settings.',
+        'Another tempting baseline is behavior cloning. Train a supervised model to imitate the logged policy, then deploy the clone. That can be safe when the behavior policy was good, but it does not solve the improvement problem. A perfect clone repeats the old policy, including its blind spots.',
+        'The wall appears when the learned policy chooses actions that the dataset barely covers or never covers. A function approximator can still assign those actions high Q-values. The dataset has no counterexample because the behavior policy did not try them. The greedy policy then exploits the model error. In offline RL, missing evidence is not neutral. It is a source of overconfidence.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Offline RL moves cost from simulator interaction to dataset governance and evaluation. Teams need behavior-policy metadata, action coverage, reward definitions, environment versions, off-policy evaluation, effective sample size, constraint checks, and canary rollout plans. Without those, an offline policy can look excellent because it exploits values in regions no one actually observed.',
-        'The hardest production question is not whether the offline score improved. It is whether the new policy stays inside support where mistakes are bounded, and whether any improvement survives simulation, OPE, hidden slices, and guarded online trials.',
+        'The core insight is support. A state-action pair is in support when the dataset contains enough similar examples to make a value estimate credible. Well-covered actions can be learned from. Rare actions need caution. Out-of-distribution actions are not proven safe just because the value network gives them a high number.',
+        'Offline RL methods differ in how they respect this boundary. Behavior cloning stays close to the logger. Conservative Q-Learning pushes down Q-values for actions that are not well supported. Implicit Q-Learning avoids explicit maximization over out-of-dataset actions during value learning and extracts a policy from in-sample advantages. Off-policy evaluation and simulators add separate evidence before deployment.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'Offline RL is useful when historical logs are rich and online exploration is costly: ad bidding, recommendations, robotic manipulation, autonomous driving logs, inventory control, and medical decision support. In all of these, the dataset is not just training material. It is the evidence boundary for what the learned policy is allowed to claim.',
+        'The pipeline starts with logs and a behavior policy. The behavior policy may be explicit, as in a logged recommender that recorded action probabilities, or implicit, as in a robot dataset collected by a controller and human operators. The first job is to describe coverage: which states appear, which actions were tried there, how often they were tried, and which regions are thin.',
+        'A support map can be exact for small discrete problems, but most real problems need approximations. Teams estimate density, nearest-neighbor coverage, action frequency by slice, behavior-policy likelihood, uncertainty, or ensemble disagreement. The goal is not a perfect map. The goal is to stop the learned policy from treating unsupported regions as if they had the same evidence as common logged behavior.',
+        'Value learning then adds a constraint. Conservative methods penalize unsupported optimism. In CQL, the objective discourages high Q-values for actions outside the data distribution. In IQL, the value function is learned from in-dataset actions, and the policy is extracted by advantage-weighted behavior cloning. Both methods are trying to avoid the same failure: maximizing over actions whose values were mostly invented.',
+        'A release ledger closes the loop. It records dataset version, reward definition, environment version, support thresholds, value-model behavior, off-policy evaluation estimates, effective sample size, simulator stress results, canary limits, and rollback rules. A policy should not ship because one offline score went up.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Do not treat offline RL as supervised learning with rewards. A supervised model predicts labels for inputs drawn from a similar distribution. An offline RL policy changes the action distribution, which changes future states. That distribution shift is why support constraints and pessimism matter. Also do not treat simulator success as deployment proof; simulators have their own coverage gaps.',
+        'The dataset-support view proves that the dataset is not just a bag of examples. It is the evidence boundary for the learned policy. The graph starts with static logs, derives behavior-policy support, learns Q-values, proposes a new policy, and then routes that policy through evaluation gates. The support node is the center because every later claim depends on coverage.',
+        'The error plot proves the main hazard. As support falls, value error rises. A plain value learner can make unsupported actions look attractive because nothing in the data pushes those predictions back down. The conservative curve is lower because pessimism turns missing evidence into a penalty. The conservative-update view then shows the deployment lesson: OPE, simulator stress, slices, and canaries are independent checks, not optional decorations.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why the method works',
       paragraphs: [
-        'Sources: D4RL at https://arxiv.org/abs/2004.07219, Conservative Q-Learning at https://arxiv.org/abs/2006.04779, and Implicit Q-Learning at https://arxiv.org/abs/2110.06169. Study Value Iteration, Policy Gradients, Importance Sampling & Off-Policy Estimation, Doubly Robust Estimation, Contextual Bandit Logged Policy Evaluation, and RL Experiment Reproducibility Ledger next.',
+        'Support constraints work because they limit distribution shift. If the new policy stays near actions the behavior policy actually tried, the logged data contains some evidence about likely outcomes. The estimate can still be biased or noisy, but it is anchored. If the new policy moves far outside support, the estimate is mostly extrapolation.',
+        'Pessimism works because the dangerous error is asymmetric. Underestimating an unsupported action may lose a possible improvement. Overestimating an unsupported action can make the policy choose it repeatedly and drive the system into states the dataset never covered. Conservative methods deliberately prefer the first error over the second.',
+        'Off-policy evaluation adds another guard, but it has its own limits. Importance sampling can become high variance when the new policy differs from the behavior policy. Doubly robust estimators combine models with importance weights, but they still depend on coverage and model quality. A simulator can reveal obvious failures, yet it may not match the real environment. This is why production gates combine evidence instead of trusting one number.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Offline RL saves interaction cost, but it increases data and evaluation cost. The team needs logs with stable schemas, rewards that still mean what they meant when collected, action probabilities when possible, environment-version metadata, support diagnostics, hidden validation slices, and a release process. A pile of transitions is not enough.',
+        'The main algorithmic tradeoff is improvement versus safety. Behavior cloning is simple and stable, but it may not improve. Conservative methods can improve while limiting unsupported actions, but they may become too pessimistic. Aggressive value maximization can find large apparent gains, but those gains may be artifacts of extrapolation error. The right amount of conservatism depends on the domain cost of a bad action.',
+      ],
+    },
+    {
+      heading: 'Real use cases',
+      paragraphs: [
+        'Offline RL is useful when logged decision data is rich and random exploration is unacceptable. Recommenders can learn from historical ranking logs. Ad systems can learn bidding policies from past auctions. Robotics teams can train from demonstrations and controller data. Autonomous-driving teams can learn from recorded scenarios. Operations teams can tune inventory, pricing, or resource allocation from historical decisions.',
+        'The fit is strongest when actions and rewards are recorded carefully, the behavior policy is not too narrow, and deployment can start with guarded online trials. It is weakest when the logs hide the action probabilities, rewards are delayed or confounded, the environment has changed, or rare catastrophic failures are not represented in the data.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first mistake is treating offline RL as supervised learning with rewards. Supervised learning predicts labels under a mostly fixed input distribution. A deployed policy changes the action distribution and therefore the future state distribution. That is a different problem.',
+        'The second mistake is trusting an offline benchmark score without asking which dataset slices support the improved actions. A policy can improve on common states while creating risk in rare states. The third mistake is trusting a simulator as proof. Simulators are useful stress tools, but they have their own missing cases and modeling errors.',
+        'The fourth mistake is changing rewards after the fact. If the reward definition is edited until the learned policy looks good, the evaluation no longer measures the original goal. Reward design, dataset versioning, and release gates need the same audit discipline as model code.',
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        'Study value iteration to understand Bellman backups, Q-learning to see why maximization over actions matters, policy gradients for the contrast with direct policy optimization, and contextual bandits for the simpler one-step logged-policy case. Then study importance sampling, weighted importance sampling, and doubly robust estimation for off-policy evaluation.',
+        'For offline RL itself, read the D4RL benchmark paper for dataset-centered evaluation, Conservative Q-Learning for pessimistic value learning, and Implicit Q-Learning for in-sample value learning. After that, connect this topic to uncertainty estimation, safe exploration, model-based RL, and experiment ledgers for reproducible policy deployment.',
       ],
     },
   ],

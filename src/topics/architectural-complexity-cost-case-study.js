@@ -245,10 +245,18 @@ export const article = {
       ],
     },
     {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that architecture cost is propagation cost. A component is not expensive only because it has many lines, old code, or an intimidating name. It is expensive when a change to it travels through many modules, tests, teams, deploy steps, and rollback plans. That propagation path is the invariant the case study asks students to track.',
+        'This reframes architecture as a graph problem. A clean boundary shortens the path between intention and change. A tangled boundary makes each local edit ask for permission from distant parts of the system. Once students see that, dependency direction stops being an abstract design preference and becomes the mechanism by which future work stays local or becomes expensive.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'A design structure matrix places components on both axes and marks dependencies in the cells. Clean hierarchy tends to have dependencies flowing one way. A tangled matrix shows cycles and unexpected back edges. The thesis classifies components by reachability into categories such as peripheral, utility, control, and core. Core components have high visibility because many components can reach them or are reached by them.',
         'The study then links architectural complexity to cost variables such as defect density, developer productivity, and staff turnover. Within the studied organization, differences in architectural complexity were associated with large productivity drops, defect increases, and turnover risk. The exact numbers are context-specific, but the causal story is familiar: tangled architecture makes every future change more expensive.',
+        'The important move is turning architecture into a graph. Once modules and dependencies become nodes and edges, the team can ask sharper questions. Which files can be reached from this file? Which files depend on it? Which cycles prevent local reasoning? Which components look peripheral but actually sit on many paths? The graph does not replace judgment, but it makes hidden coupling visible.',
       ],
     },
     {
@@ -259,15 +267,58 @@ export const article = {
       ],
     },
     {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'The first animation is not saying shared modules are bad. It is showing reachability. When a module both depends on many things and is depended on by many things, small edits can travel farther than the author expects. That is the difference between ordinary size and architectural complexity.',
+        'The cost view translates the graph into management language: defects, delay, coordination, and turnover risk. The obvious metric is file count, but the better question is propagation cost. Which change forces the most teams, tests, deploy steps, and rollback plans to move together?',
+      ],
+    },
+    {
       heading: 'Real-world uses',
       paragraphs: [
         'This case study applies to monoliths, microservice meshes, internal platforms, ML feature pipelines, distributed tracing stacks, feature flag systems, and queue-heavy systems. Message Queues, Cache Invalidation & Versioning, Feature Flag Control Plane, Circuit Breakers, and Distributed Tracing all solve real problems, but each can also add hidden edges. The architecture question is whether those edges are controlled by clear boundaries.',
+        'It is especially useful during platform migrations. A team may want to extract a service, replace a storage layer, or modularize a frontend. The dependency graph can show whether the candidate boundary is real or imaginary. If everything inside the boundary depends on everything outside it, the proposed extraction is a coordination project, not a simple refactor.',
       ],
     },
     {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
         'Do not confuse size with complexity. A large layered system can be easier to change than a smaller cyclic system. Do not treat architecture metrics as a replacement for engineering judgment; they are maps of risk, not verdicts. Also, microservices do not automatically reduce complexity. They can move dependency cycles from code into network calls, deployment order, schemas, and incident response.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Propagation cost works as a concept because software change is rarely isolated to the edited line. A change can require test updates, schema changes, client updates, rollout sequencing, documentation, monitoring, and incident plans. Dependencies are the channels through which that work spreads.',
+        'The design-structure matrix helps because humans are poor at seeing large dependency networks from file trees. A package list can look organized while the dependency matrix reveals cycles and back edges. The matrix turns an architectural smell into a concrete map of change risk.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Useful signals include files touched per change, teams touched per change, rebuild scope, test scope, ownership concentration, cycle count, dependency reachability, incident frequency around core modules, and review bottlenecks. These are not vanity metrics; they describe the cost of making future changes.',
+        'A good refactor proposal should say which propagation paths it removes. If a proposed cleanup does not reduce reachability, isolate ownership, or simplify rollout order, it may be aesthetic rather than economic. Complexity work should be tied to future change speed and risk.',
+      ],
+    },
+    {
+      heading: 'A worked refactor example',
+      paragraphs: [
+        'Imagine a billing module that imports UI formatting helpers, reads feature flags directly, writes audit events, and calls several product services. Many other modules also import billing constants. A small change to billing behavior now touches UI tests, audit schemas, service mocks, feature-flag rollout plans, and customer-support dashboards. The file count is not the problem; the propagation path is.',
+        'A useful refactor starts by choosing a boundary. Move billing policy into a small core package. Put UI formatting behind an adapter. Make audit emission an output port. Replace direct service calls with a narrow interface. The dependency graph should show fewer back edges and fewer modules reachable from the policy core. If the matrix still looks tangled afterward, the refactor changed names without changing architecture.',
+        'This is how the topic becomes practical for students. They should not learn "complexity is bad" as a slogan. They should learn to ask: which future change is expensive, which dependency path makes it expensive, and what boundary would make the next change local?',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Architectural complexity is the cost of nonlocal change. A system becomes expensive when small edits propagate through many dependencies, teams, tests, and deploy steps. The code may still run; the organization slows down.',
+        'The deep lesson is that architecture is a socio-technical data structure. Module boundaries, ownership boundaries, dependency graphs, and team communication patterns shape each other. Improving architecture means reducing unnecessary propagation, not merely renaming layers.',
+        'For course design, put this topic after graph reachability and before microservices. It gives students a way to reason about why splitting a system can help, why it can fail, and why dependency direction matters more than repository shape.',
+        'The wrong tool is a generic complexity complaint. "This code is messy" does not tell a team what to change. Propagation cost does. It points to the files, services, schemas, and teams through which a change travels. That turns architecture review from taste into a discussion about future change cost, defect risk, and ownership bottlenecks.',
+        'If students remember one diagnostic question, make it this: when this component changes, who else has to move? The answer is often more important than the component\'s size or name.',
+        'The comparison to performance work is useful. Just as a profiler shows where runtime goes, a dependency graph shows where change cost travels. You would not optimize performance from vibes; architecture deserves the same evidence.',
+        'A mature team treats dependency movement as engineering work with expected payback, not as a style preference.',
+        'That also makes the topic humane. Developers are not slow because they lack effort; they are often slow because the dependency graph turns every change into a negotiation with too much of the system.',
       ],
     },
     {

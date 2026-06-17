@@ -238,44 +238,75 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Dual Steering is a softmax-geometry lesson for interpretability and control. A probe vector can tell you that a feature is present, but steering by simply adding that probe to an activation assumes Euclidean geometry where the output distribution actually lives in softmax and KL geometry.',
-        'The local Dual Steering notes emphasize the type mismatch: a linear probe is a covector, not automatically a displacement vector. The case study shows why that matters for probability leakage, concept mixing, and safety auditing.',
+        "Activation steering exists because we often find a direction or probe that appears to represent a concept, then want to use it as a control knob. If a model has a caution feature, a refusal feature, a sentiment feature, or a topic feature, it is tempting to add that vector and expect the behavior to move cleanly in that direction.",
+        "The problem is that language-model behavior is not produced by Euclidean distance alone. The final object the user sees is a probability distribution over tokens. Softmax turns logits into that distribution, and small-looking changes can move probability mass sharply when the distribution is already peaked. Dual steering exists to ask a more careful question: how do we change a target concept while limiting damage to the rest of the distribution?",
+      ],
+    },
+    {
+      heading: 'The naive approach',
+      paragraphs: [
+        "The naive approach is linear probing followed by vector addition. Train a probe to detect a concept. Treat the probe direction as if it were a displacement. Add some multiple of it to the activation or logit state. Measure whether the target tokens, labels, or behaviors become more common.",
+        "That approach is not foolish. Linear probes often reveal useful structure, and vector arithmetic can work surprisingly well in representation spaces. The wall is a type mismatch. A probe scores a state; it is a covector. A steering update moves a state; it needs a vector field or displacement. Treating the probe itself as the move can raise the target while draining related concepts, inflating unrelated tokens, or shifting the model into a less calibrated region.",
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "The core insight is that softmax representations have their own geometry. Logits are natural coordinates for the distribution. Probabilities and probability-weighted expectations are dual coordinates. KL divergence is the natural way to measure how much the distribution changed, because it measures distributional drift rather than raw Euclidean movement.",
+        "Dual steering uses that geometry. Instead of asking only for a large target-feature score, it asks for a controlled path through probability coordinates and then maps that path back to an intervention. The intended result is an update that changes the target concept while minimizing off-target movement. The method is easiest to state near the final softmax, where logits and probabilities are explicit.",
+        "This also changes what counts as success. A clean intervention should move the concept and preserve nearby behavior that should remain available. If a caution update destroys helpful answers, or a sentiment update collapses topic diversity, the target moved but the control was not local enough.",
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Softmax maps logits into a probability distribution. In information geometry, logits can be treated as natural coordinates, while probability-weighted expectations form dual coordinates. Moving directly in one coordinate system can produce unintuitive movement in the other.',
-        'Dual-aware steering tries to move through probability coordinates, then map back to logits or interventions. The goal is not only to increase a target concept, but to control how much unrelated probability mass moves while doing it.',
+        "Start with a base distribution. The model has logits, softmax converts them into probabilities, and those probabilities produce token behavior. A probe gives a score for a concept, but the steering controller must decide how to convert that score into a movement that respects the distribution.",
+        "A dual-aware controller defines a target concept set or target statistic, chooses a bounded movement in the dual coordinate system, maps the result back toward logits or an activation intervention, and checks the resulting softmax distribution. The check matters. A steering update that raises the target by 5 points but moves the whole distribution by a large KL distance is not a clean control.",
+        "In a practical loop, the data structures are a base logit snapshot, a target concept definition, a steering path, probability snapshots before and after the intervention, a KL budget, and slice-level evals. That makes steering auditable. The system can say not only that a target rose, but which other regions moved, which examples regressed, and when the update should be rolled back.",
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Suppose an assistant must make a response more cautious without turning every answer into a refusal. Naive steering adds a caution probe and watches the target words rise. A dual-aware controller also measures KL drift, related-token preservation, refusal-token inflation, and slice regressions across normal helpful tasks.',
-        'The data structures are a base logit vector, a target concept set, a steering path, a probability distribution snapshot, a KL budget, and a rollback policy. That makes steering an auditable control loop instead of a one-line vector addition.',
+        "The first view proves the mismatch. Hidden states, probes, logits, softmax, probabilities, and behavior are different objects. The probe can be useful without being the right object to add. The coordinate matrix makes the point sharper: a movement that looks small in hidden-space coordinates can be large in probability space.",
+        "The leakage table and KL plot prove why target lift is not enough. Naive steering can improve a target row while disturbing allies, neutral mass, or off-target behavior. The dual path is judged by two numbers at once: how much the target moved and how much the full distribution drifted. A good visual does not merely show arrows moving. It shows why a controller needs a budget and an audit.",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Output-node steering can be cheap because logits and probabilities already exist at decoding time. The complexity is conceptual and evaluative: define the target, choose a path, cap distribution drift, and monitor off-target behavior.',
-        'Intermediate-layer steering is harder. The map from hidden activations to future output distributions is nonlinear and context dependent. That is why causal evaluation, activation patching, and held-out behavior tests matter more than a pretty probe direction.',
+        "The correctness argument is a geometry argument. Softmax maps logits to a point on the probability simplex. If the objective is behavioral control, the update should be judged by movement on that simplex, not only by movement in an arbitrary activation coordinate system. KL divergence gives a local notion of cost for changing one distribution into another.",
+        "Dual steering works when the concept statistic is meaningful and the map between coordinates is modeled well enough for the intervention site. It does not need every hidden dimension to be semantically pure. It needs the controller to preserve the invariant that off-target distribution movement is penalized while target movement is rewarded. That is the invariant naive vector addition lacks.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Do not confuse a high probe score with a safe intervention. A feature can be correlated with behavior without being a clean causal knob. Also, target lift is not enough. A control can increase the desired concept while breaking calibration, style, refusal behavior, or factuality.',
-        'Another misconception is that this replaces policy and safety systems. It is a low-level control primitive. Production systems still need constrained decoding, refusal policies, eval harnesses, trace logging, and rollback.',
+        "Output-layer steering can be cheap because logits and probabilities already exist during decoding. The added cost is mostly scoring, probability accounting, KL measurement, and evaluation. The hard part is deciding what target concept means and how much distribution drift is acceptable.",
+        "Mid-layer steering is more expensive and less direct. A hidden-state change can affect many future layers before it reaches the softmax. The map is nonlinear, context dependent, and model specific. Causal tests, activation patching, ablations, and held-out evals are not optional polish. They are how you find out whether the intervention is a real knob or only a correlated probe.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: The Information Geometry of Softmax: Probing and Steering at https://arxiv.org/abs/2602.15293, Representation Engineering at https://arxiv.org/abs/2310.01405, and The Linear Representation Hypothesis at https://arxiv.org/abs/2311.03658. Study Softmax & Temperature, Sparse Autoencoder Feature Dictionary Case Study, Calibration Curves, Constrained Decoding, LLM Guardrail Policy Engine, and Prompt Injection Threat Model next.',
+        "Dual steering fits cases where a system needs a small, measurable style or concept shift without broad behavioral damage. Examples include making an assistant slightly more cautious without turning routine answers into refusals, suppressing a known unsafe continuation family while preserving helpful alternatives, or studying how a concept appears in a model distribution.",
+        "It is also useful as an interpretability discipline. Even if a production system never deploys the exact method, the dual-steering lens forces the right audit questions. What moved besides the target? Was the movement local? Did related concepts survive? Did calibration, factuality, refusal behavior, or toxicity change on slices that were not part of the target?",
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        "A high probe score is not a guarantee of causal control. A probe may detect a feature because it is correlated with the behavior, not because moving along it causes the behavior cleanly. Steering by that signal can create brittle changes that disappear under prompt shifts or become harmful on examples outside the calibration set.",
+        "Another failure is hiding policy inside geometry. Dual steering is a low-level control primitive. It cannot replace refusal policies, constrained decoding, safety classifiers, red-team evals, trace logging, or rollback rules. It can also fail through bad target definitions, too-large step sizes, poor KL budgets, or evaluations that only measure the desired lift and ignore collateral movement.",
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        "Study Softmax & Temperature first, because this topic depends on how logits become probabilities and how sharp distributions amplify small logit changes. Then study Attention, Sparse Autoencoder Feature Dictionary Case Study, Representation Engineering, Calibration Curves, and LLM Guardrail Policy Engine.",
+        "For contrast, study Constrained Decoding and Prompt Injection Threat Model. Constrained decoding controls the output surface directly. Guardrails and threat models handle policy and adversarial behavior. Dual steering belongs below those systems: it changes model behavior, but it still needs higher-level checks around it.",
       ],
     },
   ],

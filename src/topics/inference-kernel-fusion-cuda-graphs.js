@@ -209,37 +209,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Inference kernel fusion and CUDA graphs are execution-level optimizations for high-throughput model serving. Fusion reduces memory traffic by combining operations that would otherwise write intermediate tensors to global memory. CUDA graphs reduce CPU launch overhead by capturing a repeated GPU work graph and replaying it.',
-        'The provided inference-scaling notes correctly put these in the compiler and graph-execution tier. They are not model architectures. They are how a serving stack turns the same model math into fewer memory trips and fewer launch stalls.',
+        'LLM serving can waste time without changing the model at all. Small kernels may repeatedly write intermediate tensors to HBM. The CPU may launch the same decode graph thousands of times. The GPU can be ready while the runtime is still feeding it work.',
+        'Kernel fusion and CUDA graphs exist to remove those costs. Fusion reduces memory traffic by combining adjacent operations. CUDA graphs reduce launch overhead by capturing a stable dependency graph and replaying it. Both are execution-path optimizations: they do not change the model objective, but they can change latency, throughput, and cost.',
+      ],
+    },
+    {
+      heading: 'The tempting wrong answer',
+      paragraphs: [
+        'The wrong answer is to assume faster hardware or a larger batch solves all inference latency. If the hot path is launch-bound or memory-traffic-bound, more raw FLOPs do not fix the bottleneck.',
+        'Another wrong answer is to fuse everything or capture every shape. Fusion can reduce occupancy or make numerics brittle. CUDA graphs need stable topology, shapes, and memory assumptions. Rare dynamic paths still need fallbacks.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Fusion is about locality. If matmul, bias, activation, normalization, or softmax-adjacent work can keep intermediates in registers or SRAM, the runtime avoids extra high-bandwidth-memory reads and writes. FlashAttention is the canonical transformer example: exact attention, but tiled to avoid large HBM intermediates.',
+        'CUDA graphs are about launch overhead and dependency reuse. Instead of asking the CPU to launch each kernel every decode step, the runtime captures a graph of GPU operations and replays it for hot shapes.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'Inspect the hot path as memory movement plus launch structure. A separate-kernel path reads input, writes an intermediate, launches another kernel, reads the intermediate, and writes another result. A fused path tries to keep the intermediate on chip and write only the final tensor.',
+        'For CUDA graphs, inspect the shape and address assumptions. A captured graph is valuable only when the runtime can replay the same topology with stable allocations. Serving systems often keep a menu of captured hot shapes and fall back to eager kernels for rare or dynamic cases.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Kernel fusion is about locality. If a matmul, bias add, activation, normalization, or softmax step can keep intermediate data in registers or SRAM, the runtime avoids extra high-bandwidth-memory reads and writes. FlashAttention is the canonical transformer example: exact attention, but tiled so large intermediates do not spill to HBM.',
-        'CUDA graphs are about launch overhead and dependency reuse. Instead of asking the CPU to launch each kernel every iteration, the runtime captures a graph of GPU operations and replays it. This works best for stable shapes and repeated decode paths.',
+        'A fused kernel merges a sequence of operations into one launch. The implementation may keep values in registers, shared memory, or tensor-core-friendly tiles, then write a final result. This helps when the original operations were bandwidth-bound or launch-heavy rather than compute-bound.',
+        'CUDA graphs work differently. During capture, the runtime records a sequence of GPU work and dependencies. During replay, the CPU submits the captured graph with lower overhead than launching each kernel independently. Decode loops are a natural target because they repeat many small operations for each generated token.',
+        'The engineering constraint is shape policy. Prefill may be dominated by large matrix work. Decode may be launch-sensitive and shape-stable enough for graph replay. Continuous batching changes batch shape over time, so the runtime needs bucketing, padding, graph pools, or eager fallback.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'The cost is brittleness. Fused kernels can be shape-specialized, harder to debug, numerically delicate, or slower when occupancy falls. CUDA graphs can require stable memory addresses, fixed topology, and a set of captured hot shapes. Dynamic workloads still need eager fallback paths.',
-        'The production metric is end-to-end latency and throughput, not whether a single kernel looks elegant. A fused kernel that breaks batching or makes rare shapes slow can hurt tail latency. A captured graph that silently falls back too often may not help real traffic.',
+        'Fusion works because memory movement is often more expensive than arithmetic. If two operations are individually cheap but each reads and writes HBM, combining them can save bandwidth and cache pollution. The model computes the same mathematical result while touching memory fewer times.',
+        'CUDA graphs work because CPU launch overhead is not free. In a token-by-token decode loop, many small launches can create a feed-the-GPU bottleneck. Capturing the dependency graph lets the runtime replay a known schedule with less CPU involvement.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Complete case study',
       paragraphs: [
-        'LLM servers use fused attention, fused normalization, fused activation kernels, quantized matmuls, CUDA graph replay for decode loops, and compiler-generated kernels. These optimizations sit beside Continuous Batching, PagedAttention, Prefix Caching, Quantization, and Transformer Inference Roofline in the serving stack.',
-        'The implementation detail that matters for operators is shape policy. A server may run eager kernels for rare shapes, captured graphs for hot decode shapes, and fused kernels only where profiling proves a memory-traffic win. CUDA Graph Shape Cache turns that policy into an explicit runtime cache; Accelerator Kernel Compatibility Matrix turns backend legality, dtype gates, and fallback evidence into explicit dispatch data.',
+        'Consider an LLM server with a hot decode shape: batch 32, one new token per sequence, common attention and normalization shapes, and stable memory pools. Profiling shows that several tiny kernels and CPU launch overhead appear between larger matrix operations.',
+        'The team fuses normalization and activation paths where numerical tests match the reference. It captures a CUDA graph for the common decode shape, keeps eager fallback for rare shapes, and records which path served each request. The result is not "CUDA graphs made inference fast" in the abstract. The result is that a specific workload spent less time launching kernels and moving intermediates.',
+        'A second workload tells a different story. Long prefill requests have large matrix operations and highly variable sequence lengths. Graph replay covers little traffic, and fusion only helps a few peripheral operations. The right optimization there may be better batching, paged KV memory, or attention tiling rather than a graph-capture project.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins',
       paragraphs: [
-        'Fusion is not automatically faster. It wins when it reduces memory traffic or launch overhead without killing occupancy. CUDA graphs are not a magic dynamic-programming cache; captured graphs are tied to shapes and execution topology. Both need profiling on representative traffic and fallbacks for out-of-distribution requests.',
+        'These optimizations win in decode loops, fused attention, fused normalization, fused activation kernels, quantized matmuls, compiler-generated kernels, and shape-stable serving paths. They sit beside Continuous Batching, PagedAttention, Prefix Caching, Quantization, and Transformer Inference Roofline.',
+        'The implementation detail that matters for operators is shape policy. A server may use eager kernels for rare shapes, captured graphs for hot decode shapes, and fused kernels only where profiling proves a memory-traffic win.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Fusion is not automatically faster. It wins when it reduces memory traffic or launch overhead without killing occupancy. A fused kernel that breaks batching or makes rare shapes slow can hurt tail latency.',
+        'CUDA graphs are not a magic dynamic-programming cache. Captured graphs are tied to shapes, memory addresses, and execution topology. If fallback happens too often on real traffic, the captured path may look good in microbenchmarks and do little in production.',
+        'Numerics are another failure mode. A fused path can change operation order, precision, or accumulation behavior. Production systems need golden references, tolerance tests, and path-specific metrics so a faster path does not silently become a different model.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track graph replay hit rate, eager fallback rate, kernel-launch count per token, HBM bytes moved, occupancy, registers per thread, p50 and p99 decode latency, numerical-diff failures, graph recapture count, and shape distribution. These metrics show whether the optimization matches real traffic.',
+        'A useful rollout separates prefill and decode. Prefill may benefit more from batching and memory planning. Decode may benefit more from graph replay and small-kernel fusion. Mixing those phases into one average hides the real bottleneck.',
+      ],
+    },
+    {
+      heading: 'How to choose the technique',
+      paragraphs: [
+        'Choose fusion when profiling shows repeated memory traffic between adjacent operations. The question is whether an intermediate tensor is being written to HBM only to be read immediately by the next kernel. If yes, fusion may turn two memory trips into one local computation.',
+        'Choose CUDA graphs when profiling shows launch overhead or CPU scheduling overhead on a repeated shape. The question is whether the operation graph is stable enough to capture and replay. If shapes, branches, or memory addresses change constantly, graph capture may add complexity without covering much traffic.',
+        'In real systems the answer can be both. A decode loop may use fused kernels inside a captured graph, while rare shapes fall back to normal eager execution. That mixed policy is healthier than forcing every request through the same supposedly optimized path.',
+        'The discipline is to start with a roofline and trace, not with a favorite optimization. If arithmetic units are idle because memory is moving intermediates, fusion is plausible. If GPU kernels are tiny and launch gaps are visible, graph replay is plausible. If the queue is overloaded or KV cache is full, these kernel-level tricks may be the wrong layer.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Kernel fusion and CUDA graphs are not model improvements. They are execution improvements. Fusion saves memory traffic when adjacent work can stay local. CUDA graphs save launch overhead when a hot schedule can be captured and replayed safely.',
+        'For course design, teach this after roofline analysis and before full serving control planes. Students should learn to ask what the bottleneck is, which shapes are hot, what fallback exists, and how the team proves the fast path is still correct.',
       ],
     },
     {

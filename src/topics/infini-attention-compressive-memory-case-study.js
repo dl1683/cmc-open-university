@@ -310,41 +310,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why compressive memory exists',
       paragraphs: [
-        'Infini-attention is a Transformer attention extension for very long inputs. It combines masked local attention over the current segment with a compressive long-term memory. The goal is to keep bounded memory and compute while giving the model a path to older context.',
-        'The key design choice is hybrid memory. Recent tokens remain in an exact local attention window. Older context is folded into a memory state and read through a long-term linear attention path.',
+        'Infini-attention exists because long-context models face a harsh storage question: should every old token remain exactly available, or should old context be compressed into bounded state? Exact history is attractive because the model can directly compare the current query to old keys and values. The cost is that memory and compute keep growing. Compressed history is cheaper, but compression can forget, blur, or distort details.',
+        'The architecture tries to split the difference. Recent tokens get ordinary masked local attention, preserving exact nearby detail. Older context is stored in a compressive memory that can be read by later segments. The word "infinite" should be read as a bounded-memory design goal, not as a promise of perfect recall across unlimited text.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive designs and their walls',
       paragraphs: [
-        'For a new segment, the block computes ordinary local attention over nearby tokens. It also reads from a memory matrix that summarizes older segments. A gate mixes local and long-memory outputs. After processing the segment, the model updates the memory with a compressed representation of the current tokens.',
-        'This is not the same as keeping every old KV vector. Compression is the point. The design asks the model to preserve useful long-range evidence in a bounded state and keep exact token detail only for the local window.',
+        'The first naive design is full attention over the entire prefix. It gives the cleanest semantics: every token can attend to every previous token. The wall is resource use. Very long sequences consume large KV caches, large attention computation, and serving capacity that could otherwise support more users or higher throughput.',
+        'The second naive design is a hard sliding window. Keep only the recent past and discard old tokens. That is cheap, but it fails when an old definition, instruction, source quote, or entity mention must be recovered exactly. A model can appear fluent while silently losing the evidence needed for a correct answer.',
+        'The third naive design is an unexamined summary. Summaries help, but they are lossy and often optimize for narrative coherence rather than future retrieval. Infini-attention is more precise: it gives the model a learned memory path that can be updated segment by segment, while preserving exact attention locally.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core mechanism',
       paragraphs: [
-        'The benefit is bounded memory for long streams. The cost is compression loss and additional block complexity. The long-memory path must be efficient enough that it does not erase the latency benefit of not storing full attention history.',
-        'Infini-attention should be evaluated against StreamingLLM, sliding-window attention, Mamba-style state models, TTT layers, and full attention baselines on shorter contexts where exact comparison is possible.',
+        'The block has two paths. The local path performs ordinary causal attention within the current segment. This handles recent syntax, immediate references, and local reasoning with exact token-level evidence. The memory path reads from a bounded memory matrix that summarizes earlier segments. A learned gate or mixing mechanism combines the local-attention output with the memory-read output.',
+        'After processing a segment, the model updates memory with information from that segment. The memory is not a list of old tokens. It is compressed state. Later segments can read from it, but they cannot inspect every old token as an exact row unless another mechanism preserves that evidence.',
+        'This places Infini-attention in a larger family of bounded-context designs: StreamingLLM keeps attention sinks and recent cache, Mamba carries recurrent state, RetNet carries retention state, sliding-window attention keeps a recent band, and retrieval systems fetch old evidence externally. Each design replaces unbounded exact access with a different form of memory budget.',
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'Why it can work',
       paragraphs: [
-        'Imagine a model reading a long technical manual in segments. The local window captures exact equations and code snippets around the current token. The compressive memory carries older chapter summaries, definitions, and recurring symbols. A downstream answer should cite or retrieve exact passages when exactness matters, because the compressed memory may blur details.',
-        'A production ledger should track memory peak, p99 latency, old-fact retrieval, position-swept needle tests, long summarization, and whether the memory path remains stable under batching.',
+        'The design can work when many old dependencies do not require exact token replay. A long document contains themes, entities, topics, and state that may be compressible. If the memory learns to preserve the useful signal and local attention handles precise recent details, the model can cover longer inputs without paying full exact-attention cost.',
+        'It can also work because segment processing is a natural production shape. Long inputs are often streamed or chunked: documents, transcripts, logs, codebases, and conversations arrive in pieces. Reading old memory, processing the current segment, and writing updated memory matches that flow. It gives the serving system a bounded object to carry forward instead of an ever-growing list of KV rows.',
+        'The key word is "useful." Compression is justified only if it preserves the information the task needs. A long summarization task may tolerate abstraction. A citation task may not. A model that remembers the gist but forgets the exact clause can be impressive and still wrong for legal, medical, security, or research work.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Where it fits',
       paragraphs: [
-        'Do not treat "infinite context" as literal perfect recall. Infini-attention provides a bounded-memory mechanism. It can still forget, blur, or misweight old evidence. Another trap is testing only average language-model loss. Exact long-range tasks are where compression failures become visible.',
+        'Infini-attention is a useful study case for bounded long-context architecture. A model reading a long technical manual could keep the current section exact while carrying older chapter themes, definitions, and recurring symbols in memory. A meeting assistant could preserve the current exchange exactly while carrying earlier agenda state and decisions in compressed form.',
+        'The design is also valuable as a bridge between attention and recurrent memory. It keeps the familiar attention block for local context but adds a stateful path for older context. That makes it easier to compare against RetNet, Mamba, StreamingLLM, and retrieval-augmented systems. The curriculum lesson is that "memory" can be exact tokens, learned state, retrieved documents, summaries, or some hybrid.',
+        'In production, the best fit is likely a workload where old context matters statistically but exact old spans can be checked through another path when needed. For example, long-form drafting may benefit from compressive memory, while final source-cited answers should still retrieve and verify the exact evidence.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Failure modes',
+      paragraphs: [
+        'The main failure is false confidence about old evidence. A compressive memory may preserve the topic but lose the number, quote, name, exception, or negation that makes the answer correct. This is why average language-model loss is not enough. Long-context evaluation needs exact retrieval, position sweeps, distractors, citation checks, and tasks where the decisive fact sits far outside the local segment.',
+        'Another failure is memory interference. Old segments can overwrite or distort each other. A memory update rule that works for one domain may fail under code, tables, math, or adversarial documents. Segment boundaries can create artifacts, and the model may learn to overtrust memory even when local context contradicts it.',
+        'There is also a systems failure mode. If the memory path is expensive, hard to batch, numerically unstable, or difficult to quantize, it may erase its serving advantage. A bounded-state architecture must be judged by quality, peak memory, p95 and p99 latency, batching behavior, and implementation maturity.',
+      ],
+    },
+    {
+      heading: 'A worked example',
+      paragraphs: [
+        'Imagine a model reading a 300-page technical manual. The current segment contains an equation that refers to a symbol introduced in chapter two. Local attention can handle the current equation exactly. The compressive memory may carry the earlier symbol definition, the role of the variable, and the surrounding topic. If the task is to summarize the equation, that may be enough. If the task is to quote the exact definition, compressed memory is not enough by itself.',
+        'A production system can use Infini-attention as the model memory while pairing it with source retrieval. The memory path keeps the model oriented across long text. Retrieval fetches exact old spans when the answer must cite or quote. This division of labor is usually more honest than claiming one learned state can serve every memory need.',
+      ],
+    },
+    {
+      heading: 'Evaluation checklist',
+      paragraphs: [
+        'A useful evaluation should separate gist memory from exact memory. Test long summarization, topic continuity, and entity tracking, but also test needle retrieval, quote fidelity, key-value lookup, old instruction following, and contradiction between local text and old memory. Sweep the decisive evidence across positions rather than testing only the beginning and end.',
+        'The systems checklist should include peak memory, latency by sequence length, batching behavior, quantized serving quality, segment-boundary sensitivity, and comparison against sliding-window, retrieval, and exact-attention baselines. A memory architecture earns adoption only when it improves the full quality-cost curve.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'Infini-attention is not magic infinite recall. It is a hybrid memory design: exact local attention for recent tokens plus compressed state for older context. That is a serious idea because most long-context workloads need both recent precision and some durable old signal.',
+        'The design should be evaluated as a memory contract. Ask what remains exact, what becomes compressed, how memory is updated, what old facts are recoverable, how failures are detected, and whether retrieval or citation checks are needed for high-stakes answers.',
+        'The practical lesson is to name the memory tier. Local attention is the exact tier, compressive memory is the learned state tier, and retrieval can be the evidence tier. Once those roles are explicit, students can reason about what the model is likely to remember and what the application must verify.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
       paragraphs: [
         'Primary source: Efficient Infinite Context Transformers with Infini-attention at https://arxiv.org/abs/2404.07143.',
         'Study StreamingLLM Attention Sinks, Sliding-Window Attention Context Policy, KV Cache, Selective State Space Models: Mamba, Test-Time Training Layer Case Study, Hybrid Attention State Budget Case Study, Lost in the Middle, and RAG Claim Verification next.',

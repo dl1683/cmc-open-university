@@ -140,41 +140,71 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why Power Analysis Exists`,
       paragraphs: [
-        `Statistical power is the chance that an experiment detects a real effect. The visualization gives you a privileged setup: the treatment truly improves conversion from 5.0% to 5.5%, a 10% relative lift. With 2,000 users per arm and a two-sided alpha of 0.05, the computed power is only about 10.5%. In plain English, the real win dies nine times out of ten.`,
-        `Power analysis happens before A/B Testing & p-values. You choose alpha, desired power, and the minimum effect worth caring about; the required sample size falls out. This prevents the common ritual of running for two weeks, seeing "not significant," and mistaking an underpowered design for evidence of no effect.`,
+        `Power analysis exists because an experiment can fail in two very different ways. It can look quiet because the treatment truly has no useful effect. It can also look quiet because the design was too small to detect the effect it was built to find. A p-value after the fact cannot separate those stories by itself. If the study had little chance of seeing a meaningful change, "not significant" is not strong evidence of no effect; it is often evidence of weak instrumentation.`,
+        `Power is the probability that a test rejects the null hypothesis when a particular real effect exists. In product language, it is the chance that the experiment catches the improvement you care about. In the module's setup, the treatment really improves conversion from 5.0 percent to 5.5 percent. That is a 10 percent relative lift and may be worth serious money. With only 2,000 users per arm at alpha = 0.05, the computed power is about 10.5 percent. The feature is genuinely better, yet the experiment misses it roughly nine times out of ten.`,
+        `That is why power analysis belongs before launch. It converts an argument about hope, patience, and dashboard watching into a design calculation. You choose the false-positive rate, the desired detection probability, and the smallest effect worth acting on. The required sample size is then not a vibe or a calendar habit; it is the cost of answering the question you claimed to ask.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Naive Wall`,
       paragraphs: [
-        `The code uses the standard two-proportion normal approximation. The standard error combines p1(1-p1) and p2(1-p2), then asks how often the observed difference would cross the 1.96 z cutoff if the true gap were 0.5 percentage points. As n grows, the distribution tightens and power climbs. The second view plots that climb: roughly 31,000 users per arm are needed for the conventional 80% power target.`,
-        `The inverse-square law is the memorable part. Halve the effect you want to detect and you need about four times the sample. Multiple Testing & False Discoveries makes this harsher because stricter alpha thresholds raise the bar; Confidence Intervals & the Bootstrap shows the same fact after the study as a wide or narrow interval.`,
+        `The naive approach is to run an A/B test for a convenient amount of time, stop when the calendar or roadmap says to stop, and read the p-value. That puts the design decision at the end of the experiment, after the traffic has already been spent. It also encourages peeking: if the p-value looks close, run a little longer; if it crosses 0.05, stop and celebrate. That behavior changes the error rate unless the test was designed for sequential monitoring.`,
+        `The wall is sampling noise. Conversion is a Bernoulli outcome: each user converts or does not. When baseline conversion is 5 percent, most observations are zeros. A treatment that raises conversion to 5.5 percent creates a half-point absolute change. That can be valuable at scale, but it is small compared with the natural wobble in finite samples. With 2,000 users per arm, the standard error is large enough that the honest effect is usually hidden inside noise.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core Insight`,
       paragraphs: [
-        `The computation is instant. The cost is traffic, time, and opportunity. A rare event like 5% conversion has high sampling wobble, so small absolute changes are expensive to see. If your minimum useful lift is 0.1 percentage points, the sample size may be commercially impossible; if a redesign plausibly moves conversion by 20%, the test can be practical.`,
+        `The core insight is that hypothesis testing has two error types. Alpha controls false alarms: how often a test calls noise a win when no effect exists. Beta controls misses: how often a test fails to detect a real effect. Power is 1 minus beta. Teams talk constantly about alpha because p < 0.05 is culturally familiar, but low power can be just as damaging. It turns real improvements into false negatives and makes the rare significant estimate too large.`,
+        `The minimum detectable effect is the strategic input. It asks what smallest change is worth detecting. A 0.5 percentage point lift on checkout conversion may be worth shipping. A 0.02 percentage point lift may not justify weeks of traffic. Statistics cannot choose that threshold for you. Once alpha, target power, baseline variance, and minimum effect are chosen, the sample size follows.`,
+        `The memorable scaling law is inverse-square. The standard error shrinks like one over the square root of n, so detecting half the effect needs roughly four times the sample. That is why tiny optimizations are expensive to validate and why high-traffic companies build variance reduction techniques such as CUPED, stratification, blocking, and covariate adjustment. They are trying to reduce noise so the same traffic has more resolving power.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `Mechanism`,
       paragraphs: [
-        `Product experiments, clinical trials, survey design, and policy evaluations all use power to justify sample sizes before data arrives. Causal Graphs, Confounding & Simpson's Paradox still matters because power cannot rescue a biased design. Instrumental Variables & Natural Experiments may need even larger samples because instruments are often weak. Policy Gradients: REINFORCE to PPO faces an analogous variance problem: if the learning signal is noisy, you need many trajectories or a variance-reducing baseline.`,
+        `For a two-proportion experiment, the baseline conversion p1 and treatment conversion p2 determine the expected variance in each arm. The difference p2 minus p1 is the signal. The standard error describes the sampling wobble around that difference for a given n per arm. A two-sided alpha = 0.05 test requires the observed signal-to-noise ratio to clear about 1.96 standard errors before it is called significant.`,
+        `Power asks a forward-looking question: if the true difference is the one we care about, how often will the noisy observed difference clear that threshold? As n grows, the standard error shrinks and the true effect stands out more often. As the target effect shrinks, the signal-to-noise ratio collapses unless n grows sharply. The module computes this directly for the 5.0 percent to 5.5 percent example and then inverts the equation to find n for different lifts.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `What The Visual Proves`,
       paragraphs: [
-        `Low power does not merely miss effects; it exaggerates the rare significant ones. In the demo, an n = 2,000 study must observe about a 1.4 point lift to clear p < 0.05, nearly triple the true 0.5 point lift. That is the winner's curse. Another trap is treating 80% as a law. It is a convention, not a guarantee; higher-stakes decisions may need more power or a lower alpha.`,
+        `The first view proves that an experiment can be structurally biased toward disappointment even when the treatment works. The setup grants knowledge that production never grants: the treatment really is better. The result is still grim. At 2,000 users per arm, the test detects the win only about one time in ten. The miss row is the central lesson. A null result from that design would not be strong evidence against the feature.`,
+        `The winner's-curse view proves the second harm of low power. When an underpowered test does produce a significant result, it usually did so because random noise inflated the observed effect. In the example, the true lift is 0.5 percentage points, but the observed lift needs to be much larger to cross p < 0.05 with n = 2,000. The significant winners are selected from lucky overestimates. That is why small studies often show exciting effects that shrink on replication.`,
+        `The sizing view proves that power is a planning curve, not a postmortem adjective. As users per arm increase, the probability of catching the real effect rises. The lift table turns product ambition into traffic cost: large changes are cheap to detect; small refinements are brutally expensive. The four-way trade table then names the levers: alpha, power, effect size, and sample size. Choose three with intent, and the fourth is determined by the model.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Why It Works`,
       paragraphs: [
-        `Read A/B Testing & p-values for the single-test verdict, Confidence Intervals & the Bootstrap for post-study uncertainty, and Multiple Testing & False Discoveries for dashboards with many endpoints. Multi-Armed Bandits and Thompson Sampling shift traffic adaptively, while Policy Gradients: REINFORCE to PPO shows the same sample-efficiency pain in reinforcement learning.`,
+        `Power analysis works because it uses the sampling distribution before data arrives. If the null threshold is known and the alternative effect is specified, the probability of clearing the threshold can be computed or simulated. This does not predict the exact result of one future experiment. It predicts the long-run behavior of a design if the chosen effect is real.`,
+        `That distinction is practical. A single underpowered test can still get lucky, and a well-powered test can still miss a true effect 20 percent of the time if it was designed for 80 percent power. Power analysis is not a guarantee. It is a way to make the miss rate explicit before the result becomes emotionally loaded. It also makes tradeoffs visible: lower alpha reduces false alarms but usually requires more sample; higher power reduces misses but costs traffic; smaller minimum effects require much larger n.`,
+        `It also disciplines interpretation. After a low-power null result, the honest conclusion is often "we did not learn much." After a low-power significant result, the honest conclusion is "the estimate is likely inflated." That is a stronger practice than treating p < 0.05 as a magic border between truth and falsehood.`,
+      ],
+    },
+    {
+      heading: `Costs And Tradeoffs`,
+      paragraphs: [
+        `The visible cost is sample size. More users per arm means more calendar time, more opportunity cost, and sometimes more exposure to a treatment that may be inferior. In clinical or policy settings, that cost can be ethical. In product settings, it can mean delaying other experiments or shipping decisions. The calculation is instant; the data is expensive.`,
+        `The second cost is commitment. A useful power calculation requires a primary metric, a minimum effect, and a stopping plan. That can feel restrictive to teams used to exploring dashboards after launch. The restriction is the point. If many metrics, segments, and stopping times are inspected without correction, the stated alpha no longer means what the team thinks it means. Multiple Testing and False Discoveries is the natural next topic because it explains how a dashboard of tests manufactures false wins.`,
+        `The third tradeoff is convention versus stakes. Eighty percent power and five percent alpha are common defaults, not laws. A cheap reversible UI tweak may tolerate lower certainty. A medical trial, infrastructure migration, or high-risk policy decision may need higher power, lower alpha, or a Bayesian decision framework. Power analysis makes those choices explicit instead of hiding them under a single p-value.`,
+      ],
+    },
+    {
+      heading: `Uses And Failure Modes`,
+      paragraphs: [
+        `Power analysis is strongest when the decision has a clear primary endpoint, a credible variance estimate, and a minimum effect that maps to action. Product A/B tests, clinical trials, survey sampling, education interventions, policy evaluations, and benchmark design all use the same basic idea. In machine learning, the analogy appears in noisy training curves and reinforcement learning: if the reward signal has high variance, more trajectories or variance reduction are needed to see a real improvement.`,
+        `It fails when the design is biased. A huge confounded experiment is still confounded. Causal Graphs, Confounding and Simpson's Paradox explain why more data does not fix bad identification. It also fails when inputs are fictional. If the baseline rate, variance, attrition, clustering, or minimum effect is wrong, the resulting n is wrong. Clustered users, repeated exposure, network effects, seasonality, and noncompliance can all reduce effective sample size.`,
+        `Another failure mode is using power to rationalize a test that should not be run. If the required sample is impossible, the answer may be to redesign the product change, choose a higher-signal metric, use variance reduction, combine evidence across experiments, or make a decision without pretending that a tiny test will settle it. Power analysis is useful because it sometimes says no.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Study A/B Testing and p-values for the single-test decision rule, Confidence Intervals and the Bootstrap for post-study uncertainty, and Multiple Testing and False Discoveries for many endpoints. Then study Causal Graphs, Confounding and Simpson's Paradox to separate precision from identification. Multi-Armed Bandits and Thompson Sampling show what changes when traffic is allocated adaptively, while Policy Gradients: REINFORCE to PPO shows the same sample-efficiency pain in reinforcement learning. The durable lesson is simple: before asking what the data says, ask whether the design can hear the answer.`,
       ],
     },
   ],

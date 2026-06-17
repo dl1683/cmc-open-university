@@ -267,6 +267,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A finger tree is a persistent sequence data structure built from a small set of cases: Empty, Single, and Deep. A Deep node has a prefix digit, a recursive middle tree, and a suffix digit. The digits keep the two ends close, while the middle stores groups of two or three elements to preserve balance.',
+        'The obvious persistent sequence choices each miss something. A linked list has a fast front but slow indexing and concatenation. A balanced tree has logarithmic access but can make deque operations feel heavier than they should. A flat array is cache-friendly but expensive to edit immutably. Finger trees exist to combine fast ends, persistence, split, concat, and searchable summaries in one general shape.',
         'The Hinze and Paterson version is a 2-3 finger tree with a second idea layered on top: every element has a measure, and measures combine through an associative operation. That makes the same tree shape support indexed sequences, priority queues, interval searches, ordered splits, and other structures.',
       ],
     },
@@ -275,6 +276,14 @@ export const article = {
       paragraphs: [
         'Pushing or popping at either end usually edits only a small digit of one to four items. When a digit overflows or underflows, a small Node2 or Node3 packet is moved into or out of the recursive middle. Because the middle stores nodes rather than raw elements, the tree stays balanced without global rebuilding.',
         'For indexed sequences, the measure is size. Internal nodes cache the total size below them. To split at index k, walk down the tree while accumulating sizes until the predicate "past k" becomes true, then rebuild the left and right sides around the split point. Other measures route other questions in the same way.',
+        'Why it works: the 2-3 shape bounds height, and the measure is a monoid. Associativity means cached summaries can be regrouped when the tree is rebalanced without changing their meaning. The split predicate can descend using summaries because each summary faithfully represents the whole subtree below it.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Watch the digits at the ends first. They explain why push and pop near either end are cheap: most updates touch a tiny prefix or suffix before the recursive middle gets involved.',
+        'When the measured split view runs, treat the cached measure as a routing summary. The tree is not scanning every element to find the split point; it descends through summaries until the predicate crosses the boundary. The correctness hinge is that the measure combines associatively, so cached summaries still mean the same thing after regrouping.',
       ],
     },
     {
@@ -282,6 +291,7 @@ export const article = {
       paragraphs: [
         'Access, push, and pop at either end are amortized O(1). Concatenation and split are logarithmic, with concat depending on the size of the smaller side. Indexing through a size measure is O(log n). Updates allocate along the edited path and share the untouched structure, so previous versions remain available.',
         'The tradeoff is constant factors and locality. A finger tree is elegant and flexible, but it is pointer-rich and more complex than an array, deque, or plain rope. It earns its keep when persistence, ends, split, concat, or measured search matter at the same time.',
+        'When n doubles, tree height grows logarithmically, but the number of small objects also grows. That object overhead is the tax paid for structural sharing and general measured routing.',
       ],
     },
     {
@@ -296,6 +306,37 @@ export const article = {
       paragraphs: [
         'The key misconception is that finger trees are one magic replacement for every collection. The structure is general because measures are general, not because it beats specialized layouts on every workload. Flat arrays win on tight numeric loops. B-trees win when page locality dominates. RRB vectors often feel more array-like for random indexed sequences.',
         'Another pitfall is using a non-associative measure. Cached summaries are only valid if combining left-to-right pieces gives the same result regardless of grouping. If the measure cannot be updated locally after an edit, the split/search machinery loses its correctness argument.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Choose the measure before choosing the operations. Size supports indexing. Minimum priority supports priority search. Maximum interval endpoint supports overlap queries. A vague measure usually means the structure will not answer the intended question cleanly.',
+        'Keep measure recomputation local and automatic. Constructors for digits, nodes, and deep trees should compute cached measures consistently so edits cannot leave stale summaries behind.',
+        'Test persistence explicitly. After an update, old roots should still produce old results. Structural sharing is a feature only if the program never mutates shared pieces accidentally.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'For a text sequence split into chunks, let each chunk measure be its character length. Internal measures store total length below each subtree. To split at character offset 10, the tree descends through cached lengths until it finds the chunk containing that offset, then rebuilds the left and right sequences around the split.',
+        'The same tree shape can become a priority queue if the measure is minimum priority instead of length. That is the deep idea: the structure is not tied to one query. The measure gives the tree a searchable meaning.',
+      ],
+    },
+    {
+      heading: 'Rule of thumb',
+      paragraphs: [
+        'Use a finger tree when you need persistence, efficient ends, split or concat, and a summary that can guide search. If you only need a mutable deque or a flat numeric array, simpler structures will be faster and easier.',
+        'The measure must be associative and cheap enough to maintain. If maintaining the measure costs more than the query saves, the abstraction is working against you.',
+        'The fastest way to misuse a finger tree is to choose it for elegance alone. It should earn its keep by combining operations that would otherwise require several separate structures.',
+      ],
+    },
+    {
+      heading: 'What to watch in production',
+      paragraphs: [
+        'Watch allocation rate and cache behavior. Persistent trees create new path nodes instead of mutating in place, and that is exactly the feature that enables old versions. It can also pressure garbage collection if the workload is update-heavy.',
+        'Watch measure size. A small numeric measure is cheap. A large object measure copied through every internal node can dominate the cost of updates. The measure is part of the performance model, not just an annotation.',
+        'Finally, document the measure law. Future maintainers need to know why the combine operation is associative and what query the cached summary supports. Without that, a clever general structure becomes fragile infrastructure.',
       ],
     },
     {

@@ -191,37 +191,117 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A runtime join filter is a compact predicate learned from one side of a join while the query is executing, then pushed into a large scan on the other side. Bloom filters are a common representation because they can reject definite non-members with compact memory and no false negatives.',
-        'Trino documents dynamic filtering as collecting build-side join values and pushing them to table scans to skip data at runtime: https://trino.io/docs/current/admin/dynamic-filtering.html. Spark SQL adaptive query execution documents runtime statistics and adaptive query behavior at https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution. Bloom Filter covers the underlying probabilistic set structure.',
+        'Runtime Bloom filters exist because a query can discover a powerful pruning predicate only after execution begins. A dimension table may look large in the catalog, but after this query applies its filters, only a small set of join keys may remain.',
+        'The probe side is often the expensive side. In a star-schema query, the fact table may contain billions of rows, wide columns, and many splits distributed across workers. If most fact rows cannot join, reading and probing them is wasted work.',
+        'The runtime filter turns the build side into a compact membership test and ships that test toward the probe-side scan. Rows that are definitely absent from the build-side key set can be skipped before they reach the exact join.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'The filter contains a bitset, hash functions, build-side key domain, null policy, size limits, readiness state, and distribution state. The scan side applies it before sending surviving rows to the exact join. If a key tests negative, the row is safe to skip. If it tests maybe, the join still verifies exact equality.',
-        'Runtime filters compose with late materialization. A scan can first test cheap join keys, carry surviving row ids forward, and fetch payload columns only after the dynamic filter and other predicates have narrowed the candidate set.',
+        'The obvious approach is to run the normal hash join. Build a hash table from the smaller side, scan the larger side, probe each row, and let exact equality decide whether a match exists. This is correct and easy to reason about.',
+        'A second obvious approach is to rely on static metadata: table statistics, partitions, min-max ranges, zone maps, or file-level indexes. Those can prune data before execution and should be used when they are available.',
+        'The gap is query-specific information. Static metadata may know a column range, but it usually does not know the exact surviving join keys after this execution filters the build side. The hash join knows those keys, but by the time the probe reaches the hash table, the scan may already have paid most of the cost.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The Wall',
       paragraphs: [
-        'A retail warehouse query filters product_dim to a small category and joins it with a multi-billion-row sales_fact table. The build side produces product_ids for that category. The engine builds a Bloom filter, pushes it to every fact scan split, and skips fact rows whose product_id is definitely not in the filtered dimension set.',
-        'The join result is still computed by the hash join. The Bloom filter only reduces read and probe work. That distinction is important: approximate prefilters preserve correctness only because exact join semantics still run after them.',
+        'The wall is scale and timing. If the fact scan reads a billion rows while only a few thousand keys can join, rejecting rows at the hash table is late. The engine may already have read storage blocks, decoded columns, materialized vectors, and shuffled rows across the network.',
+        'The wall is also safety. A pruning filter must never drop a row that should join. An approximate structure is attractive only if its approximation points in the safe direction: extra rows may pass through, but real matches must not be discarded.',
+        'A large exact set of build keys can be too heavy to broadcast to every scan. A compact approximate set solves the distribution problem, but it introduces false positives. The engine has to decide when that tradeoff is worth it.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Runtime filters are workload-sensitive. If the build side is too large, the filter arrives too late, or the false-positive rate is high, the filter can add overhead. Engines need thresholds for collection time, filter size, domain cardinality, and scan pushdown support.',
-        'A runtime filter also cannot violate outer join semantics, null semantics, or partitioning constraints. The planner must know where the filter is safe to apply.',
+        'The core insight is safe approximate pruning. A Bloom filter can answer two useful questions: definitely not present, or maybe present. It never says no for a key that was inserted, assuming the implementation and hashing are correct.',
+        'That no-false-negative property is enough for a join prefilter. If a fact row tests no, it cannot match the build-side key set and can be skipped. If it tests maybe, the row still goes to the exact hash join, where normal equality semantics decide the result.',
+        'The filter is runtime state, not a permanent table index. It is built from the keys that survive this query execution, then pushed to the scan operators while the query is still running.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Animation Walkthrough',
       paragraphs: [
-        'Study Bloom Filter, SQL Join Algorithms Primer, Selection Vector Filter Pipeline, Late Materialization Columnar Scan, DuckDB Vectorized Execution Case Study, Spark Adaptive Query Execution Case Study, Block Range Index & Zone Maps, and Parquet Page Index & Column Offset next.',
+        'The dynamic-filter view starts with the dimension side. After local predicates run, the surviving join keys are inserted into a Bloom filter. The filter is then distributed to fact-side scan operators.',
+        'At the fact scan, each row can test its join key before doing more expensive work. A key such as 71 that returns no can be skipped. A key such as 42 that returns maybe must continue to the exact join.',
+        'The false-positive view separates correctness from savings. False positives are allowed because they only send extra rows to the exact join. False negatives are not allowed because they would remove true join results.',
+      ],
+    },
+    {
+      heading: 'How It Works',
+      paragraphs: [
+        'The query planner chooses a join shape, usually with the smaller or more selective side as the build side. As build-side tasks produce join keys, the engine collects those keys into a runtime filter. Some engines collect exact distinct values up to a threshold, some use Bloom filters, and some fall back to min-max ranges when distinct sets become too large.',
+        'The coordinator or exchange path distributes the filter to workers that own probe-side splits. The scan can then test the join key early. In a columnar engine, this may happen before reading wide payload columns or before passing a vector to later operators.',
+        'Rows that pass the filter are not accepted as matches. They are only candidates. The exact join still probes the real hash table, applies equality checks, handles null semantics, and enforces the query plan.',
+        'Trino documents dynamic filters pushed into table scans and connector readers, including ORC and Parquet pruning paths. Spark SQL documents adaptive execution as using runtime statistics to re-optimize query execution. The shared idea is that execution can learn facts the static plan did not know.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'Correctness comes from preserving all possible matches. The build side inserts every key that could join. A Bloom filter may set overlapping bits, which creates false positives, but a key that was inserted will still find all of its bits set.',
+        'Therefore a negative result is a proof of absence from the inserted key set. Skipping that probe row cannot remove a valid inner-join result. A maybe result is not proof of presence, so the exact join must remain the authority.',
+        'This is also why placement depends on join semantics. Inner joins and some semi-join shapes can safely prune probe rows that cannot match. Outer joins, null-aware semantics, and expression rewrites need planner care because dropping a nonmatch can change the required output.',
+        'The runtime part works because it applies after build-side predicates. A product dimension with millions of product_ids may shrink to a few thousand battery products for this query. The runtime filter exports that narrower set to the scan.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'A retail query filters product_dim to category equals batteries and joins the result to a multi-billion-row sales_fact table. The build side is the filtered product_dim relation. It emits surviving product_ids into a runtime Bloom filter.',
+        'Every sales_fact split receives the filter. If a split can test product_id before reading wide measure columns, it may skip row groups, vectors, or rows early. Product_id 71 returns no and is removed. Product_id 42 returns maybe and continues.',
+        'The final hash join still checks product_id exactly. Some rows that returned maybe may fail because of false positives or because other join predicates do not match. The result is correct because the filter reduced candidates, not semantics.',
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        'The costs are construction, memory, distribution, waiting time, scan-side checks, and false positives. A tiny filter is cheap to ship but may saturate quickly. A large filter is more selective but costs more memory and network traffic.',
+        'Timing matters. If the engine waits too long for a perfect filter, probe scans may sit idle. If it sends an early partial filter, scans can start pruning sooner but may pass more rows. Distributed engines need thresholds for collection time and filter size.',
+        'When the build side grows, Bloom filter quality can collapse. Too many inserted keys set too many bits, and almost every probe key returns maybe. At that point the filter adds CPU overhead while saving little I/O.',
+        'Connector support determines the ceiling. A filter that reaches an ORC or Parquet reader before row-group scanning can avoid real I/O. A filter applied after rows are already materialized saves only downstream join work.',
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        'Gate runtime filters behind selectivity estimates and size thresholds. The engine should stop collecting or switch representation when the build side is too large for the filter to be useful.',
+        'Track filter effectiveness as runtime telemetry: number of filters built, bytes shipped, splits delayed, rows tested, rows rejected, false-positive estimate, and scan bytes saved. Without these numbers, teams will not know whether dynamic filtering is helping or only adding overhead.',
+        'Apply filters only where the planner can prove they are legal. Nulls, outer joins, non-deterministic expressions, type coercions, and composite keys can all change the safety question. If the exact join sees one expression but the scan tests another, the filter is no longer a harmless prefilter.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Runtime Bloom filters win in star-schema joins, selective dimension filters, distributed fact scans, partitioned warehouses, and late-materialized columnar plans. The access pattern is clear: one side cheaply discovers a small key set, and the other side is expensive to scan.',
+        'They are strongest when the build side is small, the fact side is huge, the filter arrives early, and the storage connector can use it before decoding most data.',
+        'They also pair well with existing pruning. Static partition pruning can remove whole date ranges. Zone maps can remove row groups by min-max statistics. Runtime filters then remove keys that only the current join could reveal.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'They fail when the build side is huge, the filter arrives after the scan has already done the work, the false-positive rate is high, or scan pushdown is unavailable.',
+        'They fail when the planner applies them to an unsafe join shape. Outer joins may need to preserve nonmatching probe rows. Null-aware joins may have special rules. Composite-key joins require the same key construction on both sides.',
+        'They also fail operationally when they create pipeline stalls. A distributed query can lose more time waiting for a filter than it saves through pruning, especially when the probe side is not as large as expected.',
+      ],
+    },
+    {
+      heading: 'Complete Case Study',
+      paragraphs: [
+        'In a warehouse dashboard, analysts ask for holiday sales of a narrow product family. The date and product dimensions are filtered first. The engine chooses those filtered dimensions as build inputs and collects their surviving keys.',
+        'The sales_fact scan receives runtime filters for date_key and product_id. Some partitions are removed statically. Some row groups are removed by storage metadata. Remaining vectors test join keys against runtime filters before wide columns are decoded.',
+        'The exact join still computes the final result. The dashboard sees the same rows it would have seen without runtime filtering, but the query may read far less data and probe far fewer fact rows.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
+      paragraphs: [
+        'Primary sources: Trino dynamic filtering documentation at https://trino.io/docs/current/admin/dynamic-filtering.html and Spark SQL performance tuning documentation for adaptive query execution at https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution.',
+        'Study Bloom Filter for the approximate membership structure, SQL Join Algorithms Primer for build and probe roles, Selection Vector Filter Pipeline for vectorized filtering, Late Materialization Columnar Scan for scan economics, Block Range Index and Zone Maps for static pruning, and Parquet Page Index and Column Offset for storage-level skipping.',
       ],
     },
   ],

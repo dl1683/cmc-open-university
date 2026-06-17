@@ -204,11 +204,69 @@ export const article = {
     { title: 'Nasdaq OUCH 5.0 Order Entry Specification', url: 'https://www.nasdaqtrader.com/content/technicalsupport/specifications/TradingProducts/OUCH5.0.pdf' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['A pre-trade risk gateway checks orders before they reach the matching sequencer. It validates session state, order syntax, credit and position limits, price bands, quantity limits, throttles, kill switches, and cancel-on-disconnect behavior.', 'The data structures are per-session state machines, account limit tables, exposure ledgers, token buckets, symbol rule tables, reject ledgers, and kill-switch scopes.'] },
-    { heading: 'How it works', paragraphs: ['Incoming FIX or OUCH messages enter a gateway. Stateless checks reject malformed messages. Stateful checks reserve credit, consume throttle tokens, compare price/quantity against bands, and decide whether the order can proceed to sequencing.', 'Accepted orders later release or transform risk when executions, cancels, replacements, or rejects arrive. This makes pre-trade risk a lifecycle ledger, not a one-time gate.'] },
-    { heading: 'Cost and complexity', paragraphs: ['The gateway sits on the low-latency path, so every check must be bounded and predictable. At the same time, mistakes can create real financial exposure or block legitimate trading. The implementation therefore needs compact hot-path state plus durable audit trails.', 'Kill switches are especially sensitive. They must be hard to bypass, scoped correctly, and visible in every ingress path.'] },
-    { heading: 'Complete case study', paragraphs: ['A client submits a large buy order far outside the current price band. The gateway authenticates the session, checks throttle capacity, computes notional exposure, detects the price-band violation, rejects the order with a reason code, and does not send the command to the sequencer.', 'Later, the account breaches a credit limit. An operator activates an account-scoped kill switch. New orders are blocked, live orders are canceled according to configuration, and the audit ledger records actor, time, reason, and affected orders.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not reserve exposure without releasing it on every terminal path. Do not apply kill-switch state to one gateway but not another. Do not rely on a dashboard-only control. Do not hide reject reasons if clients and operators need reconciliation.', 'Risk state must be strongly keyed: account, session, symbol, side, product, order id, and configuration version can all matter.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: FIXimate NewOrderSingle at https://fiximate.fixtrading.org/en/FIX.Latest/msg14.html, FIXimate OrderCancelReplaceRequest at https://fiximate.fixtrading.org/en/FIX.Latest/msg17.html, and Nasdaq OUCH 5.0 at https://www.nasdaqtrader.com/content/technicalsupport/specifications/TradingProducts/OUCH5.0.pdf. Study Rate Limiter, Limit Order Book Price-Time Priority Case Study, Matching Engine Sequencer Event Log Case Study, Idempotency, and Double-Entry Payment Ledger Execution Trace next.'] },
+    {
+      heading: 'What it is',
+      paragraphs: [
+        `A pre-trade risk gateway is the part of an electronic trading stack that decides whether an incoming order is allowed to reach the matching sequencer. It sits in front of the book. It receives order-entry messages such as FIX NewOrderSingle or OUCH Enter Order, checks the session and risk state, and either forwards the order or rejects it with an auditable reason.`,
+        `The key boundary is before sequencing. Once an order reaches a matching engine, it may rest on the book, match immediately, affect priority, or generate executions that cannot be undone by pretending the order never existed. A pre-trade gate stops bad intent while it is still just an inbound command. That is different from post-trade surveillance, cancel logic, or reconciliation after the market has already changed.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        `The obvious approach is to let the matching engine accept orders quickly and let downstream risk systems clean up problems. A surveillance service can watch fills, a credit system can compute exposure after the fact, and an operator can cancel bad orders from a dashboard. This is attractive because it keeps the hottest path small.`,
+        `The wall is time. A fat-finger order can execute before a downstream service reacts. A runaway algorithm can send thousands of orders before an operator sees the chart. A credit breach can become real exposure as soon as the order is live. The other obvious approach, a dashboard-only kill switch, has the same problem. If the switch does not participate in every order-ingress path, it is reporting state rather than enforcing state.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `The core insight is to turn risk into a bounded admission-control problem. The gateway should be able to answer one question for every inbound command: may this command enter the sequenced market state right now? The answer must include static validity, session authorization, credit or capital limits, position constraints, price bands, quantity limits, throttles, order-type rules, and any active kill-switch scope.`,
+        `Risk is also a ledger, not a boolean. When an order is accepted, exposure may need to be reserved. When it fills, cancels, replaces, expires, or rejects, exposure must be released or transformed. A system that only checks a limit at order entry but never reconciles later events will leak risk state. The gateway therefore needs both a fast decision path and a durable audit path.`,
+      ],
+    },
+    {
+      heading: 'Mechanism and data structures',
+      paragraphs: [
+        `The hot path starts with message decoding. FIX is tag-oriented and extensible; OUCH is a compact binary order-entry protocol. Either way, the gateway normalizes the inbound command into internal fields: account, session, symbol, side, quantity, price, order type, time in force, client order id, and protocol sequence data. Malformed messages, disabled sessions, stale sequence numbers, and unauthorized accounts fail before risk limits are touched.`,
+        `Stateful checks then read and update small keyed structures. A session state machine tracks login, sequence, heartbeat, cancel-on-disconnect settings, and whether order entry is disabled. An account limit table stores credit, notional, gross exposure, per-symbol caps, and product-specific constraints. An exposure ledger records open orders, partial fills, cancels, replaces, and pending acknowledgements. Token buckets or sliding windows enforce rates per session, account, port, or symbol. Price-band tables compare orders against reference prices such as NBBO, auction collars, or venue-specific reasonability limits.`,
+        `A kill switch is control-plane state that must be visible in the data-plane path. Its scope may be firm, account, trader, session, symbol, side, venue, product, or order group. A scoped switch may reject new orders, cancel live orders, disable a port, or require manual release. The reject ledger records what was blocked, which rule blocked it, the configuration version used, and enough identifiers to reconcile with clients and regulators.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The correctness invariant is simple: no order reaches the sequencer unless all required checks passed using a known configuration version and any required exposure reservation was made. The gateway does not merely observe risk; it makes risk state part of admission. That is why it can prevent a credit breach instead of documenting one after it happens.`,
+        `Atomicity matters. If the gateway accepts an order but fails to reserve exposure, the next order may see too much remaining capacity. If it reserves exposure but loses the accepted-order event, the account may be blocked by a stale hold. If a replace request increases liability, the gateway must account for previous executions and the new intended size rather than treating the replacement as an unrelated new order. Nasdaq OUCH's replace and cancel semantics show why order lifecycle events have to be modeled as state transitions, not isolated messages.`,
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        `The cost target is harsh because the gateway sits on the low-latency path. Checks must be bounded, cache-friendly, and predictable. A database lookup in the middle of every order is usually too slow. Production designs pre-load configuration, shard risk ledgers by account or session, keep hot counters in memory, and write audit records asynchronously without letting audit loss create an invisible accept.`,
+        `The tradeoff is between local speed and global accuracy. Per-gateway counters are fast but can let aggregate exposure drift if the same account trades through several ports. A central risk service is easier to reason about but can become a bottleneck. Many systems use partitioned ownership, hard sub-limits, replicated read-only config, and reconciliation streams. The design should make the worst failure conservative: reject or kill flow rather than let unbounded orders through.`,
+        `Latency budgets also shape error handling. A gateway cannot pause every order while it asks a human whether a limit should be raised. Soft blocks, overrides, and intraday limit changes need their own authorization path and audit record. The hot path should see only the resulting signed or versioned configuration, not an ambiguous operator conversation.`,
+      ],
+    },
+    {
+      heading: 'Where it is useful and where it fails',
+      paragraphs: [
+        `Pre-trade risk gateways are useful for exchanges, broker-dealers, clearing firms, market makers, sponsored-access providers, crypto venues, and internal trading platforms. They protect against fat-finger prices, over-sized orders, credit breaches, quote storms, stale sessions, duplicate client order ids, runaway algos, and controls required by market-access rules. SEC Rule 15c3-5 is one regulatory example for broker-dealers with market access: controls must systematically limit financial exposure and prevent orders that violate applicable pre-order requirements.`,
+        `The pattern fails when the checks are incomplete, inconsistent, or bypassable. A gateway that checks FIX but not OUCH leaves a hole. A kill switch that reaches one region but not another creates false confidence. A price band based on stale reference data can reject good flow or accept bad flow. A credit ledger that ignores pending cancels may block clients unnecessarily, while one that releases exposure before cancel confirmation may understate live risk.`,
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        `Watch reject rate by reason code, throttle consumption, account exposure versus limit, stale holds, cancel and replace reconciliation lag, session disconnects, kill-switch propagation time, config-version skew, gateway-to-sequencer accept latency, audit write lag, and unmatched execution reports. Each metric maps to a failure mode. A rising stale-hold count points to lifecycle bugs. Rejects clustered at one symbol may point to a bad collar. High config skew means different gateways may answer the same order differently.`,
+        `Incidents should be replayable. Given an order id, operators should recover the inbound message, normalized command, risk inputs, configuration version, decision, reservation change, sequencer handoff or reject response, and later lifecycle events. Without that chain, a gateway cannot prove why it blocked one order and accepted the next.`,
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        `Primary sources: FIXimate NewOrderSingle at https://fiximate.fixtrading.org/en/FIX.Latest/msg14.html, FIXimate OrderCancelReplaceRequest at https://fiximate.fixtrading.org/en/FIX.Latest/msg17.html, Nasdaq OUCH 5.0 at https://www.nasdaqtrader.com/content/technicalsupport/specifications/TradingProducts/OUCH5.0.pdf, and SEC Rule 15c3-5 FAQ material at https://www.sec.gov/rules-regulations/staff-guidance/trading-markets-frequently-asked-questions/divisionsmarketregfaq-0. Study Rate Limiter for throttles, Token Bucket for admission counters, Limit Order Book Price-Time Priority for sequencer behavior, Matching Engine Sequencer Event Log for ordered market state, Idempotency for client order ids, and Double-Entry Payment Ledger Execution Trace for reservation and release discipline next.`,
+      ],
+    },
   ],
 };

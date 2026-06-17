@@ -225,6 +225,27 @@ export const article = {
       ],
     },
     {
+      heading: 'Core insight',
+      paragraphs: [
+        'The broad phase should answer a cheap question before the physics engine asks an expensive one: which objects could possibly overlap? A dynamic AABB tree keeps conservative boxes around moving objects so most impossible pairs can be rejected before exact geometry tests run.',
+        'The structure works because every internal box is a promise about all descendants. If a query misses that box, it misses every object below it. If it hits the box, the tree descends and eventually returns candidate leaves. Correctness comes from containment; performance comes from keeping those containment boxes tight enough.',
+      ],
+    },
+    {
+      heading: 'Why it exists',
+      paragraphs: [
+        'A static BVH is excellent until objects move. Rebuilding from scratch every frame can be too expensive, while all-pairs testing throws away spatial structure. The wall is a broad phase that must survive continuous insert, remove, and move operations.',
+        'A dynamic AABB tree stores fat bounding boxes in a mutable BVH. Small movements stay inside the fat box and avoid reinsertion; larger movements remove and reinsert the proxy. It is correct because each internal AABB conservatively contains its children, so a query can prune any subtree whose bound cannot overlap the test shape.',
+      ],
+    },
+    {
+      heading: 'Reading the visualization',
+      paragraphs: [
+        'In the query-tree view, every internal node is a conservative promise: all leaves under it fit inside that box. When the query misses an internal box, the whole subtree can be ignored without inspecting individual objects. When it overlaps, the tree descends because some child might still be a candidate.',
+        'In the update-proxies view, focus on the maintenance policy. A moving object is allowed to drift inside a fat AABB so the tree does not churn on tiny movements. When it escapes that margin, the old leaf is removed, a new fat proxy is inserted, and rotations or rebuilds repair tree quality. The animation is showing a living index, not a static spatial partition.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         'To insert a proxy, the tree chooses a sibling whose parent box grows cheaply, creates a new internal node, and updates ancestor bounds. To query, start with the root on a stack. If the query AABB or ray misses a node box, skip that node. If it hits an internal node, push its children. If it hits a leaf, report the object id as a broad-phase candidate.',
@@ -232,10 +253,25 @@ export const article = {
       ],
     },
     {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine four bodies A, B, C, and D. The left internal node contains the union of A and B, the right internal node contains the union of C and D, and the root contains both sides. A query box that overlaps the left internal node but misses most of the right side can skip D immediately. It may still test C if C lies inside an overlapping right-side bound.',
+        'Now let body B move a small distance. If B still fits inside its fat proxy, the tree does nothing and accepts a little extra false-positive area. If B escapes, the proxy is removed and reinserted near the sibling that causes the smallest perimeter or surface-area growth. That heuristic is why this is a broad-phase engineering structure rather than a purely sorted container.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is conservative. A parent AABB must contain both children. If a query does not overlap the parent, it cannot overlap any descendant, because every descendant is spatially inside that parent. This makes pruning safe even though the tree is only an approximation of object geometry.',
+        'The performance argument is heuristic. Good sibling choices, bounded fat margins, rotations, and rebuilds keep internal boxes tight enough that queries reject large regions. The tree does not guarantee the perfect partition a static offline builder might produce; it stays useful by repairing itself incrementally as objects move.',
+      ],
+    },
+    {
       heading: 'Cost and complexity',
       paragraphs: [
         'Expected query cost depends on tree quality and output size. Good trees reject large subtrees quickly. Poor trees have overlapping internal boxes that force many branches to be visited. Insert, remove, and move operations cost tree walks and ancestor updates, often close to logarithmic in healthy trees but heuristic in practice.',
         'Fat proxies are a central tradeoff. Larger margins reduce update churn and preserve temporal coherence, but they increase false positives. Smaller margins produce tighter queries, but moving objects escape often and force more remove-insert work. The right margin depends on velocity, simulation step, object size, and contact tolerance.',
+        'Measure the structure as it runs. Useful counters include tree height, area ratio, maximum balance, proxy count, node visits per query, leaf hits per query, and reinserts per frame. Those counters tell whether to tune margins, rotate more aggressively, or rebuild a degraded tree.',
       ],
     },
     {
@@ -250,6 +286,14 @@ export const article = {
       paragraphs: [
         'A dynamic AABB tree is not automatically balanced or optimal. Bad insertion order, large false-positive margins, or chaotic movement can degrade quality. The implementation needs metrics such as tree height, area ratio, proxy count, and query node visits so it can rotate, rebuild, or tune margins when performance drifts.',
         'It also does not replace narrow phase. A leaf hit means the query overlaps a proxy box. The engine still needs exact shape overlap, ray-shape intersection, or contact manifold generation before applying physics or returning visible gameplay results.',
+        'The most common failure is treating the tree as a set-and-forget index. Moving worlds age the structure. Without quality metrics, fat-margin tuning, and occasional rotations or rebuilds, the tree can slowly become a broad-phase tax instead of an acceleration structure.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Represent each node with parent, two children, AABB bounds, height, and leaf payload or object id. Use a node pool or free list if the engine creates and destroys proxies frequently. Keep broad-phase candidates separate from final contacts so false positives remain cheap.',
+        'Choose insertion cost by growth in perimeter or surface area, then update ancestors on the way back to the root. If motion is predictable, expand fat proxies in the velocity direction as well as by a fixed margin. That reduces churn for fast objects without making every side equally loose.',
       ],
     },
     {

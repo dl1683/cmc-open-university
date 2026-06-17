@@ -68,7 +68,7 @@ function* mutationGraph() {
   yield {
     state: searchGraph('Jailbreak mutation search graph'),
     highlight: { active: ['seed', 'role', 'enc', 'ind', 'e-seed-role', 'e-seed-enc', 'e-seed-ind'], compare: ['run1', 'run2'], found: ['queue'] },
-    explanation: 'Automated red-teaming is a search problem. Start with a seed case, mutate it through role-play, encoding, indirection, translation, or tool-context variants, then score which branches break controls.',
+    explanation: 'The search graph treats automated red-teaming as branching exploration. A seed case mutates through role-play, encoding, indirection, translation, or tool context, and only branches that expose control failures earn attention.',
     invariant: 'Mutation search should discover reproducible failures, not maximize prompt weirdness.',
   };
 
@@ -96,13 +96,13 @@ function* mutationGraph() {
       ],
     ),
     highlight: { active: ['split:keep', 'rag:keep', 'tool:keep'], compare: ['role:keep', 'enc:keep'], found: ['tool:risk'] },
-    explanation: 'Useful operators target real boundaries: hidden retrieved text, split instructions, tool scopes, output handling, or secret access. Cosmetic obfuscation has lower value unless it exposes a real control gap.',
+    explanation: 'The operator matrix separates boundary tests from cosmetic weirdness. Hidden retrieved text, split instructions, tool scopes, output handling, and secret access matter because they test where the system can actually fail.',
   };
 
   yield {
     state: searchGraph('Dedupe prevents prompt spam from faking coverage'),
     highlight: { active: ['score', 'dedupe', 'promote', 'e-score-dedupe', 'e-score-promote'], compare: ['role', 'enc'], found: ['queue'] },
-    explanation: 'A search can generate thousands of near-identical strings. Dedupe by normalized intent, attack surface, failure mode, and output evidence so one trick does not masquerade as broad coverage.',
+    explanation: 'Dedupe protects the coverage invariant. Thousands of near-identical strings should collapse to one family keyed by intent, surface, failure mode, and evidence shape.',
   };
 
   yield {
@@ -117,7 +117,7 @@ function* mutationGraph() {
       ],
     }),
     highlight: { active: ['deduped', 'flat'], compare: ['raw'] },
-    explanation: 'Raw hit count can keep rising after novelty plateaus. The metric that matters is unique severe failure families per budget, not the number of prompt variants generated.',
+    explanation: 'The plot shows why raw hits are a bad reward. After novelty plateaus, more variants may only rediscover the same break; the useful metric is unique severe failure families per budget.',
   };
 }
 
@@ -125,7 +125,7 @@ function* scoringLoop() {
   yield {
     state: searchGraph('Scoring loop promotes reproducible breaks'),
     highlight: { active: ['run1', 'run2', 'score', 'promote', 'queue', 'e-run1-score', 'e-run2-score', 'e-score-promote', 'e-promote-queue'], compare: ['dedupe'] },
-    explanation: 'The scorer decides whether a response actually violates policy, exposes secrets, crosses tool scope, or creates harmful instructions. A promoted case needs rerun evidence, not one lucky response.',
+    explanation: 'The scorer turns a model response into evidence. It checks policy violation, secret exposure, tool scope, harmful instruction, and reproducibility before a case can be promoted.',
   };
 
   yield {
@@ -151,7 +151,7 @@ function* scoringLoop() {
       ],
     ),
     highlight: { active: ['pol:value', 'tool:value', 'rep:value'], compare: ['sec:value'], found: ['out:value'] },
-    explanation: 'A score packet stores response evidence, policy id, tool authorization result, secret exposure status, rerun rate, and judge version. That makes failures reproducible and debuggable.',
+    explanation: 'The score packet stores the proof fields that make a failure replayable: response quote, policy id, tool authorization result, secret status, rerun rate, and judge version.',
   };
 
   yield {
@@ -176,13 +176,13 @@ function* scoringLoop() {
       ],
     ),
     highlight: { active: ['a:act', 'c:act', 'd:act'], removed: ['b:act'], found: ['d:result'] },
-    explanation: 'A normal prompt is denied. A role-play mutation is also denied. An indirect RAG mutation triggers an unauthorized tool call, so it is promoted. The fix adds capability scoping and the rerun passes.',
+    explanation: 'The complete case shows promotion by evidence, not novelty. The plain and role-play prompts fail to bypass controls; the indirect RAG mutation triggers an unauthorized tool call, so the fix narrows capability and the rerun must pass.',
   };
 
   yield {
     state: searchGraph('Promoted cases feed regression gates'),
     highlight: { active: ['promote', 'queue', 'e-promote-queue'], found: ['score', 'dedupe'], compare: ['seed'] },
-    explanation: 'A promoted jailbreak becomes a regression case in the red-team queue. Future releases must pass it or explicitly document why the system boundary changed.',
+    explanation: 'Promotion sends the failure into the regression queue. Future releases must pass the same family or document why the boundary changed enough that the old case no longer applies.',
   };
 }
 
@@ -196,45 +196,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A jailbreak mutation search graph is an automated red-team data structure. It starts from seed cases, applies mutation operators, evaluates model and tool behavior, scores failures, dedupes near-duplicates, and promotes reproducible severe cases.',
-        'LLM Red-Team Attack Taxonomy Queue Case Study explains what should be tested. This module explains how adversarial cases can be expanded without losing provenance or inflating coverage with duplicates.',
+        'Jailbreak mutation search exists because manual red-teaming finds important failures but does not scale across model versions, policies, tools, retrieval contexts, and product surfaces. Once a team has a seed failure, it needs to know whether nearby variants also break the system and whether a fix actually closes the family of failures.',
+        'The danger is volume without learning. A generator can produce thousands of strange prompts that look adversarial but test the same boundary again and again. A safety team can then drown in duplicates while missing the one mutation that crosses from harmless text into a real tool, data, or policy failure.',
+        'A mutation search graph turns red-team exploration into a data structure. It records the seed, mutation operator, parent relationship, target surface, model response, tool behavior, judge result, dedupe family, severity, rerun rate, fix status, and regression case. The goal is reproducible safety evidence, not prompt weirdness.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The graph stores seed case id, mutation operator, parent prompt, target surface, generated prompt, model output, tool calls, scorer result, severity, dedupe key, rerun count, and promoted regression id.',
-        'Dedupe is essential. A search that produces 500 variants of the same role-play trick has not found 500 risks. Family hashes should include intent, surface, control bypass, and evidence shape.',
+        'The obvious approach is to generate a lot of jailbreak prompts and count successes. That is easy to automate and impressive in a dashboard. It fails because raw success count rewards duplicate tricks, judge quirks, unrealistic prompts, and attacks that do not map to product risk.',
+        'Another shortcut is to keep only the final prompt string. That loses the lineage that explains how the failure was found. Without the parent seed, mutation operator, run configuration, scorer version, and rerun evidence, the team cannot tell whether the case is new, reproducible, or fixed.',
+        'A third shortcut is to treat every policy violation as equally useful. In production, a mild text-format failure, an unauthorized tool call, a hidden retrieved instruction, and a secret exposure have different operational meanings. The search has to preserve that difference.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is provenance plus novelty. Mutation search is only useful if each promoted case tells a clear story: what boundary was tested, how the prompt changed, what evidence proves failure, how often it reproduces, and whether it belongs to a new failure family.',
+        'Dedupe is not a cleanup step; it is central to the objective. Five hundred variants of the same role-play trick are not five hundred risks. A useful family key includes intent, product surface, mutation operator, violated control, evidence shape, and the system boundary crossed.',
+        'The search graph also separates adversarial creativity from safety impact. The best branch is not the weirdest text. It is the branch that exposes a real weakness in instruction hierarchy, retrieval trust, tool scope, output handling, data access, or policy enforcement.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Mutation operators transform seed cases through role framing, encoding, split instructions, retrieved-document instructions, tool-scope pressure, or output-format pressure. The runtime executes candidates, scores outputs, reruns promising failures, and promotes only reproducible novel families.',
-        'A good search balances exploration and realism. Weird strings are not automatically useful. The strongest cases usually expose real boundaries: data vs instruction, user vs tool authority, trusted vs untrusted retrieval, and policy vs execution.',
+        'The loop starts with seed cases. A seed may be a known prompt injection, a failed policy refusal, a tool-scope issue, a retrieval poisoning case, or a harmful instruction pattern. Mutation operators then branch the seed through role framing, encoding, split instructions, translation, hidden context, retrieved-document text, output-format pressure, or tool-use pressure.',
+        'Each candidate is executed against a target system configuration. The run captures model output, tool calls, retrieved context, policy decisions, hidden-state metadata that is safe to log, and any blocked or allowed action. A scorer then checks the result against policy ids, tool authorization, secret exposure, harmful instruction compliance, and reproducibility.',
+        'Promising failures are rerun because stochastic systems can produce one-off breaks. A case that reproduces two out of three times is different from a single lucky completion. After scoring, dedupe collapses near-identical cases, and only novel severe families are promoted into a regression queue.',
+        'The promoted case should include the original seed, mutation path, final prompt, response quote, judge version, system version, tool trace, severity, fix owner, and rerun command. That packet is what lets future releases test the same boundary again.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A seed asks for a forbidden action and is denied. Role-play mutations also fail. An indirect RAG mutation hides instructions in a retrieved document and causes the agent to call an unauthorized tool. The scorer flags tool-scope violation, reruns the case, dedupes it as a new failure family, and promotes it to the regression queue.',
-        'The mitigation is capability scoping, not just better wording. After the fix, the same mutation is rerun and the tool call is denied. The graph keeps both the break and the fix proof.',
+        'The mutation graph proves that every adversarial prompt needs lineage. A seed branches into role-play, encoding, indirection, and tool-context variants. The highlighted path is not important because it is clever; it is important because it crosses a real control boundary.',
+        'The operator table proves that not all mutations carry equal risk. Cosmetic role-play may test refusal wording. Hidden retrieved instructions and tool-scope pressure test whether the product separates data from authority. Those are more important because they map to actual deployment failures.',
+        'The raw-hit plot proves why success count is a bad metric. Raw hits can rise while deduped severe families flatten. That means the search is spending budget rediscovering the same failure instead of finding new boundaries.',
+        'The scoring loop proves why promotion requires evidence. A failure packet should include response quote, policy id, tool authorization result, secret status, rerun rate, and judge version. Without those fields, the case is hard to reproduce and easy to misinterpret.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Mutation search works because many failures are local in prompt space and system-boundary space. A model that refuses a direct request may fail when the request is split, embedded in a retrieved document, translated, wrapped in a tool workflow, or attached to a weaker instruction hierarchy.',
+        'It also works because the search can spend compute where humans have already found weak signals. Seeds encode expert intuition. Mutation operators explore neighborhoods around those seeds. Dedupe and scoring keep the system focused on unique severe risk rather than endless variants.',
+        'Regression promotion is what makes the work compound. A discovered failure family should become a release gate. Future model, policy, retrieval, and tool changes should have to prove they did not reopen the same boundary.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The costs are query budget, scorer maintenance, triage time, storage, and reviewer attention. A broad mutation search can be expensive, especially when it runs against tool-using agents with retrieval and external side effects. Safe sandboxes and trace capture are mandatory.',
+        'There is also a realism tradeoff. More exotic mutations can find surprising gaps, but they may not represent plausible product use. More realistic cases are easier to prioritize, but they may miss emerging attacks. A healthy queue includes both boundary realism and exploratory pressure.',
+        'Scorer drift is another cost. If the judge changes, old severity scores may not be comparable. The ledger should record judge version and rerun important cases when policies or scorers change.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern is strongest for AI products with tools, retrieval, memory, file access, code execution, policy enforcement, or multiple instruction sources. Those products have real boundaries that prompt mutations can probe.',
+        'It is useful for release gates, red-team campaigns, guardrail regression suites, policy migration, model upgrades, and incident follow-up. A corrective-action ledger can feed new seeds into mutation search so real incidents expand future eval coverage.',
+        'It also helps compare defenses. If a fix only blocks one exact prompt but not its family, the mutation graph will show nearby failures still surviving. That is more useful than a single pass/fail demo.',
       ],
     },
     {
       heading: 'Failure modes',
       paragraphs: [
-        'Automated jailbreak search can optimize for judge quirks, generate unrealistic prompts, or flood teams with duplicates. It can also miss real incidents if it never touches tools, retrieval, output handling, or permissions.',
+        'Automated jailbreak search can optimize for judge quirks, generate unrealistic prompts, or flood teams with duplicates. It can also miss real incidents if it never touches tools, retrieval, output handling, permissions, or the product surfaces where users actually interact.',
         'Do not let the mutation engine become the metric. The metric is unique severe failure families found, fixed, and kept in regression. Search is a way to populate a safety queue, not a safety program by itself.',
+        'Another failure is unsafe execution. Red-team automation should run in a sandbox with fake secrets, scoped tools, rate limits, and trace review. The search should never be allowed to create the harm it is supposed to detect.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
-        'Primary sources: OWASP LLM01 Prompt Injection at https://genai.owasp.org/llmrisk/llm01-prompt-injection/, MITRE ATLAS at https://atlas.mitre.org/, NCSC prompt injection guidance at https://www.ncsc.gov.uk/blog-post/prompt-injection-is-not-sql-injection, NIST AI RMF Playbook at https://airc.nist.gov/airmf-resources/playbook/, and Google SAIF at https://saif.google/.',
-        'Study next: LLM Red-Team Attack Taxonomy Queue Case Study, AI Safety Eval Slice Risk Register Case Study, LLM Guardrail Policy Engine, Capability Security & Attenuation, Prompt Injection Threat Model, and Evolutionary Search.',
+        'Primary sources: OWASP LLM01 Prompt Injection at https://genai.owasp.org/llmrisk/llm01-prompt-injection/, MITRE ATLAS at https://atlas.mitre.org/, NCSC prompt injection guidance at https://www.ncsc.gov.uk/blog-post/prompt-injection-is-not-sql-injection, NIST AI RMF Playbook at https://airc.nist.gov/airmf-resources/playbook/, and Google SAIF at https://saif.google/. Study LLM Red-Team Attack Taxonomy Queue Case Study, AI Safety Eval Slice Risk Register Case Study, LLM Guardrail Policy Engine, Capability Security & Attenuation, Prompt Injection Threat Model, and Evolutionary Search next.',
       ],
     },
   ],

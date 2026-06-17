@@ -214,35 +214,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A heavy-hitter summary is a streaming data structure for finding the keys that dominate a huge stream. The stream might contain IP flows, search queries, product IDs, log messages, or model features. Tracking every distinct key exactly can be too expensive, so the summary keeps a small table of candidate frequent keys.',
-        'Space-Saving is a representative algorithm. If an incoming key is already in the table, increment its counter. If there is room, add it. If the table is full, replace the current minimum counter with the new key and record the inherited error. This produces candidate top-k keys with bounded uncertainty.',
+        'Operators often need the keys that dominate a stream, not just an estimate for a key they already know. The stream may contain IP flows, queries, product ids, log messages, or model features. Tracking every distinct key exactly can be too expensive, so heavy-hitter summaries keep a small table of likely frequent keys.',
+        'The question is different from ordinary counting. A database can count one product if you name the product. A stream operator may not know which product, endpoint, customer, or error code deserves attention yet. It needs discovery under memory pressure. Heavy-hitter algorithms answer that discovery question: which identities are large enough that the system should spend scarce exact memory or human attention on them?',
+        'This matters most when the stream is too fast or too distributed for a full histogram. A router cannot keep an exact counter for every source-destination pair forever. An observability pipeline cannot promote every log line to a top-level dashboard. A feature monitor cannot store every token or category in a model input. The summary is a triage layer that keeps likely elephants visible while letting one-off mice pass through.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first attempt is an exact frequency map and a top-k heap. It is correct but grows with distinct keys. A Count-Min Sketch bounds memory, but it answers "what is the estimate for this key?" It does not discover all key identities by itself.',
+        'The exact map also has an operational problem: it treats every new key as equally deserving. In a hostile or simply high-cardinality stream, rare keys can force the table to grow without bound. Sampling helps estimate aggregate behavior, but it can miss bursty keys and gives weaker identity guarantees. A pure sketch compresses counts, but the key names have to come from somewhere. Space-Saving exists in the middle: it spends memory on identities, but only on the identities currently strong enough to compete for a slot.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The structure must spend memory on identities, but only for candidates worth remembering. Rare keys should not permanently occupy slots. True heavy keys must survive the churn long enough to become visible.',
+        'The hard case is not a stream with one obvious giant. The hard case is a stream with bursts, churn, and many almost-heavy keys. A new key might be the start of a real incident, or it might be a single request from a long tail. The summary has to make that decision online, before seeing the future, while keeping enough error information to avoid pretending its approximate counts are exact.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Space-Saving keeps candidate identities and counters. If a key is present, increment it. If there is free space, add it. If the table is full, replace the current minimum counter with the new key and remember the inherited error. Rare keys fight over the minimum slot; real elephants keep returning.',
+        'The inherited error is the part that makes the replacement rule honest. When a new key takes over a slot with count 7, the algorithm cannot know whether the new key has appeared once or several times before while it was not tracked. It stores the new counter as 8 and records error up to 7. The reported count is an upper estimate; the true count is at least count minus error. That interval is what lets downstream systems rank candidates without turning approximation into false certainty.',
+      ],
+    },
+    {
+      heading: 'Reading the visualization',
+      paragraphs: [
+        'In the Space-Saving view, watch the minimum slot. That slot is the structure saying, "this is the weakest candidate I am currently willing to remember." A new unknown key can replace it, but the inherited error records how much of the new count may belong to older occupants.',
+        'In the sketch-comparison view, separate two questions that are often confused. Count-Min estimates a named key. Space-Saving keeps candidate key identities. HyperLogLog estimates distinct count. These are different summaries for different questions.',
+        'The useful reading habit is to separate table membership from truth. A key in the table is a candidate, not a certificate. A key outside the table is not necessarily absent; it is only not strong enough to be retained under the current memory budget. The summary is designed to make the strongest candidates hard to lose, not to preserve a complete stream history.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The intuition is that rare keys fight over the minimum slot and evict one another. A true elephant key keeps returning, pushes its counter up, and becomes hard to evict. Misra-Gries uses a related counter-decrement idea to guarantee that any item above a frequency threshold remains in the candidate set. Space-Saving is tuned toward top-k and frequent-element reporting with tight error tracking.',
-        'This is different from Count-Min Sketch. Count-Min estimates the frequency of a key you name, but it cannot list all keys by itself. Heavy-hitter summaries carry candidate keys, making them natural for dashboards and alerts that ask "what changed?" or "who is dominating?" Count Sketch and Conservative Count-Min are point-estimate variants; Space-Saving is a candidate-retention structure.',
+        'Each update touches the candidate table. The minimum counter represents the cheapest slot to evict. When a new key replaces it, the algorithm records that the new count may include error inherited from the evicted counter. Misra-Gries uses a related counter-decrement idea for threshold guarantees; Space-Saving is tuned toward top-k reporting.',
+        'A practical implementation also needs a way to find the minimum quickly. Small tables can scan. Larger summaries use buckets, heaps, or linked groups by count. That engineering detail matters because heavy-hitter summaries are usually on the hot ingest path.',
+        'The table is usually backed by two indexes: a hash map from key to slot for fast increments, and a minimum-tracking structure for eviction. The hash map answers "is this key already tracked?" The minimum structure answers "which tracked key is weakest right now?" A tiny summary can scan the slots because the constant is small. A large per-service or per-tenant summary usually needs a heap, bucketed counters, or a linked list of count groups to keep update latency predictable.',
+        'Merging summaries is more delicate than updating one stream. If two shards keep Space-Saving tables with the same capacity, combining their candidates is not as simple as concatenating the rows and sorting. The missing mass in each shard matters. Production systems either merge through a known algorithm with compatible parameters, feed shard outputs into a second-level summary with clear error accounting, or run exact verification over the small candidate union when accuracy matters.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Update cost can be constant or logarithmic depending on how the minimum counter is maintained. Memory is proportional to the number of counters, not the number of distinct keys. The cost is approximation: counts have error bounds, candidate sets can contain false positives near the threshold, and flat streams with no clear heavy keys are harder to summarize usefully.',
+        'A key above the heavy threshold appears too often to be lost forever among rare keys. Even if it is evicted early, repeated arrivals bring it back and raise its counter. Error bookkeeping tells how much of a reported count could have been inherited from earlier occupants.',
+        'The useful mental model is churn versus persistence. Rare keys churn through the minimum. A true heavy key persists because it receives enough events to keep its counter above the replacement frontier.',
+        'The guarantee depends on capacity. With k counters, the algorithm is strongest for keys whose frequency is large compared with total stream mass divided by k. If a key is far above that frontier, it will keep returning and eventually stay. If many keys cluster right around the frontier, the summary may report several plausible candidates with overlapping error intervals. That is not a bug; it is the information-theoretic limit showing through the interface.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Metwally, Agrawal, and El Abbadi proposed Space-Saving for frequent and top-k elements in data streams. Misra and Gries established the classic frequent-items summary. HeavyKeeper and later variants target top-k elephant flows in network telemetry using different replacement and decay strategies. Hierarchical Heavy Hitters lift the same question from individual keys to prefixes, while Elastic Sketch splits elephant and mice flows for high-speed traffic measurement. These structures sit behind DDoS detection, trend detection, approximate observability dashboards, and telemetry triage.',
+        'Memory is proportional to retained counters, not distinct keys. Update cost is constant or logarithmic depending on how the minimum is maintained. The cost is approximation: candidates near the threshold can be false positives, and a flat stream with no clear elephants is hard to summarize usefully.',
+        'The main sizing knob is the number of counters. More counters lower the replacement frontier, preserve more near-heavy candidates, and narrow the practical error range, but they also increase memory and cache pressure. Very small tables are useful for teaching and coarse incident signals. Customer-facing analytics, billing-adjacent dashboards, and security investigations usually need either larger summaries or an exact follow-up pass over candidate keys.',
+        'Latency behavior matters because the update path often sits inside ingestion. A structure with excellent asymptotic bounds can still be a bad choice if it allocates memory, locks shared state, or performs heap repairs on every packet at line rate. Many real systems shard the summary by worker, keep per-core tables, and merge periodically rather than forcing every event through one contended counter table.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins',
       paragraphs: [
-        'Approximate candidates are not exact truth. Use heavy-hitter summaries to route attention, trigger investigation, or choose a small set for exact verification. Do not use the raw summary count for billing, deletion, permissions, or legal reporting. Also keep parameters aligned before merging summaries; different table sizes, hash choices, or decay settings can make merged results meaningless.',
+        'It fits dashboards and alerts that ask "what changed?" or "who is dominating?" Space-Saving and related summaries appear behind DDoS detection, trend detection, observability triage, top-k search terms, and feature monitoring. Hierarchical Heavy Hitters lift the answer to prefixes; Elastic Sketch splits elephant and mice flows.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Approximate candidates are not exact truth. Use them to route attention or choose a small exact-verification set. Do not use raw summary counts for billing, deletion, permissions, or legal reporting. Keep merge parameters aligned; different table sizes or decay rules can make combined results meaningless.',
+        'It also fails when the stream is intentionally flat. If every key has nearly the same frequency, no small table can confidently name dominant keys because there are no real dominant keys. In that case uncertainty is the correct result.',
+        'A third failure mode is unversioned identity logic. If one service hashes raw URLs, another normalizes query strings, and a third lowercases paths, their heavy-hitter summaries are not measuring the same key space. The algorithm can be correct and the metric still be wrong. The key definition, normalization rules, time window, decay policy, and counter capacity need to travel with the summary.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose the table has three slots: login=42, search=18, bot=7. A new key api arrives. Because the table is full, Space-Saving replaces bot, the current minimum, and stores api with count 8 and error at most 7. The count says api has appeared enough to deserve attention now; the error says the first 7 units could be inherited noise.',
+        'If api keeps arriving, it survives and its counter rises. If it was a one-off, another new key will eventually evict it from the minimum frontier. The table is therefore a competition among candidates, not a full histogram.',
+        'Now imagine login jumps from 42 to 400 during a release. Space-Saving will not need to rediscover it on every event because login is already present and increments in place. That is why the algorithm is useful for alerts: persistent heavy keys quickly separate from churn. The dashboard should still show the count as approximate unless it performs an exact readback for the candidate.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Start by writing down the question. If the product asks for top URLs per minute, use a time-windowed summary and normalize URLs before hashing. If the product asks for top customers by spend, do not use an approximate stream table as the accounting source; use it to propose candidates and verify them against the ledger. Heavy-hitter summaries are good at narrowing attention, not at replacing records of truth.',
+        'Choose the table size from the smallest frequency you need to notice. A table of 100 counters cannot reliably distinguish hundreds of keys that all sit near one percent of the stream. If you need tenant-level fairness, keep separate summaries per tenant or budget counters by tenant, otherwise one large tenant can consume all slots and hide smaller but important spikes elsewhere.',
+        'Emit error bounds or at least expose enough metadata for downstream code to understand uncertainty. The inherited error field, total events processed, window start and end, key normalization version, and algorithm parameters should be part of the serialized summary. Without that metadata, old summaries become hard to compare, merge, or debug.',
       ],
     },
     {

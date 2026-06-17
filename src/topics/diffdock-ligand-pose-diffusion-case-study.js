@@ -210,11 +210,106 @@ export const article = {
     { title: 'DiffDock code and examples', url: 'https://github.com/gcorso/DiffDock' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['DiffDock is a molecular docking method that frames ligand pose prediction as diffusion over pose variables. The model samples how a small molecule could sit in a protein pocket instead of returning one direct regression output.', 'This module belongs next to Diffusion Models and Graph Neural Networks: the ligand and pocket are graphs, while the generation state is translation, rotation, and torsion.'] },
-    { heading: 'Data structures', paragraphs: ['A practical docking run stores the protein pocket graph, ligand atom-bond graph, translation vector, rotation state, torsion angles, timestep, denoiser score, sampled pose, confidence estimate, and candidate rank.', 'The pose is non-Euclidean because rotation and torsion are not ordinary independent scalar coordinates. DiffDock maps docking to a product space of translation, rotation, and torsion variables so the sampler can move through valid pose states.'] },
-    { heading: 'How it works', paragraphs: ['The sampler starts from noisy pose variables and repeatedly denoises them under pocket and ligand conditioning. Translation moves the ligand center, rotation changes orientation, and torsion changes rotatable bonds.', 'A confidence model then ranks generated candidates. This matters because a generative model can produce several plausible poses, and the downstream workflow needs a ranked shortlist with provenance.'] },
-    { heading: 'Complete case study', paragraphs: ['A virtual-screening pipeline receives a protein pocket and a library of candidate ligands. For each ligand, it builds a graph, samples multiple poses, filters clashes, ranks by confidence, and preserves sample diversity before chemist review.', 'The output table records molecule ID, seed, pose variables, score, pocket contacts, route, and validation status. That table is the bridge between diffusion sampling and scientific decision-making.'] },
-    { heading: 'Pitfalls', paragraphs: ['Docking confidence is not binding truth. A plausible pose can fail because the protein conformation is wrong, water or ions matter, the chemistry is outside training distribution, or assay conditions change the system.', 'Another trap is collapsing the candidate set too early. Diversity is useful because the highest-confidence pose is not always the experimentally relevant one.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: DiffDock at https://arxiv.org/abs/2210.01776, ICLR 2023 OpenReview entry at https://openreview.net/forum?id=kKF8_K-mBbS, and DiffDock code at https://github.com/gcorso/DiffDock. Study Graph Neural Networks, Diffusion Models, Quality Diversity MAP-Elites, and Surrogate-Assisted Evolution next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Molecular docking asks how a small molecule ligand might sit inside a protein binding pocket. That pose matters because physical contact geometry affects whether a compound can bind, inhibit, activate, or fail. The output is not just a label; it is a three-dimensional hypothesis that chemists may inspect, simulate, synthesize around, or test in an assay.',
+        'The hard part is that a ligand pose has several coupled degrees of freedom. The ligand has a position in space, an orientation, and torsion angles around rotatable bonds. The protein pocket has atoms, residues, geometry, charge patterns, steric constraints, and sometimes flexible conformations. A plausible pose must satisfy geometry and chemistry at the same time.',
+        'DiffDock exists because treating docking as one-shot coordinate regression is too brittle. The ICLR 2023 paper frames docking as generative modeling over the non-Euclidean manifold of ligand poses. It maps the pose to translational, rotational, and torsional degrees of freedom and uses diffusion to sample candidate poses conditioned on the ligand and protein pocket: https://arxiv.org/abs/2210.01776.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The classic computational approach is search. Enumerate possible translations, rotations, and torsions; score each pose with a physics-inspired or learned scoring function; keep the best candidates. This is reasonable because docking is naturally a search problem. The protein pocket is a constrained space, and the ligand can be tried in many arrangements.',
+        'A modern machine-learning shortcut is direct prediction. Feed the protein and ligand to a model and ask for one pose. This is attractive because it can be fast at inference time and avoids hand-engineered search loops. If the model sees enough examples, perhaps it can learn the shape of good poses directly.',
+        'Both approaches capture something real. Search respects that multiple poses may be possible, but it can be expensive and scoring can be noisy. Regression is fast, but it can average over possibilities or commit to one fragile answer. Docking needs speed, but it also needs a candidate set, uncertainty, and a representation that respects pose geometry.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is the shape of pose space. Translation is Euclidean: move the ligand center in x, y, and z. Rotation is not just three independent numbers; orientations live on a rotation manifold. Torsion angles wrap around bonds. If a model treats all coordinates like ordinary independent scalars, it can move through invalid or unnatural states and learn the wrong geometry.',
+        'The second wall is multimodality. A protein pocket may admit several plausible orientations or torsion patterns. A single predicted pose hides that uncertainty. In virtual screening, the top pose is a decision candidate, not experimental truth. The system needs to preserve alternatives until downstream filters, chemists, simulations, or assays can resolve them.',
+        'The third wall is chemistry outside the model. A pose can look geometrically plausible and still fail because water molecules, ions, protonation states, induced fit, protein flexibility, assay conditions, or training-distribution gaps matter. A useful docking model must produce ranked hypotheses with provenance, not a false guarantee.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'DiffDock turns docking into denoising over pose variables. Instead of regressing atom coordinates in one step, it starts from noisy ligand pose variables and repeatedly moves them toward more plausible states under protein-pocket and ligand-graph conditioning. Translation decides where the ligand is. Rotation decides how it faces. Torsion decides the internal shape around rotatable bonds.',
+        'The ligand graph remains the chemical scaffold. Atoms and bonds define what can move together and which bonds can rotate. The protein pocket supplies context for contacts, sterics, and local geometry. The diffusion process searches pose space by learning how to reverse noise, not by enumerating every pose with a hand-coded scoring function.',
+        'The second insight is that the output should be a ranked sample set. DiffDock can generate multiple candidate poses and use a confidence model to rank them. That changes the data structure of docking output from "the answer" to a ledger of candidate poses, scores, contacts, seeds, torsions, and follow-up decisions.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A docking run starts by building structured inputs. The ligand becomes an atom-bond graph with rotatable bonds identified. The protein is represented through pocket context, usually focused around the binding site rather than the entire macromolecule. The model must reason over relative geometry, so equivariant geometric learning is a natural fit.',
+        'The pose state is split into translation, rotation, and torsion. Translation moves the ligand center. Rotation changes the ligand orientation as a rigid body. Torsion angles rotate parts of the ligand around selected bonds while preserving the molecular graph. This factorization lets the sampler move on the pose manifold instead of treating every atom coordinate as unrelated.',
+        'During noising, a known pose can be perturbed through these degrees of freedom. During denoising, the model learns a score or update direction that moves noisy states back toward plausible binding poses. At inference time, the sampler begins from random or noisy pose variables near the pocket and iteratively denoises them.',
+        'The result is not a single deterministic pose. A run can sample several candidates by using different random seeds or sampling paths. Each candidate records translation, rotation, torsions, atom coordinates implied by those variables, model confidence, and often additional chemistry checks such as clashes or pocket contacts.',
+        'A confidence head ranks candidates. This matters because denoising can produce multiple plausible poses, and the downstream workflow cannot inspect every sample from every molecule in a large screen. Ranking turns a generative sampler into a triage system: keep the best candidates, preserve useful diversity, reject obvious clashes, and route uncertain cases to more expensive review.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The method works as a modeling strategy because it matches the structure of the problem. Docking is not a flat table prediction. The valid moves are constrained by rigid-body motion, bond rotations, and the ligand graph. By modeling translation, rotation, and torsion directly, the sampler follows the variables that chemists and docking engines already care about.',
+        'Diffusion helps because it can represent a distribution over answers. Denoising from noise to pose gives the model many small correction steps instead of one brittle jump. Multiple samples can land in different basins of plausible pose space, which is useful when the pocket supports more than one orientation or when the model is uncertain.',
+        'The ligand graph provides a conservation rule. Torsion changes internal angles, but it does not invent new atoms or break ordinary bonds. The pocket context provides a conditioning rule. A pose is judged relative to the protein site, not as a molecule floating in empty space.',
+        'The confidence model does not prove binding. It gives a learned estimate of which sampled poses are more likely to be useful. The right mental model is ranked hypothesis generation. A high-confidence pose is a stronger candidate for downstream work, not a replacement for experimental validation.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine a virtual-screening team with one protein pocket and a library of candidate ligands. For each ligand, the pipeline builds the ligand graph, identifies rotatable bonds, extracts or supplies pocket context, and runs the sampler to produce several candidate poses.',
+        'Candidate 1 may place the ligand near the pocket but orient a hydrogen-bond donor away from the relevant residue. Candidate 2 may align the donor and acceptor pattern better but introduce a steric clash. Candidate 3 may have lower confidence but preserve a distinct torsion pattern that a chemist wants to inspect. The useful output is the table that keeps these differences visible.',
+        'The candidate ledger should store molecule ID, protein target, pocket definition, random seed, translation, rotation, torsions, generated coordinates, confidence, clash checks, contact summaries, diversity cluster, and route. The route might be inspect, reject, resample, run a slower docking or simulation method, or send to assay planning.',
+        'If the team collapses everything to the top confidence pose, it may lose a chemically interesting alternative. If it keeps every pose, it overloads review. The practical algorithm is sampling plus ranking plus diversity control. DiffDock supplies the generative pose proposals and confidence estimates; the pipeline still needs chemistry gates and decision policy.',
+      ],
+    },
+    {
+      heading: 'Animation focus',
+      paragraphs: [
+        'The pose-manifold view separates the state variables. Translation answers where the ligand center is. Rotation answers how the ligand faces the pocket. Torsion answers which internal shape the ligand has. The ligand graph and pocket context explain why those variables cannot be treated as unrelated numbers.',
+        'The denoising frames show the ligand moving from a noisy arrangement toward better pocket contacts. The important detail is that the graph remains chemically meaningful while pose variables change. The model is not dragging independent atoms through space; it is adjusting a structured ligand pose.',
+        'The ranked-samples view shows the output as a decision table. Confidence, contact checks, route, and candidate diversity are part of the algorithmic product. A docking model that returns only one coordinate set hides the uncertainty that virtual screening teams need to manage.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The main runtime cost is sampling. If the pipeline generates K poses for each ligand and uses S denoising steps per pose, inference cost grows with K times S times model cost. Reducing samples or steps improves throughput but may reduce diversity or accuracy. Large screens need batching, GPU utilization, and clear triage thresholds.',
+        'The memory cost includes protein and ligand graphs, intermediate geometric features, pose variables, and candidate ledgers. For a single ligand this may be modest. For a virtual screen over thousands or millions of molecules, storing every candidate with full provenance becomes a real data-management problem.',
+        'The accuracy tradeoff is between speed and physical detail. DiffDock can be much faster than exhaustive traditional search, but learned confidence is not a binding free-energy calculation. A pose may need slower follow-up methods, expert review, or experimental validation before it becomes a drug-discovery decision.',
+        'There is also a representation tradeoff. A fixed or supplied protein pocket simplifies the problem. Real proteins move. Binding can depend on induced fit, allosteric states, water networks, cofactors, metals, protonation, tautomers, and experimental conditions. Those factors can dominate the final outcome even when the sampled pose looks good.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'DiffDock is strongest when a team needs fast candidate pose generation for many protein-ligand pairs. Virtual screening, hit triage, pose hypothesis generation, and early-stage medicinal chemistry can benefit from a model that produces ranked pose candidates quickly.',
+        'It also wins when single-pose regression is too brittle. Sampling preserves alternatives, and confidence ranking gives the pipeline a way to choose which alternatives deserve attention. This is especially useful when the model is used as a front-end filter before slower computation or human review.',
+        'The method is a good educational example because it connects graph neural networks, diffusion models, non-Euclidean state spaces, candidate ranking, and scientific decision ledgers. It shows that the data structure around a model output can be as important as the model score itself.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'DiffDock can fail when the pocket conformation is wrong. If the supplied protein structure does not represent the binding-ready state, the sampler may place the ligand well in the wrong pocket geometry. Computationally predicted protein structures can be useful, but uncertainty in the pocket can propagate directly into docking errors.',
+        'It can fail when chemistry is outside the training distribution. Unusual ligands, metal coordination, covalent binding, rare protonation states, explicit solvent effects, and cofactors may not be handled by a learned pose model unless the training and preprocessing pipeline support them.',
+        'It can fail through misranking. A generated pose may be plausible, but the confidence head may prefer a visually clean pose that is not experimentally relevant. Conversely, a lower-confidence diverse pose may be worth preserving. The candidate ledger should support review instead of hiding everything behind one scalar.',
+        'It can fail operationally when a screening pipeline treats model output as ground truth. Docking is a hypothesis generator. The right downstream question is not "did the model say yes?" but "which candidates are strong enough, diverse enough, and cheap enough to justify the next validation step?"',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Diffusion Models for the denoising objective, Graph Neural Networks for ligand and pocket representation, Quality Diversity MAP-Elites for preserving useful candidate diversity, Surrogate-Assisted Evolution for learned screening loops, and Molecular Dynamics or binding free-energy methods for slower physical validation.',
+        'Primary sources are the DiffDock arXiv paper at https://arxiv.org/abs/2210.01776, the ICLR 2023 OpenReview entry at https://openreview.net/forum?id=kKF8_K-mBbS, and the implementation repository at https://github.com/gcorso/DiffDock. Read them with the article question in mind: how does the system represent pose, how does it sample alternatives, and how does it rank uncertainty for downstream decisions?',
+      ],
+    },
   ],
 };

@@ -253,38 +253,111 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A financial contract lifecycle event model defines what "execution" means for a contract-heavy domain. It represents terms, parties, lifecycle events, obligations, schedules, settlement evidence, policy decisions, and audit records as one event-sourced state machine.',
-        'The CWM source notes warn that legal contracts first have to define execution because they are not deterministic code. Financial contracts are a useful bridge case: many lifecycle events can be formalized, but the system still needs policy gates and human review for ambiguous transitions.',
+        'Contracts do not execute like Python functions. They create obligations over time, depend on reference data, require consent, and sometimes need human judgment. If an AI system is going to reason over them, the domain first needs to define what a valid state transition is.',
+        'A financial contract lifecycle event model exists to make that execution state explicit. It represents terms, parties, lifecycle events, obligations, schedules, settlement evidence, policy decisions, and audit records as one event-sourced state machine.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The naive approach is to summarize the contract and ask a model what should happen next. That produces plausible prose, but it does not create replayable state, proof, or a reliable training signal.',
+        'Another naive approach is to store lifecycle events as loosely typed logs. Without pre-state, post-state, verifier, and source evidence, the log is hard to audit and hard to learn from.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is ambiguity plus accountability. A coupon payment, amendment, closeout, or settlement can depend on product terms, calendars, rates, party consent, legal events, and external evidence. A model answer without those facts is not execution.',
+        'The system also has to preserve review. Ambiguous events are not failures to hide. They are states that should route to a person with the evidence needed to decide.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Make every lifecycle event a typed state transition. A proposed event consumes current state, applies rules and reference data, produces new state, and stores the verifier decision with source references.',
+        'This is the contract-domain equivalent of an execution trace. It says what state existed, what event happened, which rules accepted it, and what source evidence supports the new obligation state.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the contract-state-machine view, read each node as a legally or operationally meaningful state, not as a generic workflow box. A transition is valid only if the event, current state, terms, party authority, and reference data all support the move.",
+        "In the oracle-and-policy view, follow the evidence chain. The system should be able to say which source document, market fixing, party instruction, policy rule, or settlement record justified a decision. If that evidence is missing, the correct transition may be review rather than approval or rejection.",
+        "The animation is teaching execution grounding. A model's prose answer is not enough. The useful artifact is a replayable lifecycle trace: pre-state, event, checks, evidence, post-state, and reviewer handoff when needed.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A floating-rate note reaches a coupon date. The proposed event says party A owes party B a coupon amount. A lifecycle engine reads the contract terms, notional, day-count convention, payment calendar, rate source, fixing date, spread, and settlement instructions. It computes the expected amount and compares that with the proposed event.',
+        'If the fixing is missing, the event should not silently invent a rate. If the amount is off by a rounding tolerance, the event may need policy handling. If an amendment changed the spread but lacks party consent evidence, the transition should route to review. These outcomes are not model failures; they are explicit lifecycle states.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A proposed event consumes current state and produces new state. Execution creates a trade. Confirmation validates party agreement. Scheduled events create cash or asset obligations. Amendments change terms. Settlement closes obligations. Defaults and closeouts create claims. Every transition stores the input, pre-state, post-state, oracle decision, and source references.',
-        'FINOS describes the Common Domain Model as a standardized, machine-readable, machine-executable model for financial products, trades, and lifecycle events: https://www.finos.org/common-domain-model and https://cdm.finos.org/docs/event-model/. ISDA describes CDM as a standardized data and process model for the transaction lifecycle: https://www.isda.org/isda-solutions-infohub/cdm/.',
+        'Execution creates a trade. Confirmation validates party agreement. Scheduled events create cash or asset obligations. Amendments change terms. Settlement closes obligations. Defaults and closeouts create claims. Every transition stores input, pre-state, post-state, oracle decision, and source references.',
+        'The oracle is layered. Schema checks catch malformed events. State checks catch impossible ordering. Policy checks decide whether the event is allowed under rules and reference data. Source checks verify evidence. Human review handles ambiguity.',
       ],
     },
     {
-      heading: 'Policy and review',
+      heading: 'Why it works',
       paragraphs: [
-        'The oracle is layered. Schema checks catch malformed events. State checks catch impossible ordering. Policy checks decide whether the event is allowed under rules and reference data. Source checks verify evidence. Human review handles ambiguity. OPA is a natural policy reference because it evaluates structured input against policy and data to produce decisions: https://openpolicyagent.org/docs and https://openpolicyagent.org/docs/policy-language.',
-        'Temporal Workflow is a useful execution analogy. Temporal records event history and replays it deterministically to reconstruct workflow state rather than restoring snapshots: https://docs.temporal.io/workflows and https://docs.temporal.io/encyclopedia/event-history/. Contract lifecycle traces need the same replay discipline, but with legal, market, and policy facts in the state.',
+        'It works because many financial lifecycle events are structured enough to be replayed. If the terms, schedule, market fixings, party roles, and policy rules are explicit, the system can reconstruct why an obligation exists or why it closed.',
+        'The event log becomes the training object. A model can learn process semantics from verified trajectories instead of ungrounded contract summaries.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost is modeling discipline. A useful lifecycle model needs typed events, versioned terms, reliable reference data, party authority, policy rules, evidence links, review states, and audit trails.',
+        'It also needs change control. Contract templates, policy rules, and market conventions evolve. If old events are replayed under new rules without versioning, the trace stops being trustworthy.',
+      ],
+    },
+    {
+      heading: 'Why it works for curriculum design',
+      paragraphs: [
+        'This is also a curriculum pattern. Instead of teaching contracts as static documents, teach them as state machines whose transitions require evidence. Students can start with simple obligations, then add schedules, amendments, external rates, settlement, default, closeout, and human review.',
+        'That sequence builds from data structures to domain judgment. The learner first sees why a log needs typed events and replay. Then they see why finance adds authority, policy, market data, legal ambiguity, and audit. The result is not just "AI for contracts"; it is a concrete way to make a legal-financial process executable enough to inspect.',
+      ],
+    },
+    {
+      heading: 'Data model shape',
+      paragraphs: [
+        'A useful event record needs more than `type` and `description`. It should include event id, contract id, party ids, event time, effective time, actor, authority source, pre-state hash, post-state hash, rule version, evidence references, verifier result, reviewer status, and any generated obligations. Those fields make replay, audit, and model evaluation possible.',
+        'The pre-state and post-state hashes matter because they make hidden mutation visible. The rule version matters because old events must remain explainable after policy changes. Evidence references matter because a financial lifecycle engine is not a creative writing system. It must connect each transition to contract terms, market data, settlement evidence, or human approval.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This model wins in domains where events are formal enough to validate but still require evidence: derivatives lifecycle, loans, subscriptions, insurance claims, settlement workflows, and regulated approval processes.',
+        'It is especially useful for AI evaluation because it creates objective and semi-objective verifier targets: valid, invalid, needs review, missing evidence, or policy conflict.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when natural-language contract text is treated as already executable. It also fails when lifecycle summaries lack pre-state, post-state, verifier, and evidence.',
+        'Do not hide human review as failure. Review is a valid transition in ambiguous domains. Do not use one horizontal verifier for every vertical domain.',
+        'It also fails when teams confuse schema compliance with truth. A perfectly shaped event can still use the wrong rate, wrong party, wrong calendar, or wrong amendment version. The model must connect structure to authoritative evidence or it becomes a neat ledger of unsupported claims.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'A rate-swap coupon payment is proposed. The lifecycle trace reads product terms, payment schedule, rate fixing, day-count convention, party roles, and settlement account. The oracle checks that the due date is active, the rate source is valid, the formula produces the claimed amount, and settlement evidence exists. If all checks pass, the event appends to the log and the obligation closes. If the rate source is missing or the amendment consent is unclear, the event routes to review with evidence.',
-        'That trace is the contract-domain equivalent of a code execution trace. It does not just say "paid." It says what state existed, what event happened, which rules accepted it, and what source evidence supports the new obligation state.',
+        'A rate-swap coupon payment is proposed. The lifecycle trace reads product terms, payment schedule, rate fixing, day-count convention, party roles, and settlement account. The oracle checks that the due date is active, the rate source is valid, the formula produces the claimed amount, and settlement evidence exists.',
+        'If all checks pass, the event appends to the log and the obligation closes. If the rate source is missing or amendment consent is unclear, the event routes to review with evidence.',
+        'The same pattern covers amendments. A proposed amendment consumes current terms, party authority, consent evidence, effective date, and policy rules. If accepted, future scheduled events use the new versioned terms. If rejected or routed to review, the old terms remain active. The engine never quietly edits history; it appends a transition that explains why the contract state changed.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Study next',
       paragraphs: [
-        'Do not pretend natural-language contract text is already an executable trace. Do not train on lifecycle summaries without pre-state, post-state, verifier, and evidence. Do not hide human review as failure; review is a valid transition in ambiguous domains. Do not use one horizontal verifier for every vertical domain.',
-        'Primary sources: FINOS CDM at https://www.finos.org/common-domain-model, CDM event model at https://cdm.finos.org/docs/event-model/, ISDA CDM at https://www.isda.org/isda-solutions-infohub/cdm/, OPA docs at https://openpolicyagent.org/docs, and Temporal Workflow docs at https://docs.temporal.io/workflows. Study Code World Models Case Study, Execution Trace State Diff Case Study, Temporal Workflow Case Study, Saga Pattern, Claim Graph & Source Ledger, OPA Rego Policy Decision Graph, and Double-Entry Payment Ledger Execution Trace next.',
+        'Primary sources: FINOS CDM at https://www.finos.org/common-domain-model, CDM event model at https://cdm.finos.org/docs/event-model/, ISDA CDM at https://www.isda.org/isda-solutions-infohub/cdm/, OPA docs at https://openpolicyagent.org/docs, and Temporal Workflow docs at https://docs.temporal.io/workflows.',
+        'Study Code World Models Case Study, Execution Trace State Diff Case Study, Temporal Workflow Case Study, Saga Pattern, Claim Graph & Source Ledger, OPA Rego Policy Decision Graph, and Double-Entry Payment Ledger Execution Trace next.',
       ],
     },
   ],

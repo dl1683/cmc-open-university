@@ -189,42 +189,111 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Crossplane extends Kubernetes into an infrastructure control plane. Platform teams define custom composite APIs, map them to managed resources through Compositions, and let provider controllers reconcile external cloud resources. The data-structure lesson is a resource graph: claim, composite resource, XRD, Composition, composed managed resources, provider, status, and connection secrets.',
-        'Primary sources: Crossplane composite resources docs at https://docs.crossplane.io/latest/composition/composite-resources/, Crossplane claims docs at https://docs.crossplane.io/v1.20/concepts/claims/, and Crossplane composition docs at https://docs.crossplane.io/latest/composition/compositions/.',
+        'Application teams often need infrastructure without wanting every cloud-provider knob. Platform teams want to expose a stable product API while still owning networks, databases, policies, secrets, quotas, and lifecycle rules.',
+        'Crossplane exists to turn Kubernetes into an infrastructure control plane. It lets platform teams define composite APIs, map those APIs to managed resources through Compositions, and let provider controllers reconcile external cloud resources.',
       ],
     },
     {
-      heading: 'Composition graph',
+      heading: 'The obvious approach',
       paragraphs: [
-        'An XRD defines the custom API. An XR is an instance of that API. A namespaced claim can request an XR from an application namespace. A Composition tells Crossplane how to produce composed resources, often managed resources controlled by cloud providers. References and patches connect the graph.',
-        'This is Kubernetes Reconciliation Case Study applied to infrastructure products. The desired state is not just a Pod or Service; it may be a database, network, policy, bucket, secret, and status bundle presented as one platform API.',
+        'The obvious approach is to give application teams Terraform modules, cloud console access, or raw provider APIs. That can work early, but every app team now has to understand provider details, dependency ordering, naming, status, and deletion.',
+        'Another naive approach is to hide everything behind a thin internal service. That gives a friendly API, but often loses Kubernetes-native reconciliation, status, ownership metadata, and composable policy.',
       ],
     },
     {
-      heading: 'Readiness and references',
+      heading: 'The wall',
       paragraphs: [
-        'Crossplane resources report conditions such as Synced and Ready. Synced means the controller could reconcile. Ready means the resource is considered usable. A resource can be synced but not ready while a cloud database is still provisioning or a dependency is missing.',
-        'Connection details and references are part of the contract. A composed database may write a connection secret. A network resource may expose IDs that downstream resources need. The graph should make those dependencies explicit rather than hiding them in naming conventions.',
+        'Infrastructure is a graph, not a single object. A production database may need a network, subnet group, IAM role, parameter group, backup policy, monitoring hook, connection secret, and deletion rule. If those dependencies are hidden in scripts, users see failures late and operators debug by archaeology.',
+        'The second wall is API evolution. A platform API must stay stable for app teams while the implementation changes underneath. Composition changes are product changes, not private refactors.',
       ],
     },
     {
-      heading: 'Complete case study: platform database',
+      heading: 'The core insight',
       paragraphs: [
-        'An application team creates a ProductionPostgres claim with size, region, retention, and owner fields. Crossplane creates an XR, selects a Composition, produces a network, subnet group, database instance, IAM policy, monitoring resource, and connection secret, then reports readiness. The application team sees one stable API while the platform team controls the implementation graph.',
-        'The platform can later change the composition to add backups or observability, but it must preserve compatibility for existing claims. Composition versioning is API evolution, not a private refactor.',
+        'Model the platform product as a resource graph. A claim or composite resource captures user intent. An XRD defines the API. A Composition describes how intent becomes managed resources. Provider controllers reconcile those managed resources against external APIs.',
+        'That graph gives each piece a role: intent, schema, implementation template, child resources, external provider state, readiness, references, and connection details.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Crossplane is not a magic abstraction over every cloud problem. Provider APIs still fail, quota still matters, deletion still needs finalizers, and external drift can occur. A leaky composition that exposes every provider knob stops being a platform API. A vague composition that hides status and ownership becomes hard to debug.',
+        "In the composition-graph view, follow intent downward. The claim is the product request, the composite resource is the platform API instance, the Composition is the implementation recipe, and the managed resources are the cloud-provider objects being reconciled.",
+        "In the claim-reconcile view, read status upward. Provider controllers observe external resources, Crossplane writes conditions and connection details, and the claim becomes useful only when the graph reports enough readiness for the platform contract.",
+        "The highlighted references are the important data structure. Infrastructure is not a list of YAML files; it is a dependency graph with ownership, readiness, secrets, finalizers, and external state attached to nodes.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A team requests `ProductionPostgres` with size `medium`, region `us-east`, retention `30d`, and owner `payments`. The XRD defines those fields as the stable product API. The Composition turns that intent into a network attachment, database instance, parameter group, backup policy, monitoring rule, and connection secret. Provider controllers then reconcile each managed resource with the external cloud API.',
+        'If the database instance is created but the secret is not ready, the graph is not fully ready. If the backup policy fails because of quota, the claim should surface a useful condition rather than leave the user staring at a pending object. The composed graph is valuable only if failure states travel back to the product API.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'An XRD defines the custom API. An XR is an instance of that API. A namespaced claim can request an XR from an application namespace. A Composition tells Crossplane how to produce composed resources, often managed resources controlled by cloud providers.',
+        'Composition functions and patches map fields, generate names, wire references, and write status back. Provider controllers reconcile managed resources with cloud APIs. Conditions such as Synced and Ready report whether reconciliation ran and whether the resource is usable.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The design works because it separates intent from implementation. App teams ask for a product-level resource. Platform teams own the graph that fulfills it, including provider-specific choices and policy.',
+        'It also works because reconciliation is continuous. Desired state, observed state, readiness, references, and connection details can keep converging instead of depending on one successful provisioning script.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Crossplane does not remove cloud complexity. Provider APIs still fail, quota still matters, finalizers still matter, and external drift can occur. A leaky composition that exposes every provider knob stops being a platform API. A vague composition that hides status and ownership becomes hard to debug.',
+        'Synced and Ready are different. Synced means the controller could reconcile. Ready means the resource is considered usable. A database can be synced while still provisioning or while a dependency is missing.',
+        'The control-plane cost includes watches, reconciliation loops, provider credentials, external API rate limits, secrets, and status propagation. The human cost is API design: deciding which fields are product promises and which are implementation details that platform teams can change later.',
+      ],
+    },
+    {
+      heading: 'API design guidance',
+      paragraphs: [
+        'A strong composite API exposes business intent: durability tier, region, size class, retention, owner, environment, deletion policy, and connection contract. It hides provider-specific sprawl unless that sprawl is truly part of the product. If every AWS, GCP, or Azure field leaks through, the platform has not created an abstraction; it has moved a cloud console into Kubernetes.',
+        'Version the API like a product. A new Composition can change implementation details, but changing required fields, readiness meaning, deletion behavior, or secret shape can break application teams. Composition revisions and migration plans matter because infrastructure objects are long-lived.',
+      ],
+    },
+    {
+      heading: 'Operational failure modes',
+      paragraphs: [
+        'The hard incidents usually happen at the graph edges. A managed resource may be ready in the provider but missing a Kubernetes reference. A secret may rotate but not propagate to consumers. A finalizer may protect deletion but leave an external resource stuck. A provider API may rate-limit reconciliation, making the Kubernetes object look slow even though the composition logic is correct.',
+        'Good platform teams design for those states explicitly. They expose conditions that name the blocked dependency, write connection details predictably, document deletion behavior, and keep enough event history to explain whether the failure is schema, composition, provider, quota, credentials, or external drift.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Crossplane is useful when platform teams want Kubernetes-native infrastructure products: databases, buckets, networks, identity bundles, observability stacks, or application environments with consistent policy and status.',
+        'It is strongest when the composite API is intentionally smaller than the provider API. The platform should expose intent, ownership, size, region, retention, and lifecycle guarantees, not every implementation knob.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when teams treat composition as copy-pasted YAML instead of API design. Bad versioning, unclear ownership, hidden dependencies, missing status, unsafe deletion, and no drift story make the abstraction worse than raw cloud resources.',
+        'It also fails when external resources are changed outside the control plane and the platform has no drift detection or reconciliation policy.',
+        'It is also a poor fit when a platform team is not ready to own the lifecycle. A claim gives users a product promise. Someone must own upgrades, provider outages, quota errors, backup verification, secret rotation, and deletion safety behind that promise.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
+      paragraphs: [
+        'An application team creates a ProductionPostgres claim with size, region, retention, and owner fields. Crossplane creates an XR, selects a Composition, produces a network, subnet group, database instance, IAM policy, monitoring resource, and connection secret, then reports readiness.',
+        'The application team sees one stable API while the platform team controls the implementation graph. Later, the platform can change the composition to add backups or observability, but it must preserve compatibility for existing claims.',
+        'That compatibility is the educational point. The graph is not just how resources are built. It is the contract between platform and application teams: what users request, what the platform owns, what status means, what failures look like, and how implementation can improve without forcing every consumer to relearn cloud-provider details.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
+        'Primary sources: Crossplane composite resources docs at https://docs.crossplane.io/latest/composition/composite-resources/, Crossplane claims docs at https://docs.crossplane.io/v1.20/concepts/claims/, and Crossplane composition docs at https://docs.crossplane.io/latest/composition/compositions/.',
         'Study Kubernetes Reconciliation Case Study, Kubernetes Informer DeltaFIFO & Workqueue, Argo CD GitOps Application Reconcile, OpenAPI Contract Schema Evolution, OPA Rego Policy Decision Graph, Feature Flag Control Plane, and Distributed Tracing next.',
       ],
     },

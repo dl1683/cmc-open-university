@@ -45,7 +45,7 @@ function* orthogonalizedMomentum() {
       ],
     }, { title: 'Muon update path for matrix-shaped hidden weights' }),
     highlight: { active: ['mom', 'ortho'], found: ['update'] },
-    explanation: 'Muon treats many hidden-layer parameters as matrices. It builds a momentum-like update, then approximately orthogonalizes that matrix before applying it. The intended effect is a balanced update across directions.',
+    explanation: 'Read the graph as a change in the unit of optimization. Adam treats parameters coordinate by coordinate; Muon treats many hidden-layer weights as matrices. It builds a momentum-like matrix update, approximately orthogonalizes it, then applies a step meant to spread motion across directions instead of letting one direction dominate.',
   };
 
   yield {
@@ -69,7 +69,7 @@ function* orthogonalizedMomentum() {
       ],
     ),
     highlight: { active: ['Muon:geometry'], compare: ['Adam:geometry', 'Lion:geometry'] },
-    explanation: 'Muon is not Adam with a new coefficient. It changes the geometry of matrix updates by pushing them toward an orthogonalized direction.',
+    explanation: 'The comparison table is the mental map. SGD follows raw velocity, Adam rescales coordinates, Lion keeps sign direction, and Muon changes the matrix geometry. It is not Adam with a new beta; it is a different preconditioning choice for matrix-shaped weights.',
     invariant: 'The optimizer is choosing a geometry for parameter motion.',
   };
 
@@ -94,7 +94,7 @@ function* orthogonalizedMomentum() {
       ],
     ),
     highlight: { found: ['hidden:choice'], compare: ['emb:choice', 'head:choice'] },
-    explanation: 'Practical Muon recipes often use it only for hidden-layer matrix weights and keep AdamW-style updates for embeddings, heads, biases, and normalization parameters.',
+    explanation: 'This table prevents the common misuse. Muon is usually aimed at hidden matrix weights where orthogonalized updates make sense. Embeddings, output heads, biases, and normalization parameters often stay on AdamW or simpler updates because their structure and failure modes are different.',
   };
 
   yield {
@@ -106,7 +106,7 @@ function* orthogonalizedMomentum() {
       ],
     }),
     highlight: { active: ['muon'], compare: ['adam'] },
-    explanation: 'The toy curve shows the claim shape: faster progress under a tuned recipe. Real Muon results are recipe- and scale-sensitive, so the correct comparison is controlled training budget plus final quality.',
+    explanation: 'The curve shows the kind of win Muon claims: faster loss reduction under a tuned recipe. The correct read is not "Muon always wins." Ask whether AdamW was equally tuned, whether extra matrix multiplications changed wall-clock cost, and whether final validation quality improved, not just early training loss.',
   };
 }
 
@@ -132,7 +132,7 @@ function* newtonSchulzTradeoffs() {
       ],
     ),
     highlight: { active: ['iterate:operation'], found: ['output:purpose'] },
-    explanation: 'Muon became practical because Newton-Schulz-style iterations approximate the orthogonalized matrix using GPU-friendly matrix multiplications instead of exact SVD.',
+    explanation: 'Newton-Schulz is the hardware trick. Exact SVD-style orthogonalization would be too slow in a training loop, but a few matrix multiplications can approximate the desired matrix sign or orthogonalized direction. Muon exists because the approximation matches what GPUs are good at.',
   };
 
   yield {
@@ -145,7 +145,7 @@ function* newtonSchulzTradeoffs() {
       ],
     }),
     highlight: { active: ['err'] },
-    explanation: 'More iterations improve the approximation but cost more matmuls. Many recipes use a small fixed count because training speed matters more than exact orthogonalization.',
+    explanation: 'This error curve is the tradeoff in one line: more Newton-Schulz iterations reduce approximation error, but each one costs more matrix multiplication. In training, exactness is not the goal. The useful point is the cheapest approximation that improves quality per unit time.',
     invariant: 'Approximate enough can beat exact but expensive.',
   };
 
@@ -170,7 +170,7 @@ function* newtonSchulzTradeoffs() {
       ],
     ),
     highlight: { found: ['shape:control', 'scale:control', 'params:control', 'dist:control'] },
-    explanation: 'Muon has sharp engineering edges: matrix shape, normalization, parameter grouping, and GPU profiling all matter. That is why follow-up work studies robustness and hardware-aware Newton-Schulz variants.',
+    explanation: 'Muon has real engineering edges. Skinny matrices, bad scaling, wrong parameter groups, or distributed matmul overhead can erase the optimizer gain. The control column is the deployment checklist: shape tests, normalization, explicit parameter groups, and GPU profiling.',
   };
 
   yield {
@@ -191,7 +191,7 @@ function* newtonSchulzTradeoffs() {
       ],
     }, { title: 'A fair Muon comparison is recipe-level' }),
     highlight: { active: ['groups', 'profile', 'seeds'], found: ['claim'] },
-    explanation: 'Muon should be taught as an optimizer and as a benchmarking lesson. Compare end-to-end training cost, not only loss curves, and separate optimizer gains from retuning gains.',
+    explanation: 'The final graph is the fair-comparison protocol. Start from a strong baseline recipe, define parameter groups, profile the added matmuls, run seed sweeps, then make the optimizer claim. Otherwise you may be measuring retuning effort or hardware overhead, not Muon.',
   };
 }
 
@@ -205,41 +205,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why Muon Exists',
       paragraphs: [
-        'Muon is a modern optimizer idea for neural-network hidden layers. Its popular form maintains momentum for matrix-shaped weight gradients, then approximately orthogonalizes that momentum before applying the update. Instead of treating every parameter coordinate independently, Muon treats a hidden-layer weight matrix as a matrix and changes the geometry of the update.',
-        'The public Muon writeup by Keller Jordan describes it as an optimizer for hidden layers and emphasizes training-speed records. Follow-up papers study why orthogonalized updates can work, when Muon changes simplicity bias, and how Newton-Schulz approximations behave across matrix shapes.',
+        `Muon is an optimizer idea for neural-network hidden layers. Its popular form keeps momentum for matrix-shaped weights, then approximately orthogonalizes that momentum before applying the update. That sentence is the whole point: Muon treats a weight matrix as a matrix. AdamW, SGD, and Lion can be applied to matrix weights, but their usual mental model is coordinate-level. Muon changes the geometry of the update itself.`,
+        `The motivation is practical. Modern networks are packed with dense matrix weights: projection matrices in transformers, MLP layers, attention blocks, and other hidden transformations. These matrices do not merely contain unrelated scalar parameters. Their rows, columns, singular directions, and input-output geometry matter. Muon asks whether an optimizer can exploit that structure by making the update more balanced across matrix directions instead of letting a few directions dominate.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Wall It Answers',
       paragraphs: [
-        'For a matrix weight, compute a gradient, update a momentum buffer, and run a few Newton-Schulz-style iterations to approximate an orthogonalized matrix update. The point of Newton-Schulz is hardware practicality: it uses matrix multiplications that GPUs like, avoiding an exact SVD in the training loop. Many recipes apply Muon to hidden matrix weights while keeping AdamW for embeddings, output heads, biases, and normalization parameters.',
-        'The intuition is that orthogonalized matrix updates can avoid over-concentrating movement in a few directions. This is a geometry choice, just as Adam chooses coordinate-wise adaptive scaling and Lion chooses sign-momentum direction.',
+        `The obvious optimizer approach is to flatten every tensor into coordinates and update each coordinate with some rule. SGD follows a velocity. AdamW keeps first and second moments and rescales coordinates. Lion keeps momentum and uses a sign direction. Those methods can train large models, but they are mostly blind to the fact that a hidden-layer tensor is often a linear map. A matrix update with a huge dominant direction can change one mode of the layer strongly while leaving other useful directions under-updated.`,
+        `A direct fix would be to compute an exact matrix orthogonalization or SVD-like operation for every hidden-layer update. That would be mathematically clean and practically awful. Training already spends most of its time on forward passes, backward passes, communication, and memory movement. Inserting expensive decompositions into every step would erase the benefit. Muon's wall is therefore two-sided: use matrix geometry, but only through operations cheap enough to live inside a training loop.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight',
       paragraphs: [
-        'Muon adds matrix multiplications for Newton-Schulz iterations. That cost may be acceptable for hidden matrices on modern accelerators, but it must be profiled. The optimizer also adds recipe complexity: parameter grouping, matrix reshaping, learning-rate schedules, precision, distributed training, and fallback optimizer choices. Exact SVD-style orthogonalization would be too expensive; approximate orthogonalization is the practical compromise.',
+        `Muon's core insight is that the direction of a matrix update can be improved by pushing it toward an orthogonalized or balanced form. Orthogonal directions do not collapse all motion into one singular direction. If the raw momentum matrix says "move mostly along this one mode," an orthogonalized update spreads usable motion more evenly through the matrix geometry. This can change the simplicity bias of training: which solutions gradient-based optimization tends to find first.`,
+        `The optimizer is not trying to make the weights themselves orthogonal at every step. It is shaping the update. That distinction matters. Regularizers that constrain weights and optimizers that transform updates are different tools. Muon says: keep momentum, transform the momentum matrix into a better-conditioned update direction, then apply it to selected hidden weights. It is a preconditioning choice, but one expressed through matrix operations rather than coordinate-wise variance estimates.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism',
       paragraphs: [
-        'Muon is relevant to large-batch training experiments, transformer training recipes, speedrunning benchmarks, and optimizer research. It is a strong teaching case because it connects linear algebra, GPU kernels, optimizer state, and benchmark variance. It should be compared against AdamW, Lion, SGD with momentum, and tuned schedules under equal compute budgets.',
+        `For a hidden matrix weight W, Muon starts like a momentum optimizer. The training step computes the gradient for W. The optimizer updates a momentum buffer, usually an exponential moving average of recent gradients. Then Muon runs a small number of Newton-Schulz-style iterations on that momentum matrix to approximate a matrix sign or orthogonalized direction. The resulting balanced matrix becomes the update direction for W.`,
+        `Newton-Schulz is the systems trick that makes the idea plausible. Exact orthogonalization would usually require decomposition machinery that is too slow and awkward for every training step. Newton-Schulz iterations use matrix multiplications, additions, and scaling. GPUs are built for matrix multiplication. A few iterations can produce an approximation that is good enough for optimization, even if it is not a perfect mathematical projection. In training, exactness is often less valuable than a cheap bias in the right direction.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked Example',
       paragraphs: [
-        'Do not apply Muon blindly to every tensor. Embeddings, heads, biases, and normalization parameters often need different treatment. Do not compare a carefully tuned Muon recipe to an untuned AdamW baseline. Also, approximate orthogonalization can be sensitive to matrix shape and scaling. The right question is not whether Muon is fashionable; it is whether the full recipe improves quality per unit compute in your workload.',
+        `Imagine a 2 by 2 hidden weight matrix. The momentum update is also a 2 by 2 matrix. If that update is dominated by one row or one column direction, applying it directly may mostly stretch one mode of the layer. Muon rescales and iterates on the matrix so the update behaves more like a balanced direction. After that transformation, the step can affect multiple directions more evenly. This is the small-matrix picture behind the larger transformer case.`,
+        `Now scale that picture up to a transformer MLP projection with thousands of rows and columns. The raw gradient momentum may contain strong singular directions. Muon's approximate orthogonalization tries to prevent the update from being controlled by only those dominant modes. The exact numerical result depends on shape, normalization, precision, and the chosen Newton-Schulz coefficients. The conceptual result is simple: use matrix structure to choose a better update than treating each coordinate independently.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Parameter Groups',
       paragraphs: [
-        'Primary sources: Keller Jordan Muon writeup at https://kellerjordan.github.io/posts/muon/, Low-rank orthogonalization for large-scale matrix optimization at https://arxiv.org/html/2509.11983v1, and To Use or not to Use Muon at https://arxiv.org/html/2603.00742v1. Study Lion Optimizer, Adam Optimizer, SVD & Low-Rank Approximation, GPU All-Reduce, Batch Size Scaling, and Benchmark Variance & Model Selection next.',
+        `Muon is usually not applied blindly to every parameter. Hidden matrix weights are the natural target because they have the structure the optimizer is exploiting. Embeddings can have sparse or token-frequency-specific behavior. Output heads can be sensitive because they connect directly to logits. Biases and normalization parameters are not matrix maps in the same sense. Many Muon recipes therefore use Muon for hidden matrices and AdamW, SGD, or another simpler update for the rest.`,
+        `This parameter grouping is not housekeeping. It is part of the algorithm. A bad grouping can make Muon look worse than it is, or better than it deserves. If a benchmark says "Muon wins," ask which tensors received Muon, which tensors stayed on AdamW, what learning rates were used for each group, how weight decay was applied, and whether the baseline received comparable grouping and tuning attention. The optimizer claim is really a recipe claim.`,
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        `Muon can work because neural-network optimization is not only about choosing scalar step sizes. It is also about choosing a geometry. AdamW chooses a coordinate-wise adaptive geometry. Lion chooses sign-momentum geometry. Muon chooses a matrix-aware geometry for selected weights. If the training dynamics benefit from balanced matrix updates, Muon can reach useful representations faster or with fewer tokens than a strong coordinate-wise baseline.`,
+        `There is also a hardware reason the idea is attractive. The extra work is mostly matrix multiplication, and modern accelerators are extremely good at matrix multiplication. That does not make the cost free, but it makes the tradeoff plausible. A few additional matmuls inside the optimizer may be worthwhile if they reduce total training steps or improve validation quality at the same step count. This is why Muon sits at the intersection of optimization, linear algebra, and systems engineering.`,
+      ],
+    },
+    {
+      heading: 'How The Visual Model Teaches It',
+      paragraphs: [
+        `The first graph shows the update path: gradient, momentum, orthogonalization, step, weight. The important transition is from momentum to orthogonalized update. That is where Muon stops being ordinary momentum and starts using matrix geometry. The comparison table then places Muon among familiar optimizers. SGD follows velocity. AdamW rescales coordinates. Lion uses sign direction. Muon reshapes the matrix update.`,
+        `The Newton-Schulz view shows the tradeoff that decides whether the idea is practical. More iterations usually reduce approximation error, but each iteration costs more matrix multiplication. The target is not perfect orthogonalization. The target is enough approximation to improve training per unit wall-clock time. The final fair-comparison graph is the benchmark discipline: tune parameter groups, profile the added matmuls, run multiple seeds, and judge the full recipe.`,
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        `Muon's visible cost is the Newton-Schulz work. A few matrix multiplications per selected parameter group may be acceptable on GPUs, but it still competes with the rest of the training step. The cost depends on matrix shape, batch size, model architecture, precision, compiler behavior, and distributed training setup. A method that looks cheap on one GPU can become awkward when parameters are sharded or when the optimizer step adds synchronization pressure.`,
+        `The hidden cost is complexity. Muon adds parameter grouping, matrix-shape handling, normalization choices, iteration counts, coefficient choices, learning-rate interactions, and fallback optimizer choices. It also makes profiling more important. A lower loss curve at the same number of steps is not enough if each step is much slower. Conversely, a slightly slower step can be worth it if the model reaches the target quality with many fewer tokens or less total compute.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins And Fails',
+      paragraphs: [
+        `Muon is most compelling in training regimes with many dense hidden matrices, serious accelerator throughput, and enough engineering discipline to tune the full recipe. Transformer training, speedrun-style experiments, large-batch studies, and optimizer research are natural places to evaluate it. It is especially interesting when the team cares about reaching a quality threshold quickly, not merely minimizing optimizer elegance on paper.`,
+        `Muon is less convincing for small models, non-matrix-heavy workloads, sparse embeddings, output heads without careful treatment, or teams that cannot profile and retune. It can also fail when matrix shapes are skinny or poorly conditioned for the chosen approximation. Approximate orthogonalization is not magic. If the update geometry is not the bottleneck, or if the added matmuls dominate runtime, AdamW or another mature baseline may be the better engineering choice.`,
+      ],
+    },
+    {
+      heading: 'Pitfalls And Misconceptions',
+      paragraphs: [
+        `The first misconception is that Muon is just AdamW with a new beta setting. It is not. AdamW's central move is coordinate-wise adaptive scaling. Muon's central move is matrix update shaping. The second misconception is that orthogonalization means the model weights are being forced into orthogonal matrices. In the usual Muon story, the optimizer orthogonalizes the update direction for selected matrices. That is different from imposing a hard constraint on W itself.`,
+        `The third trap is benchmark theater. A carefully tuned Muon recipe should not be compared to a stale AdamW run. The baseline needs tuned learning rate, weight decay, schedule, batch size, precision, and parameter grouping where appropriate. Run seed sweeps, report wall-clock time, count tokens or examples, and include final validation quality. If Muon wins only on early loss but loses on final quality or cost, the win is not operational.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        `Primary sources: Keller Jordan's Muon writeup at https://kellerjordan.github.io/posts/muon/, Low-rank orthogonalization for large-scale matrix optimization at https://arxiv.org/html/2509.11983v1, and To Use or not to Use Muon at https://arxiv.org/html/2603.00742v1. Read them with a linear algebra notebook open. The useful exercise is to take a small matrix, inspect its singular directions, and compare a raw momentum step with an orthogonalized direction.`,
+        `Study Momentum, Adam Optimizer, Lion Optimizer, SVD and Low-Rank Approximation, Matrix Multiplication on GPUs, Batch Size Scaling, Distributed Data Parallelism, and Benchmark Variance and Model Selection next. Muon is easiest to understand when you can connect three layers at once: the mathematical update, the accelerator operations that implement it, and the benchmark protocol that proves whether the recipe actually improves training.`,
       ],
     },
   ],

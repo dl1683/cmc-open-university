@@ -93,26 +93,26 @@ function* syncHandshake() {
   yield {
     state: syncGraph('A local edit updates the document and the change log'),
     highlight: { active: ['edit', 'doc', 'log', 'heads', 'e-edit-doc', 'e-doc-log', 'e-doc-heads'], compare: ['peer'] },
-    explanation: 'A local-first app applies the edit immediately and records a durable CRDT change. The visible document is current locally before the network has done anything.',
+    explanation: 'The first edge is the local-first promise: apply the edit now, then durably record the CRDT change. The network is not in the acknowledgement path for local usefulness.',
     invariant: 'The local copy is primary, not a cache waiting for server permission.',
   };
 
   yield {
     state: syncGraph('Heads summarize the document frontier'),
     highlight: { active: ['doc', 'heads', 'state', 'e-doc-heads', 'e-heads-state'], compare: ['log'] },
-    explanation: 'A document history is a DAG of changes. The heads are the current frontier: the latest changes that are not ancestors of another known change. They make divergence and incremental sync tractable.',
+    explanation: 'Heads are the compact summary of a change DAG frontier. If two peers report different heads, they are not just "out of date"; they know different branches of history, and the sync engine can ask for the missing changes.',
   };
 
   yield {
     state: syncGraph('Peer sync state remembers the other side'),
     highlight: { active: ['state', 'have', 'need', 'e-state-have', 'e-state-need'], compare: ['wire'] },
-    explanation: 'Each connection keeps per-peer sync state: what heads the peer reported, what changes are in flight, and what summaries have already been exchanged. The engine should send missing changes, not the whole document.',
+    explanation: 'Per-peer state prevents sync from becoming repeated full-document transfer. It remembers reported heads, in-flight changes, and summaries already exchanged so the next message can be a targeted gap fill.',
   };
 
   yield {
     state: syncGraph('The transport carries sync messages, not application truth'),
     highlight: { active: ['have', 'need', 'wire', 'peer', 'e-have-wire', 'e-need-wire', 'e-wire-peer'], found: ['state'] },
-    explanation: 'The protocol can run over WebSocket, WebRTC, MessageChannel, BroadcastChannel, file exchange, or a central relay. The transport moves bytes; the CRDT and sync state decide which changes are still missing.',
+    explanation: 'The wire is deliberately boring. WebSocket, WebRTC, BroadcastChannel, file exchange, or a relay can carry the same sync messages. The transport moves bytes; the change DAG and peer state decide what those bytes mean.',
   };
 
   yield {
@@ -138,7 +138,7 @@ function* syncHandshake() {
       ],
     ),
     highlight: { active: ['change:contains', 'heads:why', 'state:why', 'queue:why'] },
-    explanation: 'The sync engine is mostly bookkeeping. The visible product feels magical because the records are explicit: change DAG, heads, peer state, summaries, and outbox.',
+    explanation: 'This table is the engine in miniature. Local-first sync is not magic; it is explicit records for history, frontier, peer memory, gap summaries, and an outbox that survives bad networks.',
   };
 }
 
@@ -146,7 +146,7 @@ function* storageAndCompaction() {
   yield {
     state: storageGraph('Storage is the source of restart safety'),
     highlight: { active: ['ui', 'repo', 'idb', 'e-ui-repo', 'e-repo-idb'], compare: ['network'] },
-    explanation: 'The UI can acknowledge edits immediately only if the repository persists them locally. IndexedDB, filesystem adapters, or SQLite-backed storage make the local replica restart-safe.',
+    explanation: 'Immediate UI acknowledgement is only honest if the edit is written locally first. IndexedDB, SQLite, or filesystem-backed storage turns "saved locally" into a real durability state instead of a spinner promise.',
   };
 
   yield {
@@ -158,7 +158,7 @@ function* storageAndCompaction() {
   yield {
     state: storageGraph('Compaction is a correctness-preserving rewrite'),
     highlight: { active: ['changes', 'compact', 'snapshot', 'e-changes-compact'], found: ['idb'] },
-    explanation: 'Compaction can fold old changes into a compact storage representation or snapshot. It must preserve the causal information needed for peers that have not yet seen those changes.',
+    explanation: 'Compaction is a rewrite with a contract. It may fold old changes into a snapshot or compact format, but it must keep the causal summary needed for peers that still need to sync.',
   };
 
   yield {
@@ -188,7 +188,7 @@ function* storageAndCompaction() {
       ],
     ),
     highlight: { active: ['lost:control', 'bloat:control', 'leak:control'], compare: ['stale:symptom'] },
-    explanation: 'The sync algorithm is only one layer. A real product also needs durable local writes, compaction, access control, encryption or capability discipline, and observability.',
+    explanation: 'The failure table shows the layers around the algorithm. A correct sync protocol still fails users if local writes disappear, history bloats, unauthorized peers receive data, or engineers cannot inspect stuck peer state.',
   };
 }
 
@@ -202,44 +202,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'A local-first sync engine is the runtime that makes a CRDT document usable as an application database. The CRDT defines how changes merge. The sync engine stores those changes locally, remembers which peers have which history, sends only missing changes, receives remote changes, updates the document, and keeps working when the network is gone.',
-        'The local-first software essay argues for apps where the user can work offline, own local data, and still collaborate across devices: https://www.inkandswitch.com/essay/local-first/. Automerge describes itself as a library of data structures for collaborative applications where devices can update local state independently, sync later, and converge: https://automerge.org/docs/hello/.',
+        `A CRDT merge rule is not an application. It tells you how concurrent edits can converge, but it does not tell you how an editor saves local work, resumes after a crash, finds missing changes, avoids resending the whole document, or protects a private note from the wrong peer. A local-first sync engine is the runtime around the merge rule.`,
+        `The user promise is simple: the local copy is primary, not a cache waiting for server permission. The engineering promise is stricter: local edits must be durable before the UI claims success, peers must exchange only what they are missing, and restart must not lose the history needed for future reconciliation.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious design`,
       paragraphs: [
-        'A CRDT document has a history of changes, often shaped like a DAG because concurrent changes can have different parents. The current frontier of that DAG is the heads set. When two peers sync, each side needs to learn what the other already has and what is missing. Automerge documents its sync module as a loop where peers maintain state for each connection, exchange sync messages, and continue until neither side has more to send: https://automerge.org/automerge/automerge/sync/index.html.',
-        'Automerge Repo adds the application plumbing: storage adapters, network adapters, document handles, and repositories. Its concepts page says repositories communicate using an efficient transport-agnostic sync protocol and that networking and storage are pluggable: https://automerge.org/docs/reference/concepts/. The JavaScript packages page draws the same boundary between core CRDT/sync/storage format and repo-level networking/storage plumbing: https://automerge.org/docs/reference/the-js-packages/.',
+        `The obvious design makes the server the source of truth and treats the client as a cache. The app sends an edit to the server, waits for acceptance, then updates local state. That design is easy to reason about while every device is online, the server is close, and the product does not need instant response.`,
+        `It fails the moment the product expects offline work, low-latency editing, multi-tab continuity, or peer-to-peer collaboration. If the server is in the acknowledgement path for every useful edit, a train tunnel can become a write outage. If the client cache is not the real store, a tab crash can lose work the user already saw on screen.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: `Core insight`,
       paragraphs: [
-        'The core records are a change DAG, heads set, peer-state map, message queue, durable local store, snapshot record, and compaction plan. The change DAG stores each operation and its dependencies. The heads set summarizes the current frontier. The peer-state map remembers what each connected peer has reported, so the engine avoids resending the same history forever. The outbox survives offline intervals. Snapshots make startup fast.',
-        'This is why local-first belongs in a data-structures course. It combines CRDTs, Logical Clocks, IndexedDB Object Store Case Study, Background Sync Outbox Queue, Web Push Subscription Delivery, Message Queue, Transactional Outbox, Service Workers, and Content-Defined Chunking. The CRDT tells replicas how to merge; the sync engine decides what bytes move, when they move, and what survives restart.',
+        `The core insight is to treat document history as data, not as a side effect of the latest document snapshot. A CRDT change names its dependencies. Concurrent changes can produce multiple heads. Heads are the frontier of known history. If two peers report different heads, they are not merely "stale"; they know different branches of the change graph.`,
+        `Sync then becomes a gap-filling problem. Each peer summarizes what it has, asks for what it lacks, applies missing changes in causal order when possible, and updates its frontier. The document value is the materialized result of the history, but the history is what lets peers converge after partitions.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: `How the engine works`,
       paragraphs: [
-        'Consider a local-first project notebook. The browser loads a document handle from IndexedDB and renders immediately. The user edits a checklist offline. The repository applies the transaction, appends the CRDT change to local storage, updates the heads set, and schedules sync work. Later a WebSocket connection opens. The peer-state record says the server has old heads. The sync engine sends only the missing changes. The server applies them and returns changes from another device. Both devices converge without the browser ever treating the server as the only truth.',
-        'A central server can still be useful. It can relay messages, store encrypted blobs, keep devices discoverable, or host a Cloudflare Durable Objects room for active collaborators. But the server is no longer the master copy of every edit. The local repository is allowed to accept work first, and the merge algorithm plus sync state make the later conversation correct.',
+        `A local edit first updates the in-memory document and appends a durable change record. The engine also updates the heads set and queues sync work for known peers. The network is not required for the local acknowledgement. That is the difference between local-first and a web form with optimistic UI.`,
+        `When a peer appears, the engine compares sync state. It remembers what heads the peer reported, which changes were already sent, which requests are in flight, and whether the peer is too far behind for a small incremental message. The transport carries sync messages; the engine decides what those messages mean. WebSocket, WebRTC, BroadcastChannel, file export, or a relay can all be adapters.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Storage and restart`,
       paragraphs: [
-        'The first mistake is assuming CRDT convergence solves product security. A CRDT can merge unauthorized data perfectly. The sync layer still needs document sharing rules, authentication, encryption, and revocation strategy. The second mistake is letting history grow forever without a load-time strategy. Keeping all changes is useful, but the application needs snapshots, compressed storage, and safe compaction.',
-        'The third mistake is hiding sync state. Users need meaningful states such as saved locally, syncing, synced, conflict surfaced, blocked by permission, and storage quota risk. Engineers need peer sync traces. A local-first app can be offline-first and still be observable.',
+        `Local-first is only honest if local storage is real. IndexedDB, SQLite, filesystem storage, or another durable store must receive the change before the app implies that the edit is safe. The engine needs a restart path that can load a snapshot, replay recent changes, rebuild heads, and resume the outbox without duplicating effects.`,
+        `The append-only change log is excellent for merge and audit, but bad as an unbounded startup path. Snapshots solve that by storing a compact materialized document plus enough causal summary to continue syncing. Compaction is not deletion for convenience; it is a correctness-preserving rewrite with a contract.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `What the visual proves`,
       paragraphs: [
-        'Primary sources: Local-First Software at https://www.inkandswitch.com/essay/local-first/, local-first PDF at https://martin.kleppmann.com/papers/local-first.pdf, Automerge introduction at https://automerge.org/docs/hello/, Automerge concepts at https://automerge.org/docs/reference/concepts/, Automerge sync module at https://automerge.org/automerge/automerge/sync/index.html, and Byzantine Eventual Consistency at https://arxiv.org/abs/2012.00472. Study Sequence CRDTs for Collaborative Text, Delta-State CRDT Anti-Entropy Case Study, Yjs Struct Store & Updates, Automerge Change Graph & Columnar Storage, CRDT Snapshot Compaction & Garbage Collection, Peritext Rich-Text CRDT Case Study, Collaborative Awareness Presence CRDT, Collaborative Undo/Redo Intention Stack, IndexedDB Object Store Case Study, Background Sync Outbox Queue, Web Push Subscription Delivery, Browser Message Channels & Broadcast Coordination, Web Locks API Lock Manager, Service Workers, Message Queue, Transactional Outbox, and Cloudflare Durable Objects Case Study next.',
+        `The handshake graph shows the local edit entering the document, change log, and heads set before it reaches the wire. That ordering is the point. Local usefulness does not wait for remote permission. Sync explains already-durable local history to other replicas.`,
+        `The storage graph separates UI, repository, local disk, snapshots, change tail, compaction, queue, and network because each one has a different failure mode. If storage and transport blur together, offline support becomes a demo. If snapshots and causal summaries blur together, compaction can make old peers impossible to repair.`,
+      ],
+    },
+    {
+      heading: `Why convergence works`,
+      paragraphs: [
+        `CRDT convergence depends on operations or states that can be merged without a single total order. In an operation-based design, each change carries enough dependency information for replicas to apply it consistently. In a state-based or delta-state design, replicas exchange joinable states or deltas. Either way, the sync engine must preserve the mathematical assumptions of the CRDT.`,
+        `That is why peer state matters. Without remembered peer knowledge, every reconnect becomes a full document transfer or a resend loop. With peer state, the next message can be a targeted request for the missing part of history. The engine is a data-structure problem: logs, frontiers, version summaries, durable queues, and compacted snapshots.`,
+      ],
+    },
+    {
+      heading: `Costs and tradeoffs`,
+      paragraphs: [
+        `Local-first systems trade central simplicity for edge bookkeeping. Every device needs durable storage, migration logic, quota handling, conflict visibility, and sync observability. Every document may need encryption, share permissions, tombstone strategy, garbage collection, and a way to repair a peer that missed old changes.`,
+        `The payoff is responsiveness and resilience. Notes, design tools, field apps, offline forms, personal knowledge bases, project planners, and collaborative editors can keep accepting work under bad Wi-Fi or no Wi-Fi. A central server can still relay messages, store encrypted blobs, perform access checks, and help devices discover each other. It is useful infrastructure, not the only place truth can exist.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `This architecture wins when user trust depends on continuity. A writer should not wonder whether a paragraph typed on a plane counted. A field worker should not lose an inspection because a warehouse had bad coverage. A designer should not wait for a round trip on every shape movement. The local repository accepts the work first and reconciles later.`,
+        `It also wins when multiple local surfaces need coordination. Tabs, workers, native shells, mobile background tasks, and browser storage can all see different timing. A sync engine with explicit heads, outboxes, and peer state gives the product a shared truth model across those surfaces instead of ad hoc cache invalidation.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `The hardest failures are often outside the merge law: lost local writes, broken compaction, stale peer state that resends forever, unauthorized peers receiving data, quota exhaustion, schema drift, clock assumptions, and invisible stuck queues. A correct CRDT can still produce a bad product if users cannot tell whether work is saved locally, syncing, synced, blocked, or at risk.`,
+        `Security needs its own design. Sharing rules, authentication, encryption or capability discipline, revocation, device loss, and audit logs do not appear automatically because the merge function converges. Observability matters too. Engineers need per-peer sync traces, reset tools, compaction metrics, queue depth, storage pressure, and enough event history to debug a replica that refuses to catch up.`,
+      ],
+    },
+    {
+      heading: `Implementation guidance`,
+      paragraphs: [
+        `Build the local write path first: apply the edit, append the change, update heads, persist the outbox, then notify the UI and transports. Make peer state explicit and resettable. Make snapshot fallback part of the protocol, not a manual recovery step. Keep transport adapters boring; merge decisions belong in the sync engine.`,
+        `Test with hostile timelines. Restart after an edit but before send. Reconnect two peers that edited offline. Compact while an old peer is still missing changes. Fill storage. Revoke access while messages are queued. Open two tabs and close one mid-sync. Those tests reveal whether the system is truly local-first or only optimistic while the happy path holds.`,
+      ],
+    },
+    {
+      heading: `Study next`,
+      paragraphs: [
+        `Study Sequence CRDTs for Collaborative Text, Delta-State CRDT Anti-Entropy Case Study, Yjs Struct Store & Updates, Automerge Change Graph & Columnar Storage, CRDT Snapshot Compaction & Garbage Collection, Peritext Rich-Text CRDT Case Study, Collaborative Awareness Presence CRDT, Collaborative Undo/Redo Intention Stack, IndexedDB Object Store Case Study, Background Sync Outbox Queue, Web Push Subscription Delivery, Browser Message Channels & Broadcast Coordination, Web Locks API Lock Manager, Service Workers, Message Queue, Transactional Outbox, and Cloudflare Durable Objects Case Study.`,
+        `Primary sources worth reading are Local-First Software at https://www.inkandswitch.com/essay/local-first/, the local-first paper at https://martin.kleppmann.com/papers/local-first.pdf, Automerge documentation at https://automerge.org/docs/hello/ and https://automerge.org/docs/reference/concepts/, Automerge sync module documentation at https://automerge.org/automerge/automerge/sync/index.html, and Byzantine Eventual Consistency at https://arxiv.org/abs/2012.00472.`,
       ],
     },
   ],

@@ -164,38 +164,98 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Trusted Types is a browser security mechanism for DOM XSS. Instead of letting arbitrary strings flow into dangerous DOM sinks, a CSP directive can require typed values such as TrustedHTML. Application-defined policies create those values after sanitization, escaping, or other reviewable transformations.',
-        'MDN describes require-trusted-types-for as a CSP directive that controls data passed to DOM XSS sink functions: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/require-trusted-types-for. MDN Trusted Types API explains policy creation and enforcement: https://developer.mozilla.org/en-US/docs/Web/API/Trusted_Types_API.',
+        'Trusted Types exists because DOM XSS often happens after the server has already returned a page. Modern JavaScript reads data from comments, CMS fields, markdown previews, search results, URL parameters, API responses, extensions, analytics snippets, and vendor widgets. If one of those strings is written into a dangerous DOM sink, the browser may parse it as markup or scriptable content.',
+        'The underlying problem is type collapse. Safe markup, unsafe markup, user text, template output, and attacker-controlled fragments are all JavaScript strings unless the application creates a stronger boundary. A sink such as `innerHTML` cannot tell whether the value came from a reviewed sanitizer or from an untrusted comment field.',
+        'Trusted Types gives the browser a boundary it can enforce. Under the right CSP directive, protected sinks reject plain strings and accept typed values such as `TrustedHTML`. Those values are created by named policies, so the risky conversion from raw text to DOM-capable content becomes visible and reviewable.',
       ],
     },
     {
-      heading: 'Core mental model',
+      heading: 'The Baseline And The Wall',
       paragraphs: [
-        'The useful data structure is a typed capability boundary. The DOM sink is the boundary. The policy registry is the capability factory. A policy converts raw data into a trusted value only through reviewed code. CSP decides whether untyped values are rejected and which policy names can exist.',
-        'This complements nonce-based CSP. A nonce can prevent unauthorized script execution from network-loaded script tags. Trusted Types narrows client-side injection paths where application JavaScript accidentally writes attacker-controlled strings into executable DOM contexts.',
+        'The baseline defense is context-aware output handling. Escape text before inserting it into HTML. Sanitize HTML if the feature truly allows selected tags. Validate URLs before assigning them to loader or navigation sinks. Keep CSP nonces and hashes for script execution control. These practices still matter.',
+        'The wall is coverage. Large frontends have old components, helper wrappers, feature flags, WYSIWYG editors, markdown renderers, test-only shortcuts, template libraries, third-party packages, and rare error paths. A security review can fix ninety-nine sink writes and still miss the one that takes attacker-controlled input.',
+        'The other wall is drift. New engineers add features. Libraries change. A safe helper gets bypassed for a deadline. A grep misses a wrapper. Trusted Types changes the failure mode by putting the final check at the sink instead of relying only on code review and convention.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core Insight And Invariant',
       paragraphs: [
-        'A CMS has an article preview that converts markdown and selected HTML into preview DOM. Historically it assigned strings to innerHTML in several components. The team enables Trusted Types in report-only mode, groups violations by component, adds one cmsHTML policy around a sanitizer, and moves ad preview code into a sandboxed iframe.',
-        'After violations fall, the site enforces require-trusted-types-for and restricts trusted-types policy names. New sink writes fail during development unless they go through the approved policy.',
+        'The core insight is to treat dangerous DOM sinks as capability boundaries. A raw string should not have the capability to become executable or parseable DOM content. Only a reviewed policy should be able to mint the typed value that crosses the boundary.',
+        'The invariant is simple: protected sinks should receive trusted values, not arbitrary strings. For HTML sinks, that usually means `TrustedHTML`. For script-related sinks, it may mean `TrustedScript` or `TrustedScriptURL`. The exact type depends on the sink family, but the principle is the same.',
+        'A policy is not magic safety. It is a named factory. Its value is that it centralizes the risky transformation. Instead of auditing every assignment as a standalone decision, the team audits a small set of policy implementations and watches violation reports for code that still tries to bypass them.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How The Visual Model Teaches It',
       paragraphs: [
-        'Trusted Types does not make a weak sanitizer strong. It makes unsafe sink writes visible and enforceable. The policy implementation still needs real context-aware sanitization or escaping.',
-        'Do not create broad bypass policies for convenience. Too many policy names, a permissive default policy, or wrappers that just return raw input will erase the benefit.',
+        'The sink-guard view separates the unsafe flow from the intended flow. The unsafe flow is raw input moving directly into a sink. With enforcement disabled, the browser accepts it. With enforcement enabled, the CSP gate stops it before the sink can parse it as DOM.',
+        'The intended flow takes a longer path on purpose. Raw input goes to a named policy. The policy applies the right transformation for the target context, such as HTML sanitization, template escaping, or URL allowlist validation. The policy returns a trusted value, and only that value crosses into the sink.',
+        'The policy-rollout view shows why adoption is an inventory problem first. Report-only mode does not make the page safe by itself. It reveals where raw strings are still reaching protected sinks, which teams own those paths, and which fixes should be policy calls, safer rendering APIs, sandboxed iframes, or removed code.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How It Works',
       paragraphs: [
-        'Primary sources: MDN require-trusted-types-for at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/require-trusted-types-for, MDN Trusted Types API at https://developer.mozilla.org/en-US/docs/Web/API/Trusted_Types_API, MDN trusted-types directive at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/trusted-types, and W3C Trusted Types at https://www.w3.org/TR/trusted-types/.',
-        'Study CSP Nonce & Hash Policy, Subresource Integrity Hash Manifest, Cross-Origin Isolation, SameSite Cookies & CSRF, Capability Security & Attenuation, and DOM Event Propagation & Path next.',
+        'A site enables Trusted Types through Content Security Policy. `require-trusted-types-for` tells the browser to require trusted values for protected DOM XSS sink functions. In report-only mode, violations are reported while the page continues. In enforcement mode, the browser blocks the raw-string assignment.',
+        'Application code creates policies through the Trusted Types API. A policy has a name and factory functions such as `createHTML`. A good `createHTML` implementation does not merely wrap a string. It sanitizes, escapes, templates, or validates according to the context, then returns a typed value.',
+        'The `trusted-types` CSP directive can restrict which policy names are allowed. This matters because any code that can create an allowed policy can mint trusted values. Large applications should keep policy names few, reviewed, and tied to real rendering responsibilities.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'It works because the browser sees the final dangerous operation. A code search can miss wrapper functions. A review checklist can be stale. A framework helper can hide an assignment. The browser still knows that a string is being assigned to a protected sink.',
+        'It also works as a ratchet. Report-only mode builds the map of existing violations. Enforcement turns the map into a guardrail. After that point, a new raw sink write fails early instead of becoming quiet security debt.',
+        'The deeper reason is capability control. Raw strings are common and easy to obtain. Trusted values are intentionally minted. That difference lets the platform say, "ordinary data may flow through the app, but DOM-capable content must pass through reviewed code."',
+      ],
+    },
+    {
+      heading: 'Concrete Example',
+      paragraphs: [
+        'Consider a CMS preview surface. Authors can write markdown with a small allowlist of HTML tags. Before Trusted Types, the renderer converts markdown to a string and assigns it to `preview.innerHTML`. If the renderer or sanitizer misses an event-handler attribute, URL edge case, or parser trick, the sink accepts the string.',
+        'With Trusted Types enforcement, `preview.innerHTML = htmlString` fails. The preview code must call a policy such as `cmsHTML`. That policy runs the selected sanitizer with a narrow allowlist, strips scriptable attributes, validates links, and returns `TrustedHTML`.',
+        'The review target becomes concrete. Security reviewers can inspect the `cmsHTML` policy, sanitizer configuration, tests, and allowed tags. Product engineers can still render previews, but the dangerous conversion is no longer scattered across unrelated components.',
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        'The main cost is migration. Old applications may have hundreds of sink writes. Some are safe but untyped. Some are unsafe. Some come from dependencies. Some only run in rare feature modes. Report-only CSP, violation grouping, source maps, and owner routing are usually needed before enforcement is practical.',
+        'The second cost is developer ergonomics. If safe rendering requires awkward boilerplate, engineers will ask for broad policies or default bypasses. A serious rollout provides narrow helpers for common patterns: render text, render sanitized CMS HTML, render template output, validate script URLs, and isolate third-party previews.',
+        'The tradeoff is strictness versus compatibility. A permissive default policy can keep a legacy page working, but it can also convert every raw string automatically and hide the debt. Too many named policies can make review meaningless. Too few helpers can make teams fight the system.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'It wins in large client-side applications with dynamic rendering: CMS previews, markdown editors, email builders, dashboards, design tools, admin panels, browser extensions, documentation tools, and analytics consoles. These products often mix user-authored content, generated markup, and frequent DOM mutation.',
+        'It also wins in organizations with many frontend teams. A platform security team can define allowed policies and safe helpers once, then use browser enforcement to make the rule consistent across product surfaces.',
+        'Trusted Types is especially useful when paired with ordinary CSP. Nonces and hashes reduce unauthorized script execution through script tags. Trusted Types narrows DOM injection paths created by application JavaScript itself.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'It fails if the policy is a bypass. A policy that returns raw input is not a sanitizer. A policy that uses a weak sanitizer still produces weak trusted values. Trusted Types controls the boundary; it does not prove that the transformation inside the policy is correct.',
+        'It fails if policy creation is uncontrolled. If every package can create its own allowed policy, the type system becomes ceremony. Restrict policy names and review the code that creates them.',
+        'It also fails as a complete security story. You still need server-side validation, output encoding, iframe sandboxing for hostile content, dependency review, CSP script controls, secure templating, and browser compatibility planning.',
+      ],
+    },
+    {
+      heading: 'Operational Guidance',
+      paragraphs: [
+        'Start with report-only mode and collect violations by URL, component, sink, stack trace, and owner. Do not jump straight to enforcement on a large legacy app unless the breakage is acceptable. The first artifact should be an inventory: which sinks exist, who owns them, and what kind of fix each one needs.',
+        'Design policies narrowly. A CMS policy is different from a markdown policy, and both are different from a script URL policy. Prefer named policies tied to product surfaces or rendering contracts, not generic names such as "safe" or "bypass".',
+        'Use enforcement as a release gate only after the important flows are clean. Keep violation reporting after enforcement so regressions are visible. Review default policy use regularly and remove it when compatibility work is done.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study Content Security Policy Nonce and Hash Policy next, because Trusted Types usually sits beside script-src controls. Then study Subresource Integrity Hash Manifest for supply-chain loading, Cross-Origin Isolation for browser process boundaries, SameSite Cookies and CSRF for request authority, and Capability Security and Attenuation for the broader idea of typed authority.',
+        'Primary references are MDN on `require-trusted-types-for`, MDN on the Trusted Types API, MDN on the `trusted-types` CSP directive, and the W3C Trusted Types specification. Read them with the sink boundary in mind: the feature is strongest when policy creation is rare, reviewed, and tied to real sanitization.',
       ],
     },
   ],

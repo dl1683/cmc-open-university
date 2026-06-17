@@ -220,41 +220,91 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why CMA-ES exists',
       paragraphs: [
-        'CMA-ES, covariance matrix adaptation evolution strategy, is a stochastic optimizer for continuous black-box problems. It samples a population from a multivariate Gaussian, ranks samples by fitness, moves the mean toward winners, adapts the covariance matrix, and controls a global step size.',
-        'This is the next conceptual step after Differential Evolution. Differential Evolution gets mutation directions from population differences. CMA-ES turns successful directions into an explicit sampling distribution.',
+        'CMA-ES exists for continuous black-box optimization. The objective gives you a score for a candidate vector, but it does not give a useful derivative, symbolic structure, or cheap local model. That is common in simulator tuning, controller design, robot policy search, engineering calibration, and noisy benchmark optimization.',
+        'The important assumption is not that the landscape is random. The assumption is that good regions have shape. A valley may be long, narrow, rotated, or scaled differently across variables. CMA-ES, short for covariance matrix adaptation evolution strategy, learns that shape while it searches.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'The optimizer state is the data structure: mean vector, covariance matrix, step size, evolution paths, and ranking weights. Each generation samples candidates from the current distribution, evaluates them, sorts by fitness, and uses the best candidates to update the state.',
-        'The covariance matrix captures dependencies between variables. If progress repeatedly occurs along a diagonal direction, future samples are stretched along that direction. Evolution paths keep adaptation from overreacting to one lucky generation.',
+        'The obvious approach is random search around the current best point. Pick a mutation radius, sample a round cloud, evaluate the candidates, keep the best, and repeat. This can work on small friendly problems, but it wastes evaluations when the useful direction is not aligned with the coordinate axes.',
+        'A fixed round cloud has no memory of direction. If the optimum lies down a diagonal valley, most samples fall into the valley walls instead of along the valley. Shrinking the radius avoids bad jumps but also slows progress. Increasing it explores faster but throws more samples away.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The expensive part is objective evaluation. Internally, full covariance adaptation also has linear algebra cost, including covariance updates and decompositions. That makes CMA-ES attractive for moderate-dimensional problems with expensive, non-differentiable, or noisy objectives, but less attractive for huge parameter vectors where gradients or structured search are available.',
+        'CMA-ES does not treat mutation as a fixed noise source. It treats the search distribution as the main data structure. The state contains a mean vector, a covariance matrix, a global step size, evolution paths, and weights for the best ranked candidates.',
+        'The mean says where the next population is centered. The covariance matrix says which directions should be sampled more or less often. The step size says how large the overall cloud should be. Together they form a moving coordinate system learned from successful samples.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'One generation',
       paragraphs: [
-        'CMA-ES is used for controller tuning, robotics, simulation calibration, engineering design, benchmark optimization, and hyperparameter-like continuous tuning. It is especially useful when the objective is a simulator or physical process that returns a scalar score but not a useful derivative.',
+        'A generation starts by sampling a population from a multivariate Gaussian centered at the current mean. Each candidate is evaluated by the black-box objective. The candidates are ranked, not used through raw score magnitudes, so the method is mostly driven by ordering rather than fragile scale assumptions.',
+        'The best ranked candidates pull the mean. Their steps also update the covariance and path variables. Then the next generation samples from the new distribution. This loop is simple to state, but the state update is doing a lot of work: it converts a batch of scalar scores into a better search geometry.',
+        'Selection pressure is controlled by how many top candidates contribute and by their weights. Using several winners is less brittle than chasing the single best sample, especially when evaluations are noisy. The population is a small experiment about the local search shape.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Covariance memory',
       paragraphs: [
-        'Do not read one successful run as proof. Report seeds, evaluation budgets, termination criteria, and baseline optimizers. Do not ignore bounds and constraint handling. Do not use CMA-ES where the real problem is discrete structure, symbolic search, or a cheap differentiable objective.',
+        'Covariance is the part that makes CMA-ES more than hill climbing. A covariance matrix records variance along each dimension and correlation between dimensions. When winning steps repeatedly move along a diagonal direction, the matrix rotates and stretches the sampling cloud along that direction.',
+        'This matters because a rotated search distribution can make a hard problem look easier. Instead of spending most samples sideways against a narrow valley, the optimizer spends more samples along the valley. It is not learning the objective formula. It is learning an empirical coordinate system that makes useful moves more likely.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Step size and paths',
       paragraphs: [
-        'Primary sources: Hansen, The CMA Evolution Strategy tutorial at https://arxiv.org/abs/1604.00772, the CMA-ES official site at https://cma-es.github.io/, and CMA-ES source-code references at https://cma-es.github.io/cmaes_sourcecode_page.html. Study Evolutionary Search, Differential Evolution, PCA, Eigenvectors, Gaussian Process Bayesian Optimization, Hyperparameter Search, and AlphaEvolve next.',
+        'The covariance matrix handles shape, but CMA-ES also needs a global scale. If steps are consistently aligned, the optimizer can often move faster. If steps cancel each other or bounce around, it should shrink the cloud. Sigma, the global step size, controls that pressure.',
+        'Evolution paths are smoothed traces of recent successful movement. They keep the algorithm from overreacting to a single lucky sample. A one-generation accident should not reshape the whole distribution. A repeated trend should change both the covariance and the step size.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The adaptation-loop view is showing the optimizer state, not a single champion candidate. The useful thing to follow is the distribution: mean to samples, samples to rankings, rankings to paths, paths to covariance and sigma, then back to the next generation.',
+        'The early plot is deliberately broad and generic. The later plot is tilted toward the useful direction. That visual change is the lesson. CMA-ES turns repeated selected steps into a sampling shape, so the next population is not just near the previous best point. It is biased toward directions that have produced progress.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'CMA-ES works because it uses population-level evidence. One candidate score is weak information. A ranked batch of candidates gives a direction of improvement and a rough picture of which movements were useful. Accumulated over generations, that evidence can recover scale and correlation information even without gradients.',
+        'The method is also relatively insensitive to monotonic transformations of the objective because rankings drive selection. If one score scale is distorted but the order of candidates stays the same, the update usually sees the same winners. That is useful when objective values come from simulations, noisy measurements, or arbitrary scoring functions.',
+        'The covariance update is also a form of memory. It does not store every past sample. It compresses repeated success into a matrix that changes future sampling probabilities. That compression is why the optimizer can exploit structure without building a full surrogate model of the objective.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The main external cost is objective evaluation. CMA-ES often spends many evaluations per generation, although those evaluations can be parallelized. Internally, full covariance adaptation has memory and linear algebra costs that grow with dimension, including covariance updates and decompositions.',
+        'That makes the method strongest in moderate-dimensional continuous spaces with expensive or unreliable gradients. It is less attractive for very high-dimensional parameter vectors, cheap differentiable objectives, or problems where the useful structure is discrete rather than geometric.',
+        'Restarts are another practical tradeoff. A restart can escape a bad local basin, and larger restart populations can explore more broadly, but every restart spends budget. In serious use, the evaluation budget and restart policy are part of the algorithm, not afterthoughts.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'CMA-ES is a good fit when the candidate is a real-valued vector and a black-box scorer is the only reliable feedback. Examples include PID or controller tuning, simulator calibration, morphology search, graphics and physics parameter fitting, continuous hyperparameter tuning, and benchmark functions designed to test ill-conditioned optimization.',
+        'It also wins when you can evaluate a population in parallel. A cluster can score many candidates at once, then the optimizer performs one state update. That makes CMA-ES practical for workloads where one evaluation is slow but batch evaluation is available.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'CMA-ES can fail when the search space is too large for full covariance learning, when constraints are handled carelessly, when the objective is dominated by noise, or when the variables are really categorical choices disguised as numbers. Bounds also need attention because naive clipping can distort the distribution.',
+        'Evaluation discipline matters. Do not trust one lucky run. Report random seeds, budgets, stopping rules, restarts, constraints, and baselines such as random search, gradient methods where available, Bayesian optimization, Differential Evolution, or problem-specific heuristics.',
+        'A good failure report says whether the method explored the wrong scale, learned the wrong shape, hit constraints, or simply ran out of evaluations before adaptation had enough evidence.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Nikolaus Hansen, The CMA Evolution Strategy tutorial at https://arxiv.org/abs/1604.00772, the CMA-ES project site at https://cma-es.github.io/, and the source-code reference page at https://cma-es.github.io/cmaes_sourcecode_page.html.',
+        'Study Evolutionary Search for the population-search family, Differential Evolution for a different way to use population differences, PCA and Eigenvectors for covariance intuition, Gaussian Process Bayesian Optimization for surrogate-based search, and Hyperparameter Search for practical budget tradeoffs.',
       ],
     },
   ],

@@ -383,47 +383,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A virtual tree, also called an auxiliary tree, is a compressed tree built for one query over a subset of marked nodes. It keeps the marked nodes and the lowest common ancestors needed to preserve their relationships, then connects them with weighted edges that stand for skipped paths in the original tree.',
-        'This is not a new persistent copy of the whole tree. It is a per-query working structure. If the original tree has n nodes but a query marks only k nodes, the virtual tree has O(k) nodes after LCA closure and deduplication.',
-        'Virtual trees are useful when many offline or batched queries touch small subsets of a large static tree: service ownership incidents, permission checks over selected folders, taxonomy rollups, Steiner-style DP, and marked-node distance problems.',
+        'Many tree problems have a large stable tree and a small query set. A filesystem audit may mark a few files, a service incident may mark a few failing services, and a contest problem may mark k special vertices inside a tree with hundreds of thousands of nodes. The answer usually depends on the connections among the marked vertices, not on every unrelated branch.',
+        'A virtual tree, also called an auxiliary tree, is the standard compression for that situation. It replaces the original tree for one query with the marked vertices plus the lowest common ancestors needed to keep their ancestry relationships correct. The downstream dynamic program then runs on O(k) vertices instead of n.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'Preprocess the original tree with DFS entry times, depths, and an LCA structure such as Binary Lifting LCA. For one query, sort the marked nodes by Euler entry time. Add the LCA of every adjacent pair in that sorted order, then dedupe and sort again.',
-        'The stack build scans that closed set in Euler order. While the top of the stack is not an ancestor of the next node, pop. The remaining top is the nearest kept ancestor, so add a virtual edge from top to node with weight depth[node] - depth[top], then push the node.',
-        'The adjacent-LCA trick is why the structure stays small. You do not need all pairwise LCAs. Once marked nodes are sorted by Euler order, LCAs of neighboring marked nodes are enough to recover the branch points of the induced compressed tree.',
+        'The simplest answer is to run the query over the full tree and ignore branches with no marked descendants. That is easy to write, but it pays O(n) per query even when k is tiny. Repeating that for many queries loses the benefit of the static tree preprocessing.',
+        'The other tempting answer is to add the LCA of every pair of marked vertices. That keeps the compressed tree connected, but it costs O(k^2) LCA calls and can dominate the query. The virtual tree trick is useful because it avoids both full-tree scanning and all-pairs closure.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'With binary lifting, preprocessing is O(n log n). Per query, sorting marked nodes costs O(k log k), adjacent LCA calls cost O(k log n), stack construction costs O(k), and any postorder DP over the virtual tree costs O(k). With O(1) LCA preprocessing, the LCA part can be O(k).',
-        'The virtual tree has at most 2k - 1 nodes after adding LCAs and deduping, assuming k marked nodes. That bound is the reason the method is powerful: every unmarked background branch vanishes unless it is needed as a branch point.',
-        'Memory should be treated as per-query scratch space. Production implementations often use arrays of touched node ids so they can clear only the temporary adjacency lists that were used, rather than sweeping the whole n-node tree after every query.',
+        'DFS order turns the tree into a line while preserving subtree intervals. If the marked vertices are sorted by Euler entry time, every branch point needed by the compressed tree appears as the LCA of two adjacent marked vertices in that order. Add those adjacent LCAs, dedupe, sort again, and the node set is closed enough to rebuild the induced ancestry tree.',
+        'The edge set is then built with a stack. Scan the closed set in Euler order. The stack stores the current chain of kept ancestors. Before inserting the next vertex, pop until the stack top is an ancestor of that vertex. That top is the parent in the virtual tree.',
+      ],
+    },
+    {
+      heading: 'Mechanics',
+      paragraphs: [
+        'The original tree is preprocessed once with entry times, exit times, depths, and an LCA structure such as binary lifting or an Euler-tour RMQ. For one query, collect the k marked vertices, sort them by entry time, add LCA(marked[i], marked[i + 1]) for adjacent pairs, remove duplicates, and sort the resulting set by entry time.',
+        'During the stack scan, an ancestor test usually uses tin[u] <= tin[v] and tout[v] <= tout[u]. When a parent-child relation is added in the virtual tree, the edge often stores depth[child] - depth[parent]. That distance is not cosmetic: many DPs need path length, edge weight sums, permission inheritance, or aggregate path metadata from the skipped original vertices.',
+      ],
+    },
+    {
+      heading: 'Invariants and proof shape',
+      paragraphs: [
+        'The closure invariant is that every branching point among marked vertices is present. In Euler order, the marked vertices inside a subtree form a contiguous block. The boundary between consecutive marked vertices is where the traversal crosses from one relevant branch to another, so the adjacent LCA exposes the needed branch point. Adding adjacent LCAs therefore includes all LCAs needed for the induced compressed tree.',
+        'The construction invariant is that the stack is always an ancestor chain in the original tree. Popping removes closed subtrees. The first remaining ancestor is the nearest kept ancestor of the next node, so the virtual edge connects exactly the parent relation in the compressed tree. Because at most k - 1 adjacent LCAs are added, the closed set has at most 2k - 1 vertices before duplicates reduce it further.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'With binary lifting, preprocessing is O(n log n) time and memory. A query costs O(k log k) to sort, O(k log n) for adjacent LCA calls, O(k log k) or less to sort the closed set, O(k) to build the virtual edges, and O(k) for a typical DP. With constant-time LCA, the LCA part drops to O(k).',
+        'The working memory is per-query scratch. Production implementations often keep temporary adjacency lists only for touched virtual vertices and then clear those lists after the query. Clearing the entire n-sized structure per query quietly reintroduces the cost the virtual tree was meant to avoid.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The most common correctness bug is missing an LCA because the marked vertices were not sorted by Euler order before adjacent pairs were considered. Another is forgetting to dedupe before the stack scan, which can create zero-length self edges or duplicate adjacency. A third is treating virtual edges as original edges and losing the skipped distance.',
+        'The lifecycle bugs are just as important. If the base tree changes, the entry times and LCA table are stale. If temporary virtual adjacency is not cleared, one query leaks into the next. If the DP needs information from skipped vertices, the virtual edge must carry that information or be able to query it from a prefix structure.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Virtual trees win when the topology is stable, LCA preprocessing is reusable, and each query touches a small marked subset. Typical uses include Steiner-tree-style DP on trees, distance among special vertices, color or permission rollups, service ownership incidents, taxonomy aggregation, and batch queries on rooted hierarchies.',
+        'They are especially strong when the next computation is already tree-shaped. Once the virtual tree is built, postorder and preorder DPs can be written almost the same way they would be on the original tree, just over the compressed query graph.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'A virtual tree is not the right abstraction when every query touches most of the original tree, when the tree is changing continuously, or when the answer depends on arbitrary interior vertices that cannot be summarized on compressed edges. In those cases, the compression either saves little or hides necessary state.',
+        'For dynamic forests, look at Link-Cut Trees, Euler Tour Trees, or rebuild strategies. For path queries on a static tree where many path segments must be updated or queried directly, Heavy-Light Decomposition may be the more direct tool.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the compress-nodes view, first notice the five marked services in the full tree. The Euler-order table shows the move from geometry to a sorted list. The adjacent-LCA table then adds auth, root, and shop, which are exactly the branch points needed to connect the marks. The final virtual tree shows which original paths were collapsed into weighted jumps.',
+        'In the stack-build view, follow the stack note rather than the whole tree. A push means the next kept vertex lies inside the current subtree. A pop means that subtree is finished. In the incident case study, read the postorder table as the reason the compression exists: ownership impact can be aggregated without scanning unrelated services.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'Consider a large service ownership tree. Every service belongs to a team, every team rolls up to an organization, and incidents arrive as a small set of affected services from traces. The incident dashboard needs affected-owner counts and distance-weighted blast radius. Rewalking the whole ownership tree for every incident wastes time and loads cold metadata.',
-        'A virtual tree makes each incident local. Mark the affected services, add adjacent LCAs such as the owning teams and root organization, build the virtual tree, then run a postorder DP. The result says auth owns two affected services, shop owns two, cache is isolated under search, and the incident root sees five total affected services. The system can also keep compressed edge weights to estimate escalation distance.',
-        'The same pattern applies to permission analysis in a file tree. Mark the files selected by a policy audit, add folder LCAs, and run DP only on the compressed folder/file tree. The algorithm keeps enough folder structure to explain inherited permissions without scanning unrelated directories.',
+        'Suppose a company has a rooted ownership tree with thousands of teams and services. An incident marks five affected leaf services. The virtual tree adds the common team ancestors and the root organization, then runs a postorder DP over the compressed tree to count affected descendants by owner.',
+        'The same virtual edges can also carry escalation distance, blast-radius weights, or policy metadata. A dashboard can show that auth owns two alerts, shop owns two alerts, and a cache service is isolated under a different branch, all without traversing unaffected parts of the organization tree for this incident.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
-      paragraphs: [
-        'The edge in a virtual tree is usually not an original edge. It may represent a path through skipped nodes, so store depth differences or path aggregates when the downstream DP needs distances, costs, permissions, or capacities.',
-        'Do not add LCAs of all pairs unless the query is tiny. That destroys the point of the method. Sort by Euler order and add adjacent LCAs. Also dedupe aggressively: the same LCA can appear many times, especially the root.',
-        'Virtual trees assume a stable rooted tree during the query batch. If the topology changes, entry times and LCA tables can become stale. For online link/cut topology changes, study Euler Tour Tree and Link-Cut Tree instead.',
-      ],
-    },
-    {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Sources: USACO Guide Virtual Tree at https://usaco.guide/plat/VT, OI Wiki virtual tree at https://oi-wiki.org/graph/virtual-tree/, CP-Algorithms binary-lifting LCA at https://cp-algorithms.com/graph/lca_binary_lifting.html, and CP-Algorithms LCA overview at https://cp-algorithms.com/graph/lca.html.',
         'Study Rerooting DP: All Roots Tree DP, Binary Lifting LCA, Tree Traversals, Heavy-Light Decomposition, Centroid Decomposition, Small-to-Large Merging & DSU on Tree, Euler Tour Tree, and Link-Cut Tree next. Virtual trees are the bridge between static tree ancestry and fast per-query tree DP.',

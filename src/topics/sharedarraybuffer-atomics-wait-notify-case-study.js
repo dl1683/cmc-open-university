@@ -241,46 +241,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'SharedArrayBuffer is JavaScript shared memory. Instead of copying data between a page and a worker or transferring ownership away from the sender, both agents receive objects that reference the same shared data block. Typed arrays then interpret that block as control words, counters, records, pixels, or raw bytes.',
-        'Atomics is the synchronization layer for shared typed arrays. It gives ordered loads and stores, atomic increments, compare-and-swap, and wait/notify primitives. Without a protocol built on those operations, shared memory is just a fast way to create race bugs.',
+        'Most browser concurrency is message passing. A page posts a value to a worker, the platform serializes it, and the worker receives its own copy or ownership of a transferred resource. That is the right default because it keeps mutation local. Some workloads, though, move the same bytes through many stages: audio processing, video analysis, WebAssembly threads, model inference, stream parsing, and worker pools.',
+        'SharedArrayBuffer exists for those cases. It creates a shared data block that multiple agents can view at the same time through typed arrays. That removes repeated copy or transfer steps, but it also imports the old systems problem: once two agents can touch the same memory, ordinary reads and writes are not enough. Atomics supplies ordered operations and wait/notify coordination so shared bytes can have a protocol instead of a race.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A page creates a SharedArrayBuffer and posts it to a worker. The receiving agent gets a different SharedArrayBuffer object, but both objects reference the same shared data block. A side effect in one agent eventually becomes visible in the other. MDN explicitly calls out that Atomics are needed to synchronize this shared visibility.',
-        'A common layout reserves the first few Int32 values for metadata such as head, tail, length, state, and shutdown flag. The rest of the buffer holds payload bytes through a Uint8Array view. Atomics.load, Atomics.store, Atomics.add, and Atomics.compareExchange keep the control words coherent. Atomics.wait and Atomics.notify let workers sleep until a value changes.',
+        'The reasonable first attempt is postMessage with structured clone. It handles normal objects, preserves many built-in data types, and avoids shared mutation. If the payload is a large one-way ArrayBuffer, the next step is transfer: move ownership to the worker and detach the sender side so the bytes are not copied.',
+        'Those tools hit a wall when both sides need ongoing access to the same stream of bytes. A parser may need to consume data while the producer keeps filling the next slot. A WebAssembly program may expect several workers to share one linear memory. A real-time pipeline may not be able to allocate and transfer a new buffer for every small chunk.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'The win is avoiding repeated copies and transfers. A worker can stream bytes through a shared ring buffer, a WebAssembly module can use shared memory for threads, and a renderer can hand off large binary work without allocating new buffers for every chunk.',
-        'The cost is security setup and concurrency discipline. Browser sharing requires secure context and cross-origin isolation headers. The constructor or postMessage path may be unavailable when those requirements are not met. Blocking Atomics.wait is not available on the browser main thread, so UI code must use messages, nonblocking designs, or worker-side waits.',
+        'The wall is not only performance. It is ownership. Transfer is excellent when ownership should move. It is wrong when the sender and receiver must coordinate over the same buffer after the first message. Repeated cloning is simple, but it turns a streaming protocol into allocation, serialization, and garbage collection pressure.',
+        'Shared memory removes that wall by removing isolation between the agents that share the bytes. That is why it needs a second wall around correctness. The data slots are not self-describing. A consumer needs to know which slots have been published. A producer needs to know which slots have been consumed. Both sides need shutdown, full-buffer, and empty-buffer states that cannot be guessed from payload bytes alone.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core layout',
       paragraphs: [
-        'Consider a real-time audio feature. The main thread or audio-facing code writes encoded frames into a SharedArrayBuffer ring. A worker reads from the ring, decodes or analyzes frames, and writes results into another shared region. The producer updates tail and notifies. The consumer waits when empty and advances head after reading. A full ring applies backpressure instead of overwriting unread frames.',
-        'The same architecture appears in WebAssembly threads. WebAssembly.Memory can be created as shared, making its buffer a SharedArrayBuffer. That connects WebAssembly Linear Memory Case Study to this page: the byte array is still the abstraction, but now multiple agents can coordinate around the same bytes.',
+        'A common design splits the buffer into control words and payload bytes. The control words use an Int32Array view because Atomics.wait and Atomics.notify operate on Int32Array or BigInt64Array views backed by SharedArrayBuffer. The payload may use a Uint8Array, Float32Array, WebAssembly memory view, or a domain-specific record layout.',
+        'The core invariant is publish before notify, then recheck after wake. A producer writes payload bytes, uses Atomics.store or another atomic operation to publish the new state, and then calls Atomics.notify. A consumer wakes, reloads the control state, verifies that data is available, reads only published bytes, and advances its own control word.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How wait and notify work',
       paragraphs: [
-        'Do not use SharedArrayBuffer as a casual faster postMessage. Use structured clone for small data and transfer for one-way big buffers. Reach for SharedArrayBuffer when the data stream is hot enough that ownership moves or copies become the bottleneck.',
-        'Do not treat Atomics.notify as data delivery. It wakes waiters; it does not carry payload. The payload must already be published in shared memory with the correct ordering. Do not block the main thread; use workers for blocking waits and keep the UI event loop free.',
+        'Atomics.wait(view, index, expected) first checks the shared memory location. If the value is not the expected value, it returns immediately with "not-equal". If the value still matches, the agent can sleep until a timeout or until another agent notifies waiters on that location. That check-before-sleep step is what prevents a basic lost-wakeup race.',
+        'Atomics.notify(view, index, count) wakes agents sleeping on a location, but it does not carry a message. The shared memory value is still the source of truth. A correct consumer always loops: load state, decide whether it can proceed, wait only if the expected value still says no work is available, wake, and load state again.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: MDN SharedArrayBuffer at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer, MDN Atomics.wait at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics/wait, MDN Atomics.notify at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics/notify, and V8 Atomics.wait/notify/waitAsync at https://v8.dev/features/atomics.',
-        'Study Structured Clone & Transferables first for the clone and ownership-transfer alternatives. Then study Ring Buffer, Lock-Free Queue, Sequence Lock, Futex Wait Queue Case Study, WebAssembly Linear Memory Case Study, Web Workers: A Second Thread, Backpressure, and Work-Stealing Deque Scheduler.',
-        'For the browser-security prerequisite behind SharedArrayBuffer, study Cross-Origin Isolation: COOP, COEP & CORP next. It explains why the shared-memory feature is gated by opener and embedder policy rather than exposed as a generic performance switch.',
+        'The ring-buffer proof is a protocol proof. The producer owns tail movement. The consumer owns head movement. The producer writes a slot before publishing the tail that exposes it. The consumer reads a slot before publishing the head that frees it. Full and empty checks compare those control words before touching payload.',
+        'The waiting proof is also about the control word, not the notification. If the consumer sees empty state and sleeps only while that state is still current, then a producer that changes the state before notify gives the consumer a new value to observe. If a notification arrives for the wrong reason, the consumer reloads and either proceeds or waits again. Spurious or broad wakeups become harmless rechecks.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The shared-memory view separates three ideas that are easy to blend together: agents, bytes, and typed-array views. The main thread and worker point at the same SharedArrayBuffer. The Int32Array view is control state. The Uint8Array view is payload. Atomics belongs to the control state, not to every byte of application data.',
+        'The wait/notify view shows why a ring is more than a circular array. The payload slots hold records, but head and tail define ownership. The consumer sleeps on a control value, the producer publishes by changing a control value, and wakeup only tells the consumer to inspect memory again.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'SharedArrayBuffer can remove copy cost and reduce allocation pressure, but it adds fixed engineering cost. You need a binary layout, capacity rules, overflow behavior, shutdown signaling, timeout policy, and tests for races. The smaller the payload or lower the message rate, the more likely structured clone or transfer is the better trade.',
+        'There is also a browser security cost. SharedArrayBuffer sharing is gated by secure context and cross-origin isolation because shared memory and high-resolution timing can affect side-channel risk. Robust code checks crossOriginIsolated, configures COOP and COEP when needed, and has a fallback path when the page cannot be isolated.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Shared memory wins when the same bytes are read and written repeatedly across agents and the copy boundary is a measured bottleneck. WebAssembly threads are the direct case. So are worker pools processing fixed-size records, media pipelines passing frame chunks, and ML or visualization code moving dense numeric arrays between compute and rendering stages.',
+        'A real-time audio feature shows the access pattern. The producer writes encoded frames into a shared ring and publishes tail. The worker waits when the ring is empty, wakes when tail changes, decodes or analyzes frames, and advances head. If the ring fills, backpressure is explicit instead of silently overwriting unread data.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Shared memory fails when the protocol is larger than the performance problem. It is easy to build a fragile shared queue for data that could have been cloned once or transferred cleanly. It is also easy to forget edge states: full ring, canceled producer, sleeping consumer during shutdown, timed-out wait, worker crash, or schema version mismatch.',
+        'It is the wrong tool for ordinary UI state. The DOM is main-thread-owned, most application state is easier to reason about through messages, and blocking Atomics.wait cannot be used on the browser main thread. UI code should usually use worker-side waits, messages, or nonblocking waitAsync-style designs rather than blocking the interface.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: MDN SharedArrayBuffer at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer, MDN Atomics.wait at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics/wait, and MDN Atomics.notify at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Atomics/notify.',
+        'Study Structured Clone & Transferables first so the default clone and ownership-transfer choices are clear. Then study Ring Buffer, Lock-Free Queue, Sequence Lock, Futex Wait Queue Case Study, WebAssembly Linear Memory Case Study, Web Workers: A Second Thread, Backpressure, Work-Stealing Deque Scheduler, and Cross-Origin Isolation: COOP, COEP & CORP.',
       ],
     },
   ],

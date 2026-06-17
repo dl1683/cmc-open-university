@@ -212,43 +212,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A cuckoo filter is a compact approximate-membership data structure. It answers the same kind of question as a Bloom Filter: is this key definitely absent, or maybe present? The difference is that a cuckoo filter stores short fingerprints in a cuckoo-hashing table. A member key must have its fingerprint in one of two candidate buckets. A nonmember can collide with a stored fingerprint, so false positives remain possible, but false negatives should not occur for successfully inserted keys.',
-        'The original paper, Cuckoo Filter: Practically Better Than Bloom, describes a filter that supports adding and removing items dynamically while achieving high lookup performance: https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf. The ACM record is at https://dl.acm.org/doi/10.1145/2674005.2674994.',
+        "Many systems need a cheap front-door answer before they pay for the real lookup. A storage engine wants to know whether an SSTable might contain a key. A cache wants to avoid probing a cold shard. A security service may need to ask whether a token is on a changing deny list. The exact set still lives somewhere else; the filter exists to reject definite misses quickly.",
+        "A cuckoo filter is for mutable approximate membership. It answers no with certainty for keys that are not represented, and maybe for keys that collide with stored fingerprints. Its advantage over a basic Bloom filter is deletion: the filter stores small movable entries instead of spreading each key across many shared bits.",
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "The standard first answer is a Bloom filter. Hash the key several times, set several bits, and check those bits on lookup. If any required bit is zero, the key is definitely absent. If all required bits are one, the key may be present. It is simple, fast, and very good for append-heavy or immutable sets.",
+        "Deletion is the problem. Clearing a Bloom-filter bit can damage another key that happened to set the same bit. Counting Bloom filters replace bits with counters, but now each insert and delete touches multiple counters, the structure takes more space, and counter overflow or underflow becomes another operational concern.",
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "The wall is mutable membership. Real systems admit and evict cache entries, expire bad credentials, compact storage files, and replace metadata. A filter that cannot delete cheaply either becomes stale or has to be rebuilt on a schedule. Staleness means extra false positives; rebuilding means CPU, memory, and deployment complexity.",
+        "The harder wall is preserving the no-false-negative promise. An approximate filter may return false positives, but it must not say absent for an inserted key. Cuckoo filters keep that promise by storing a fingerprint in one of two legal homes. Lookup checks both homes. As long as insertion and deletion maintain that invariant, every represented key remains findable.",
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        "Store a short fingerprint, not the full key. Give that fingerprint two candidate buckets using the cuckoo-hashing placement idea. A lookup computes the same fingerprint and bucket pair, then scans those two small buckets for a matching fingerprint.",
+        "The structure is intentionally weaker than an exact set. It cannot prove that the original key is present because different keys can share the same fingerprint. But it can prove absence when neither candidate bucket contains that fingerprint, and that is the answer many systems need most often.",
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        "In the insert view, follow one fingerprint. First it tries one legal bucket, then the alternate bucket, then it may kick another fingerprint and continue the displacement chain. The important idea is not the motion; it is that every moved fingerprint still lands in one of its two legal homes.",
+        "In the deletion view, notice the difference between deleting a represented key and deleting a colliding nonmember. Removing a matching fingerprint is cheap, but the filter does not know the original key. That is the price of compact approximate membership.",
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'For a key x, compute a short fingerprint f. One hash gives the first bucket. A second bucket is derived from the first bucket and the fingerprint, commonly by xoring the bucket index with a hash of f. Lookup checks both buckets for f. If neither bucket contains f, x is definitely absent. If either bucket contains f, x is maybe present.',
-        'Insertion first tries to place f in either candidate bucket. If both are full, the filter evicts a stored fingerprint from one bucket, places f there, and moves the evicted fingerprint to its alternate bucket. This kick-out chain continues until an empty slot is found or a maximum number of kicks is reached. A failed insert normally triggers resizing, rebuilding, changing hash seed, or using a small stash.',
+        "For key x, compute a fingerprint f. One hash chooses the primary bucket. The alternate bucket is commonly derived from the primary bucket and a hash of f, often by an XOR-style transform. That derivation matters: after a fingerprint has been kicked out of one bucket, the filter can compute its other legal bucket without storing the original key.",
+        "Lookup is two bucket probes. If neither bucket contains f, x is definitely absent. If either bucket contains f, x is maybe present. Insertion first tries to place f in an empty slot in either candidate bucket. If both are full, it selects a victim fingerprint, swaps f into that slot, and moves the victim to its alternate bucket. The process repeats until an empty slot is found or an insertion limit is reached.",
+        "Deletion checks the same two buckets and clears one matching fingerprint. This is why cuckoo filters are useful for changing sets: the evidence for a key is a small entry that can be removed from a bucket, not a collection of shared bits whose ownership is unknown.",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Worked example',
       paragraphs: [
-        'Lookup is O(1) with a tiny constant: compute the fingerprint and inspect two buckets. Insert is expected O(1), but near high load factors the kick path can become long or fail. Deletion is O(1) because the filter can remove the matching fingerprint from one candidate bucket. The false-positive rate depends on fingerprint length, bucket size, and load.',
-        'Compared with a basic Bloom filter, the most important practical feature is deletion. Compared with a counting Bloom filter, deletion does not require replacing each bit with a counter. Compared with Xor Filter, Binary Fuse Filter, and Ribbon Filter, cuckoo filters are more update-friendly but usually not the most space-efficient choice for immutable sets.',
+        "Suppose a cache admits key K and its fingerprint is 0x3a. The primary bucket is 17 and the alternate bucket is 42. Bucket 17 is full, so the insertion kicks fingerprint 0x91 from bucket 17, stores 0x3a there, and moves 0x91 to its own alternate bucket. If that bucket has room, the insertion is done. Later, lookup for K checks buckets 17 and 42 and finds 0x3a.",
+        "Now suppose a different key Q also maps to the same fingerprint and one of the same buckets. The filter will return maybe present for Q even if Q was never inserted. That is a false positive, but it only causes a real lookup. The source of truth still decides whether Q is actually present.",
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Consider a storage service with a hot key-value cache and a slower object store. The cache wants to avoid expensive misses. A cuckoo filter can represent keys currently in the cache. On a request, the service checks the filter first. A definite negative skips the cache probe and goes directly to the backing path. A maybe-present answer checks the cache. When an item is admitted, insert its fingerprint. When it is evicted, delete it. This is exactly the kind of changing set where basic Bloom filters become awkward.',
-        'The filter must still be paired with discipline. Cache eviction should delete only keys that were actually admitted. A false positive merely wastes a cache probe; it must not be interpreted as proof that a value exists. If insert failures rise, the table is too full or the workload needs a rebuild policy.',
+        "The no-false-negative argument is the fingerprint-home invariant. Every successful insertion leaves the key fingerprint in one of the two buckets lookup will check. Kicks do not break the invariant because each victim is moved to its alternate legal home. Deletion of a genuinely represented key removes that key's evidence, which is exactly the requested state change.",
+        "False positives are unavoidable because the fingerprint is shorter than the key. The filter trades exact identity for compact evidence. Longer fingerprints reduce accidental matches, larger buckets reduce insertion failure, and lower load factors reduce long kick chains. Those knobs tune the space, speed, and reliability envelope.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'The first misconception is that deletion is risk-free for arbitrary keys. If you delete a key that was never inserted, the fingerprint may collide with a real member and erase it. The second is that a cuckoo filter stores keys. It stores fingerprints, so it cannot return values and cannot prove membership. The third is ignoring load factor. A filter that is too full can suffer insertion failures even though lookups still look simple.',
+        "Lookup is O(1): compute the fingerprint and inspect two small buckets. Deletion is also O(1) for a matching fingerprint. Insertion is expected O(1), but the worst cases are real: at high load, displacement chains can grow, cycle, or hit the configured kick limit. Production implementations need a resize, rebuild, stash, or fallback path.",
+        "The false-positive rate depends mainly on fingerprint length, bucket size, and occupancy. Larger fingerprints cost more bits per entry but reduce accidental matches. Bigger buckets make insertion easier but can increase scan work per lookup. Higher load saves memory but raises insertion failure risk. The useful design space is a compromise, not a single magic parameter.",
+      ],
+    },
+    {
+      heading: 'Deletion and correctness',
+      paragraphs: [
+        "Deletion is safe when the caller deletes only keys that were inserted and not already deleted. If the caller deletes a nonmember whose fingerprint collides with a real member, the filter can erase the real member's fingerprint and create a false negative. That is why a cuckoo filter should sit behind an API that knows membership semantics, or beside a source of truth that confirms deletes.",
+        "Duplicate keys need care too. If the same key can be inserted multiple times, a plain cuckoo filter does not count multiplicity. Removing one matching fingerprint may represent one insert or all inserts depending on the surrounding system. Counting variants or external reference counts are needed when multiplicity matters.",
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        "Cuckoo filters fit mutable guards: cache admission and eviction, database file checks, object-store indexes, dynamic deny lists, duplicate-suppression windows, and services where a false positive only wastes a real lookup. The source of truth must still be cheap enough to consult on maybe-present answers.",
+        "A storage cache is the clean example. A definite negative skips a cold cache probe. A maybe-present result checks the cache. Insert on admission and delete on eviction keep the filter aligned with the changing cache contents, so the false-positive rate reflects current state instead of old entries that should have disappeared.",
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "Use an immutable filter when the set is static. Xor, Binary Fuse, and Ribbon filters often win on space for build-once data. Use a Bloom filter when append-only behavior is enough and deletion is not needed. Use an exact hash table when false positives are unacceptable or when the system needs to return values rather than only gate lookups.",
+        "Cuckoo filters also become uncomfortable near saturation. Insert failures are not bugs; they are part of the design. If the application cannot tolerate rebuilds or temporary fallback lookups during resize, the filter may add more operational risk than it removes.",
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        "Common failures are overloading the table, using fingerprints that are too short, deleting keys without checking the source of truth, forgetting duplicate semantics, and measuring only lookup speed while ignoring rebuild cost. A filter that is wonderful at 85 percent load in a benchmark may be fragile under bursty production inserts.",
+        "Another failure is treating maybe-present as present. The filter is a precheck, not an authority. Every positive answer must flow to the real data structure, database, cache, or policy store that can verify the key. If product logic starts trusting positives, false positives become user-visible correctness bugs.",
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Cuckoo Filter: Practically Better Than Bloom at https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf, ACM DOI https://dl.acm.org/doi/10.1145/2674005.2674994, and the earlier USENIX workshop version at https://www.usenix.org/system/files/nsdip13-paper6.pdf. Study Bloom Filter, Cuckoo Hashing, Quotient Filter, Xor Filter, Binary Fuse Filter, and LSM Trees next.',
+        "Primary sources: Cuckoo Filter: Practically Better Than Bloom at https://www.cs.cmu.edu/~dga/papers/cuckoo-conext2014.pdf, ACM DOI https://dl.acm.org/doi/10.1145/2674005.2674994, and the earlier USENIX workshop version at https://www.usenix.org/system/files/nsdip13-paper6.pdf.",
+        "Study Bloom Filter for the bit-array baseline, Cuckoo Hashing for the displacement invariant, Quotient Filter for another deletable approximate-membership design, Xor Filter and Binary Fuse Filter for static filters, Ribbon Filter for compact immutable sets, and LSM Trees for the storage-engine setting where these filters often appear.",
       ],
     },
   ],

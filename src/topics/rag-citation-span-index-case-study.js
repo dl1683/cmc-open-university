@@ -63,7 +63,7 @@ function* spanLedger() {
   yield {
     state: citationGraph('Citation spans start at ingestion'),
     highlight: { active: ['doc', 'parse'], found: ['chunk', 'span'] },
-    explanation: 'A normal RAG index stores chunks. A citation-grade RAG index also stores exact source coordinates: document id, section path, byte or token offsets, page anchors, and the text span that can later be displayed to a reader.',
+    explanation: 'Read the span record as the missing layer beneath a citation. A chunk helps retrieval; exact coordinates let the product show and audit the sentence, row, page region, or timestamp that supports a claim.',
   };
 
   yield {
@@ -96,7 +96,7 @@ function* spanLedger() {
   yield {
     state: citationGraph('Retrieval returns chunks plus span handles'),
     highlight: { active: ['index', 'chunk', 'span'], compare: ['claim'], found: ['cite'] },
-    explanation: 'At query time, the retriever can return chunk text for context and span handles for attribution. The generator should not invent citation ids. It chooses from the span handles it actually received.',
+    explanation: 'The important handoff is chunk text plus allowed span handles. The generator can cite only handles it received, which prevents polished but invented citation IDs.',
   };
 
   yield {
@@ -156,7 +156,7 @@ function* answerAudit() {
       ],
     ),
     highlight: { active: ['quote:pass', 'support:pass', 'fresh:pass'], removed: ['scope:fail', 'acl:fail'] },
-    explanation: 'Citation quality is not just formatting. The audit needs to prove the span was retrieved under the right access policy, that the quote exists, that it supports the claim, and that the document version is still valid.',
+    explanation: 'The audit frame shows four separate checks: access, quote existence, claim support, and freshness. A pretty citation fails if any one of those checks fails.',
   };
 
   yield {
@@ -231,44 +231,75 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A citation span index is the provenance layer underneath a trustworthy RAG answer. Instead of treating a citation as a footnote string, it stores a stable pointer from an answer claim to the exact source span that supports it: document id, version, section, offset range, quote text, access scope, and corpus snapshot.',
-        'This fills a gap between RAG Pipeline and Claim Graph & Source Ledger. RAG retrieves context; the claim graph organizes assertions; the citation span index binds those assertions to verifiable coordinates inside the source corpus. Without that binding, citations can look polished while pointing at the wrong paragraph, a stale document, or a chunk that does not actually support the claim.',
+        `Retrieval-augmented generation exists because a model's parameters are a poor place to store every fact a product needs. A RAG system retrieves documents at answer time, places relevant context in the prompt, and asks the model to generate from that evidence. That reduces some hallucination risk and makes knowledge updates possible without retraining the model.`,
+        `The citation problem starts after retrieval succeeds. A generated answer can include a citation marker that looks trustworthy while pointing only to a chunk id, a page, or a broad document. That may be enough for a demo, but it is not enough for a product where users, evaluators, auditors, and support engineers need to inspect exactly which sentence, table row, clause, code range, or transcript interval supports each claim.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The reasonable first attempt is to cite the retrieved chunks. The retriever already returns ids. The generator already saw those chunks. The UI can show a superscript beside a sentence and open the source document when the user clicks it. This is simple, cheap, and often good enough for a prototype.`,
+        `The wall is that a chunk is a retrieval unit, not an evidence unit. A chunk may contain several claims, stale text, contradictory exceptions, boilerplate, or a paragraph that is topically related but does not entail the answer sentence. If the answer says "refunds are allowed within 30 days", a citation to a full policy page does not prove the number, the condition, the date, or the absence of a hidden exception.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `A citation is a data structure, not a decorative footnote. The system should store a stable pointer from an answer claim to a source span with enough metadata to replay the evidence path. A practical record includes document id, document version, corpus snapshot, section path, offset range, quote text or hash, access scope, extraction method, freshness state, and a support label such as direct, summary, contradiction, or unsupported.`,
+        `This separates three jobs that are often blurred together. Retrieval finds candidate context. Generation writes claims. Attribution binds those claims to exact spans that can be checked. Once those jobs are separate, a citation can fail for a precise reason: no visible source, stale document, missing quote, wrong span, weak entailment, or generated claim with no support.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'At ingestion time, each parsed document produces chunks for retrieval and spans for attribution. A span may be a paragraph, sentence, table row, page region, transcript interval, or code range. The record stores source coordinates, a content hash, permissions, freshness metadata, and a normalized quote. Vector and lexical indexes may store the chunk id, but the application keeps a separate span ledger for audit and display.',
-        'At generation time, the model receives retrieved context plus allowed span handles. A disciplined system asks the model to map each factual claim to one or more span handles, then checks whether the quote supports the claim. The evaluator can compute faithfulness and context precision more cleanly because it can inspect claim-level support rather than one blended answer score.',
+        `The index starts at ingestion, before any user asks a question. A parser turns documents into normalized text plus structure: pages, headings, paragraphs, tables, cells, figures, transcript timestamps, or code ranges. Retrieval chunks are created for search, but attribution spans are stored separately. They may be sentence-level for prose, row-level for tables, page-region-level for PDFs, or interval-level for audio transcripts.`,
+        `Each span receives a stable handle. A byte offset is useful, but offsets alone are brittle because OCR, markdown conversion, and parser upgrades can move text around. Production systems usually pair coordinates with content hashes, document versions, section paths, source URIs, and corpus snapshot ids. That way a span can be revalidated after reindexing instead of silently drifting to a nearby paragraph.`,
+        `At query time, retrieval returns chunks plus the span handles allowed for those chunks. The generator can be instructed to attach factual claims only to handles it received. A postprocessor can then extract claims, resolve the cited handles, compare the generated sentence against the quoted span, and mark the support relation. The point is not to make the model honest by prompt alone. The point is to give the system something concrete to verify.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The useful invariant is claim-to-span replayability. For every cited factual claim, the system should be able to answer four questions without rerunning the model: which source span was cited, what text was visible to the user, which corpus version supplied it, and what kind of support relation was asserted. If any of those answers is missing, the citation is not auditable.`,
+        `This does not prove the answer is true in a philosophical sense. It proves a narrower and more useful property: the product can inspect whether the answer is grounded in the indexed corpus under the user's permissions and under the active document versions. That is enough to debug most RAG failures. A bad answer becomes traceable to ingestion, retrieval, ranking, context packing, generation, citation formatting, or support verification.`,
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'The storage overhead is modest compared with embeddings, but the engineering overhead is real. The index must survive re-chunking, document updates, OCR changes, table extraction, and access-control filtering. Byte offsets are brittle if text normalization changes, so production systems often pair offsets with content hashes, section paths, page anchors, and version ids.',
-        'The payoff is operational. A bad answer can be traced to the specific source span, document version, retriever result, prompt context, and generated claim. That turns RAG debugging from subjective prompt reading into an evidence replay problem.',
+        `The storage cost is usually modest compared with embeddings and raw documents. Span records are mostly ids, ranges, hashes, short quotes, and metadata. The real cost is lifecycle discipline. Every parser change, document update, permission rule, re-chunking job, and alias swap can break provenance if the span ledger is treated as an afterthought.`,
+        `There is also runtime cost. Claim extraction and support checks add latency if they run synchronously. Entailment models can be expensive and imperfect. Very small spans may need surrounding context to verify a clause; very large spans make verification weak. Tables, OCR noise, images, formulas, footnotes, and legal cross-references all complicate the idea of an exact supporting span.`,
+        `The behavior scales with the number of cited claims, not only with the number of retrieved chunks. A short answer with two factual claims is cheap to audit. A long report with hundreds of assertions needs batching, sampling, caching, and a source ledger that can explain partial support instead of forcing every sentence into a binary pass or fail.`,
       ],
     },
     {
-      heading: 'Complete case study: policy assistant citations',
+      heading: 'Complete case study',
       paragraphs: [
-        'A customer-support assistant answers refund questions from a corpus with policy PDFs, FAQ pages, and release notes. The old policy allows 45 days; the current policy allows 30. A chunk-only RAG system can retrieve both and cite whichever paragraph the generator happens to use. A span-indexed system marks the 45-day span as stale, keeps the 30-day span current, and records which answer claim cites which exact sentence.',
-        'When a user challenges the answer, the UI opens the source sentence and document version. When an evaluator flags a hallucination, the support map shows whether retrieval missed the current span, ranking buried it, the generator used a stale span, or the claim had no supporting span at all. The fix can then target corpus freshness, rank fusion, reranking, context packing, index lifecycle, or generation rules instead of guessing.',
+        `Consider a customer-support assistant answering refund questions from policy PDFs, FAQ pages, release notes, and internal macros. The old refund policy allowed 45 days. The current policy allows 30 days. A chunk-only system may retrieve both because they share the same vocabulary. The generator may answer from the stale chunk and cite it cleanly.`,
+        `A span-indexed system can keep both documents while marking their versions and freshness states. The 45-day sentence remains a real span, but it is stale under the active corpus alias. The 30-day sentence is current. When the answer claims "refunds are available for 30 days", the support map can point to the exact current sentence. If the answer says 45 days, the audit can say the citation exists but fails the freshness gate.`,
+        `This improves both product UX and engineering diagnosis. A user who clicks the citation lands on the highlighted sentence, not a broad page. An evaluator who flags the answer can see whether retrieval missed the current span, ranking placed it below the stale one, prompt packing dropped it, the generator ignored it, or the support checker was too permissive. The fix becomes targeted instead of a vague prompt rewrite.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins',
       paragraphs: [
-        'A citation id is not proof. It must be checked for access scope, freshness, exact quote existence, and claim support. A source can be relevant to the topic while failing to support the sentence the answer wrote. A quote can support part of a claim while leaving a number, date, or exception unsupported.',
-        'Another trap is making spans too large. A whole page citation is easy to store but hard to verify. Too-small spans can lose context, especially in tables and legal clauses. The practical design uses hierarchical coordinates: document, section, chunk, sentence, table cell, page region, or transcript interval, with links between levels.',
+        `Citation span indexes are strongest in domains where provenance is part of the product contract: support automation, legal research, policy assistants, enterprise search, scientific review, incident reports, medical documentation workflows, financial research, and deep research agents. In these systems, the answer is not useful merely because it sounds plausible. It must show where each important claim came from.`,
+        `They also help evaluation. Metrics such as faithfulness, context precision, and answer correctness become easier to reason about when the evaluator can inspect claim-level support. The span ledger becomes shared infrastructure for user citations, offline scoring, regression tests, source freshness checks, and operational debugging.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it fails',
       paragraphs: [
-        'Primary sources: the original RAG paper at https://arxiv.org/abs/2005.11401 and RAGAS evaluation at https://arxiv.org/abs/2309.15217. Connect this topic to RAG Claim Verification Support Ledger for claim-level support labels, RAG Evaluation: RAGAS, ARES, and the RAG Triad for faithfulness metrics, Claim Graph & Source Ledger for provenance modeling, Deep Research Agent Architecture for report synthesis, Multi-Index RAG for retrieval fusion, RAG Index Lifecycle and Alias Swap for version-safe reindexing, and Lost in the Middle for context-position failure modes.',
+        `A span index is not useful when the system cannot define a stable source. Some answers are based on computation, synthesis across many weak signals, private reasoning traces, or data that the user is not allowed to see directly. In those cases, a citation span can mislead by pretending there is one decisive quote.`,
+        `It also fails if the product treats support labels as decoration. A citation should distinguish direct evidence from a summary, a related passage, a contradiction, and missing support. If every marker renders the same in the UI, users learn the wrong lesson. They start trusting citation shape instead of evidence quality.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks at https://arxiv.org/abs/2005.11401 and RAGAs: Automated Evaluation of Retrieval Augmented Generation at https://aclanthology.org/2024.eacl-demo.16/. Study RAG Pipeline for the retrieval-generation loop, Multi-Index RAG for source fusion, RAG Evaluation for faithfulness metrics, Claim Graph & Source Ledger for assertion provenance, RAG Index Lifecycle and Alias Swap for version-safe reindexing, and Lost in the Middle for context-position failures that a citation ledger cannot fix by itself.`,
       ],
     },
   ],

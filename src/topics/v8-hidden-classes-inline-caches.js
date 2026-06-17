@@ -217,44 +217,104 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'V8 hidden classes, called Maps in V8 internals, are runtime shape descriptors for JavaScript objects. JavaScript lets objects gain and lose properties dynamically, but optimized code wants fixed offsets like a normal struct. Hidden classes bridge that gap: objects with the same property layout share a Map, and the Map describes where each property is stored.',
-        'V8 documentation explains that each Map has a list of properties associated with objects of that Map and describes the exact location of each property: https://v8.dev/docs/hidden-classes. This is a data-structure story inside the JavaScript engine: transition trees, descriptor arrays, property stores, elements stores, and caches cooperate to make dynamic property access fast.',
+        'JavaScript lets objects change shape at runtime. Code can add properties late, delete properties, construct objects in different orders, and pass unrelated objects through the same function.',
+        'A simple engine could store every object as a dictionary from property names to values. That matches the language, but it is too slow for hot property access. A loop that reads obj.x a million times should not repeat a full name lookup if every object has the same layout.',
+        'V8 uses hidden classes, called Maps inside V8, to recover structure from dynamic objects. Inline caches then attach that structure to hot access sites so property reads can become guarded offset loads.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Start with an empty object. Add property x and V8 transitions from the initial Map to a new Map. Add y and it transitions again. Objects that add x then y share the same transition path and can share descriptor metadata. Objects that add y then x may have the same visible keys but a different shape, because the transition path and offsets differ.',
-        'Inline caches build on this. A property load site such as obj.x remembers the Maps it has seen. If it is monomorphic, meaning one shape, the optimized path checks the object Map and reads x from a cached offset. If it is polymorphic, the site checks a small set of shapes. If it becomes megamorphic, too many shapes have reached the same site, and the engine falls back to more generic lookup machinery. The engine-fundamentals article on shapes and inline caches gives the cross-engine version of this idea: https://mathiasbynens.be/notes/shapes-ics.',
+        'The obvious representation is one hash table per object. It handles arbitrary keys, late additions, deletes, and unusual objects without needing a separate layout system.',
+        'That representation is good for dynamic key bags. It is wasteful for record-like objects. If many objects all have x, y, and z in the same order, the engine can share layout metadata instead of rediscovering the same property locations.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Where the naive approach breaks',
       paragraphs: [
-        'Fast property access is not free. The engine maintains transition metadata, descriptors, object backing stores, IC state, and deoptimization paths. Stable construction patterns let those structures pay for themselves. Highly dynamic objects, frequent deletes, inconsistent property order, and access sites that receive many unrelated shapes can push the engine toward dictionary-like lookup and less specialized code.',
-        'V8\'s fast-properties article separates named properties from integer-indexed elements and explains that objects can use fast or dictionary properties: https://v8.dev/blog/fast-properties. This is why a JavaScript object sometimes behaves like a struct and sometimes like a hash table. The language abstraction is one object; the engine may choose several internal layouts.',
+        'The engine wants fixed offsets, but JavaScript only promises property semantics. Two objects can both have x and y while storing them through different internal layouts because they were built differently.',
+        'A global cache for the name x is not enough. The same property name can live at different offsets on different shapes, and the same access site can see one shape in a tight loop or many shapes in generic utility code.',
       ],
     },
     {
-      heading: 'Array elements case study',
+      heading: 'The core idea',
       paragraphs: [
-        'Arrays have their own shape-like metadata called elements kinds. A packed array of small integers can use a tight representation. Add NaN, Infinity, -0, an object, or a hole, and the array may transition to a more general elements kind. V8\'s elements-kinds article explains how these transitions affect optimized array operations: https://v8.dev/blog/elements-kinds.',
-        'The practical rule is not to write unnatural micro-optimized JavaScript everywhere. It is to understand why hot loops prefer predictable shapes: initialize fields consistently, avoid deleting properties in performance-critical objects, keep arrays packed when possible, and separate dictionary-like bags of dynamic keys from hot record-like objects.',
+        'Make the offset assumption conditional on shape. A hidden class records which named properties exist and where their values live. Objects that add the same properties in the same order can share the same Map and descriptor metadata.',
+        'An inline cache is feedback attached to one access site, such as obj.x in one function. It records the Maps seen at that site and the handler for each Map.',
+        'The fast path is: check the object Map; if it matches the cached Map, read the cached offset. If it does not match, try another cached handler or fall back to generic lookup.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'Do not treat hidden classes as JavaScript classes. They are engine metadata, not language-level types. Different engines use different names and strategies, though the shape-plus-cache pattern is widespread. Also, do not assume every property access is optimized forever. Runtime feedback can change, code can deoptimize, and modern engines balance speed, memory, and correctness across many cases.',
-        'Another trap is overfitting to old microbenchmarks. V8 changes over time. The durable lesson is structural: stable object shapes make a dynamic language look more static to the optimizer. That same idea appears in SwissTable control bytes, database indexes, and cache-friendly data layouts: move repeated lookup work into compact metadata.',
+        'An object starts with an initial Map. Adding x follows a transition to a new Map. Adding y follows another transition. A second object that adds x then y can reuse the same transition path and reach the same layout.',
+        'The Map points to descriptors that describe property locations. Some properties can live in-object, which makes access cheap. Others may live in a backing store. Very dynamic objects can move toward dictionary properties, which are more flexible but less specialized.',
+        'When code first runs obj.x, the inline cache observes the object Map and records the offset. A monomorphic site has one Map. A polymorphic site has a small set. A megamorphic site has seen enough unrelated shapes that generic lookup becomes more attractive than local specialization.',
+        'Array elements have a related but separate optimization story. V8 tracks elements kinds for indexed storage, and many transitions move from more specific representations to more general ones.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: V8 Maps / Hidden Classes docs at https://v8.dev/docs/hidden-classes, V8 Fast Properties at https://v8.dev/blog/fast-properties, JavaScript Engine Fundamentals: Shapes and Inline Caches at https://mathiasbynens.be/notes/shapes-ics, and V8 Elements Kinds at https://v8.dev/blog/elements-kinds. Study V8 Array Elements Kinds, JavaScript Proxy Trap & Inline Cache, WeakRef & FinalizationRegistry, V8 Ignition Bytecode Pipeline Case Study, Interpreter Dispatch Table & Threaded Code, Hash Table, SwissTable Hash Map, LRU Cache, The Event Loop, Web Workers, and Cache Invalidation & Versioning next.',
+        'The fast path is correct because it is guarded. The cached offset is used only after the object Map proves that the descriptor layout is the one the inline cache learned.',
+        'If the Map differs, the cached offset is not trusted. The engine can check another polymorphic handler, update feedback, deoptimize optimized code that depended on old feedback, or fall back to generic property lookup.',
+        'Inline caches are local because feedback is local. One obj.x site may only see Point objects and stay monomorphic. Another obj.x site in a serializer may see dozens of shapes and become megamorphic.',
+      ],
+    },
+    {
+      heading: 'How to read the visualization',
+      paragraphs: [
+        'In the shape-transitions view, the main path is the construction order. Map0 to Map1 to Map2 means the object is accumulating properties in a predictable sequence. The side branch shows why y then x is not the same internal shape as x then y.',
+        'In the descriptor table, the slot numbers are the payoff. Once the Map is known, y can be read as slot 1 instead of found by a fresh name search.',
+        'In the inline-cache view, the state names describe how much diversity one access site has seen. Monomorphic means one shape and the cheapest guard. Polymorphic means a short set of guards. Megamorphic means the site stopped being a good candidate for a tiny local cache.',
+        'In the elements-kind frame, read the arrows as widening. A packed small-integer array gives the engine a tight path. Adding doubles, objects, or holes forces checks that a narrower representation did not need.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Create many points with the same constructor: this.x = x; this.y = y. Those objects follow the same hidden-class transition path and share descriptor metadata.',
+        'A hot distance function that reads p.x and p.y sees the same Map at each load site. The inline cache can check the Map pointer and read fixed slots. Optimized code can then build on that stable feedback.',
+        'Now build half the points by assigning y before x, or delete x from some objects, or pass configuration bags into the same distance function. The visible property names may still overlap, but the access site now sees multiple shapes and pays more checks or a generic path.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The engine pays for Maps, descriptor arrays, transition metadata, backing stores, inline-cache feedback, optimized code, and deoptimization machinery. Stable hot shapes let that metadata pay for itself through repeated offset reads.',
+        'Shape diversity shifts cost back toward generality. Inconsistent construction order, late property additions, deletes, dynamic keys, proxies, and generic functions that accept many unrelated records all make specialization harder.',
+        'The exact thresholds and heuristics are engine details. The stable idea is not a magic number for polymorphism; it is that repeated structure can be cached only when the program presents repeated structure.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Hidden classes and inline caches win on record-like objects in hot code: points, parsed rows, AST nodes, UI models, request records, and other objects created by a small number of constructors or factory paths.',
+        'The practical rule is boring: initialize hot fields consistently, avoid deleting properties from performance-critical records, keep dynamic key bags separate from fixed-shape records, and do not send unrelated shapes through the same hot accessor when a narrower path is easy.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong lens',
+      paragraphs: [
+        'Hidden classes are not JavaScript classes, and they are not an API. They are engine metadata. Different engines use different names and strategies, and V8 heuristics can change.',
+        'This topic is the wrong lens for cold code, I/O-bound code, or code whose bottleneck is algorithmic. A better data structure or fewer DOM operations can matter far more than shape stability.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The common performance failure is accidental shape diversity: constructing objects in different orders, adding fields after hot code has started, deleting fields instead of using sentinel values, or mixing records and dictionaries at one access site.',
+        'The common learning failure is overfitting microbenchmarks. Engine internals are useful for mental models, not for cargo-culting old tricks. Measure real code and treat debug output as a diagnostic, not a contract.',
+        'Proxies, accessors, prototype-chain surprises, sparse arrays, and out-of-bounds array reads can also push execution away from the simple guarded-offset story.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study V8 Array Elements Kinds for indexed storage, V8 Ignition Bytecode Pipeline Case Study for feedback and execution tiers, Deoptimization Stack Maps & Safepoints for what happens when optimized assumptions fail, Hash Table and SwissTable Hash Map for the generic lookup contrast, and Cache Invalidation & Versioning for the broader idea of guarded cached assumptions.',
+        'Primary sources: V8 Maps / Hidden Classes docs at https://v8.dev/docs/hidden-classes, V8 Fast Properties at https://v8.dev/blog/fast-properties, V8 Elements Kinds at https://v8.dev/blog/elements-kinds, and JavaScript Engine Fundamentals: Shapes and Inline Caches at https://mathiasbynens.be/notes/shapes-ics.',
       ],
     },
   ],

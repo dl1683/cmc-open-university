@@ -235,41 +235,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The paper "Operationalizing Machine Learning: An Interview Study" studies how machine-learning engineers deploy and maintain ML pipelines in production. Its useful teaching frame is the 3Vs: velocity, validation, and versioning. AI Engineering Stack: Five Parts Primer gives the companion diagnostic map: data, model, compute, evaluation, and serving. Teams need velocity because data and products change. They need validation because offline metrics, staged deployments, and monitoring catch different failures. They need versioning because every ML behavior depends on code, data, labels, features, model configuration, and evaluation state.',
-        'This topic treats MLOps as an operating loop rather than a tool list. The loop is data collection and labeling, experimentation, staged evaluation, deployment, production monitoring, and back to data. Every pass through the loop should improve the system without destroying the ability to reproduce or roll back what happened.',
+        `MLOps exists because a model is not a finished file. It is a dependency inside a changing data system. The product changes, users change, data pipelines change, labels arrive late, and a model that looked good last month can become wrong without any code deployment.`,
+        `The useful frame from the interview-study literature is velocity, validation, and versioning. Velocity is the ability to learn and ship changes quickly. Validation is the set of checks that decide whether a change is safe. Versioning is the lineage that says exactly which code, data, features, labels, model, config, and evaluation suite produced a behavior.`,
+        `The three ideas have to live together. A team that moves quickly without validation ships failures quickly. A team that validates without versioning cannot reproduce what passed. A team that versions everything but makes the workflow painful will be bypassed. MLOps is the operating system that keeps these forces in balance.`,
+      ],
+    },
+    {
+      heading: 'The naive approach',
+      paragraphs: [
+        `The first naive approach is notebook-to-production. A data scientist trains a model, exports a pickle or weight file, and hands it to an engineer. The engineer wraps it in an endpoint. If the first demo works, the team treats deployment as mostly solved. This is common because it is the shortest path from experiment to visible product behavior.`,
+        `The wall appears during the second or third release. Nobody can say which data snapshot trained model v17. The feature code used offline is not the feature code used online. The evaluation set was updated after the model was chosen. A bad canary cannot be explained. Rollback returns the old weights but leaves the new feature transform in place.`,
+        `The second naive approach is to copy normal CI/CD and pretend the model is just another binary. That helps with packaging and deployment, but it misses the statistical part. The behavior of the artifact depends on training distribution, label quality, evaluation slices, thresholds, and runtime data. Testing the container starts is not the same as proving the model should serve users.`,
+      ],
+    },
+    {
+      heading: 'The core idea',
+      paragraphs: [
+        `The core insight is that production ML is a feedback loop with lineage. Data and labels feed experimentation. Experiments produce candidate models. Candidates pass through staged validation. Deployment creates new observations. Monitoring sends failures and fresh data back into the next training cycle. Versioning ties the loop together so each decision can be reconstructed.`,
+        `Velocity is not recklessness. It comes from repeatable pipelines, reusable feature definitions, fast experiment tracking, clear promotion gates, and deployment mechanisms such as feature flags, shadow mode, canaries, and rollback. The point is to make the correct path easier than the heroic path.`,
+        `Validation is not one metric. Offline evaluation catches some regressions before users see them. Shadow mode catches serving mismatches without affecting decisions. Canaries catch early production failures. A/B tests measure user impact. Drift monitors and delayed-label audits catch decay after launch. Each stage sees a different failure surface.`,
+        `Versioning is the memory of the system. It links a model to the training code, data window, label source, feature definitions, hyperparameters, thresholds, evaluation set, approval record, and serving configuration. Without that graph, velocity and validation create artifacts but not control.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Velocity comes from automated pipelines, reusable features, fast experiment tracking, and deployment mechanisms such as feature flags and canaries. Validation comes from train/validation/test discipline, data-leakage checks, offline benchmarks, shadow mode, canaries, online A/B tests, drift monitors, and delayed-label audits. Versioning ties code commits, data snapshots, feature definitions, model weights, configs, and evaluation suites into a lineage graph.',
-        'The 3Vs trade against each other. More velocity without validation ships broken models faster. More validation without versioning produces reports nobody can reproduce. More versioning without usable workflows becomes bureaucracy. A strong ML platform makes the right behavior the fast behavior.',
+        `A healthy MLOps loop starts before training. The team defines the product metric, guardrail metrics, label source, feature contract, and evaluation slices. The training pipeline then creates a candidate from a known code commit and a known data snapshot. The candidate is not just weights. It is weights plus configuration, feature schema, thresholds, and evaluation evidence.`,
+        `The first validation stage is offline. The model must beat a baseline on held-out data and important slices. It should pass leakage checks, schema checks, feature freshness checks, calibration checks where relevant, and regression tests against known failure cases. Offline validation is cheap enough to run often, but it is still a proxy.`,
+        `The next stages move closer to production. Shadow mode runs the candidate beside the current model without changing user outcomes. A canary sends a small traffic slice through the new path. An online experiment measures business and user effects. Monitors watch drift, latency, prediction distribution, calibration, data quality, and delayed labels after release.`,
+        `Versioning runs through all of this. A registry should answer: what is serving, which data trained it, which feature definitions it expects, which evaluation suite it passed, which deployment promoted it, and what must roll back together. Incident response depends on that query being fast and exact.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Production ML adds costs that ordinary stateless services do not carry. Labels can arrive late. Data distributions drift. Feature pipelines can lag or skew. A model can pass offline tests and fail under a new traffic mix. A rollback may require reverting features and model weights together. That is why Feature Store, Distributed Tracing, Feature Flag Control Plane, A/B Testing, and Data Leakage & Contamination are not side topics; they are part of the same operating system.',
+        `The operating-loop visual proves that production ML is cyclical. Data collection, experimentation, validation, deployment, monitoring, and versioning are not separate departments. They are one control loop. Monitoring without a path back to data is a dashboard. Experimentation without promotion gates is a notebook habit. Deployment without lineage is a blind write to production.`,
+        `The staged-validation visual proves that no single gate is enough. Offline metrics, shadow mode, canaries, online experiments, and drift monitors each answer a different question. The failure-mode view then shows where systems break: notebook to pipeline, offline feature to online lookup, prediction to delayed label, and model artifact to lineage.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'The 3V frame applies to recommendation systems, fraud detection, search ranking, ads, autonomous-vehicle perception pipelines, credit risk, support automation, personalization, and LLM-powered products. Any team retraining models from live data needs explicit answers to: how fast can we learn, how do we prove the change is safe, and how do we reconstruct what served?',
+        `The method works because it makes change observable and reversible. Velocity is safe only when every promoted model has a known path back to its inputs and every rollout has a way to stop. Validation is meaningful only when the artifact being validated is the artifact that will serve. Versioning is useful only when it describes the whole behavior, not just the model file.`,
+        `The invariant is simple: a production prediction must be explainable as the output of a specific model version, running under a specific serving configuration, using specific feature definitions, on specific input data, under a specific request context. If the team cannot reconstruct that path, it cannot debug the system reliably.`,
+        `Staging works because ML failures are heterogeneous. A data leakage bug may look excellent offline and fail online. A feature lookup mismatch may pass training and fail in shadow mode. A slow feature service may show up only in canary latency. A delayed-label problem may appear weeks later. Multiple gates are not bureaucracy when each gate catches a distinct class of failure.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'MLOps is not just CI/CD with model files. A model artifact is coupled to data, labels, features, thresholds, and online serving code. Another misconception is that a better offline metric guarantees better production behavior. It does not; offline validation is one stage. Also, versioning alone is insufficient if the team cannot query lineage during incidents. The lineage graph must be operationally useful, not just archived.',
+        `The cost is engineering drag if the controls are poorly designed. Feature stores, model registries, experiment trackers, CI jobs, data validators, and deployment gates can become a maze. The goal is not maximum process. The goal is a short, paved path that captures enough evidence to move safely.`,
+        `Validation also costs time and traffic. A/B tests need sample size. Canaries need monitoring windows. Shadow mode uses compute without direct product benefit. Offline evaluation can become slow if every candidate runs every benchmark. Practical systems stage cost: cheap checks on every run, expensive checks for promotion candidates, and online experiments for changes that matter.`,
+        `Versioning costs storage and discipline. Data snapshots, feature definitions, eval sets, and model artifacts all need retention policies. Keeping too little breaks reproducibility. Keeping everything forever can be expensive or legally risky. The useful question is not "can we save it all?" It is "can we reconstruct decisions within the required audit and rollback window?"`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Operationalizing Machine Learning: An Interview Study at https://arxiv.org/abs/2209.09125 and the CSCW paper PDF at https://rlnsanz.github.io/dat/MLOps_Interview_Study__CSCW24.pdf. Study AI Engineering Stack: Five Parts Primer, Feature Store: Offline/Online Consistency, Point-in-Time Feature Join Index, Feature Freshness SLO Monitor, Training-Serving Skew Replay Diff, Data Leakage & Contamination, Cross-Validation & Honest Evaluation, Feature Flag Control Plane, Distributed Tracing, A/B Testing & p-values, and AIOps Incident Response next.',
+        `The 3V frame fits recommendation, ranking, fraud detection, ads, search, credit risk, forecasting, support automation, personalization, computer vision, and LLM-powered products. It is especially useful when models retrain from live data or when product decisions depend on predictions that can silently decay.`,
+        `A fraud model shows the pattern. Velocity matters because attackers adapt. Validation matters because false positives harm customers and false negatives lose money. Versioning matters because an incident investigation must reconstruct the exact labels, features, thresholds, rules, and model that produced decisions on a disputed transaction.`,
+        `An LLM product has the same shape even when the artifact is a prompt, retrieval index, router, guardrail, fine-tune, or eval suite. A prompt change can improve one task and regress another. A retrieval corpus update can change answers without a model deployment. The 3V discipline still applies: move quickly, validate slices, and version the whole path.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first failure mode is offline-only confidence. A model can improve aggregate validation AUC while harming a critical slice, increasing latency, breaking calibration, or changing user behavior in production. Offline metrics are necessary, but they are not a substitute for staged rollout and monitoring.`,
+        `The second failure mode is train-serving skew. The feature used in training is not the feature served online, or the online value arrives late, is computed differently, or has a different default. This is why feature contracts and replay tests matter. The model can be correct for the data it saw and wrong for the data it serves.`,
+        `The third failure mode is lineage theater. Teams log many artifacts but cannot answer incident questions quickly. If the registry cannot tell what model served, what data trained it, what eval passed, and what to roll back together, the lineage exists as compliance decoration rather than operational machinery.`,
+        `The fourth failure mode is slow safety. If every change requires a bespoke review, teams route around the process. Good MLOps makes safe behavior faster than unsafe behavior. The controls should remove repeated human effort, not add a meeting to every experiment.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Feature Store: Offline/Online Consistency, Point-in-Time Feature Join Index, Feature Freshness SLO Monitor, Training-Serving Skew Replay Diff, Data Leakage, Cross-Validation, A/B Testing, Feature Flag Control Plane, Distributed Tracing, and AIOps Incident Response. These are the practical controls behind the 3V frame.`,
+        `For primary background, read Operationalizing Machine Learning: An Interview Study. Then compare it with model-card, data-validation, and experiment-tracking practices in the systems you use. The durable lesson is that MLOps is not a product category. It is the control loop that lets a learning system change without becoming unexplainable.`,
       ],
     },
   ],

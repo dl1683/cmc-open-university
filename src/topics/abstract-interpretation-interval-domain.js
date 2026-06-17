@@ -135,37 +135,79 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Abstract interpretation is a mathematical way to run a program analysis over approximations instead of exact executions. Rather than enumerate every possible state, the analyzer maps concrete states into an abstract domain that is smaller and computable.',
-        'The interval domain is the most approachable example. Instead of knowing x exactly, the analyzer knows x is in [lo, hi]. That is enough to prove some array bounds, overflow checks, loop invariants, and dead branches, while admitting that some cases are unknown.',
+        'Testing tells you what happened on the runs you executed. Static analysis often needs a stronger kind of answer: can this array index ever exceed the array length, can this counter ever become negative, can this loop violate an invariant for any input?',
+        'Abstract interpretation exists to make those questions computable. Instead of trying to list every concrete state of the program, it summarizes many possible states with one abstract value that is small enough to propagate through the control-flow graph.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and wall',
+      paragraphs: [
+        'The obvious approach is exhaustive execution: try every input, follow every branch, and record every value. For toy programs that can work. For real programs it immediately runs into infinite input domains, unbounded loops, and path counts that grow faster than the analyzer can store.',
+        'Symbolic execution attacks the same wall with constraints, but it can still drown in paths and solver queries. Abstract interpretation takes a different bargain. It gives up exact values in exchange for a conservative summary that can cover all executions at once.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Replace a set of possible values with an abstract value. In the interval domain, the possible values of `x` become a range such as `[0, 10]` or `[1, +inf]`. The analyzer no longer knows whether `x` is exactly 3, but it may know enough to prove that `x` is never negative or never larger than an array bound.',
+        'The contract is soundness. The abstract value must contain every concrete value that could really occur. It may contain extra values that are impossible in the real program. Those extra values cause false alarms, but they are the price of not missing real executions.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the interval-loop view, read each row as the analyzer revisiting a program point with a broader fact about `x`. The loop head is the important place: it receives the initial path and the backedge path, then joins them into one interval.',
+        'In the widen-and-narrow view, the jump to `[1,+inf]` is intentional precision loss. It is not the analyzer giving up; it is the analyzer forcing a loop to converge. Narrowing then uses guards and transfer functions to recover facts that widening blurred.',
+        'An alarm means "not proven safe in this abstraction." It is not automatically a bug. It is also not noise to ignore. It marks the point where the current domain could not rule out a bad concrete execution.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The analysis uses the Data-Flow Worklist Analysis skeleton. Each program point has an abstract state. Transfer functions update abstract states through assignments and branches. Joins merge states from multiple predecessors. The result must over-approximate every concrete execution so that a proven-safe result is meaningful.',
-        'Loops are the hard part. Plain joining can ascend forever: [1,1], [1,2], [1,3], and so on. Widening forces convergence by jumping to a broader interval such as [1,+inf]. Narrowing can then use branch conditions, such as x < 10000, to recover a tighter upper bound.',
+        'The engine usually looks like Data-Flow Worklist Analysis. Each program point has an abstract state. Transfer functions update that state through assignments, arithmetic, branches, calls, and memory operations. Joins merge facts from multiple predecessors.',
+        'For intervals, assignment is interval arithmetic. If `x` is `[1, 4]`, then `x + 1` is `[2, 5]`. If a branch says `x < 10`, the true side can intersect the interval with `[-inf, 9]` for integer code. If two paths meet with `[1, 3]` and `[8, 12]`, their join is `[1, 12]`.',
+        'Loops require a fixed point: keep applying transfer and join until no abstract state changes. Plain joining can ascend forever: `[1,1]`, `[1,2]`, `[1,3]`, and so on. Widening accelerates convergence by jumping to a stable broader interval such as `[1,+inf]`. Narrowing then runs a few more passes to regain precision from guards.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'For x = 1; while (x < 10000) x = x + 1; return x, the loop head first sees [1,1]. After one body pass, the backedge brings [2,2], and the join becomes [1,2]. Without widening this keeps growing. With widening, the analyzer may jump to [1,+inf], then narrow under the loop guard to [1,9999] inside the loop and [10000,+inf] or a tighter exit interval outside, depending on the transfer functions.',
-        'This is the key tradeoff: the result is sound but may be imprecise. If an alarm remains, the analyzer is saying it could not prove safety in its chosen abstraction. A better domain or a targeted Symbolic Execution Path Constraints pass may discharge the alarm.',
+        'The proof obligation is local. Every transfer function must over-approximate the concrete operation it models, and every join must contain the values from all incoming paths. If those local pieces are sound, the fixed point over the CFG over-approximates all executions represented by the model.',
+        'Widening preserves soundness because it grows the abstract value instead of deleting real states. It may introduce impossible values, but it does not remove possible ones. That is why widening can create false alarms while still supporting sound proofs of safety.',
+        'A safety proof is valid only inside the modeled language semantics. Integer overflow rules, exceptions, aliasing, dynamic dispatch, reflection, native calls, and library summaries all have to match the program being analyzed. An elegant interval lattice does not save an analyzer from a wrong model.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'Worked example',
       paragraphs: [
-        'A real analyzer needs a lattice for abstract values, a bottom value for unreachable states, a join, a widening operator, and transfer functions for language operations. It also needs precise CFG edges for exceptions, short-circuit logic, function calls, and library models.',
-        'Good reports explain the path, the abstract fact, and the lost precision point. Without that trace, users see only noisy warnings. With it, abstract interpretation becomes a practical engineering tool rather than a black box.',
+        'Take `x = 1; while (x < 10000) x = x + 1; return x`. At entry, `x` is `[1,1]`. After one loop body, the backedge brings `[2,2]`. Joining entry and backedge gives `[1,2]`. Another pass gives `[1,3]`. Without widening, the analyzer can keep climbing one integer at a time.',
+        'With widening at the loop head, the sequence may jump from `[1,2]` to `[1,+inf]`. The loop guard `x < 10000` can narrow the in-loop state to `[1,9999]`. The exit side can infer that the loop condition is false, so `x >= 10000`; a precise transfer can conclude the returned value is `[10000,10000]`, while a rougher one may return `[10000,+inf]`.',
+        'Now put `arr[x]` inside the loop for an array of length 10000. If the analyzer has `[1,9999]`, it can prove the access safe. If widening left it at `[1,+inf]`, it must warn. The warning is a precision failure, not proof of an out-of-bounds access.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Intervals are cheap. Each tracked numeric value needs a lower bound and an upper bound, plus operations for arithmetic, join, comparison, widening, and narrowing. That makes the domain attractive for large codebases and for analyzers that need predictable runtime.',
+        'The tradeoff is lost relationships. If `x == y` always holds, separate intervals for `x` and `y` forget that fact. If `i < len` is true only because the two variables move together, the interval domain may warn even when the concrete program is safe.',
+        'More precise domains can track signs, congruences, octagons, polyhedra, symbolic equalities, nullness, shapes, ownership, strings, or taint. They reduce some false positives but cost more per operation and require more complicated transfer functions. There is no free domain.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'The interval domain wins when the property is mostly about numeric range: bounds checks, integer overflow, loop counters, simple guards, dead branches, and monotone resource limits. It is also a strong teaching domain because the abstraction is visible and easy to test by hand.',
+        'It fails when the proof needs relationships, data structure shape, heap aliasing, path-sensitive facts, or semantic knowledge of library calls. In those cases a production analyzer may refine the warning with a relational domain, SMT query, path split, function summary, or symbolic execution pass.',
+        'Good reports explain the abstract fact that triggered the alarm and where precision was lost. A warning that says only "possible out of bounds" is hard to act on. A warning that says "`i` widened to `[0,+inf]` at this loop head, so the analyzer cannot prove `i < len`" teaches the user what to inspect.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Cousot MIT abstract interpretation lecture at https://web.mit.edu/16.399/www/lecture_01-intro/Cousot_MIT_2005_Course_01_4-1.pdf, Cousot dynamic interval analysis overview at https://pcousot.github.io/publications/Cousot-Klaus-Havelund-Festschrift.pdf, Clang data-flow intro at https://clang.llvm.org/docs/DataFlowAnalysisIntro.html, and Bruno Blanchet abstract interpretation notes at https://bblanche.gitlabpages.inria.fr/absint.pdf. Study Data-Flow Worklist Analysis, eBPF Verifier Register State Case Study, Taint Analysis Source-to-Sink Case Study, Symbolic Execution Path Constraints, and Linear Scan Register Allocation next.',
+        'Primary sources: Cousot MIT abstract interpretation lecture at https://web.mit.edu/16.399/www/lecture_01-intro/Cousot_MIT_2005_Course_01_4-1.pdf, Cousot dynamic interval analysis overview at https://pcousot.github.io/publications/Cousot-Klaus-Havelund-Festschrift.pdf, Clang data-flow intro at https://clang.llvm.org/docs/DataFlowAnalysisIntro.html, and Bruno Blanchet abstract interpretation notes at https://bblanche.gitlabpages.inria.fr/absint.pdf.',
+        'Study Data-Flow Worklist Analysis for the fixed-point engine, eBPF Verifier Register State Case Study for a production-flavored abstract state, Taint Analysis Source-to-Sink Case Study for another static-analysis goal, Symbolic Execution Path Constraints for concrete witnesses, and Linear Scan Register Allocation for another interval-shaped abstraction.',
       ],
     },
   ],

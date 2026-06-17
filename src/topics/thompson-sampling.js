@@ -104,41 +104,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why Bandits Need This`,
       paragraphs: [
-        `Thompson Sampling is a Bayesian bandit algorithm that represents each arm as a distribution, not one estimate. The visualization compares two arms with true conversion rates A = 4% and B = 6%, unknown to the learner. Both start as Beta(1,1), a flat belief over plausible conversion rates. Each batch has 200 visitors; the algorithm routes traffic according to the probability that an arm is best.`,
-        `This improves the fixed exploration tax in Multi-Armed Bandits. When beliefs are wide and overlapping, exploration is high. When B's distribution moves right and narrows, B wins most posterior samples and receives most traffic automatically.`,
+        `A bandit problem asks you to choose among options while learning which option pays best. A product team might choose between checkout pages. A recommender might choose between article cards. A trial might choose between treatments. Every choice both serves a user and teaches the system something.`,
+        `The hard part is the explore-exploit tradeoff. If you only exploit the current winner, you can get stuck on an option that looked lucky early. If you explore too much, you keep sending traffic to worse options after the evidence is already clear. Thompson sampling exists to make exploration shrink when uncertainty shrinks.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Obvious Approach`,
       paragraphs: [
-        `For binary rewards, Beta distributions are convenient because wins and losses update them by counting. A success increments alpha; a failure increments beta. To choose an arm, sample one plausible rate from each Beta distribution and serve the arm with the larger draw. In the page's reporting shortcut, numeric integration estimates P(B > A), then routes that share of the 200-visitor batch to B.`,
-        `The curves are the lesson. At the start, both are flat, so traffic is near 50/50. After each batch, B's curve shifts toward 6% and tightens; overlap is where exploration lives. This is uncertainty-aware sampling, not magic. It is philosophically close to Naive Bayes (Spam Filter): keep a probabilistic belief, update with evidence, act on the posterior.`,
+        `The first reasonable solution is an A/B test. Split traffic evenly, wait for enough data, then ship the winner. That is clean when the experiment has a fixed horizon and the cost of showing a worse option is acceptable. It also gives a simple analysis story.`,
+        `Another common solution is epsilon-greedy. Most of the time it sends traffic to the arm with the best observed average. A fixed fraction of the time, epsilon, it explores randomly. That is easy to implement and often beats doing nothing, but the exploration rate is a knob outside the evidence.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The Wall`,
       paragraphs: [
-        `Memory is two parameters per arm for Bernoulli rewards. Sampling or updating is O(k) for k arms. Reporting exact "probability best" can require integration or Monte Carlo, but the decision rule itself is cheap. More complex rewards need richer models, just as Softmax & Temperature needs logits before it can turn scores into probabilities.`,
+        `Fixed exploration wastes traffic after the answer is obvious. If epsilon is 10 percent, the system still sends one in ten users to random arms even after millions of observations. Lowering epsilon helps later, but it can make the learner too timid early.`,
+        `Pure averages fail in the opposite direction. An arm with one success in one try has a 100 percent observed conversion rate, but that estimate is fragile. The missing quantity is uncertainty. A decision rule needs to know not only what each arm's current average is, but how much evidence supports that average.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `The Core Insight`,
       paragraphs: [
-        `Ad platforms, recommender systems, growth teams, and some adaptive trials use Thompson-style allocation when serving the current best option matters. LinUCB Personalized News Case Study is the UCB-style cousin for contextual actions, where uncertainty comes from a ridge-regression matrix instead of a Beta posterior. Policy Gradients: REINFORCE to PPO inherits the same taste for sampling from a policy, but the reward can arrive many steps later. Contextual Bandit Logged Policy Evaluation Case Study explains the production requirement that every sampled action must log its probability so future policies can be replayed. Value Iteration (Reinforcement Learning) is the planning-side cousin when a model of future states is available.`,
+        `Thompson sampling represents each arm as a belief distribution over its unknown reward rate. Instead of asking "which arm has the largest point estimate," it asks "if I sampled one plausible world from my current beliefs, which arm would be best in that world?"`,
+        `That one sampled-world trick turns uncertainty into traffic allocation. An arm with little data has a wide distribution, so it sometimes draws a high plausible value and gets explored. An arm with lots of bad evidence has a narrow low distribution, so it rarely wins a sample. Exploration is no longer a fixed tax; it is the probability that the arm could still be best.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Beta-Bernoulli Beliefs`,
       paragraphs: [
-        `The Beta-Bernoulli version assumes binary, independent, quickly observed outcomes. Delayed revenue, repeated users, correlated sessions, and nonstationary rates need stronger models. Also, Bayesian allocation is not a free frequentist proof. If you need a public ship/no-ship claim, pair the adaptive run with A/B Testing & p-values, Confidence Intervals & the Bootstrap, or a preplanned sequential analysis.`,
+        `For yes/no rewards such as clicked or not clicked, converted or not converted, the Beta distribution is a convenient belief over an unknown probability. Beta(alpha, beta) can be read as successes plus failures. A success increments alpha. A failure increments beta.`,
+        `The demo starts both arms at Beta(1,1), a flat prior. That means the learner begins with no preference. As visitors arrive, each arm's curve shifts and narrows. A curve centered farther right means a higher likely conversion rate. A narrower curve means the system has more evidence and less uncertainty.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `The Decision Loop`,
       paragraphs: [
-        `Start with Multi-Armed Bandits for regret and epsilon-greedy, then LinUCB Personalized News Case Study for contextual upper-confidence bonuses, then A/B Testing & p-values for the fixed-test contrast. Contextual Bandit Logged Policy Evaluation Case Study shows how Thompson-style sampled decisions become reusable logged data through propensity fields. Natural Gradient & Fisher Information shows another place where probability distributions define geometry, while Policy Gradients: REINFORCE to PPO shows how sampling-based decisions scale from two buttons to sequential policies.`,
+        `For each decision, sample one possible conversion rate from every arm's current distribution. Serve the arm with the largest sampled rate. Observe the reward. Update only the chosen arm's distribution. Repeat. The algorithm is small because the belief state carries the exploration policy.`,
+        `The page's batch display uses a deterministic shortcut for teaching: it estimates the probability that B beats A and routes that share of the 200-visitor batch to B. A live implementation usually samples per request. Both versions expose the same idea: traffic share follows posterior probability of being the best arm.`,
+      ],
+    },
+    {
+      heading: `What The Visual Proves`,
+      paragraphs: [
+        `The curves are beliefs, not historical conversion-rate lines. Wide overlap means the learner still has a real chance of being wrong, so both arms keep receiving traffic. When B's curve shifts right and the overlap shrinks, B wins more samples and receives more traffic.`,
+        `The visual also proves why early randomness is not a bug. At the start, the curves are flat and symmetric, so traffic naturally splits. Later, the worse arm still gets some traffic only where the distributions overlap. That overlap is the remaining uncertainty, not an arbitrary exploration quota.`,
+      ],
+    },
+    {
+      heading: `Why It Works`,
+      paragraphs: [
+        `The algorithm is probability matching. If the posterior belief says arm B has a 70 percent chance of being the best arm, then B wins roughly 70 percent of posterior samples. The traffic share is tied to the learner's current uncertainty about optimality.`,
+        `This is useful because uncertain arms get tested in proportion to how plausible they are. A new arm is explored because its distribution is wide, not because a fixed epsilon command says "explore now." A bad arm fades because evidence moves and narrows its distribution, not because a scheduler manually turns it off.`,
+      ],
+    },
+    {
+      heading: `Cost And Behavior`,
+      paragraphs: [
+        `For k Bernoulli arms, the memory cost is two numbers per arm: alpha and beta. Updating a chosen arm is O(1). Choosing among k arms is O(k) if you draw one sample from each distribution. The algorithm is cheap enough to run per request in many product systems.`,
+        `The cost grows when the reward model grows. Contextual bandits need features, uncertainty estimates, and logged propensities. Delayed rewards need attribution windows. Non-binary rewards need different likelihood models. The core idea remains the same, but the tidy Beta update stops being enough.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `Thompson sampling fits online allocation problems where serving the current best option matters while learning continues. Ads, recommendations, email subject lines, ranking widgets, and adaptive experimentation all have this shape. The algorithm reduces regret by moving traffic toward good arms before a fixed-horizon test would be over.`,
+        `It is especially attractive when each decision has low individual risk and feedback arrives quickly. Fast feedback lets beliefs sharpen quickly. Low risk makes adaptive allocation acceptable because the system will intentionally test uncertain options while it learns.`,
+        `It is also useful when the opportunity cost of waiting is high. If a fixed experiment would spend two weeks evenly splitting traffic across a weak arm, Thompson sampling can shift traffic away as evidence accumulates while still leaving enough exploration to detect a surprise recovery.`,
+      ],
+    },
+    {
+      heading: `Failure Modes`,
+      paragraphs: [
+        `The simple version assumes independent users, stable reward rates, and quick binary feedback. Real products violate those assumptions. Users return, campaigns age, inventory changes, rewards are delayed, and one choice can affect later behavior. Those conditions need contextual models, time decay, guardrails, or a different experiment design.`,
+        `Thompson sampling also does not replace statistical reporting. An adaptive allocation can be excellent for serving users and still require care when making a public ship/no-ship claim. If the goal is inference rather than allocation, study fixed A/B tests, confidence intervals, sequential testing, and logged-policy evaluation.`,
+        `The reward definition can fail too. If the algorithm optimizes clicks, it may favor clickbait over long-term satisfaction. If it optimizes immediate purchases, it may miss refunds, churn, or support cost. Thompson sampling chooses according to the reward signal it is given, so the reward window, guardrail metrics, and stop rules are part of the algorithm in practice.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Start with Multi-Armed Bandits for regret, epsilon-greedy, and UCB. Then study A/B Testing for the fixed-horizon contrast, Softmax Temperature for another way to turn scores into exploration, and Calibration Curves for checking whether probabilities mean what they claim.`,
+        `For production systems, study Contextual Bandit Logged Policy Evaluation, LinUCB, Policy Gradients, and Delayed Feedback Attribution Windows. Those topics show what changes when actions have features, rewards arrive late, or the decision affects a longer trajectory.`,
       ],
     },
   ],

@@ -164,6 +164,41 @@ export const article = {
       ],
     },
     {
+      heading: `How the visual model teaches it`,
+      paragraphs: [
+        `Read the weight-norm plot as confidence pressure. On separable data, the boundary can stop changing while cross-entropy still rewards larger weights. L2 adds a counterforce, so the useful signal and the penalty settle into a finite balance.`,
+        `Read the L1/L2 paths as two different constraints. L2 turns every coefficient down smoothly and keeps correlated signals alive. L1 applies a constant pull near zero, so weak features can disappear entirely. The right question is which constraint improves held-out behavior, not which makes the prettiest weights.`,
+      ],
+    },
+    {
+      heading: `The obvious approach`,
+      paragraphs: [
+        `The obvious way to reduce training error is to let the model fit as hard as it can. On separable data, that can push weights upward forever because the loss keeps rewarding more confidence. The decision boundary may stop changing, but the probabilities become sharper and less honest.`,
+        `The wall is generalization. A model that can contort itself around every training quirk may look brilliant on the training set and fragile on new data. Regularization adds a cost for complexity so the model must spend capacity only where the evidence is worth it.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `Regularization is not punishment for learning. It is a price system. Large weights, too many active features, too much co-adaptation, or too much training time all become expensive. The model can still use them, but only when they buy enough reduction in the data loss.`,
+        `L2 says every additional unit of weight gets increasingly expensive. L1 says each feature must clear a fixed usefulness threshold or disappear. Dropout, augmentation, and early stopping use different mechanisms, but the same idea: constrain the easy path to memorization.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `Regularization works when the penalty matches a real belief about future data. L2 works well when many features may carry small related signals and large coefficients are more likely to be noise than truth. L1 works when only a smaller set of features should survive. Dropout works when a neural network should not depend too heavily on one activation path.`,
+        `The method improves generalization because the model must explain the training data with less fragile machinery. It can no longer spend unlimited weight, unlimited features, or unlimited training time to memorize quirks. If the constraint is chosen honestly with validation data, it can lower variance more than it raises bias.`,
+      ],
+    },
+    {
+      heading: `Complete case study`,
+      paragraphs: [
+        `A spam model has four features: exclamation marks, all-caps words, average word length, and send hour. The first two carry real signal. The last two are weak artifacts of a small training set. Without regularization, all four survive because the optimizer has no reason to delete small but noisy correlations.`,
+        `With L2, every weight shrinks, so the weak features become quieter but remain present. With L1, send hour and average word length hit exact zero as lambda rises. The model becomes smaller and more interpretable, but it might arbitrarily choose one feature from a correlated group. Elastic net is the compromise when correlated signals and sparsity both matter.`,
+      ],
+    },
+    {
       heading: `Cost and complexity`,
       paragraphs: [
         `The arithmetic is cheap: one extra term per weight during training. Inference cost is unchanged because the final model is still the same shape. The real cost is choosing lambda. Cross-Validation & Honest Evaluation gives the right protocol: try candidate penalties on validation folds, pick the one with the best held-out score, retrain, then test once. Learning Curves & Bias–Variance explains what lambda trades: more penalty usually lowers variance but raises bias. The demo makes that trade visible as weight size rather than abstract error: the leashed line is less extreme, not less informed.`,
@@ -179,6 +214,28 @@ export const article = {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `Smaller weights are not automatically better. Too much penalty can underfit and lower both training and validation performance. A feature zeroed by L1 is not necessarily useless; it may be redundant with a correlated survivor. Regularization does not repair Data Leakage & Contamination, label errors, or a bad split. It also does not guarantee honest probabilities; Calibration & Reliability Diagrams is still needed when downstream decisions consume confidence. Random Forest reduces overfitting mostly by averaging randomized trees, which is a different regularization strategy than penalizing coefficients.`,
+      ],
+    },
+    {
+      heading: `Operational signals`,
+      paragraphs: [
+        `Track train loss, validation loss, weight norm, number of nonzero features, calibration error, slice performance, chosen lambda, and variance across folds. If validation improves while train loss worsens slightly, the penalty is doing its job. If both collapse, the penalty is too strong or the model is too weak.`,
+        `For neural networks, track weight decay separately from learning rate and optimizer state. AdamW exists because L2-style decay inside Adam's adaptive denominator behaves differently from direct weight decay. The regularization knob should mean what the team thinks it means.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `Regularization fails when it is used to hide bad data. If labels are noisy, features leak the target, or train and test come from different distributions, a penalty may make the model smaller without making it true. Fix the measurement and data contract first.`,
+        `It also fails when the penalty fights the task. A highly sparse L1 model can drop redundant but important signals. Heavy L2 can underfit small but real effects. Dropout can hurt architectures where co-adaptation is useful. Every regularizer encodes an assumption about what kind of simplicity should generalize.`,
+      ],
+    },
+    {
+      heading: `What to remember`,
+      paragraphs: [
+        `Regularization buys generalization by making fragile complexity expensive. L2 shrinks, L1 selects, dropout disrupts co-adaptation, early stopping limits training time, and augmentation widens the experience the model must survive.`,
+        `For course design, teach this after bias-variance and before model selection. Students should learn that the right penalty is chosen by honest validation, not by aesthetics or a desire for small weights.`,
+        `The central question is not "how do I make the model simpler?" It is "which complexity is likely to be spurious for the future data?" That question turns regularization from a formula into an engineering judgment.`,
       ],
     },
     {

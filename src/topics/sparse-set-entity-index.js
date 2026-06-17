@@ -221,24 +221,100 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'A sparse set represents a set of integer ids with two coordinated arrays. The sparse side is indexed by id and stores a dense row. The dense side stores the ids that are actually present, usually alongside payload values. Membership is constant time, and iteration touches only present elements.',
-      'The core check is sparse plus dense confirmation. Given id e, read row = sparse[e]. The id is present only if row is in range and dense[row] equals e. That equality check protects against uninitialized sparse entries and stale row numbers.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'Insertion appends the entity id to denseEntities, appends the component value to denseValues, and writes sparse[entity] = newRow. Removal swaps the last dense row into the removed row, updates the moved entity sparse entry, and pops the arrays.',
-      'The result is an excellent component pool. The ECS can iterate only entities that have a component, while point queries such as "does entity 42 have Velocity?" stay O(1).',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'Insert, remove, and contains are O(1) in the common layout. Iteration is O(k) for k present ids, not O(maxEntityId). The tradeoff is memory for the sparse array and unstable dense order after swap-remove.',
-      'Large id spaces often use paged sparse arrays instead of one giant flat allocation. Production systems may add change ticks, stable deletion modes, sorting, tombstones, or separate component payload arrays.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'A game ECS stores Position in one sparse set and Velocity in another. The movement system iterates the smaller dense pool and probes the other pool by entity id. Entities without both components are skipped. Entities that gain or lose one component update only that component pool, avoiding a whole-archetype move.',
-      'This design fits highly dynamic components such as tags, marker states, visibility, selection, networking ownership, or short-lived gameplay effects. Stable, wide scans over many components often move toward archetype column stores instead.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: EnTT Entity Component System wiki, https://github.com/skypjack/entt/wiki/Entity-Component-System; EnTT sparse set implementation, https://github.com/skypjack/entt/blob/master/src/entt/entity/sparse_set.hpp; Bevy ComponentSparseSet docs, https://docs.rs/bevy/latest/bevy/ecs/storage/struct.ComponentSparseSet.html. Study Generational Arena Slot Map, Archetype ECS Column Store, Roaring Bitmaps, Hash Table, and Packed Memory Array next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Entity-component systems need two operations that pull storage in opposite directions. Gameplay code asks, "does entity 42 have Velocity?" Render, physics, and AI loops ask, "scan every entity with this component."',
+        'A flat array indexed by entity id gives direct lookup, but a large or recycled id space becomes mostly holes. A hash map avoids holes, but iteration jumps around memory. A sparse set splits the two jobs: use a sparse id-to-row index for membership and dense packed arrays for iteration.',
+        'That split is why sparse sets show up in ECS libraries, compiler worklists, and other integer-keyed sets with frequent membership checks and hot iteration loops.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The simplest component store is an array indexed directly by entity id. `components[42]` either holds Velocity or says absent. Contains is easy, and the code is almost too simple to justify an abstraction.',
+        'The wall is sparsity. Entity ids often come from generational allocators, network handles, scene graphs, or recycled slots. The maximum id can be much larger than the number of live components. Iterating the direct array makes absence part of the hot loop.',
+        'A hash map fixes wasted scans but loses packed traversal. The CPU can no longer stream through component values. A sparse set keeps the direct id lookup path while moving live ids and payloads into dense arrays.',
+      ],
+    },
+    {
+      heading: 'Core layout',
+      paragraphs: [
+        'A sparse set has at least two arrays. `denseEntities` stores the entity ids that are present, packed from row 0 to row `size - 1`. `sparse` is indexed by entity id and stores the row where that entity should appear in `denseEntities`.',
+        'A component pool usually adds `denseValues` beside `denseEntities`. Row `i` in `denseValues` is the component value for entity `denseEntities[i]`. The dense side is the iteration order; the sparse side is only an index into that order.',
+        'The membership check is `row = sparse[e]`, then `row < size && denseEntities[row] === e`. The equality check is not decoration. It rejects uninitialized sparse entries, stale rows left behind by removal, and ids that collide through default values.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Insertion appends the entity id to `denseEntities`, appends the payload to `denseValues`, and writes `sparse[entity] = newRow`. Contains is one sparse read plus one dense confirmation.',
+        'Removal uses swap-with-last. Find the row for the removed entity, copy the last dense entity and value into that row, update `sparse[movedEntity]` to the new row, then pop the last dense row. That keeps the dense arrays hole-free.',
+        'A join over two component pools usually iterates the smaller dense pool and probes the other pool with `contains(entity)`. This is why sparse sets are useful in ECS views: one loop streams through packed data while other component requirements become constant-time filters.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose the Position pool contains entities `[3, 7, 42]` in dense rows `[0, 1, 2]`. The sparse array has `sparse[3] = 0`, `sparse[7] = 1`, and `sparse[42] = 2`.',
+        'To check entity 42, read row 2 and confirm `denseEntities[2] === 42`. To check entity 99, the sparse entry may hold an old number or a default zero, but the dense confirmation fails because the dense row does not contain 99.',
+        'To remove entity 7, move the last row, entity 42, into row 1. Then set `sparse[42] = 1` and pop the old last row. The dense list becomes `[3, 42]`. The set stayed compact, but order changed.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The main invariant is bidirectional agreement: for every present entity `e`, `denseEntities[sparse[e]] === e`. The sparse array points to the dense row, and the dense row confirms the identity.',
+        'The dense arrays also maintain the no-holes invariant. Every live element occupies one row below `size`, and no absent entity appears in that prefix. Iteration can therefore scan rows `0..size-1` without testing holes.',
+        'Swap-remove is correct because it repairs the only mapping it breaks. Moving the last entity changes that entity row, so updating `sparse[movedEntity]` restores bidirectional agreement.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the dense-sparse mapping view, follow the query entity into the sparse array and then back into the dense entity row. The highlighted dense confirmation is the safety check that stops stale sparse entries from pretending to be membership.',
+        'When the animation switches to dense iteration, the sparse side fades into a supporting role. The scan walks only packed entity and value rows. That state change is the performance win: absence has left the loop.',
+        'In the swap-remove view, watch the moved last row and the sparse fix together. The swap keeps the dense arrays compact, but the sparse update is what keeps future membership checks correct. In the join view, the smaller pool is the driver and the other pool is a constant-time filter.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'In the common layout, insert, remove, and contains are O(1). Iteration is O(k), where k is the number of present ids, not O(maxEntityId). If the live set doubles, a full scan roughly doubles; the maximum possible id does not matter to iteration.',
+        'The memory cost is the sparse index. A flat sparse array is fast but can be wasteful for a huge id universe. Production systems often page the sparse side so only touched id ranges allocate memory.',
+        'The hidden cost is order instability. Swap-remove changes dense order. If systems depend on stable order, deterministic replay, pointer stability, or sorted iteration, the storage layer must add a separate ordering or stable-delete policy.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Sparse sets win for single-component pools, optional components, tags, dirty sets, selection sets, visibility sets, and other collections where membership changes often and iteration must stay packed.',
+        'They are strong when systems can iterate one dense pool and probe a few others. A movement system can scan Position or Velocity and skip entities that lack the companion component without building a global table of every component combination.',
+        'They also fit compiler and analysis code where ids are dense enough to index but the active set is small. The same sparse/dense trick gives fast clear and fast iteration over only active integers.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Sparse sets are weaker for stable, repeated scans over many components at once. An archetype column store can keep Position, Velocity, Health, and Renderable together for entities that share the same component bundle, reducing repeated sparse-set joins.',
+        'They are awkward when entity ids are unbounded and cannot be paged efficiently. A hash map may be better for extremely sparse, low-iteration workloads.',
+        'They are also awkward when removal must preserve order. Stable deletion can be implemented, but it gives up the clean O(1) swap-remove behavior or adds another index layer.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The classic bug is forgetting to update the moved entity sparse entry during removal. The dense array still looks compact, but the next contains check for the moved entity points at the wrong row.',
+        'Another bug is trusting `sparse[e]` without checking `denseEntities[row] === e`. Uninitialized memory, stale rows, and recycled ids can all produce false membership.',
+        'Entity reuse needs generations or another freshness check. If entity 42 is destroyed and a new entity reuses the same numeric slot, old sparse entries and external handles must not accidentally refer to the new object.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Sources: EnTT Entity Component System wiki at https://github.com/skypjack/entt/wiki/Entity-Component-System, EnTT sparse set implementation at https://github.com/skypjack/entt/blob/master/src/entt/entity/sparse_set.hpp, Bevy ComponentSparseSet docs at https://docs.rs/bevy/latest/bevy/ecs/storage/struct.ComponentSparseSet.html, and LLVM SparseSet source at https://llvm.org/doxygen/SparseSet_8h_source.html.',
+        'Study Generational Arena Slot Map for safe entity handles, Archetype ECS Column Store for the contrasting storage model, Roaring Bitmaps for compressed set membership, Hash Table for sparse-key lookup, and Packed Memory Array for order-preserving packed storage.',
+      ],
+    },
   ],
 };

@@ -203,43 +203,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'UCIe is easiest to understand as a layered protocol stack for chiplets inside a package. The physical layer moves bits across die-to-die lanes. The adapter and flit interfaces turn higher-level traffic into bounded, schedulable transfers. The protocol layer carries PCIe, CXL, streaming, or other traffic above that local link.',
-        'The UCIe Consortium describes Universal Chiplet Interconnect Express as an open die-to-die interconnect specification for an open chiplet ecosystem: https://www.uciexpress.org/. Its public white paper page frames the goal as building reusable chiplet interconnects rather than one-off proprietary package links: https://www.uciexpress.org/general-8.',
+        'UCIe exists because chiplets need a reusable die-to-die contract, not just a set of wires. Modern packages may combine compute dies, I/O dies, cache chiplets, memory-facing logic, and accelerators from different process nodes or vendors. Those pieces need a standard way to talk.',
+        'The physical lanes move bits, but a usable interconnect also needs framing, flow control, retry, sideband bring-up, management, and clear ownership between layers. Without that contract, every package becomes a one-off integration project.',
+        'The UCIe Consortium describes Universal Chiplet Interconnect Express as an open die-to-die interconnect specification for an open chiplet ecosystem: https://www.uciexpress.org/. Its public white paper page frames the goal as reusable chiplet interconnects rather than one-off proprietary package links: https://www.uciexpress.org/general-8.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to draw one arrow between two chiplets and call it bandwidth. That is useful for a floorplan sketch, but it hides every protocol obligation that makes the link usable.',
+        'It fails when real traffic arrives. A receiver has finite buffers, traffic classes need arbitration, physical errors need detection, retries need storage, and bring-up must happen before payload traffic is trusted.',
+        'Another shortcut is to treat a chiplet link like a board-level network in miniature. Die-to-die links have tighter latency, power, area, package, repair, and validation constraints. The protocol has to fit that environment.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is bounded ownership. Each layer owns a specific part of the contract: protocol traffic, adapter formatting, credit accounting, retry, raw interface movement, PHY behavior, and sideband management.',
+        'Traffic starts as protocol packets or streams. It passes through FDI, the flit die-to-die interface, into an adapter that can format, multiplex, arbitrate, check CRC, and hold retry state before traffic crosses RDI into the raw physical interface. A sideband path handles reset, discovery, configuration, training, and management.',
+        'A sender injects a flit only when the receiver has advertised credits for that traffic class. A sent flit stays in a retry buffer until the receiver acknowledges it or the link escalates the error. That is link-speed backpressure and reliability as a data structure.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Traffic begins as protocol packets or streams. The protocol layer hands data through FDI, the flit die-to-die interface. A die-to-die adapter can arbitrate, multiplex, format, and optionally handle retry and CRC responsibilities before traffic crosses RDI into the raw physical interface. A sideband path handles bring-up, reset, configuration, training, and management state.',
-        'The Hot Chips UCIe protocol tutorial is useful because it makes the adapter boundary concrete: flit formats, retry, CRC, and packing responsibilities depend on the mode being carried: https://hc2023.hotchips.org/assets/program/tutorials/ucie/UCIe%20Protocol.pdf. The educational trick is to draw the link as a pipeline with ownership boundaries, not as one arrow between chiplets.',
+        'Payload traffic is divided into flits, fixed-format units the adapter can arbitrate, protect, and move. Flit framing gives the link a unit of flow control and retry. The receiver returns credits as buffer space becomes available.',
+        'Virtual channels let different traffic classes share the physical link without one class blocking every other class. Control, data, coherency, and management traffic may need different guarantees. Arbitration and credit budgets decide who makes progress under load.',
+        'Retry buffers make errors recoverable. A transmitter keeps sent flits until acknowledgement. If CRC or link logic detects an error, the adapter can replay rather than allowing silent corruption. Sideband state brings the link up before normal payload traffic is trusted.',
+        'Bring-up is its own protocol path. Reset, discovery, lane training, configuration, and health checks have to complete before payload traffic is meaningful. That control path is why the animation keeps sideband separate from ordinary flit movement.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A link protocol buys composability but adds queues, credits, arbitration, retry buffers, sideband state, and compliance work. Those are not optional details. Without bounded buffers and credit return, a fast link can overrun the receiver. Without retry and CRC policy, physical errors become data-integrity bugs. Without health counters, every transient link problem looks like random workload noise.',
-        'This is why UCIe belongs next to Backpressure & Flow Control, Queue, and Retries, Backoff & Jitter in the learning graph. The same ideas show up at nanosecond scale: a receiver advertises capacity, the sender injects only within budget, and failed transfers consume retry budget until the system proves forward progress.',
+        'The flit-pipeline view proves that every boundary is a responsibility change. Protocol, adapter, raw interface, PHY, and sideband state do not own the same invariants. A fast link without a layer contract is only a fast mystery.',
+        'The credit-retry view proves that credits are the sender budget. The link is fast only while credit returns fast enough. When credit return stalls, utilization hits a knee even if the physical lane rate looks high.',
+        'The observability ledger proves the production lesson. Credit starvation, retry depth, CRC errors, virtual-channel starvation, and lane deskew failures separate a protocol or physical-link problem from a model, kernel, or application problem.',
+        'The utilization plot proves that reliability machinery is not free. Under clean conditions, flit framing and credits can keep useful utilization high. Under fault or retry pressure, the same link spends capacity replaying and waiting.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'UCIe-style links matter when a product wants to mix compute dies, I/O chiplets, cache chiplets, HBM-facing logic, or accelerators from different process nodes or vendors. The standard does not make chiplets plug-and-play by itself, but it gives integration teams a shared contract for the die-to-die boundary.',
-        'The local chiplet source corpus emphasized that HBM and accelerator packages are increasingly constrained by interconnect density, power, and packaging supply. Protocol standardization helps the ecosystem, but the shipped package still needs physical margins, link training, test, and repair logic. That is why this module should be studied after Chiplet Link Budget & Repair Lane Case Study.',
+        'It works because the sender cannot overrun the receiver if it respects credits. Credit-based flow control is the link-local version of bounded queues. It turns buffer availability into explicit permission to send.',
+        'It works because retry turns many physical errors into recoverable protocol events. Errors still cost latency and throughput, and persistent errors still require escalation, but the default outcome is replay rather than silent data loss.',
+        'It works as an ecosystem tool because the layer split lets chiplet vendors integrate around a shared boundary. A standard contract does not eliminate validation, but it reduces the number of bespoke links every system team must invent.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'The first misconception is that UCIe is only a physical wire spec. The protocol and adapter boundaries matter because they decide framing, flow control, retry, and observability. The second misconception is that a standard removes system design. It does not. Teams still choose topology, package substrate, lane count, traffic classes, health policy, and how much protocol complexity to expose to software.',
+        'Flit framing, credits, virtual channels, CRC, retry buffers, sideband logic, and training state all consume area, power, validation effort, and design complexity. A raw wire can look cheaper until reliability and integration work are counted.',
+        'Virtual channels reduce head-of-line blocking but add arbitration complexity. Retry improves reliability but consumes buffer space and can reduce throughput during fault bursts. Sideband management improves control but adds another state machine to validate.',
+        'Standardization also has a tradeoff. A shared contract improves interoperability, but real products still choose package technology, lane count, topology, power policy, error thresholds, telemetry, and software exposure.',
+        'The hardest cost is verification. A die-to-die link sits below many software recovery mechanisms, so protocol corner cases, credit accounting bugs, and retry-state errors have to be found before shipment, not debugged casually in the field.',
+        'There is also a latency budget. Every flit format, retry decision, credit turn, and arbitration queue must earn its place because chiplet links are often on critical memory or accelerator paths.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it fits',
       paragraphs: [
-        'Primary sources: UCIe Consortium at https://www.uciexpress.org/, UCIe white papers at https://www.uciexpress.org/general-8, and the UCIe protocol tutorial at https://hc2023.hotchips.org/assets/program/tutorials/ucie/UCIe%20Protocol.pdf. Study Chiplet Interconnect Case Study, Chiplet Link Budget & Repair Lane Case Study, Backpressure & Flow Control, Queue, Retries, and CXL Memory Pooling next.',
+        'UCIe-style links matter when a product wants to mix compute dies, I/O chiplets, cache chiplets, HBM-facing logic, or accelerators from different process nodes or vendors. The standard gives integration teams a shared contract for the die-to-die boundary.',
+        'It is especially relevant to advanced packaging, chiplet yield strategy, heterogeneous accelerators, memory expansion, and systems that want to combine dies without forcing every function onto one large monolithic chip.',
+        'It also matters for supply-chain and yield strategy. A product can combine smaller dies, reuse proven functions, and choose different process nodes, but only if the die-to-die protocol is reliable enough to make the package behave like one coherent system.',
+        'The Hot Chips UCIe protocol tutorial makes the adapter boundary concrete: flit formats, retry, CRC, and packing responsibilities depend on the mode being carried: https://hc2023.hotchips.org/assets/program/tutorials/ucie/UCIe%20Protocol.pdf.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'UCIe is not only a physical wire spec, and it is not automatic plug-and-play. Teams still choose topology, package substrate, lane count, traffic classes, health policy, and how much protocol complexity to expose to software.',
+        'The common failure modes are credit starvation, retry storms, virtual-channel starvation, sideband bring-up failures, weak observability, and physical margin loss. Protocol standardization helps the ecosystem, but the shipped package still needs link training, test, repair, and telemetry.',
+        'A subtle failure is blaming higher layers for link symptoms. If counters do not expose credit stalls, CRC errors, retry loops, lane deskew trouble, and virtual-channel starvation, teams may misdiagnose interconnect issues as software, model, or workload problems.',
+        'Another failure is underbudgeting management traffic. Control paths still need forward progress when data traffic is heavy.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: UCIe Consortium at https://www.uciexpress.org/, UCIe white papers at https://www.uciexpress.org/general-8, and the UCIe protocol tutorial at https://hc2023.hotchips.org/assets/program/tutorials/ucie/UCIe%20Protocol.pdf. Study Chiplet Interconnect Case Study, Chiplet Link Budget & Repair Lane Case Study, Backpressure & Flow Control, Queue, Retries, CXL Memory Pooling, HBM Pseudo-Channel & Bank Scheduler Case Study, and NVLink/NVSwitch GPU Fabric Case Study next.',
       ],
     },
   ],

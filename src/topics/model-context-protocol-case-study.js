@@ -112,7 +112,7 @@ function* protocolShape() {
   yield {
     state: architectureGraph('MCP standardizes the boundary between host and integrations'),
     highlight: { active: ['host', 'client', 'server', 'e-host-client', 'e-client-server'], found: ['tools', 'resources', 'prompts'] },
-    explanation: 'MCP is a protocol boundary. The host application owns the user experience and model access. MCP clients open sessions to MCP servers, which expose capabilities such as tools, resources, and prompt templates.',
+    explanation: 'Read MCP as a boundary, not as a bag of tool calls. The host owns the user experience and model access; MCP clients open sessions to servers that expose specific capabilities such as tools, resources, and prompt templates.',
   };
 
   yield {
@@ -210,7 +210,7 @@ function* securityModel() {
   yield {
     state: securityGraph('Tool gates protect the effect, not only the message'),
     highlight: { active: ['client', 'stdio', 'gate', 'data', 'log', 'e-client-stdio', 'e-stdio-gate', 'e-gate-data', 'e-gate-log'], compare: ['auth'] },
-    explanation: 'A schema-valid tool call can still be unsafe. The application needs least privilege, user confirmation for high-impact operations, rate limits, approval states, and audit logs around the actual effect.',
+    explanation: 'A schema-valid tool call can still be the wrong action. The application needs least privilege, user confirmation for high-impact operations, rate limits, approval states, and audit logs around the actual effect.',
   };
 
   yield {
@@ -276,44 +276,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'The Model Context Protocol, or MCP, is a versioned protocol for connecting AI host applications to external integrations. It is best understood as a capability protocol, not just a tool-calling wrapper. A host application runs one or more MCP clients. Those clients connect to MCP servers. Servers expose capabilities such as tools, resources, and prompts; clients may expose roots and sampling capabilities.',
-        'The latest official specification used here is version 2025-11-25. Its base protocol is built on JSON-RPC 2.0 messages, lifecycle negotiation, and clear capability declarations: https://modelcontextprotocol.io/specification/2025-11-25/basic. That makes MCP a strong case study in API design: the protocol turns an open-ended agent integration problem into typed messages, version negotiation, schemas, and explicit feature ownership.',
+        `AI applications need to connect to local files, databases, APIs, search indexes, prompts, and private tools. Without a shared protocol, each integration becomes a custom plugin with its own authentication story, schema style, transport, error shape, and security review. The result is duplicated adapter code and unclear boundaries between model behavior and application authority.`,
+        `The Model Context Protocol, or MCP, exists to standardize that boundary. A host application runs MCP clients. Each client connects to an MCP server. Servers expose capabilities such as tools, resources, and prompts. Clients can expose boundaries such as roots and, in the 2025-11-25 spec, sampling. The protocol is not merely "tool calling"; it is a capability map for agent integrations.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The naive integration`,
       paragraphs: [
-        'An MCP session starts with initialization. The client sends its supported protocol version, capabilities, and implementation metadata. The server responds with its version, server capabilities, and metadata. After that, the client can discover features with requests such as tools/list, resources/list, or prompts/list, and then call or read the selected feature. The lifecycle page documents initialization, operation, and shutdown: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle.',
-        'The important distinction is ownership. Tools are server-exposed actions that a model may invoke, with names and input schemas: https://modelcontextprotocol.io/specification/2025-11-25/server/tools. Resources are server-exposed context objects identified by URIs: https://modelcontextprotocol.io/specification/2025-11-25/server/resources. Prompts are server-exposed templates intended for user selection: https://modelcontextprotocol.io/specification/2025-11-25/server/prompts. Roots are client-exposed filesystem boundaries: https://modelcontextprotocol.io/specification/2025-11-25/client/roots. Sampling lets servers request model generation through the client while the client keeps control over model access: https://modelcontextprotocol.io/specification/2025-11-25/client/sampling.',
+        `The naive integration is a direct function call from the agent loop into some service code. It works for one app and one tool. Then the tool list grows, another client wants the same integration, tool schemas drift, auth becomes inconsistent, and nobody can tell whether the model, user, host, or server owns the action.`,
+        `The next naive version is a REST API with natural-language descriptions pasted into a prompt. That also breaks down. A model can hallucinate endpoints, a client may not know which version the server expects, resources and prompts get confused with actions, and security checks are hidden behind prose. MCP replaces that with explicit JSON-RPC messages, lifecycle negotiation, discoverable capabilities, and typed schemas.`,
       ],
     },
     {
-      heading: 'Data structures and transport',
+      heading: `Core insight`,
       paragraphs: [
-        'The base message data structures are small but consequential. A request has jsonrpc, id, method, and optional params. A response returns the same id plus result or error. A notification has no id and expects no response. JSON Schema validates tool inputs and other structured fields, so this topic links directly to Constrained Decoding and schema-first tool calling.',
-        'MCP defines two standard transports: stdio and Streamable HTTP. Stdio launches a local subprocess and frames JSON-RPC messages over standard input and output. Streamable HTTP uses a single HTTP endpoint with POST and GET; servers may use Server-Sent Events for streamed server messages. The transport page also records the security requirements around Origin validation, localhost binding, and authentication: https://modelcontextprotocol.io/specification/2025-11-25/basic/transports.',
+        `The core insight is that integrations need different control surfaces. Tools are actions. Resources are context. Prompts are templates. Roots are client-declared boundaries. Sampling lets a server ask the client for model work while the client keeps control of model access. Lumping those together as "tools" loses the security model.`,
+        `MCP gives each surface a place in the protocol. The server declares what it can provide. The client decides what to list, read, call, approve, or send to the model. The host owns the user experience and policy. This separation is what makes MCP an API-design case study rather than just another agent library.`,
       ],
     },
     {
-      heading: 'Security and case-study lessons',
+      heading: `How the session works`,
       paragraphs: [
-        'MCP does not remove the Prompt Injection Threat Model; it gives the application better places to enforce it. The model may propose a tool call, but the host should still show the tool, validate the schema, check authorization, ask for approval when needed, and log the effect. For HTTP transports, authorization is optional, but when implemented it follows a selected OAuth-based framework; stdio servers should retrieve credentials from the environment instead: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization.',
-        'The main security lesson is separation of control surfaces. Tools are effects. Resources are context. Prompts are templates. Roots are scope. Sampling is model access. Each needs different policy. A secure MCP deployment maps origins, tokens, resource boundaries, side effects, human approvals, cancellation behavior, and audit traces before calling the integration done.',
+        `In the 2025-11-25 specification, a session starts with initialization. The client sends a protocol version, client capabilities, and implementation metadata. The server replies with its version, server capabilities, and metadata. After that, the client can discover features through list requests, then call tools, read resources, or fetch prompts through normal JSON-RPC operations.`,
+        `Requests and responses are correlated by IDs. Errors return through the same message grammar. Notifications have no ID and do not expect a reply. That small JSON-RPC structure matters because it gives cancellation, progress, logging, pagination, and error handling a stable foundation instead of burying everything in prompt text.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Feature ownership`,
       paragraphs: [
-        'Do not treat MCP as magic interoperability. It standardizes the protocol boundary, but it does not decide which tools are safe, which data should enter context, or which user should approve an operation. Do not expose a broad filesystem root because a server asks for context. Do not expose remote HTTP MCP without Origin validation and authentication. Do not assume a schema-valid call is semantically safe.',
-        'A second misconception is that every integration should be an MCP server. If the feature is internal, stable, and used only by one app, ordinary service code may be simpler. MCP shines when independent clients need to discover and use independent integrations through a shared, inspectable protocol.',
+        `Tools are server-exposed operations with names, descriptions, input schemas, and effect semantics. A model may request them, but the host can still gate execution. Resources are server-exposed context objects, often identified by URIs, and are usually selected by the application rather than freely invoked as effects. Prompts are reusable templates, often user-controlled.`,
+        `Roots come from the client and describe workspace boundaries, such as directories the server may reason about. Sampling is the inverse direction: a server asks the client to run model generation, while the client keeps model credentials and policy. These ownership lines are the main thing to learn. MCP reduces confusion by forcing a server to say what kind of thing it is exposing.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `What the visual proves`,
       paragraphs: [
-        'Primary sources: MCP Overview at https://modelcontextprotocol.io/specification/2025-11-25/basic, Lifecycle at https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle, Transports at https://modelcontextprotocol.io/specification/2025-11-25/basic/transports, Tools at https://modelcontextprotocol.io/specification/2025-11-25/server/tools, Resources at https://modelcontextprotocol.io/specification/2025-11-25/server/resources, Prompts at https://modelcontextprotocol.io/specification/2025-11-25/server/prompts, Roots at https://modelcontextprotocol.io/specification/2025-11-25/client/roots, Sampling at https://modelcontextprotocol.io/specification/2025-11-25/client/sampling, Authorization at https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization, and JSON-RPC 2.0 at https://www.jsonrpc.org/specification. Study Agentic AI Patterns, Agent Model Router & Context Handoff Ledger, Agent2Agent Protocol Task State Case Study, Deep Research Agent Architecture Case Study, Prompt Injection Threat Model, Constrained Decoding, Agent Tool Permission Lattice, Seccomp BPF Sandbox Policy, Zanzibar Authorization Case Study, Capability Security & Attenuation, UCAN Delegation Proof Chain, OPA Rego Policy Decision Graph, Distributed Tracing, Message Queue, Service Workers, and Tail Latency next.',
+        `The protocol-shape graph shows host to client to server before it shows tools, resources, and prompts. That order matters. The host is the user-facing application. The client is the session endpoint inside that host. The server is an integration boundary. The model is not the owner of the whole system.`,
+        `The security graph compares stdio and Streamable HTTP. Stdio is local process communication, but it still needs least privilege because the local process may hold credentials. HTTP adds origin checks, authentication, browser reachability, and network exposure. The tool gate and audit log sit near the effect because a schema-valid JSON-RPC message can still be the wrong thing to do.`,
+      ],
+    },
+    {
+      heading: `Why the protocol works`,
+      paragraphs: [
+        `MCP works when it keeps discovery, invocation, and policy separate. Discovery tells the client what the server offers. Invocation carries typed parameters and structured responses. Policy decides whether an operation is allowed, whether a human must approve it, what data enters context, and how the effect is logged.`,
+        `This is also why schema-first design matters. Tool input schemas make calls parseable and inspectable. Pagination handles large registries. Change notifications prevent stale lists. Cancellation prevents long operations from becoming stuck user experiences. Error objects and tracing make failures debuggable. Ordinary distributed-systems concerns return as soon as the integration becomes real.`,
+      ],
+    },
+    {
+      heading: `Security model`,
+      paragraphs: [
+        `MCP does not remove prompt injection risk. It gives the application better enforcement points. The model may propose a tool call, but the host should validate the schema, check authorization, show the requested effect when needed, ask for approval for high-impact operations, rate-limit risky actions, and log what happened.`,
+        `For HTTP transports, the 2025-11-25 authorization page defines optional authorization behavior and points implementations toward an OAuth-based framework when authorization is supported. Stdio servers should not follow that HTTP authorization flow; they normally receive credentials through their environment. Remote and local HTTP servers must also consider Origin validation, localhost binding, DNS rebinding risk, and normal web security practice.`,
+      ],
+    },
+    {
+      heading: `Costs and tradeoffs`,
+      paragraphs: [
+        `The cost of MCP is protocol surface. A small internal feature may not need version negotiation, a server process, schemas, list operations, transport handling, and security review. Direct service code can be simpler when one host owns the whole feature and no other client needs to discover it.`,
+        `MCP earns its keep when independent clients need a shared way to inspect and use independent integrations. It helps when tool schemas need to be explicit, when resources should be listed rather than hallucinated, when prompts should be reusable, when filesystem scope must be declared, and when auditability matters. The tradeoff is more structure up front for less integration chaos later.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `MCP is strong for IDEs, research assistants, enterprise chat apps, local developer tools, data-analysis workspaces, and agent platforms that need a repeatable integration boundary. A database server, file-search server, issue-tracker server, browser automation server, or internal knowledge server can expose capabilities once and be used by multiple hosts.`,
+        `It is also useful as an organizational contract. Security teams can review the server boundary. Product teams can decide which capabilities appear in which host. Platform teams can maintain common transports and logging. Integration authors can build against one protocol instead of reverse-engineering every agent runtime.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `The first failure mode is overbroad capability. A server that exposes a filesystem root, broad API token, or destructive tool without clear approval rules turns a protocol boundary into an escalation path. The second is semantic unsafety: a tool call can satisfy its schema and still delete the wrong thing, send private data, or act on injected instructions.`,
+        `Other failures are operational. Long-running calls need cancellation and progress. Large lists need pagination. Dynamic capabilities need change notifications. Multiple server versions need compatibility handling. Errors need enough structure for the host to recover. A deployment without logs may pass demos and still fail incident review because nobody can reconstruct what the model asked for and what the host allowed.`,
+      ],
+    },
+    {
+      heading: `Study next`,
+      paragraphs: [
+        `Study Agentic AI Patterns, Agent Model Router & Context Handoff Ledger, Agent2Agent Protocol Task State Case Study, Deep Research Agent Architecture Case Study, Prompt Injection Threat Model, Constrained Decoding, Agent Tool Permission Lattice, Seccomp BPF Sandbox Policy, Zanzibar Authorization Case Study, Capability Security & Attenuation, UCAN Delegation Proof Chain, OPA Rego Policy Decision Graph, Distributed Tracing, Message Queue, Service Workers, and Tail Latency.`,
+        `Primary sources are the MCP 2025-11-25 specification at https://modelcontextprotocol.io/specification/2025-11-25, base protocol at https://modelcontextprotocol.io/specification/2025-11-25/basic, lifecycle at https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle, transports at https://modelcontextprotocol.io/specification/2025-11-25/basic/transports, tools at https://modelcontextprotocol.io/specification/2025-11-25/server/tools, resources at https://modelcontextprotocol.io/specification/2025-11-25/server/resources, prompts at https://modelcontextprotocol.io/specification/2025-11-25/server/prompts, roots at https://modelcontextprotocol.io/specification/2025-11-25/client/roots, sampling at https://modelcontextprotocol.io/specification/2025-11-25/client/sampling, authorization at https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization, and JSON-RPC 2.0 at https://www.jsonrpc.org/specification.`,
       ],
     },
   ],

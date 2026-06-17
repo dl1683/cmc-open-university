@@ -209,43 +209,98 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'ClickHouse MergeTree is the core storage-engine family behind many ClickHouse tables. It stores data in immutable sorted parts, splits those parts into granules, keeps sparse primary indexes and marks, and relies on background merges to combine parts over time.',
-        'The case-study lesson is analytical storage design. Instead of updating B-tree pages row by row, MergeTree writes sorted columnar parts and reads only the granules and columns that might answer the query.',
+        `Analytical databases are asked to ingest huge append streams and then filter, group, and aggregate billions of rows. The common query is not "find one row by id." It is "scan a time range, read a few columns, skip most tenants, and aggregate fast."`,
+        `A row-store B-tree is good at point lookups and small updates, but it wastes I/O when a dashboard needs three columns out of a hundred. Plain append files ingest easily, but they lose physical order and create too much work for queries.`,
+        `MergeTree is ClickHouse storage for this shape of workload. It writes sorted immutable columnar parts, breaks those parts into granules, stores sparse primary-index marks, and uses background merges to turn many small parts into fewer larger parts.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and its wall',
       paragraphs: [
-        'An insert batch is sorted by the table ORDER BY expression and written as a new data part. A part contains compressed column files, marks, primary-index entries, metadata, and checksums. The primary index stores key values for granule boundaries, not every row, so it stays compact.',
-        'A query uses predicates on ORDER BY columns to binary-search sparse index entries and identify candidate granules. Marks point into column files so only needed ranges and columns are read. Background merges later combine parts into larger sorted parts.',
+        `The obvious approach is to put every row behind a dense index. That feels precise because every key can point to an exact row. It is also the wrong default for many analytic scans. The index can become large, row-oriented, and expensive to maintain while the query still needs to read compressed column ranges.`,
+        `The opposite obvious approach is to append files and scan them later. That keeps ingest simple but moves pain to read time. If the data is not clustered by common predicates, the query has to touch too many files, too many row groups, or too many unrelated values.`,
+        `The wall is that analytics needs a different unit of precision. It does not need one pointer per row for every query. It needs enough order and metadata to skip large ranges safely, then scan candidate ranges very fast.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'MergeTree performance depends on ORDER BY design, insert batching, part count, merge bandwidth, compression, granule size, partitioning, and query predicates. Bad ordering can force broad scans. Too many tiny inserts create too many parts. Merges improve reads but consume IO and CPU.',
-        'The sparse index is intentionally not a unique row locator. It prunes ranges; it does not point to individual rows like a traditional B-tree index. This is why MergeTree excels at analytical scans and aggregations rather than high-concurrency point updates.',
+        `MergeTree trades row-level precision for scan-level advantage. Sort rows by the ORDER BY key, store them in immutable columnar parts, and index only granule boundaries. The sparse index does not identify every row. It narrows the set of granules that may contain matching rows.`,
+        `The invariant is conservative skipping. A granule can be skipped only when the engine can prove from the sorted order and metadata that it cannot contain a match. A granule that might contain a match must be read and filtered exactly inside the column data.`,
+        `This is why ClickHouse primary keys are not OLTP primary keys. They define sparse index order. They do not imply uniqueness by default. The main contract is physical clustering for reads, not entity identity.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism',
       paragraphs: [
-        'MergeTree tables are used for observability events, clickstream analytics, product metrics, security logs, time-series-like facts, ad analytics, and operational dashboards. They fit append-heavy analytical workloads where queries filter and aggregate over ordered dimensions.',
-        'A complete case study is an events table ordered by tenant_id and event_time. Each insert creates sorted parts. A dashboard for one tenant over one day uses the sparse index to find relevant granules, reads only needed columns, and aggregates them. Background merges keep the part count under control.',
+        `An insert block is sorted by the table ORDER BY expression and written as a new data part. A part is self-contained: column data, marks, primary-index entries, metadata, and checksums live together. Old rows are not rewritten in place for a normal insert.`,
+        `A part is divided into granules. For each granule, the primary index stores key values around the granule boundary, and marks store offsets into compressed column streams. During a SELECT, ClickHouse uses predicates on primary-key and partition expressions to find mark ranges that may match.`,
+        `The query then reads only the required columns for those candidate granules and applies the actual filters. Background merges combine sorted parts inside a partition into larger sorted parts. The merge process reduces part count and improves locality, but it consumes CPU, memory, and disk I/O.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'ClickHouse primary keys are not the same as OLTP primary keys. They define sort order and sparse skipping, not uniqueness by default. Another trap is inserting tiny batches continuously; too many parts can overwhelm merges and hurt queries. Schema and ORDER BY choices are performance features.',
+        `Sorted order creates long runs of related rows. If a table is ordered by tenant_id and event_time, rows for the same tenant and nearby time tend to sit near each other. A predicate on those fields can skip granules that fall outside the requested range.`,
+        `The sparse index works because it is small enough to stay hot. It gives up row-perfect addressing but keeps enough boundary information to avoid reading large sections of data. Near a boundary, the engine may read extra rows, but columnar compression and vectorized execution make scanning those candidate rows cheap.`,
+        `Immutable parts also simplify concurrency and recovery. A merge can read old parts and write a new part while readers continue using the old version. Once the new part is ready and checked, metadata can switch to it.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `The parts-and-granules view shows the first big idea: an insert becomes a sorted immutable part, not an in-place row update. The part contains column files, marks, index entries, metadata, and checksums. That self-contained unit is the thing ClickHouse later reads, merges, moves, or drops.`,
+        `The sparse-index view shows the second idea: the WHERE predicate narrows the scan to candidate granules. A skipped granule is a range-level proof from sorted order. A read granule is still only a maybe. The row filter inside the selected columns decides the final result.`,
+        `The merge view shows why ingest is not free. Many small sorted parts are easy to create, but too many of them hurt reads. Background merges are the storage engine paying down that part-count debt.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Imagine an events table with tenant_id, event_time, event_type, url, country, payload, and metric columns. A common dashboard asks for one tenant over one day and groups by event_type. If ORDER BY starts with tenant_id and event_time, the sparse index can jump near the right granules and skip unrelated tenants and dates.`,
+        `The query reads the tenant, time, type, and metric columns. It does not need to read the payload column. It still scans candidate granules, but those granules are concentrated around the tenant and day that matter.`,
+        `If the same table is ordered by random UUID, the tenant's rows are scattered across the part. The sparse primary index has little to skip. ClickHouse may still be fast because columnar scans are efficient, but the ORDER BY key failed to help the workload.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `Read cost depends on how well ORDER BY matches the predicate, how many parts must be checked, how many columns are read, compression ratio, granule size, and predicate selectivity. A perfect key can skip most data. A bad key turns the same query into a wider scan.`,
+        `Write cost includes sorting insert blocks, creating part files, writing marks and metadata, and later paying for merges. Tiny inserts are dangerous because they create many small parts. Merges reduce part count and improve locality, but they add write amplification and can compete with queries for disk bandwidth.`,
+        `Key width is a tradeoff. A longer ORDER BY expression can improve clustering and compression, but it increases primary-index memory and insert work. A coarse partition can make merges huge. A too-fine partition can leave too many parts that never merge together.`,
+      ],
+    },
+    {
+      heading: 'Where it wins and where it fails',
+      paragraphs: [
+        `MergeTree wins on append-heavy analytics: observability events, clickstreams, product metrics, security logs, ad analytics, time-series-like facts, and dashboards that filter on dimensions aligned with ORDER BY. It is built for scanning compressed columns quickly and skipping chunks of sorted data.`,
+        `It fails when the workload is really OLTP: high-concurrency point updates, row-by-row transactions, uniqueness enforcement by primary key, and many small random writes. It also fails when most queries filter on columns unrelated to physical order.`,
+        `Secondary indexes, projections, materialized views, and data-skipping indexes can help, but they do not erase the main contract. The first-order design decision is still how rows are ordered, partitioned, batched, and merged.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first trap is thinking ClickHouse primary keys enforce uniqueness. They define sparse index order. Duplicate primary-key values can exist unless a specific engine or workflow gives different semantics.`,
+        `The second trap is tiny continuous inserts. Each small insert creates part metadata and later merge pressure. Once part count gets high, queries must consider more pieces and background work grows. Batching is not a micro-optimization; it is part of the storage design.`,
+        `Other common failures are bad partitioning, merge backlog, wide scans from a poor ORDER BY key, overuse of mutations, retention settings that drop or rewrite more than expected, and assuming compression will save a layout that gives the query no skipping power.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Design ORDER BY from real queries, not from entity modeling habits. Put the most common high-selectivity range and equality filters early when that matches the workload. Keep the key narrow enough to stay cheap. Remember that the table can have duplicate key values.`,
+        `Batch inserts so the engine creates fewer, healthier parts. Watch part counts, merge backlog, disk bandwidth, mutation queues, selected marks, read rows versus result rows, and memory used by primary indexes. Those metrics tell you whether the storage layout is helping or whether queries are brute-forcing through compressed data.`,
+        `Partition for lifecycle and merge boundaries. Partitions are useful for dropping old data and limiting work, but too many partitions can trap small parts and reduce merge effectiveness. TTL, mutations, and deletes should be treated as storage rewrites with real cost.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Official sources: MergeTree docs at https://clickhouse.com/docs/engines/table-engines/mergetree-family/mergetree, primary indexes at https://clickhouse.com/docs/primary-indexes, sparse primary index guide at https://clickhouse.com/docs/guides/best-practices/sparse-primary-indexes, and table parts at https://clickhouse.com/docs/parts. Study LSM Tree, Parquet Columnar Format Case Study, Database Indexing, t-digest, and Prometheus TSDB Case Study next.',
+        `Useful ClickHouse docs include the MergeTree engine page, primary indexes, sparse primary index guide, data parts, partitions, projections, and data-skipping indexes. Read them with the table layout in mind: part, granule, mark, column stream, sparse index, merge.`,
+        `Study next by role: LSM Tree for immutable sorted runs and compaction, RocksDB LSM Case Study for write amplification, Parquet Columnar Format for column chunks and statistics, Database Indexing for dense index contrast, Prometheus TSDB for another time-series storage design, and Apache Pinot Star-Tree Index for a different analytic acceleration pattern.`,
       ],
     },
   ],

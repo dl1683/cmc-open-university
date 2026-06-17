@@ -298,38 +298,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why Bayesian optimization exists',
       paragraphs: [
-        'A Gaussian process is a probability distribution over functions. For regression, it turns observed inputs and targets into a posterior mean and variance at every candidate input. Bayesian optimization uses that posterior as a cheap surrogate for an expensive objective, such as validation score after a long training run.',
-        'The main data structure is the kernel matrix K over observed inputs. The kernel encodes similarity: nearby or structurally similar inputs should have correlated function values. Conditioning on observations produces a mean curve and an uncertainty band.',
+        `Bayesian optimization exists for settings where each experiment is expensive enough that a bad search policy has a real cost. Training a large model configuration may take six hours. A robotics run may risk hardware. A lab assay may consume scarce material. A simulation may occupy a cluster queue. In those settings, "try a lot of things and keep the best" is not a strategy; it is a budget leak.`,
+        `The central problem is that the objective function is unknown. You can ask for the validation score at one learning rate, one regularization value, or one compiler setting, but you cannot see the whole surface. Bayesian optimization builds a cheap statistical model of that unknown surface, uses the model to choose the next experiment, pays for the real evaluation, and then updates the model. A Gaussian process is one of the cleanest surrogates for this loop because it gives both a predicted mean and a predicted uncertainty.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach and the wall',
       paragraphs: [
-        'Fit stores X_train, y_train, K plus noise, a Cholesky factor L, and alpha = K^-1 y computed through triangular solves. Prediction at a candidate x uses the vector of kernel similarities k(x, X_train). The posterior mean is k^T alpha. The posterior variance subtracts the amount explained by the training points, so uncertainty shrinks near observations and widens in unexplored regions.',
-        'Bayesian optimization adds an acquisition function. UCB uses mean plus a multiple of standard deviation. Expected improvement values how much a point might beat the current best. Thompson sampling draws one plausible function and optimizes it. All three are ways to spend expensive trials on promising uncertainty.',
+        `The obvious baseline is grid search. Pick a list of possible values for each knob, evaluate every combination, and select the winner. Grid search is easy to explain, but it collapses as dimensions grow. Ten values for six knobs already means one million experiments. It also wastes trials on axes that may barely matter while undersampling sensitive axes where small changes decide the result.`,
+        `Random search is usually a stronger baseline. It avoids the rigid grid, explores more combinations, and is hard to embarrass when only a few dimensions matter. But random search still has no memory beyond the best score seen so far. It can spend a trial in a region that previous observations already made implausible. It can also ignore a nearby uncertain region that might contain a better answer. The wall is not only dimensionality; it is the cost of treating each trial as isolated from the evidence already purchased.`,
       ],
     },
     {
-      heading: 'Complete case study: model tuning',
+      heading: 'The Gaussian process surrogate',
       paragraphs: [
-        'Suppose each model-training run costs six hours. Random search is still the baseline, but after a handful of completed trials a GP can model the score surface over learning rate and regularization. The acquisition function proposes the next trial. When the job finishes, append the result, rebuild or update the kernel state, and choose again.',
-        'This connects Hyperparameter Search to LinUCB Personalized News Case Study. Both use a mean-plus-uncertainty decision rule. LinUCB does it over discrete actions with ridge state; GP Bayesian optimization does it over a continuous search space with a kernel covariance matrix.',
+        `A Gaussian process is a distribution over functions. Before seeing data, it says which functions are plausible. After seeing trials, it conditions that belief on the observed inputs and scores. For any candidate point, the fitted GP returns a posterior mean, which is the current best estimate of the objective there, and a posterior variance, which measures how uncertain the surrogate remains at that point.`,
+        `The kernel defines the prior notion of similarity. If two learning rates are close, their scores should usually be more related than two learning rates far apart. The kernel matrix stores those pairwise relationships among observed trials. A smooth radial basis kernel assumes very smooth functions. A Matern kernel allows rougher behavior and is often a safer default for real tuning problems. A white-noise term accounts for measurement noise, such as randomness from initialization, data order, or nondeterministic hardware.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the stored state means',
       paragraphs: [
-        'A GP surrogate is not magic global optimization. Bad search bounds, a misleading kernel, noisy scores, and repeated peeking at the same validation split can all overfit the search. Exact GPs also scale cubically in the number of observations, which is fine for dozens of expensive trials and wrong for millions of cheap rows.',
-        'Always report the full search budget and failed trials. A best score found after 500 trials is not comparable to a best score found after 20 unless the search bill is part of the claim.',
+        `A practical GP implementation stores the tried inputs X_train, their observed scores y_train, the kernel matrix K with a noise term on the diagonal, a Cholesky factor L, and a vector often called alpha. The Cholesky factor matters because direct matrix inversion is numerically fragile and unnecessary. Instead of computing K^-1 explicitly, the implementation solves triangular systems using L. That is how it obtains alpha for posterior means and reuses the same factor for posterior variances.`,
+        `At a candidate x, the model computes a vector k(x, X_train): the similarity between x and every tried point. The posterior mean is a weighted combination of observed scores, with weights determined by the kernel and alpha. The posterior variance starts from the prior uncertainty and subtracts the part explained by nearby observations. This is why the uncertainty band pinches near tried points and widens in gaps. The band is not decoration; it is the search policy's reason to explore.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Acquisition is the decision rule',
       paragraphs: [
-        'Primary sources: Rasmussen and Williams, Gaussian Processes for Machine Learning at https://gaussianprocess.org/gpml/chapters/RW.pdf; scikit-learn Gaussian process documentation at https://scikit-learn.org/stable/modules/gaussian_process.html and GaussianProcessRegressor API at https://scikit-learn.org/stable/modules/generated/sklearn.gaussian_process.GaussianProcessRegressor.html; Jones, Schonlau, and Welch on efficient global optimization, referenced in acquisition-function literature such as https://ideas.repec.org/a/taf/jnlasa/v119y2024i546p1619-1632.html; and Wilson, Hutter, and Deisenroth on maximizing acquisition functions at https://papers.neurips.cc/paper/8194-maximizing-acquisition-functions-for-bayesian-optimization.pdf.',
-        "Study next: Hyperparameter Search, LinUCB Personalized News Case Study, Sherman-Morrison Rank-One Update Primer, Uncertainty: Teaching Models to Say I Don't Know, Regularization, Eigenvalues & Eigenvectors, and PCA: Principal Component Analysis.",
+        `The GP posterior estimates the objective; the acquisition function decides where to spend the next real trial. This distinction is important. The acquisition curve is not the predicted validation score. It is a score for the action "evaluate here next." It combines exploitation, which favors high posterior mean, with exploration, which favors high uncertainty.`,
+        `Upper confidence bound acquisition is the simplest to read: acquisition(x) = mean(x) + beta * sigma(x). A larger beta makes the search more optimistic about uncertain regions. Expected improvement asks how much a candidate is expected to beat the current best observation. Probability of improvement asks how likely it is to beat the current best, but can become too local because it does not care by how much. Thompson sampling draws one plausible function from the posterior and optimizes that draw. Each acquisition family spends uncertainty differently; none removes the need to define the search space well.`,
+      ],
+    },
+    {
+      heading: 'A concrete tuning example',
+      paragraphs: [
+        `Suppose a team is tuning a model and each training run takes six hours. The variables are learning rate, weight decay, batch size, and dropout. The team begins with a small random design so the surrogate is not fitted to a single corner of the space. After those initial runs, the GP learns that high learning rates fail, medium weight decay is promising, and dropout has a noisy effect.`,
+        `The acquisition function then evaluates many candidate configurations cheaply against the surrogate. One candidate may have the best predicted score but low uncertainty because it is close to prior trials. Another may have a slightly lower predicted score but wider uncertainty because it sits in an underexplored region near promising results. Bayesian optimization may choose the second candidate because the possible upside is worth one expensive run. After the real run finishes, the observation is appended, the posterior changes, and the next decision is made with more evidence.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The method works when the surrogate's assumptions are close enough to the real objective that the posterior guides trials better than chance. Smoothness is the usual reason. Hyperparameter surfaces are rarely perfectly smooth, but neighboring configurations often have related behavior. A learning rate of 0.001 and 0.0012 are usually more alike than 0.001 and 0.1. The kernel turns that intuition into covariance.`,
+        `It also works because uncertainty is explicit. Greedy search repeatedly samples what currently looks best, which can lock onto a local favorite. Pure exploration samples unknown regions even when they are unlikely to matter. Bayesian optimization prices both. Early in the budget, uncertainty can dominate because the system needs information. Later, if the posterior is confident, the acquisition can concentrate near the best regions. This budget-aware behavior is the reason BO is useful when trials are scarce.`,
+      ],
+    },
+    {
+      heading: 'Cost and scaling limits',
+      paragraphs: [
+        `Exact Gaussian processes are elegant but expensive. Fitting requires a matrix factorization that costs O(n^3) in the number of completed trials, and storing the covariance matrix costs O(n^2). For hyperparameter search with dozens or a few hundred trials, that is often acceptable because the real experiments are much more expensive than the surrogate update. For millions of observations, exact GPs are the wrong tool unless approximations are used.`,
+        `Prediction and acquisition also have engineering costs. The system must optimize the acquisition function, handle failed trials, avoid duplicate suggestions when workers run in parallel, track pending experiments, and decide how to handle noisy measurements. Larger or higher-dimensional problems may need sparse GPs, inducing points, trust-region BO, random embeddings, tree-structured Parzen estimators, or other surrogate families. The clean GP story is the base case, not a universal production recipe.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `GP Bayesian optimization is strongest when evaluations are expensive, the number of tunable dimensions is moderate, the objective has local structure, and sequential feedback is acceptable. Hyperparameter tuning is the standard example, but the same pattern appears in robotics, materials search, compiler optimization, database configuration, simulation calibration, and experimental design.`,
+        `It is also useful when reporting uncertainty matters. The surrogate can say, "we believe this region is good," and separately, "we do not know this nearby region well enough." That separation helps teams decide whether another experiment is worth the cost. Random search gives an unbiased sample history, but it does not explain where uncertainty remains.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `It fails when the search space is badly specified. If the true best configuration lies outside the bounds, the optimizer cannot find it. If the parameterization is poor, the kernel may treat meaningful differences as small or meaningless differences as large. If the objective is discontinuous, adversarial, or dominated by categorical interactions, a smooth GP can become confidently wrong.`,
+        `It also fails when noise is ignored. A single lucky validation run can pull the posterior upward and attract more trials. A single failed run can make a useful region look bad. Replicates, noise models, noise-aware objectives, and honest logging are not paperwork; they protect the optimizer from chasing randomness. Finally, repeated tuning on the same validation set can overfit the evaluation process. A strong BO result still needs a final untouched test or production validation.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `In the kernel posterior view, follow the path from trials to kernel, Cholesky factor, alpha, and posterior. The trial points are the expensive evidence. The kernel matrix is the memory of similarity. The Cholesky factor is the stable numerical representation of that memory. The posterior mean and variance are the usable prediction state.`,
+        `In the acquisition loop view, watch the split between modeling and decision-making. The posterior feeds the acquisition function, the acquisition chooses the next x, and the completed trial returns to the training set. The loop is the concept. Bayesian optimization is not a one-time fit; it is a repeated contract between a cheap belief model and an expensive reality check.`,
+      ],
+    },
+    {
+      heading: 'Production protocol',
+      paragraphs: [
+        `A responsible BO run starts by declaring the objective, bounds, budget, random seed policy, failure handling, and final evaluation procedure. It logs every trial, not only the winner. It records pending jobs so parallel workers do not duplicate each other. It stores the acquisition parameters and kernel choices so the run can be reproduced or audited later.`,
+        `The final report should compare against random search under the same budget. Random search is the baseline because it is simple, parallel, and often strong. If Bayesian optimization wins only after many hidden warmup runs, cherry-picked restarts, or repeated validation reuse, the claimed efficiency may be false. The engineering question is not "did BO find a good point?" The question is "did BO buy better information per expensive trial than the baseline?"`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Hyperparameter Search for the outer evaluation protocol, LinUCB for another example of optimism under uncertainty, Calibration & Reliability Diagrams for the difference between scores and trustworthy probabilities, and Sherman-Morrison Rank-One Update for the linear-algebra idea behind cheap updates. For deeper theory, read Gaussian Processes for Machine Learning by Rasmussen and Williams, then study expected improvement, upper confidence bounds, Thompson sampling, and modern trust-region Bayesian optimization.`,
       ],
     },
   ],

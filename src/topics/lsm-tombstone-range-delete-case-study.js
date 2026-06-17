@@ -95,20 +95,20 @@ function* rangeDelete() {
       ],
     ),
     highlight: { active: ['scan:cost', 'point:problem'], compare: ['space:problem'] },
-    explanation: 'A naive range delete scans every key and writes a point tombstone for each one. That is expensive on the write path and can leave iterators dragging through many delete markers.',
+    explanation: 'The first table shows the naive approach: scan the range and write a point tombstone per key. That makes delete a large write job and leaves future iterators dragging through many markers.',
     invariant: 'Deletes in an LSM are writes first; space disappears later.',
   };
 
   yield {
     state: rangeGraph('DeleteRange writes one range tombstone', { delete: '[user:0,user:9)', wal: 'atomic', mem: 'range tomb', sst: 'flush' }),
     highlight: { active: ['delete', 'wal', 'mem', 'e-delete-wal', 'e-delete-mem'], found: ['sst'] },
-    explanation: 'A native range delete records the interval as one logical tombstone. It goes through the write path: logged to the WAL and applied to a range-tombstone memtable before being flushed into SST metadata.',
+    explanation: 'The range graph shows the better abstraction. DeleteRange writes one interval tombstone, logs it for durability, stores it in range-tombstone memory, and later flushes it into SSTable metadata.',
   };
 
   yield {
     state: rangeGraph('Reads must check point data and range tombstones', { read: 'covered?', iter: 'skip span', compact: 'later', space: 'not yet' }),
     highlight: { active: ['sst', 'read', 'iter', 'e-sst-read', 'e-sst-iter'], compare: ['space'] },
-    explanation: 'A lookup or iterator must know whether the key version is covered by an overlapping tombstone interval. Arbitrary overlapping ranges are harder than point deletes because simple binary search by start or end is not enough.',
+    explanation: 'The read path is where range deletes charge interest. A lookup or iterator must decide whether the key version is covered by an overlapping interval, and arbitrary ranges are harder than point tombstones.',
   };
 
   yield {
@@ -132,13 +132,13 @@ function* rangeDelete() {
       ],
     ),
     highlight: { found: ['write:goal', 'flush:state'], active: ['compact:goal'] },
-    explanation: 'RocksDB keeps range tombstones aware of flush and compaction by storing them with SSTable metadata. That lets cleanup happen when compaction can prove the covered data is gone.',
+    explanation: 'The lifecycle table explains why range tombstones live near SSTable metadata. Flush and compaction need to carry them with the data they cover so cleanup can happen when the engine can prove old values are gone.',
   };
 
   yield {
     state: rangeGraph('Compaction is where delete markers finally pay off', { compact: 'bottom?', space: 'drop old', read: 'less work', iter: 'cleaner' }),
     highlight: { active: ['compact', 'space', 'e-compact-space'], found: ['read', 'iter'] },
-    explanation: 'The delete operation hides data immediately, but compaction reclaims the space. Until then, tombstones are extra metadata that reads, iterators, and compaction have to carry.',
+    explanation: 'The final range-delete graph separates logical delete from physical cleanup. The data disappears from reads immediately, but disk space returns only after compaction can drop the covered data and obsolete tombstone metadata.',
   };
 }
 
@@ -146,7 +146,7 @@ function* cleanupSafety() {
   yield {
     state: cleanupGraph('A tombstone hides older values until cleanup is safe'),
     highlight: { active: ['old', 'tomb', 'grace', 'e-old-grace', 'e-tomb-grace'], compare: ['drop'] },
-    explanation: 'A point tombstone means "a delete happened at this sequence or timestamp." It hides older values. The engine cannot always drop it immediately, because old snapshots or replicas may still need the delete marker to prevent data resurrection.',
+    explanation: 'The cleanup graph starts with the safety rule. A tombstone hides older values, but the engine cannot always drop it when it sees it. Old snapshots or replicas may still need the marker to prevent deleted data from reappearing.',
     invariant: 'Dropping a tombstone too early can make deleted data reappear.',
   };
 
@@ -171,13 +171,13 @@ function* cleanupSafety() {
       ],
     ),
     highlight: { active: ['grace:purpose', 'repair:purpose'], compare: ['purge:risk'] },
-    explanation: 'In replicated LSM systems such as Cassandra, gc_grace_seconds is a safety window. It keeps tombstones around long enough for failed replicas and repair workflows to learn the delete.',
+    explanation: 'The Cassandra table shows distributed delete safety. gc_grace_seconds keeps tombstones around long enough for failed replicas and repair to learn the delete before compaction purges the marker.',
   };
 
   yield {
     state: cleanupGraph('Snapshots and replicas can block tombstone purge', { snap: 'old read', replica: 'offline', grace: 'blocked', compact: 'cannot drop', drop: 'wait' }),
     highlight: { active: ['snap', 'replica', 'grace', 'compact', 'e-snap-grace', 'e-replica-grace', 'e-grace-compact'], removed: ['drop'] },
-    explanation: 'A compaction may see a tombstone and the old value it covers, but still keep the tombstone if a snapshot or replica grace rule says the delete marker must remain visible.',
+    explanation: 'The blocked-cleanup graph shows why "compaction saw it" is not enough. If an old snapshot or replica-grace rule can still observe older data, compaction must keep the tombstone visible.',
   };
 
   yield {
@@ -201,7 +201,7 @@ function* cleanupSafety() {
       ],
     ),
     highlight: { found: ['covered:outcome', 'snapshot:outcome'], active: ['age:condition'] },
-    explanation: 'A tombstone is useful only while it can still suppress an older value somewhere. Cleanup needs the right compaction inputs plus the right safety conditions.',
+    explanation: 'The purge table is the exact cleanup test. A tombstone can go away only when it has met the covered data, no old reader still needs the old view, and replica safety rules no longer require the marker.',
   };
 
   yield {
@@ -225,7 +225,7 @@ function* cleanupSafety() {
       ],
     ),
     highlight: { active: ['reads:symptom', 'space:response'], found: ['repair:response'] },
-    explanation: 'Tombstone problems often look like read latency, iterator stalls, disk bloat, or data resurrection bugs. The fix may be key design, TTL design, compaction strategy, repair discipline, or native range deletes.',
+    explanation: 'The symptom table maps user pain to causes. Tombstone trouble may look like slow reads, iterator stalls, disk bloat, or zombie data. Fixes range from better keys and TTLs to repair discipline and native range deletes.',
   };
 }
 
@@ -241,39 +241,64 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'A tombstone is a delete marker in an LSM storage engine. Because SSTables are immutable, deleting a key usually does not remove old bytes immediately. Instead, the engine writes a newer marker saying the old value should no longer be visible. Compaction later removes the marker and the covered values when it is safe.',
-        'Range deletes generalize that idea from one key to an interval. Instead of scanning a range and writing thousands or millions of point tombstones, a native range-delete operation writes one interval tombstone and lets reads and compaction account for it.',
+        `A tombstone is a deletion record. In a log-structured merge tree, old data usually lives inside immutable sorted-string tables, so a delete cannot reach into every old file and erase bytes in place. The storage engine writes a newer record that says the older value is no longer visible. Reads must treat that marker as part of the version history, and compaction later removes both the marker and the data it shadows when it is safe.`,
+        `A range tombstone is the same idea applied to an interval of keys. Instead of writing one delete marker for every key under a tenant prefix, time window, table id, or shard range, the engine writes one versioned interval such as delete every key in [a, z). That makes the delete cheap to issue, but it creates a harder read and cleanup problem: every future lookup, scan, and compaction has to know whether a key version is covered by a newer interval.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'In RocksDB DeleteRange, the range tombstone goes through the write path. It is logged to the WAL, placed in a range-tombstone memtable, and flushed with data into an SSTable range tombstone meta-block. Reads and iterators check whether their key or span is covered by relevant tombstones.',
-        'Compaction is the cleanup mechanism. It can merge tombstone metadata, drop covered data, and eventually remove obsolete tombstones once no older values can reappear below them.',
+        `The obvious approach is scan and delete. Open an iterator on the range, visit every key, and write a point tombstone for each one. That is easy to explain and uses the same delete path as ordinary key deletion. It is also not a foolish baseline. It preserves the normal write-ahead log, sequence-number, snapshot, and compaction rules of the database.`,
+        `The wall is that the range delete has become a large read job and a large write job. The engine must read keys only to learn which tombstones to write. The result may be millions of markers that slow future reads and iterators. A compaction filter can remove keys later, but then the delete is not immediately visible to readers. A forced compaction can reclaim space, but it may wait behind other work and can rewrite a large amount of data. The missing abstraction is an interval delete with the same crash and visibility guarantees as a normal write.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Deletes reduce logical data immediately but often increase physical work temporarily. Tombstones consume space, slow scans, complicate iterators, and increase compaction work. Range tombstones reduce write-path cost for prefix or interval deletes, but they introduce interval-overlap logic on the read path.',
+        `The core insight is to make deletion a versioned data structure instead of an immediate erasure. A range tombstone is a record with a start key, end key, and sequence number. It says that older versions inside the interval are hidden from any reader whose snapshot is new enough to see the tombstone. That keeps the logical delete synchronous while leaving physical cleanup to compaction.`,
+        `The second insight is placement. Range tombstones need to travel with the LSM files and levels they affect. RocksDB puts flushed range tombstones in a separate SSTable meta-block rather than interleaving them with point data or storing them only in a global manifest. That lets flush, open-file logic, reads, and compaction reason about interval metadata near the files whose keys it may cover.`,
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'RocksDB introduced DeleteRange because scan-and-delete was slow, created many tombstones, and did not give predictable space reclamation. Cassandra keeps tombstones for a grace window so replicas that missed a delete can learn it before compaction purges the marker. Both examples show that delete correctness is distributed in time.',
+        `On the write path, a native range delete goes through the same durability boundary as other writes. The operation is appended to the write-ahead log, applied to an in-memory range-tombstone structure, and later flushed with the related memtable into an SST file. RocksDB's design uses a dedicated range-tombstone memtable and a range-tombstone meta-block in the SST. The common case is cheap because there are usually few active range tombstones in memory.`,
+        `On the read path, the engine compares candidate point versions with visible range tombstones. A point lookup asks whether the found key is covered by a newer tombstone. An iterator has a larger problem because it walks spans, not one key. Older designs built a skyline of overlapping range tombstones, where the x-axis is key order and the y-axis is sequence number. Newer designs fragment tombstones locally so fragments do not overlap and can be ordered by start key. That makes coverage checks searchable and cacheable.`,
+        `On the compaction path, the engine merges point data and tombstone metadata from several inputs. If a tombstone covers an older key version in the same compaction run, the output can drop the old value. If the tombstone has reached the part of the tree where no older covered values can survive, the tombstone itself may become obsolete. This is why delete space is reclaimed later: compaction is the first process that sees enough of the version history to erase safely.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'The main misconception is that delete means immediate physical removal. In an LSM, delete usually means a newer marker. Another mistake is lowering tombstone grace without understanding repair and replica failure windows; that can resurrect deleted data.',
+        `The correctness rule is visibility by sequence number. A reader has a snapshot sequence. A point value has a sequence. A range tombstone also has a sequence. If the tombstone is visible to the reader and is newer than the value it covers, the value must not be returned. If the reader's snapshot predates the tombstone, the old value may still be visible. This is the same MVCC idea used for point updates, extended from one key to an interval.`,
+        `Cleanup is safe only when no legitimate observer can still need the old arrangement. A local engine must respect snapshots and long-lived iterators. A replicated engine has another clock: every replica that might still hold old data must learn the delete before the marker is purged. Cassandra's tombstone grace period exists to prevent a down replica from later repairing deleted data back into the cluster. A tombstone that looks useless to one compaction may still be the only evidence that a value was deleted.`,
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        `A range tombstone makes the delete request small. It avoids reading every key in the interval and avoids writing one marker per key. In RocksDB, inserting a buffered range tombstone is logarithmic in the number of buffered range tombstones, not in the number of keys being deleted. That is the win.`,
+        `The tax moves to reads, iterators, memory, and compaction. A point lookup may need to consult range-tombstone metadata before it trusts a point value. A range scan may need to advance through tombstone fragments as well as point keys. Compaction has to carry, split, merge, and eventually drop interval metadata. Space amplification can remain high until the right compaction runs. Delete is therefore not free; it is paid over time by the parts of the engine that maintain the version history.`,
+      ],
+    },
+    {
+      heading: 'Where it is useful and where it fails',
+      paragraphs: [
+        `Range tombstones fit workloads where the delete is naturally an interval: dropping a table prefix in a key-value-backed SQL engine, removing a tenant, cleaning data that moved to another shard, deleting a time window, expiring a partition, or removing all records under a product or account id. The access pattern matters. If the delete covers many keys and users need the range to disappear from reads immediately, native range deletion is much better than an external cleanup loop.`,
+        `It is the wrong tool when the deleted set is not a contiguous key range, when queries are dominated by long scans through heavily tombstoned regions, or when the operational team cannot keep compaction and repair healthy. A bad key schema can make range deletes useless because the records that should die together are not adjacent. A long grace window protects correctness but keeps dead data around. A short grace window can reduce disk use while increasing the chance of resurrected data if repair discipline is weak.`,
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        `Watch read latency for tombstone-covered keys, iterator seek time, range-scan p99, number of range tombstones per file, tombstone fragmentation cache hit rate, compaction backlog, space amplification, and the age of the oldest snapshot or iterator. In Cassandra-style replicated systems, also watch repair age, nodes down longer than the grace window, tombstone warnings, and fully expired SSTables that remain blocked by older data.`,
+        `The useful question is not whether tombstones exist. They are part of the design. The useful question is whether they are accumulating faster than compaction and repair can convert logical deletes into safe physical cleanup.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: RocksDB DeleteRange blog at https://rocksdb.org/blog/2018/11/21/delete-range.html, RocksDB DeleteRange wiki at https://github.com/facebook/rocksdb/wiki/DeleteRange, RocksDB DeleteRange implementation notes at https://github.com/facebook/rocksdb/wiki/DeleteRange-Implementation, and Apache Cassandra tombstone docs at https://cassandra.apache.org/doc/latest/cassandra/managing/operating/compaction/tombstones.html. Study LSM Compaction Strategies Primer, RocksDB MANIFEST & VersionSet, Cassandra Repair Case Study, MVCC Internals & VACUUM, and Backpressure & Flow Control next.',
+        `Primary sources: RocksDB DeleteRange at https://rocksdb.org/blog/2018/11/21/delete-range.html, RocksDB DeleteRange notes at https://github.com/facebook/rocksdb/wiki/DeleteRange, and Apache Cassandra tombstones at https://cassandra.apache.org/doc/latest/cassandra/managing/operating/compaction/tombstones.html. Study LSM Compaction Strategies Primer for cleanup policy, RocksDB MANIFEST and VersionSet for file-version bookkeeping, MVCC Internals and VACUUM for snapshot-safe deletion, Cassandra Repair Case Study for distributed delete safety, and TimeWindow Compaction Strategy for TTL-heavy data next.`,
       ],
     },
   ],

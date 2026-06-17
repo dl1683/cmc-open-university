@@ -374,50 +374,171 @@ export function* run(input) {
   else throw new InputError('Pick an LLM request-router view.');
 }
 
+const legacyArticle = {
+  sections: [
+    {
+      heading: 'Why it exists',
+      paragraphs: [
+        'LLM replicas are stateful. Two workers serving the same model can have different queues, KV cache contents, prefix-cache hits, adapters, warmup state, and tenant eligibility. A generic load balancer that only sees request counts can send a prompt to the wrong place.',
+        'An SLO-aware request router chooses the replica or pool after ingress has selected the model. It scores cache locality, queue depth, latency objective, privacy policy, cost, and fallback constraints before routing the request.',
+      ],
+    },
+    {
+      heading: 'The tempting wrong answer',
+      paragraphs: [
+        'One tempting answer is lowest queue depth. That can destroy prefix locality and force repeated prefill. Another is best cache hit. That can send an interactive request behind a long decode queue and burn the SLO. Sticky routing helps sessions but can create hot spots.',
+        'The router needs a policy gate before optimization. Tenant boundaries, adapter availability, model revision, privacy rules, and multimodal constraints decide which replicas are legal. Only then should the scorer trade cache locality against load and latency.',
+      ],
+    },
+    {
+      heading: 'Core mechanism',
+      paragraphs: [
+        'The data structures are a route feature vector, a replica scoreboard, and a route ledger. The feature vector includes model id, token prefix hash, expected input and output tokens, queue depth, active decode slots, cache hit estimate, SLO class, tenant boundary, adapter id, cost tier, and fallback eligibility.',
+        'The scoreboard ranks legal replicas. The ledger records the selected replica, route scores, policy gates, cache result, queue wait, TTFT, TPOT, p99 slice, and fallback reason. The invariant is that a route is acceptable only if it passes policy before optimization.',
+      ],
+    },
+    {
+      heading: 'Legacy visual note',
+      paragraphs: [
+        'In the scoreboard view, gpuA has the best cache but a risky queue, while gpuB wins because it can still meet the SLO. The point is that locality is a weighted signal, not an absolute command.',
+        'The cache-locality view shows why the router needs an index. Prefix-aware routing estimates reuse from tokens; KV-aware routing asks which worker actually has reusable blocks after eviction. The SLO-audit view shows the rollout rule: hit rate, TTFT, TPOT, queue depth, cost, canary, and kill switch all travel with the route policy.',
+      ],
+    },
+    {
+      heading: 'Where it fits',
+      paragraphs: [
+        'Ray Serve LLM draws the ingress/request boundary directly: ingress routing maps a model id to a deployment, while request routing chooses a replica inside that deployment. Its default policy uses power of two choices, and its prefix-aware policy routes similar prefixes toward the same replicas to improve vLLM automatic prefix caching: https://docs.ray.io/en/latest/serve/llm/architecture/routing-policies.html.',
+        'vLLM Production Stack documents KV-cache-aware routing as sending incoming requests to the instance with the highest KV cache hit rate, instead of merely keeping identical prefixes sticky even after cache eviction: https://docs.vllm.ai/projects/production-stack/en/vllm-stack-0.1.8/use_cases/kv-cache-aware-routing.html. The llm-d guide makes the same argument: precise prefix cache mode can introspect each vLLM instance for actual KV entries when churn makes approximate routing weaker: https://developers.redhat.com/articles/2026/06/11/intelligent-inference-scheduling-llm-d-red-hat-ai.',
+        'KServe LLMInferenceService describes an architecture that combines vLLM execution, Kubernetes orchestration, llm-d intelligent routing, KV-cache-aware scheduling, prefill-decode separation, RBAC, monitoring, and metrics: https://kserve.github.io/website/docs/model-serving/generative-inference/llmisvc/llmisvc-overview.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Do not optimize hit rate alone. A cache hit on an overloaded worker can be worse than a cold route with a short queue. Do not trust a stale prefix index after eviction. Do not route across tenant, adapter, tokenizer, model-version, or multimodal-hash boundaries. Do not hide fallback in application code; fallback is part of the route policy.',
+        'Queue depth must be interpreted through the request SLO. Ray Serve autoscaling guidance uses ongoing requests per replica as a key signal and recommends load testing latency-sensitive workloads before choosing target ongoing request values: https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html. Multimodal traffic adds another key: NVIDIA Dynamo documents multimodal KV routing where image content contributes routing metadata through an image hash before the KV router selects a backend worker: https://docs.nvidia.com/dynamo/user-guides/multimodal/multimodal-kv-routing.',
+        'Primary sources: Ray Serve request routing at https://docs.ray.io/en/latest/serve/llm/architecture/routing-policies.html, Ray Serve prefix-aware routing at https://docs.ray.io/en/latest/serve/llm/user-guides/prefix-aware-routing.html, vLLM Production Stack KV-cache-aware routing at https://docs.vllm.ai/projects/production-stack/en/vllm-stack-0.1.8/use_cases/kv-cache-aware-routing.html, Ray Serve autoscaling at https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html, llm-d intelligent inference scheduling at https://developers.redhat.com/articles/2026/06/11/intelligent-inference-scheduling-llm-d-red-hat-ai, KServe LLMInferenceService at https://kserve.github.io/website/docs/model-serving/generative-inference/llmisvc/llmisvc-overview, and NVIDIA Dynamo multimodal KV routing at https://docs.nvidia.com/dynamo/user-guides/multimodal/multimodal-kv-routing.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Load Balancer, Power of Two Choices Load Balancing, and Consistent Hashing first to separate general routing from LLM-specific routing. Then read LLM Serving Admission-Control Goodput Gate, LLM Serving Autoscaling Warm Pool, Prompt Cache-Key Canonicalization Ledger, Prefix Caching & RadixAttention, KV Cache Transfer Fabric Case Study, KV Cache Tiered Offload Store Case Study, LLM Continuous Batching, Chunked Prefill Token Budget Scheduler, Tail Latency & p99 Thinking, Feature Flag Control Plane, Distributed Tracing, and LLM Unit Economics Ledger Case Study.',
+      ],
+    },
+  ],
+};
+
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An SLO-aware LLM request router chooses which serving replica should handle a request after the ingress layer has already selected the model or deployment. It is not the same as product-level model routing. It is replica-level control: pick the worker or pool that best satisfies cache locality, queue depth, latency objective, privacy policy, cost, and fallback constraints.',
-        'Ray Serve LLM draws this boundary directly: ingress routing maps a model id to a deployment, while request routing chooses a replica inside that deployment. Its default policy uses power of two choices, and its prefix-aware policy routes similar prefixes toward the same replicas to improve vLLM automatic prefix caching: https://docs.ray.io/en/latest/serve/llm/architecture/routing-policies.html.',
+        'An LLM serving fleet rarely has one kind of request. Some prompts are short chats, some are long-context coding tasks, some need low latency, some can wait, some require a stronger model, and some should be rejected before they harm p99 latency.',
+        'An SLO-aware router exists to make those tradeoffs explicit. It sends each request to a model, replica, batch, or queue based on latency targets, cost, quality needs, cache locality, and current load.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The first data structure is a route feature vector: model id, token prefix hash, expected input and output tokens, queue depth, active decode slots, cache hit estimate, SLO class, tenant or privacy boundary, adapter id, cost tier, and fallback eligibility. The second is a replica scoreboard that turns those features into a ranked route choice. The third is a route ledger that records the chosen replica, route scores, policy gates, cache result, queue wait, TTFT, TPOT, p99 slice, and fallback reason.',
-        'This is why a generic Load Balancer is not enough for LLM serving. LLM replicas are stateful because KV cache, prefix cache, LoRA adapters, multimodal preprocessing, and decode queues differ by worker. A route that looks balanced by request count can be bad if it destroys cache locality or sends an interactive request behind long decodes.',
+        'The obvious router is round robin. It balances request count, but request count is not work. A 200-token prompt and a 100,000-token prompt do not consume the same prefill memory, decode time, or cache capacity.',
+        'Another tempting router is cheapest-model-first. That can lower cost for easy requests, but it can also violate quality requirements, overload a small model, or send hard requests down a path that causes retries and higher final cost.',
       ],
     },
     {
-      heading: 'Cache-aware routing',
+      heading: 'Core insight',
       paragraphs: [
-        'vLLM Production Stack documents KV-cache-aware routing as sending incoming requests to the instance with the highest KV cache hit rate, instead of merely keeping identical prefixes sticky even after cache eviction: https://docs.vllm.ai/projects/production-stack/en/vllm-stack-0.1.8/use_cases/kv-cache-aware-routing.html. The important distinction is exact state: prefix-aware routing guesses from token-prefix similarity; KV-aware routing tries to use actual cache contents.',
-        'The llm-d intelligent scheduling guide makes the same serving argument: prefill dominates time to first token for long prompts, vLLM prefix caching can skip shared prefill, and precise prefix cache mode can introspect each vLLM instance for actual KV entries when churn makes approximate routing weaker: https://developers.redhat.com/articles/2026/06/11/intelligent-inference-scheduling-llm-d-red-hat-ai.',
+        'The router should estimate work and risk before admission. Useful features include prompt tokens, expected output tokens, request class, deadline, user tier, model constraints, cache-key hit probability, current queue depth, KV memory pressure, and recent p99 latency.',
+        'The decision is not only where to send the request. It may be admit, shed, downgrade, upgrade, queue, split, route to a cached prefix, or send to a verifier-backed path. SLO-aware routing is a control plane, not a load balancer label.',
       ],
     },
     {
-      heading: 'SLO and policy controls',
+      heading: 'How it works',
       paragraphs: [
-        'Queue depth must be interpreted through the request SLO. Ray Serve autoscaling guidance uses ongoing requests per replica as a key signal and explicitly recommends load testing latency-sensitive workloads before choosing target ongoing request values: https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html. A router can use the same idea at request time: interactive traffic gets a stronger queue penalty than batch traffic.',
-        'LLM Serving Admission-Control Goodput Gate is the preceding decision: if no route can finish before deadline, the system should reject, defer, or degrade before routing burns GPU time.',
-        'LLM Serving Autoscaling Warm Pool is the downstream capacity loop: once new replicas are starting, the router must know which ones are hot, warm, cold, cache-empty, or safe to receive cache-insensitive traffic.',
-        'KServe LLMInferenceService describes an architecture that combines vLLM execution, Kubernetes orchestration, llm-d intelligent routing, KV-cache-aware scheduling, prefill-decode separation, RBAC, monitoring, and metrics: https://kserve.github.io/website/docs/model-serving/generative-inference/llmisvc/llmisvc-overview. That is the production boundary: routing is not only an algorithm, it is a governed control plane.',
+        'A request arrives with metadata and a prompt. The router classifies it, estimates token work, checks policy, reads live fleet state, and chooses a route. The route can be a specific model, replica group, service tier, queue, or fallback plan.',
+        'The router then records the decision and watches outcome metrics: time to first token, inter-token latency, total latency, cost, error, truncation, quality score, safety result, and cache behavior. Those outcomes update future routing policy.',
+        'A good router distinguishes prefill pressure from decode pressure. Long prompts stress prefill and KV allocation. Long answers stress decode occupancy. Routing by raw request count hides both bottlenecks.',
       ],
     },
     {
-      heading: 'Complete case study: enterprise copilot',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A company runs a coding and research copilot. Short chat completions route to the lowest-queue replica that still has a useful prompt prefix. Long repository prompts route toward replicas with matching KV blocks or to a prefill/decode split. Agent turns prefer sticky state until the queue threatens p99. Regulated tenants can only use approved replicas and adapters. Batch summarization drops cache affinity when the fleet is busy. Every route writes a span so cost and quality can be audited by request class.',
-        'Multimodal traffic adds another key. NVIDIA Dynamo documents multimodal KV routing where image content contributes routing metadata through an image hash before the KV router selects a backend worker: https://docs.nvidia.com/dynamo/user-guides/multimodal/multimodal-kv-routing. Prompt Cache-Key Canonicalization Ledger is the upstream companion: the router needs the same identity fields the model server needs to prove cache reuse is legal.',
+        'The queue view proves that equal requests are a fiction. Requests carry different token shapes, deadlines, and quality requirements. A router that ignores shape can make average utilization look fine while protected p99 slices fail.',
+        'The decision-table view proves that routing is policy under evidence. Cache hit probability, queue age, model capability, and SLO budget all affect the decision. The router should explain why a request went where it went.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Do not optimize hit rate alone. A cache hit on an overloaded worker can be worse than a cold route with a short queue. Do not trust a stale prefix index after eviction. Do not route across tenant, adapter, tokenizer, model-version, or multimodal-hash boundaries. Do not hide fallback in application code; fallback is part of the route policy.',
-        'Primary sources: Ray Serve request routing at https://docs.ray.io/en/latest/serve/llm/architecture/routing-policies.html, Ray Serve prefix-aware routing at https://docs.ray.io/en/latest/serve/llm/user-guides/prefix-aware-routing.html, vLLM Production Stack KV-cache-aware routing at https://docs.vllm.ai/projects/production-stack/en/vllm-stack-0.1.8/use_cases/kv-cache-aware-routing.html, Ray Serve autoscaling at https://docs.ray.io/en/latest/serve/advanced-guides/advanced-autoscaling.html, llm-d intelligent inference scheduling at https://developers.redhat.com/articles/2026/06/11/intelligent-inference-scheduling-llm-d-red-hat-ai, KServe LLMInferenceService at https://kserve.github.io/website/docs/model-serving/generative-inference/llmisvc/llmisvc-overview, and NVIDIA Dynamo multimodal KV routing at https://docs.nvidia.com/dynamo/user-guides/multimodal/multimodal-kv-routing. Study Load Balancer, Power of Two Choices Load Balancing, Consistent Hashing, LLM Serving Admission-Control Goodput Gate, LLM Serving Autoscaling Warm Pool, Prompt Cache-Key Canonicalization Ledger, Prefix Caching & RadixAttention, KV Cache Transfer Fabric Case Study, KV Cache Tiered Offload Store Case Study, LLM Continuous Batching, Chunked Prefill Token Budget Scheduler, Tail Latency & p99 Thinking, Feature Flag Control Plane, Distributed Tracing, and LLM Unit Economics Ledger Case Study next.',
+        'The router works when its predictions are good enough to prevent obvious mismatches. A long-context request should not land on a replica with tight KV memory. A low-risk classification task should not consume the most expensive model if a cheaper one meets quality.',
+        'It also works through feedback. Routing policy should not be static folklore. If a route misses p99 or fails quality checks, the system should adjust admission, batching, fallback, or model choice.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The router adds latency, policy complexity, observability requirements, and failure modes. If the router is slow or unavailable, the serving stack can fail before a model sees the request.',
+        'The tradeoff is global efficiency. A little routing overhead can prevent expensive overload, reduce tail latency, improve cache reuse, and reserve strong models for requests that need them. The value appears at fleet level, not in one isolated request.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'SLO-aware routing wins in multi-model products, enterprise tiers, coding assistants, agent platforms, mixed-context workloads, and fleets that combine GPUs with different memory and throughput profiles.',
+        'It is especially useful when paired with prefix caching, continuous batching, prefill/decode disaggregation, semantic caching, verifier-guided routing, and admission control. Each mechanism supplies signals the router can use.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure is optimizing the wrong metric. A router that lowers average latency while harming p99 for paid users is not SLO-aware. A router that lowers cost while increasing invalid answers is not successful.',
+        'The second failure is stale fleet state. Queue depth, cache pressure, and failure rates change quickly. Routing on old telemetry can create oscillations or overload the route that looked healthy seconds ago.',
+        'The third failure is unexplainable policy. When a request misses its SLO, operators need to know whether the cause was admission, model choice, queueing, batching, cache miss, or decode slowdown.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Define SLO classes before writing routing code. Decide which users, routes, and tasks are protected. Track time to first token, inter-token latency, total latency, cost, quality, and error separately.',
+        'Use conservative fallbacks. If live telemetry is missing, choose a safe route or shed load rather than pretending the fleet is healthy. If model quality is uncertain, route to a verifier or stronger model for high-risk tasks.',
+        'Log route decisions with enough context to audit them later: request class, token estimates, model candidates, cache signal, queue signal, chosen route, fallback path, and outcome.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine three incoming requests: a short support question, a long repository analysis, and a high-risk legal summary. Round robin treats them as peers. An SLO-aware router sees different token shapes, quality risk, and deadlines.',
+        'The support question may go to a cheaper model with a short queue. The repository analysis may need a long-context route with enough KV memory and a prefix-cache signal. The legal summary may need a stronger model plus verifier or citation checks, even if that costs more.',
+        'If the long-context route is under KV pressure, the router may queue, shed, or ask for a shorter context rather than damaging every active stream. That is the point: route choice is a fleet health decision, not only a model preference.',
+      ],
+    },
+    {
+      heading: 'How to tune it',
+      paragraphs: [
+        'Start with simple policies and hard guardrails. Protect maximum prompt length, maximum expected output, per-tier deadlines, and known high-risk tasks before adding learned routing. A bad learned router can make incidents harder to debug.',
+        'Then add feedback. Compare predicted cost and latency with actual outcomes. Track when fallback routes saved a request and when they hid a deeper capacity issue. Route policy should improve from evidence, not from static intuition.',
+        'Finally, keep quality in the loop. A route that meets latency but produces unsupported answers is not successful. SLOs for LLM products often need both service metrics and answer-quality metrics.',
+      ],
+    },
+    {
+      heading: 'What to watch in production',
+      paragraphs: [
+        'The dangerous router is the one that looks efficient during normal load and collapses during a burst. Protect the control plane: routing decisions should remain fast, explainable, and conservative when telemetry is partial or the fleet is already unhealthy.',
+        'Watch decision churn. If similar requests bounce between routes because queue depth changes every second, the router may create oscillation instead of stability. Hysteresis, admission limits, and per-class budgets can matter more than a more clever scoring function.',
+        'Quality drift also needs its own alarm. A cheap route may satisfy latency for weeks while slowly failing harder prompts, new languages, or high-stakes domains. Sampled evaluation, verifier outcomes, and human escalations should feed routing policy, not sit in a separate quality report.',
+      ],
+    },
+    {
+      heading: 'Common misconception',
+      paragraphs: [
+        'The misconception is that a router is just a load balancer with model names attached. A normal load balancer tries to distribute work across similar backends. An LLM router often chooses among different costs, qualities, context limits, cache states, memory pressures, and risk levels.',
+        'That makes the routing decision part of product behavior. A different route can change latency, answer quality, citation reliability, and cost. The policy therefore belongs in the same conversation as SLO design, model evaluation, and incident response.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study LLM Continuous Batching, Length-Aware Batching, Chunked Prefill, PagedAttention, Prefix Caching, Tail Latency, Admission Control, Circuit Breakers, Semantic Cache, and Heterogeneous AI Compute Router. A useful exercise is to route the same prompt under three conditions: empty fleet, KV pressure, and p99 incident.',
       ],
     },
   ],

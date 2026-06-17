@@ -62,7 +62,7 @@ export function* run(input) {
     yield {
       state: snapshot(),
       highlight: { active: [queryId], compare: [hit.id], found: ranked.slice(0, i).map((r) => r.id) },
-      explanation: `Nearest neighbor #${i + 1}: "${hit.label}" at distance ${hit.d.toFixed(2)}. ${i === 0 ? 'No dictionary, no synonym list — proximity in the learned space IS similarity.' : ''}`,
+      explanation: `Nearest neighbor #${i + 1}: "${hit.label}" at distance ${hit.d.toFixed(2)}. ${i === 0 ? 'No dictionary or synonym list is being consulted; proximity in the learned space is the similarity signal.' : 'The next closest point is still semantically related, but the larger distance shows a weaker match.'}`,
       invariant: 'Distance in embedding space ≈ difference in meaning.',
     };
   }
@@ -78,51 +78,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'The problem',
       paragraphs: [
-        `An embedding maps a discrete or messy object into a dense vector whose geometry is useful. The object might be a token, sentence, product, image, user, or document. Similar things should land near each other under a metric such as cosine similarity or dot product. The space is not necessarily "lower-dimensional" than the raw object; it is a learned coordinate system where distance can stand in for semantic or behavioral relatedness.`,
-        `The modern story begins with word2vec (Mikolov et al., 2013): train vectors so words that appear in similar contexts get similar coordinates, and analogies such as king - man + woman roughly point toward queen. Tokenization (BPE) decides the units, Neural Network Forward Pass computes representations, and Gradient Descent moves vectors until the training objective improves. Once trained, meaning becomes searchable geometry.`,
+        `Computers need a usable representation before they can compare messy objects. A word, sentence, image, song, product, source file, user profile, or support ticket is not naturally a point on a ruler. Exact string matching can say whether two strings are identical, but it cannot say that "kitten" is closer to "cat" than to "truck." Keyword search can count shared tokens, but it misses paraphrase, synonyms, and visual or behavioral similarity.`,
+        `Embeddings solve that representation problem by mapping each item to a vector: an ordered list of numbers. The important promise is geometric. Items that should behave similarly for the task should land near each other under a chosen metric. The vector does not have to be human-readable coordinate by coordinate. It has to be useful when compared, clustered, indexed, averaged, or passed into another model.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'Naive approach',
       paragraphs: [
-        `There are several training routes. Skip-gram predicts nearby words. Matrix factorization methods such as GloVe compress co-occurrence statistics. Contrastive systems such as CLIP pull matching text-image pairs together and push mismatches apart. Transformer encoders use Attention Mechanism to make contextual embeddings, where "bank" near "river" differs from "bank" near "loan." Sentence embedding models then pool token states into one vector for the whole passage.`,
-        `Similarity is usually cosine: normalize vectors, then compare angles. Dot product is common when magnitude is meaningful or already normalized. Euclidean distance can work, but high-dimensional spaces make raw distance less intuitive. The Embedding Space, in 3D visualizes a tiny version; real systems use hundreds to thousands of dimensions and cannot be inspected axis by axis.`,
+        `The naive approach is to compare surface features. For text, you might lowercase words, remove punctuation, count tokens, and rank documents by overlap. For products, you might match category labels and tags. For images, you might compare filenames, captions, or hand-written features such as color histograms. These methods can be useful baselines because they are cheap, inspectable, and easy to debug.`,
+        `The wall appears when the surface representation is not the meaning. "Car" and "automobile" may share no letters. "How do I reset my password?" and "I cannot sign in" may require the same answer while using different words. A picture of a red sneaker and the caption "running shoe" are not even in the same raw format. Hand-built feature lists also become brittle: every domain shift, new slang term, product category, or language variant requires manual repair.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core insight',
       paragraphs: [
-        `Storage is O(Nd): N items times d dimensions. One million 1,536-dimensional float32 vectors need about 6.1 GB before index overhead; float16 cuts that in half. Naive search is O(Nd) per query, which is fine for thousands of vectors and painful for millions. HNSW (Vector Search at Scale), IVF, product quantization, and ScaNN-style score-aware compression trade exactness for speed and memory, often returning high-recall neighbors in milliseconds. SVD & Low-Rank Approximation and related compression ideas appear when you need smaller vectors or faster indexes.`,
+        `The core insight is distributional: objects that appear in similar contexts, receive similar feedback, or match similar paired examples can be placed near each other. word2vec trained word vectors by predicting nearby words. GloVe factorized global word co-occurrence statistics. Contrastive systems such as CLIP trained an image encoder and text encoder so a real image-caption pair receives a high score while mismatched pairs are pushed apart.`,
+        `Transformer encoders add context. The token "bank" near "river" should not have exactly the same representation as "bank" near "loan." A sentence embedding model pools contextual token states into one vector for a phrase, paragraph, or document chunk. The result is not a dictionary definition. It is a coordinate system learned from training objectives, data distribution, and model architecture.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Mechanics',
       paragraphs: [
-        `Embeddings power semantic search, recommendations, duplicate detection, anomaly detection, clustering, and retrieval-augmented generation. A support bot embeds a user question, retrieves nearby policy chunks, and sends those chunks to an LLM. A music app embeds users and songs into compatible spaces. A fraud system embeds transactions and flags points far from normal clusters. CLIP-style multimodal embeddings put image and text in one space, enabling "find images like this caption."`,
-        `Vector databases such as FAISS, Milvus, Pinecone, and Weaviate are built around storing vectors plus metadata filters. The hard production problem is not "compute one cosine." It is freshness, filtering, deduplication, index rebuilds, recall measurement, and preventing semantically plausible but factually wrong neighbors from poisoning downstream answers.`,
+        `A retrieval system usually has two phases. Offline or at ingestion time, it embeds every item and stores the vector with metadata. At query time, it embeds the query in the same vector space, computes similarity to stored vectors, and returns the nearest candidates. A vector database adds filtering, batching, index maintenance, deletion handling, monitoring, and recall measurement around this basic loop.`,
+        `The metric matters. Cosine similarity compares direction after normalization, which is common for text embeddings because the angle often captures semantic match better than raw length. Dot product is common when vectors are already normalized or when magnitude carries useful confidence. Euclidean distance can work, especially in small toy spaces, but high-dimensional geometry makes raw distance less intuitive. Whatever metric is used for search should match how the model was trained or calibrated.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Worked example',
       paragraphs: [
-        `Embedding distance is not truth. It reflects the model, data, pooling method, and metric. A legal contract and a blog post can look close if they share boilerplate; two short texts can look far because one uses rare wording. Domain shift matters: a model trained on web text may embed medical abbreviations badly. Bias also matters, because social regularities in training data become geometric regularities in the space.`,
-        `Do not over-read dimensions. Individual coordinates usually lack stable human meaning. Dimensionality reduction plots such as t-SNE & UMAP: Seeing Embeddings are useful maps, not the territory. A pretty cluster in 2D can be an artifact of the projection. Always evaluate retrieval with labeled queries and failure cases.`,
+        `The animation uses a hand-built two-dimensional space so the idea is visible. Animals occupy one region, foods another, and vehicles another. If the selected query is "cat," the system measures from the cat point to every other point. "Kitten" and "dog" are nearby because their coordinates are close. "Pizza" and "bus" sit farther away because they live in different neighborhoods of the space.`,
+        `A real embedding has hundreds or thousands of dimensions, so you cannot inspect it axis by axis. The same ranking idea still applies. The model turns the query into a vector, the index finds nearby vectors, and the application interprets those neighbors as candidates for semantic match. The small picture is a map; the production version is the same geometry at much larger scale and with approximate indexes.`,
       ],
     },
     {
-      heading: `Sources and model families`,
+      heading: 'Why it works',
       paragraphs: [
-        `word2vec is the classic neural starting point: Mikolov et al. proposed efficient architectures for learning continuous word vectors from large corpora, with similarity and analogy structure emerging from the training objective: https://arxiv.org/abs/1301.3781. GloVe is the matrix/statistical counterpart: the Stanford project describes training vectors from global word-word co-occurrence statistics, and the ACL paper is the canonical reference: https://nlp.stanford.edu/projects/glove/ and https://aclanthology.org/D14-1162/.`,
-        `Modern embedding systems generalize the idea beyond single words. CLIP trains image and text encoders together by predicting matching image-caption pairs, creating a shared multimodal space: https://arxiv.org/abs/2103.00020. FAISS documents the production-search side: efficient similarity search and clustering over dense vector sets, including very large collections and GPU implementations: https://faiss.ai/index.html.`,
+        `Embeddings work when the training signal captures the relationship the application needs. In language, words and passages used in similar contexts often have related meanings. In recommendations, users who click or buy similar items often share latent preferences. In multimodal training, captions and images that appear together teach a shared space across formats. The vector is useful because many weak statistical signals are compressed into a representation that supports comparison.`,
+        `The method also works because nearest-neighbor search changes an open-ended reasoning problem into a constrained candidate-generation problem. A system does not need to understand every possible document in full at query time. It needs to retrieve a small set of plausible neighbors, then rerank, filter, cite, answer, or cluster them. This is why embeddings sit underneath semantic search, retrieval-augmented generation, duplicate detection, and recommendation pipelines.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Costs',
       paragraphs: [
-        `Start with Tokenization (BPE), then follow vectors through Neural Network Forward Pass and Gradient Descent. Attention Mechanism explains contextual embeddings. The Embedding Space, in 3D builds geometric intuition; t-SNE & UMAP: Seeing Embeddings shows how high-dimensional spaces get visualized; SVD & Low-Rank Approximation gives the matrix-compression ancestor; Sparse Autoencoder Feature Dictionary Case Study shows what changes when a learned representation is decomposed into sparse feature IDs; HNSW (Vector Search at Scale) explains graph ANN, and ScaNN Vector Search Case Study explains partitioned, quantized retrieval for real products.`,
+        `Storage is O(Nd): N items times d dimensions. One million 1,536-dimensional float32 vectors require about 6.1 GB before index overhead; float16 halves the raw vector storage. Naive exact search is O(Nd) per query, which is fine for thousands of vectors and painful for millions. Batch embedding also costs money and latency, especially when documents must be chunked, deduplicated, and re-embedded after every content change.`,
+        `Production systems use approximate nearest-neighbor indexes such as HNSW, IVF, product quantization, or ScaNN-style partitioning and compression. These trade exactness for speed and memory. The engineering question is not simply whether a neighbor exists. It is whether recall is high enough, latency is stable enough, metadata filters are honored, stale vectors are removed, and index rebuilds do not break the product during updates.`,
       ],
-    }
+    },
+    {
+      heading: 'Tradeoffs',
+      paragraphs: [
+        `Dense embeddings are powerful, but sparse lexical methods still matter. A rare product code, legal citation, error string, or exact name may be more important than broad semantic match. Hybrid search combines vector similarity with keyword scoring so exact terms do not disappear. Rerankers can then inspect the top candidates more carefully, often using a cross-encoder or language model that sees the query and candidate together.`,
+        `Chunking is another major tradeoff. Small chunks improve pinpoint retrieval but can lose context. Large chunks preserve context but may bury the relevant sentence inside unrelated text. Metadata filters help with permissions, tenant boundaries, dates, languages, and product categories, but filters also change recall. Good embedding systems are evaluated with real queries, labeled relevance, negative examples, and adversarial cases rather than only with pretty clusters.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Embeddings win when similarity is fuzzy, cross-lingual, multimodal, behavioral, or too expensive to encode by hand. A support bot can find policy chunks that answer a paraphrased question. A marketplace can recommend visually similar products. A code assistant can retrieve examples that solve the same programming task under different names. A fraud system can embed transactions and look for points that fall outside normal neighborhoods.`,
+        `They are also useful as intermediate features. Clustering can reveal topic families. Dimensionality reduction can visualize a corpus. Anomaly detection can find isolated points. Retrieval-augmented generation can ground an answer in nearby documents. In each case, the embedding is not the final decision by itself; it is a compact representation that makes the next decision cheaper and better informed.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `Embedding distance is not truth. It reflects the model, data, pooling method, task objective, and metric. A legal contract and a blog post can appear close if both contain boilerplate. Two short texts can appear far apart because one uses rare wording. Domain shift can break assumptions: a model trained mostly on general web text may mishandle medical abbreviations, internal acronyms, or fresh product names.`,
+        `Bias and leakage also become geometry. If training data contains social stereotypes, spurious correlations, or duplicated benchmark examples, the space can preserve those patterns. Dimensionality-reduction plots such as t-SNE or UMAP are useful for exploration but can invent visual separation that is not present in the original space. Treat every retrieval result as evidence to inspect, not as a proof that the neighbor is correct.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Tokenization (BPE) to understand the units that enter text models. Neural Network Forward Pass and Gradient Descent explain how representations are computed and trained. Attention Mechanism explains contextual embeddings. The Embedding Space, in 3D builds geometric intuition, while t-SNE & UMAP: Seeing Embeddings explains projection artifacts. SVD & Low-Rank Approximation gives a matrix-compression ancestor of representation learning.`,
+        `For retrieval systems, study HNSW (Vector Search at Scale), ScaNN Vector Search Case Study, and Vector Database Metadata Filtering. For model behavior, study Contrastive Learning, CLIP, Sparse Autoencoder Feature Dictionary Case Study, and Data Leakage & Contamination. Primary starting points include word2vec at https://arxiv.org/abs/1301.3781, GloVe at https://aclanthology.org/D14-1162/, CLIP at https://arxiv.org/abs/2103.00020, and FAISS at https://faiss.ai/index.html.`,
+      ],
+    },
   ]
 };

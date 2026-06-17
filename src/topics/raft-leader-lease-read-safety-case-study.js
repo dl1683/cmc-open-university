@@ -166,35 +166,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why It Exists',
       paragraphs: [
-        'A Raft leader-lease read is a fast path for linearizable reads. Instead of checking a quorum for every read, the leader relies on a recently established lease proving that no other leader can have been elected yet, then serves from local applied state.',
-        'The etcd API guarantees page distinguishes linearizable reads from serializable reads and notes the cost of linearized requests through Raft: https://etcd.io/docs/v3.5/learning/api_guarantees/. The etcd Raft package documents ReadIndex and lease-based linearizable read-only queries: https://pkg.go.dev/go.etcd.io/raft/v3.',
+        `Raft gives a replicated system a single ordered log, but reads still need care. A client asking the leader for the current value wants a linearizable answer: if a write completed before the read began, the read must reflect it.`,
+        `The simplest safe read path asks a quorum to confirm that the node is still leader, then waits until the local state machine has applied the relevant committed index. That is correct, but it puts a quorum round trip on a path that may be called thousands of times per second.`,
+        `Leader-lease reads exist to remove that round trip when the system can prove, for a bounded interval, that no newer leader can have been elected. The technique is a performance optimization around a safety proof, not a shortcut around Raft.`,
       ],
     },
     {
-      heading: 'Core mental model',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'The data structure is a proof cache. A quorum check creates proof of leadership for a time interval. The leader may reuse that proof only while clock assumptions and election timing guarantee that no newer leader can exist.',
-        'The second gate is the apply index. A leader can be legitimate and still serve stale state if its state machine has not applied the committed index needed by the read.',
+        `The obvious safe approach is ReadIndex: prove current leadership through a quorum for the read and wait for local apply. It is easy to defend because it depends on fresh communication instead of timing assumptions.`,
+        `The obvious fast approach is to read directly from the leader's memory. That is unsafe. A process can pause, lose its lease, miss an election, resume, and still believe it is the leader if the read path does not force it to check.`,
+        `The wall is time. A lease-read design must account for election timeout, heartbeat timing, clock drift, process pauses, message delay, and state-machine apply lag. If those assumptions are not explicit, the system is guessing.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The Core Insight',
       paragraphs: [
-        'A Kubernetes-style control plane has thousands of small reads. The leader renews authority through heartbeats and tracks a lease interval. Reads on the leader use the lease fast path only while the interval is valid and the apply index has caught up. Followers ask the leader for a safe read index or redirect.',
-        'If the leader experiences a long pause, loses quorum, or cannot validate timing, the system falls back to ReadIndex. Faster reads are never allowed to weaken the linearizability contract.',
+        `A leader lease is a cached proof of leadership. A recent quorum interaction establishes that the leader was recognized by enough voters at a known local time. For a carefully bounded interval after that point, the leader can infer that a different leader could not yet have been elected.`,
+        `That proof handles only leadership freshness. A safe read also needs state freshness: the local state machine must have applied at least the committed index that the read depends on. A valid leader with an old apply index can still return stale data.`,
+        `The mental model is two gates, not one. The lease gate says "this node is still allowed to answer as leader." The apply gate says "this node's local state is caught up enough to answer this read."`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Reading the Lease Trace',
       paragraphs: [
-        'Do not treat leader identity as permanent. A process can pause and resume after another leader has been elected. Do not serve lease reads without a clock-drift and election-time argument.',
-        'Do not confuse serializable stale reads with linearizable reads. Some APIs offer both because the cheaper stale path is useful when callers can tolerate older data.',
+        `Use the "lease read" view to follow the fast path. The leader first obtains quorum authority, records the lease interval, checks the clock bound, waits for the apply index, and only then serves the client. The read is fast because the quorum proof was paid for earlier, not because proof is unnecessary.`,
+        `Use the "stale leader" view as the failure case. The old leader can be alive, reachable by a client, and wrong. The important frames are the ones where quorum is lost, the lease becomes ambiguous or expired, and the system falls back to ReadIndex or blocks instead of returning local state.`,
+        `When reading the trace, separate the two questions shown in the graph: "May this node still act as leader?" and "Has this node applied the state needed by the read?" A correct implementation has to answer both yes.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How It Works',
+      paragraphs: [
+        `The conservative baseline is ReadIndex. The leader contacts a quorum, confirms it is still leader in its term, obtains or confirms a read index, and waits until its state machine has applied through that index before serving the read.`,
+        `A lease read moves the quorum check out of the individual read. The leader starts or renews a lease when it receives quorum acknowledgement under the protocol's timing rules. Until that lease expires, it may serve eligible reads locally.`,
+        `The implementation still checks the local apply index. If the read depends on commit index 120 and the state machine has applied only through 118, the leader waits. Serving from unapplied state would violate linearizability even if leadership is fresh.`,
+        `If the lease proof is missing, expired, or made suspicious by timing uncertainty, the read path falls back to ReadIndex. The fallback is part of the design; it is how the fast path preserves the same external contract as the slow path.`,
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        `Raft safety depends on there being at most one leader whose log can make progress in a term. A lease-read proof extends that idea to reads by showing that, during the lease interval, a quorum cannot have elected and accepted a newer leader.`,
+        `The proof depends on overlap. The leader's lease was established through voters that would also be needed to elect another leader. If those voters cannot legally vote for a new leader before the lease interval expires, the old leader can safely answer reads during that interval.`,
+        `The apply-index check completes the argument. The lease says the leader is still authoritative; the apply index says the local state machine includes all committed writes before the read boundary. Linearizable reads require both facts.`,
+      ],
+    },
+    {
+      heading: 'Worked Case Study',
+      paragraphs: [
+        `Consider a Kubernetes-style control plane backed by a Raft store. The API server issues many small reads for objects, leases, and coordination keys. A quorum round trip for every linearizable read would add latency and load to the hottest path.`,
+        `The leader renews authority through heartbeats and tracks a conservative lease interval. A read arriving during that interval can use the local fast path only after the state machine has applied through the read's required index. Followers redirect or ask the leader for a safe read path.`,
+        `Now add a long pause. The leader stops sending heartbeats, followers elect a replacement, and clients can still reach the old process when it wakes up. The old process must notice that its lease is expired or uncertain. If it serves from memory anyway, it can return a value older than a write already accepted by the new leader.`,
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        `The benefit is latency and load reduction. A valid lease lets the leader serve many reads without sending each one through the quorum path.`,
+        `The cost is a timing contract. The system must choose lease durations with room for clock drift, scheduling pauses, network delay, and election timing. It must also keep enough instrumentation to detect apply lag and lease uncertainty.`,
+        `Lease reads make the read path more subtle than ReadIndex. The code has to be conservative about when the lease starts, when it expires, what clock it trusts, and when it must fall back. A small off-by-one in time can become a consistency bug.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `Lease reads win in read-heavy replicated metadata systems where most reads go to the leader, writes are still ordered by Raft, and the deployment can keep tight bounds on clock drift and pauses.`,
+        `They are especially useful for control-plane databases where linearizable reads matter but the workload is dominated by small lookups. The optimization turns repeated "prove you are leader" checks into a bounded cached proof.`,
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        `They fail when timing assumptions are weak. Unbounded process pauses, bad clocks, overloaded event loops, long garbage-collection stops, or unclear election timing can make a lease proof impossible to defend.`,
+        `They also fail when teams treat serializable stale reads and linearizable reads as interchangeable. A stale read can be useful for caches and monitoring. It is not safe for decisions that require the latest committed state.`,
+        `When in doubt, use ReadIndex or another quorum-backed read path. Slower reads are cheaper than a system that sometimes answers from a dead leader.`,
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: etcd API guarantees at https://etcd.io/docs/v3.5/learning/api_guarantees/, etcd Raft package documentation at https://pkg.go.dev/go.etcd.io/raft/v3, the Raft extended paper at https://raft.github.io/raft.pdf, and TiKV lease-read implementation discussion at https://tikv.org/blog/lease-read/.',
         'Study Raft ReadIndex Case Study, Raft Leader Election, Clocks & Ordering, NTP & PTP, Fencing Token Zombie Writer, and Distributed Locks next.',

@@ -141,19 +141,19 @@ function* actionGate() {
       ],
     ),
     highlight: { active: ['unique:ask', 'visible:ask', 'stable:ask', 'events:ask', 'enabled:ask'], compare: ['events:fail'] },
-    explanation: 'Playwright auto-waits for actionability checks before actions. Agent harnesses should copy this discipline rather than sending raw mouse events into unstable UI.',
+    explanation: 'Playwright auto-waits for actionability checks before actions. Agent runtimes should copy this discipline rather than sending raw mouse events into unstable UI.',
   };
 
   yield {
     state: gateGraph('Scroll, act, observe, and record wait reasons'),
     highlight: { active: ['scroll', 'click', 'obs', 'trace', 'e-events-scroll', 'e-enabled-scroll', 'e-scroll-click', 'e-click-obs', 'e-click-trace'], compare: ['loc'] },
-    explanation: 'After checks pass, the harness can scroll the target into view, execute the action, observe the new state, and record how long each gate waited.',
+    explanation: 'After checks pass, the runner can scroll the target into view, execute the action, observe the new state, and record how long each gate waited.',
   };
 
   yield {
     state: waitPlot(),
     highlight: { active: ['ok', 'knee'], compare: ['slow'] },
-    explanation: 'More waiting can reduce flaky failures, but long waits make agents slow. The trace should show which checks consumed the budget so teams can fix the UI or adjust the harness.',
+    explanation: 'More waiting can reduce flaky failures, but long waits make agents slow. The trace should show which checks consumed the budget so teams can fix the UI or adjust the runner.',
   };
 }
 
@@ -199,7 +199,7 @@ function* flakyClick() {
   yield {
     state: flakyGraph('Trace the failure cause, not only the timeout'),
     highlight: { active: ['timeout', 'ok', 'trace', 'e-timeout-trace', 'e-ok-trace'], compare: ['retry'] },
-    explanation: 'The trace should distinguish moving, covered, detached, disabled, and navigation failures. Those buckets become harness tuning, UI fixes, and benchmark error analysis.',
+    explanation: 'The trace should distinguish moving, covered, detached, disabled, and navigation failures. Those buckets become runner tuning, UI fixes, and benchmark error analysis.',
   };
 }
 
@@ -213,51 +213,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Browser actionability is the precondition layer between an intended action and an actual browser input event. It asks whether a locator resolves to the right element and whether that element is ready to receive the action.',
-        'For computer-use agents, actionability is the difference between a repeatable action ledger and a pile of flaky clicks. The model can pick a target, but the harness should prove the target is unique, visible, stable, enabled, and not covered.',
+        'A browser action is a state transition against a moving system. The page can re-render, animate, cover a button with a banner, disable a field during validation, or replace a DOM node between the model decision and the mouse event.',
+        'Actionability exists because "the selector matched" is weaker than "the browser will deliver this action to the intended element." The runtime needs a precondition layer between intent and input.',
+        'This matters even more for browser agents than for normal tests. A test author can fix a selector by hand. An agent often chooses a target from pixels, accessibility nodes, DOM text, and prior state. The runtime should remove mechanical flake so the evaluation measures planning and perception, not whether the page happened to finish animating.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Baseline approach',
       paragraphs: [
-        'The action gate starts with a locator or candidate target. It checks uniqueness, visibility, stability, hit testing, enabled state, editability when needed, viewport position, and timeout budget. Only then does it scroll and click, type, select, drag, or press.',
-        'The result should be observed and compared to the intended state change. If the action fails, the trace should classify the cause: moving element, overlay, detached DOM node, disabled state, navigation race, or selector ambiguity.',
+        'The obvious approach is to click the selector or coordinate as soon as the agent chooses it. That works on static pages and small demos because the DOM, viewport, and overlay stack barely move.',
+        'A slightly better version adds fixed sleeps: wait 500 ms after navigation, click, then wait again. Sleeps reduce some races, but they don\'t prove that the target is visible, stable, enabled, or topmost at the action point.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'Waiting improves reliability but increases latency. Too little waiting creates flaky agents; too much waiting makes agents unusable. A production harness should record which checks consumed time and tune by route, app, and action type.',
-        'This is especially important for browser agents because the model step is already expensive. Mechanical browser waits should be precise and cheap, while the model should be reserved for decisions that actually need reasoning.',
+        'Existence is not readiness. A locator can match two buttons. A visible element can be moving. An enabled button can be covered by a cookie banner. A handle can point to a node that the framework just detached and replaced.',
+        'Blind retry makes the wall worse. If the retry uses the same stale element or same coordinate, it repeats the same failure and hides the cause behind a timeout.',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Core state model',
       paragraphs: [
-        'Playwright actionability docs list the checks it performs before actions such as locator.click: unique resolution, visibility, stability, event reception, and enabled state: https://playwright.dev/docs/actionability.',
-        'W3C WebDriver BiDi defines a bidirectional protocol for remote browser control: https://www.w3.org/TR/webdriver-bidi/. MDN describes WebDriver BiDi as event-driven communication between automation client and browser: https://developer.mozilla.org/en-US/docs/Web/WebDriver/Reference/BiDi.',
+        'The useful state is not a click; it is an action request plus a gate vector. The request stores action type, locator or target evidence, intended state change, timeout budget, and observation id. The gate vector stores unique resolution, visibility, stability, event reception, enabled state, editability when needed, viewport position, and wait reason.',
+        'The trace row should keep both the final action and the waits that made it safe. Without wait reasons, a timeout is only a symptom. With wait reasons, it becomes a bucket: ambiguous selector, hidden target, moving box, overlay, disabled control, detached node, or navigation race.',
+        'That state model also separates target selection from action delivery. A model can be wrong about which button to press, and the gate can still deliver that wrong action reliably. Or the model can choose the right semantic target, while the gate refuses because the page is not ready. Keeping those errors separate is important for improving agents.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanics',
       paragraphs: [
-        'A browser agent that clicks Reserve should not fire while a sticky cookie banner covers the button. A data-entry agent should not type into an input that has been detached and re-rendered. A test-repair agent should tell the difference between an app bug and a harness wait bug.',
-        'Actionability traces also improve UI quality. If many users or agents wait on the same disabled button, overlay, or animation, the product has a measurable interaction problem.',
+        'Resolve the locator fresh. Check that it points to exactly one candidate. Check that the candidate has a non-empty visible box, has stopped moving, receives pointer events at the action point, and is enabled. For text entry, also check editability.',
+        'When the checks pass, scroll the target into view, dispatch the action, observe the next page state, and compare it with the intended state change. When a check fails until timeout, record the failed gate instead of collapsing every cause into "click failed."',
+        'Retries should be conditional. Requery after detachment. Wait on animation frames for movement. Wait on a response, URL, or DOM predicate for navigation. Close or report an overlay instead of clicking through it. The repair should match the failed precondition.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Do not treat a coordinate click as equivalent to a semantic click. Coordinates are fragile under scrolling, responsive layout, zoom, and animation. Do not suppress actionability checks just to make a demo faster.',
-        'Do not retry without refreshing the target. Modern frontend frameworks detach and replace nodes frequently, so a stale element is not repaired by clicking harder.',
+        'The reliability argument is an invariant: no browser event is sent until the target is the only matching element and the browser would route the event to that element now. Re-resolving the locator also prevents stale DOM handles from surviving across retries.',
+        'This does not prove that the product did the right thing after the click. It proves the action was delivered to the intended UI target under explicit preconditions. The next observation and assertion handle product correctness.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Actionability adds DOM queries, layout checks, hit testing, scrolling, and at least a few animation frames for stability checks. The dominant cost is usually waiting, not computation. A 5 second timeout is cheap when it prevents a flaky checkout failure, but expensive when it fires on every step of an agent loop.',
+        'The budget should be per action class and route. A login page may need longer navigation waits. A local settings toggle should not. Production traces should show p50, p95, and p99 wait time by gate so teams can tune the runner or fix the UI.',
+      ],
+    },
+    {
+      heading: 'Production uses',
+      paragraphs: [
+        'End-to-end test runners use actionability to turn UI tests from timing games into state checks. Browser agents need the same layer because model decisions are already noisy; the runtime should remove mechanical flake before blaming the model.',
+        'The same trace improves product quality. If many actions wait on the same overlay, disabled button, or animation, the UI has a measurable interaction problem. Actionability telemetry turns "the agent is flaky" into a concrete frontend bug report.',
+      ],
+    },
+    {
+      heading: 'Concrete examples',
+      paragraphs: [
+        'A hotel agent clicks Reserve while a sticky cookie banner covers the lower viewport. A coordinate click may hit the banner. An actionability gate classifies the target as not receiving events, waits or closes the overlay, then retries from a fresh locator.',
+        'A data-entry agent types into an email input just as React replaces the form after validation. A stale handle fails. A useful retry re-queries the locator, checks editability, types once, and verifies that the value appears in the next observation.',
+        'A shopping agent presses Checkout while the page is still computing shipping rates. The button exists and is visible, but it is disabled because required data has not arrived. The correct repair is not a faster click; it is waiting on the rate-loaded condition or reporting that checkout is blocked.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Represent every action as a small record: target evidence, action type, precondition results, wait durations, dispatched input, and post-action observation. That record should survive in the trace so failures can be replayed without guessing.',
+        'Prefer semantic locators when possible, such as accessible name and role, then fall back to DOM structure or coordinates when the page gives no better target. A strong runner combines semantic target choice with physical actionability checks because users need both: the right object and a deliverable event.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Forced clicks are a diagnostic tool, not a reliability strategy. They can bypass the event-reception check and create false passes that no user could reproduce.',
+        'Fixed sleeps are also weak. They wait whether the page is ready or not, and they fail when the slow case takes longer than expected. Predicate waits age better because they wait for the condition that makes the action safe.',
+        'Disabled controls deserve special treatment. If a button is disabled because the app is still loading, wait on the data signal. If it is disabled because the user lacks permission or the form is invalid, clicking harder is wrong.',
+        'The most subtle failure is measuring only final success. A run can pass after ten seconds of hidden waiting and still be unusable for an agent benchmark or a real product workflow. Treat long wait budgets as debt: they may hide frontend instability, weak locators, or missing page-state signals.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Playwright actionability at https://playwright.dev/docs/actionability, Playwright trace viewer at https://playwright.dev/docs/trace-viewer, WebDriver BiDi at https://www.w3.org/TR/webdriver-bidi/, and MDN WebDriver BiDi reference at https://developer.mozilla.org/en-US/docs/Web/WebDriver/Reference/BiDi. Study Accessibility Tree Action Target Case Study, DOM Event Propagation & Path, Browser Rendering, requestAnimationFrame Frame Budget, and Web Agent Evaluation Trace Ledger Case Study next.',
+        'Playwright documents actionability checks for actions such as locator.click: unique resolution, visible, stable, receiving events, and enabled: https://playwright.dev/docs/actionability. Its trace viewer shows action snapshots, logs, locators, and timing after a run: https://playwright.dev/docs/trace-viewer. WebDriver BiDi defines asynchronous browser automation commands that can finish out of order, which is another reason trace ids and wait reasons matter: https://www.w3.org/TR/webdriver-bidi/.',
+        'Study Accessibility Tree Action Target Case Study for semantic targets, DOM Event Propagation & Path for event delivery, Browser Rendering for layout and paint timing, requestAnimationFrame Frame Budget for stability checks, and Web Agent Evaluation Trace Ledger Case Study for benchmark-level replay.',
       ],
     },
   ],

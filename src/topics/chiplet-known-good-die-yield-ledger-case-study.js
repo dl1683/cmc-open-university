@@ -203,43 +203,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Known-good-die discipline is the manufacturing side of chiplet architecture. Before several dies are assembled into one expensive package, each die should carry evidence that it passed the right electrical, speed, voltage, thermal, memory, and link-margin checks. The package planner then builds a compatible kit instead of hoping every part works after assembly.',
-        'The IEEE IRDS Packaging Integration white paper describes chiplet integration as assembling known good dies or chiplets onto high-density substrates: https://irds.ieee.org/images/files/pdf/2020/2020IRDS_PI.pdf. TSMC describes CoWoS as wafer-level system integration for AI and supercomputing with logic chiplets and HBM cubes on a silicon interposer: https://3dfabric.tsmc.com/english/dedicatedFoundry/technology/cowos.htm.',
+        `Known-good-die discipline exists because a multi-die package multiplies risk before it multiplies value. A package can contain logic chiplets, I/O dies, HBM stacks, bumps, package routes, and thermal interfaces. If one component is weak, the finished package may fail even though every other component was expensive and good.`,
+        `A monolithic die has a simpler failure boundary: test the die, package it, test the package, then bin the result. A chiplet product has more combinations. A bad die can waste good companion dies. A weak bond can ruin a kit made from good dies. A marginal link can pass a cheap test and fail under heat or workload stress.`,
+        `The goal is to move evidence upstream. Before assembly, each die should carry a structured record: lot, wafer position, test conditions, speed bin, voltage curve, thermal behavior, memory repair state, link margin, and traceability. The package planner uses those records to build a compatible kit instead of treating assembly as a guess followed by one final exam.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The pipeline is wafer sort, known-good-die classification, binning, assembly, package screen, SKU assignment, and field feedback. Each die receives a record: lot, wafer position, test conditions, speed bin, voltage curve, thermal behavior, link margin, memory repair status, and quality flags. Assembly consumes those records to create a package kit that matches the product target.',
-        'Yield is multiplicative. A package with one logic die, several HBM stacks, an I/O die, and an interposer can fail because any one component was bad or because assembly introduced a new defect. That is why upstream screening and final package tests are both necessary.',
+        `The reasonable first attempt is to test the finished package and let final screen decide. This is not foolish. The final package is the product the customer will receive, and it includes every die, connection, thermal path, and power-delivery condition. Some failures only appear after assembly, so final test is mandatory.`,
+        `The wall is that final-package test is too late for many decisions. If an HBM stack, logic die, or I/O chiplet was already bad before assembly, final test discovers the truth after the product has consumed substrate area, assembly time, other good dies, and tester capacity. The cost of one bad component has been amplified into the cost of a bad package.`,
+        `A second naive approach is to reduce known-good die to one pass/fail bit. That also fails. A die can be good for a lower-voltage SKU and bad for a high-frequency SKU. It can have enough memory repair for one product tier and not another. It can pass functional tests while carrying weak link margin that only matters in a package topology with long routes or high temperature. Known-good die is a certificate, not a boolean.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'KGD testing costs money, takes time, and requires expensive probe and stress infrastructure. Skipping it can be worse: a bad die found after assembly wastes good companion dies, substrate capacity, HBM stacks, test time, and packaging allocation. The ledger turns that tradeoff into a visible economics problem.',
-        'The local Eliyan/chiplet corpus framed interposer and package supply as a bottleneck for AI accelerators. That makes yield discipline strategic. If advanced packaging capacity is scarce, every preventable assembly loss is not just a cost item; it is lost accelerator supply.',
+        `The wall is multiplicative yield. If a package needs several components and each component or assembly step has a chance of failure, the probability of a good final package is the product of those probabilities. Even high individual yields can combine into a painful final yield when many chiplets, stacks, and process steps are involved. Weak screening makes the product curve fall faster as chiplet count rises.`,
+        `There is also an information wall. Without traceability, a failed package is hard to explain. Was the loss caused by a specific wafer lot, a probe escape, an assembly process window, a bad HBM stack, link-margin drift, thermal stress, or a substrate defect? If the ledger does not preserve enough evidence, yield learning turns into guessing.`,
+        `The economic wall is opportunity cost. Advanced package assembly and test capacity can be scarce. A bad kit does not merely lose material; it occupies a slot that could have produced a sellable accelerator. Yield ledgers connect engineering risk to cost of goods and supply commitments.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'The core insight',
       paragraphs: [
-        'Known-good-die workflows are central to heterogeneous AI packages, CPUs with multiple chiplets, 2.5D interposer designs, 3D stacks, HBM assemblies, and automotive or defense packages that need stronger reliability screens. The same ledger logic also applies to repairable memory stacks and spare-lane interconnects.',
-        'This module complements Chiplet Link Budget & Repair Lane Case Study. Link-budget telemetry says whether the physical connection is healthy. The KGD ledger says whether the dies were good enough to assemble in the first place and which final SKU they can support.',
+        `The core insight is to treat manufacturing evidence as a data structure that flows with the die. A die is not just an object in a tray. It is an object plus a ledger: identity, origin, measured behavior, limits, repair state, and permitted uses. Assembly consumes those records to form a package kit whose combined margins match a target product.`,
+        `The invariant is multiplicative yield with traceability. Every package outcome should be explainable as the combination of component records and process records. If a package passes, the ledger should support SKU assignment and warranty confidence. If it fails, the ledger should help localize the loss to incoming die quality, assembly, package routing, thermal behavior, or test escape.`,
+        `This changes the role of testing. Wafer sort is not only a gate that rejects bad dies. It is also a classifier that creates bins. Package screen validates that the chosen kit, assembly process, and operating envelope work together. Field returns feed future screening and binning thresholds.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the system works',
       paragraphs: [
-        'The first misconception is that KGD is a single pass/fail bit. In serious packages, the certificate must include operating corners, stress conditions, bin grades, and traceability. The second misconception is that small chiplets automatically improve yield. Smaller dies can help silicon yield, but assembly, substrate, interconnect, HBM, and test escapes still determine final package economics.',
+        `The pipeline begins at wafer sort. Probe tests measure functionality and parametric behavior before the wafer is diced. Dies that fail are marked out. Dies that pass are classified into bins: frequency, voltage, leakage, thermal behavior, memory repair, link margin, redundancy use, and sometimes workload-specific stress behavior. The result is a set of candidates, not a pile of identical parts.`,
+        `Planning then builds a package kit. A high-end SKU may require fast logic dies, strong link margin, healthy memory repair, and compatible thermal curves. A lower-tier SKU may accept weaker frequency, disabled lanes, or reduced memory capacity. The planner is solving a matching problem: combine dies so the package has enough margin without wasting top-bin parts.`,
+        `Assembly creates new risks. Microbumps can open or short. Warpage can change contact quality. Interposer or substrate routes can be defective. Thermal interface quality can vary. Dies that were individually good can interact badly in the package. Final screen exists because KGD reduces risk; it does not eliminate package-level failure.`,
+        `The ledger updates after every stage. A failed screen records loss type and suspected cause. A passing screen records SKU, margins, disabled resources, and test conditions. Field data connects failures back to lots, bins, assembly windows, or stress patterns.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Sources: IEEE IRDS Packaging Integration at https://irds.ieee.org/images/files/pdf/2020/2020IRDS_PI.pdf, TSMC CoWoS at https://3dfabric.tsmc.com/english/dedicatedFoundry/technology/cowos.htm, and TSMC 3DFabric for HPC at https://www.tsmc.com/english/dedicatedFoundry/technology/platform_HPC_tech_WLSI. Study Chiplet Interconnect Case Study, Chiplet Link Budget & Repair Lane Case Study, UCIe Flit/Credit/Retry, and HBM Pseudo-Channel Scheduler next.',
+        `The yield-pipeline view proves that where a failure is discovered changes its cost. A die rejected at wafer sort costs probe time and one die. A weak die discovered after assembly can cost the companion dies, package substrate, assembly process, final test time, and an allocation slot. A weak die that escapes into shipment also costs warranty, reputation, and fleet debugging.`,
+        `The bin-ledger view proves that the record is the real data structure. Speed, voltage, temperature behavior, link margin, memory repair, and traceability are not decoration. They decide which dies are compatible, which SKU can be sold, and which failures can be learned from. The plotted curve shows the yield lesson: as chiplet count rises, upstream screening has more influence because each unchecked component becomes another multiplier in the final package probability.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `Known-good-die discipline works because it reduces uncertainty before irreversible cost is added. Wafer sort removes obvious bad dies. Binning separates strong dies from weaker but still useful dies. Assembly planning avoids incompatible combinations. Package screen catches failures introduced by integration. Each stage narrows the remaining risk while preserving evidence about what was tested and under which conditions.`,
+        `The correctness argument is a conservation argument. The system should never lose identity or test context as material moves from wafer to die to kit to package to SKU. If a die has a weak lane, that fact must be repaired, matched to a product tier that tolerates it, or rejected. Without record continuity, the flow cannot distinguish a real process problem from random noise.`,
+        `This is also why KGD is not just quality control. It is scheduling and inventory control. A pool of known bins lets planners reserve high-margin dies for high-value packages, route weaker dies into lower SKUs, and avoid building kits that are unlikely to pass. Good evidence makes the factory less random.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `Testing costs time, equipment, engineering effort, and sometimes yield. Probe time is finite. Burn-in and stress screens can be expensive. More tests can catch more failures, but they can also slow the line, create false rejects, and consume capacity that might be better spent on higher-risk products. The right screen is an economic choice, not a moral choice to test everything forever.`,
+        `The data cost matters too. A serious ledger must store die identity, bins, measurements, conditions, assembly relationships, package outcomes, and field feedback. It must be queryable by lot, wafer position, package kit, SKU, failure type, and test condition. If data is inconsistent or trapped in separate systems, engineers cannot close the loop.`,
+        `When chiplet count doubles, unchecked escape risk compounds. Stronger KGD screening can flatten the loss curve, but it cannot make assembly yield free. The product still pays for package defects, handling damage, thermal interaction, weak routes, and final-screen coverage gaps. KGD moves risk earlier and makes it measurable; it does not repeal probability.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `KGD workflows win in products where package value is high and component count is large: heterogeneous AI accelerators, multi-chiplet CPUs, 2.5D interposer packages, HBM-based systems, 3D stacks, and reliability-sensitive automotive, aerospace, industrial, or defense electronics. The more expensive the package and the scarcer the assembly capacity, the more valuable early evidence becomes.`,
+        `They also win when binning creates product flexibility. A die that cannot meet the top SKU may still be valuable in a lower tier. A package with one disabled link or reduced memory capacity may be sellable. The ledger converts variation into controlled SKU planning instead of treating all non-perfect parts as identical scrap.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Known-good-die systems fail when tests do not match real stress. A die can pass at probe temperature and fail after assembly heat. A link can pass a short pattern and fail under long high-traffic workloads. A memory repair scheme can look sufficient until a product tier needs more capacity. Testing only cheap corners creates escape risk; testing every possible corner is usually too expensive.`,
+        `The ledger also fails when it is too shallow. A single pass/fail flag cannot support compatibility planning, root-cause analysis, field-return correlation, or SKU recovery. Another failure is overconfidence: incoming dies can all be good and the package can still fail because assembly introduced defects or because the system-level interaction was not covered by component tests.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Chiplet Interconnect next because link margin, repair lanes, and package topology are major entries in the yield ledger. Study Chiplet Link Budget and Repair Lane to see how physical link evidence becomes a binning decision. Study reliability engineering, burn-in, statistical process control, and supply-chain traceability to understand how manufacturing evidence becomes an operational system.`,
+        `Sources: IEEE IRDS Packaging Integration at https://irds.ieee.org/images/files/pdf/2020/2020IRDS_PI.pdf, TSMC CoWoS at https://3dfabric.tsmc.com/english/dedicatedFoundry/technology/cowos.htm, and TSMC 3DFabric for HPC at https://www.tsmc.com/english/dedicatedFoundry/technology/platform_HPC_tech_WLSI.`,
       ],
     },
   ],

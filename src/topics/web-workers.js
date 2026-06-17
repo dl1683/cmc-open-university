@@ -146,48 +146,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why Web Workers exist`,
       paragraphs: [
-        `Web Workers: A Second Thread is the browser's escape hatch when The Event Loop has too much CPU work on the main thread. The visualization starts with a 50 MB CSV parse that takes 800 ms. On the main thread, that blocks clicks and misses about 48 render deadlines at 60 fps. In a worker, the computation runs on a separate JavaScript thread, so How a Browser Paints a Page can keep rendering while the parse continues elsewhere.`,
-        `Workers are isolated by design. They have their own call stack, event loop, and memory heap. They cannot touch the DOM, window, or variables from the page. Communication happens through postMessage, and the result returns to the main thread as an ordinary task in a Queue, preserving UI ownership cleanly throughout.`,
+        `The browser main thread owns the user experience. It runs JavaScript tasks, handles input events, updates the DOM, calculates style and layout, and gives the rendering engine chances to paint. At 60 frames per second, a frame budget is about 16.7 ms. A single 800 ms CSV parse is not merely a slow function. It is almost a full second during which clicks wait, animations freeze, timers slip, and dozens of paint opportunities are missed.`,
+        `Web Workers exist because some JavaScript work is real CPU work. Parsing, compression, syntax analysis, image processing, geometry, search indexing, cryptography, WebAssembly, and in-browser model inference can all take longer than a frame. The browser needs a way to run that work without letting it monopolize the thread that owns the DOM. A worker is that escape hatch: another JavaScript execution context with its own event loop and no direct access to the page.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The obvious approach and the wall`,
       paragraphs: [
-        `Create one with new Worker("parse.js"). The page sends data with postMessage. The worker receives it in onmessage, parses, compresses, filters, or runs inference, then posts a result back. That reply is not a magical direct DOM update. It waits in the main task queue until the page can handle it, and only the main thread updates the interface. This is why the demo's parsed rows still appear through an onmessage handler on the page side.`,
-        `The second view shows the postage. By default, postMessage uses the structured-clone algorithm, which deep-copies supported values. The demo prices this at about 5 ms per MB, so copying 50 MB can cost around 250 ms on the sending thread. Transferable ArrayBuffers avoid that copy by moving ownership. SharedArrayBuffer allows true shared memory, but requires cross-origin isolation headers and careful Atomics use.`,
+        `The common mistake is to reach for async and await. That helps when the program is waiting for I/O. A fetch can yield while the network responds. A timer can yield until its deadline. A promise callback can be scheduled later. None of that makes a long calculation stop consuming the current JavaScript task. Once a task begins running on the main thread, it runs until it returns.`,
+        `Breaking a calculation into tiny chunks can help if the work is divisible and latency is acceptable. The program can parse a few thousand rows, yield to the event loop, then continue. That is cooperative scheduling, and it is sometimes the right answer. But it still spends main-thread time and adds complexity to every algorithm. Workers solve a different problem: put the long calculation on another executor so the main thread remains primarily a UI thread.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core insight and mechanism`,
       paragraphs: [
-        `A worker does not make an O(n squared) algorithm become O(n); it moves work off the UI thread and may run in parallel if a core is available. Startup and memory are nonzero, and message cost scales with payload size. Workers win when computation dwarfs communication: tens or hundreds of milliseconds of CPU, chunky data, and few messages. They lose when the task is tiny, chatty, or DOM-bound. The practical design move is batching: send one large job, transfer large buffers when ownership can move, and report progress at human-visible intervals instead of per record.`,
+        `A dedicated worker is created with new Worker("worker.js") or with a module worker. The worker runs in a separate global scope, has its own call stack, task queue, event loop, and heap, and communicates with the page through postMessage and message events. The main thread sends input. The worker computes. The worker posts a result. The main thread receives that result as a normal task and updates the DOM if needed.`,
+        `The separation is deliberate. A worker can use many web APIs, including fetch, timers, WebSocket in many environments, IndexedDB, crypto APIs, and WebAssembly. It cannot directly read or mutate the DOM, call document.querySelector, or touch arbitrary variables from the page. That restriction is what keeps the browser from needing locks around every DOM node. The price of safety is that all useful interaction between page and worker must cross a message boundary.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `The message boundary`,
       paragraphs: [
-        `Spreadsheets, browser IDEs, design tools, and map apps use workers to keep interaction smooth while formulas, syntax analysis, geometry, or tiles are computed. OffscreenCanvas Worker Renderer shows the graphics version: the main thread keeps input and DOM ownership while a worker owns canvas pixels. Tokenization (BPE) and Attention Mechanism are examples of ML-adjacent work that can be pushed into a worker for in-browser demos. Service Workers & Offline-First are related but different: they intercept fetches and cache responses, while web workers are usually hired for computation.`,
+        `postMessage is not a normal function call. It queues a message for another event loop. The sender continues after posting, and the receiver handles the message later. That means every worker API should be designed like a small protocol: request id, operation name, payload, progress events, success result, error result, cancellation, and sometimes backpressure.`,
+        `The default payload mechanism is the structured-clone algorithm. It can copy many JavaScript values, including objects, arrays, maps, sets, dates, ArrayBuffers, typed arrays, and cyclic structures. It does not copy functions, DOM nodes, accessors, prototypes in the way many developers expect, or live object identity across the boundary. Structured clone is convenient, but it is still a copy. Large payloads can block the sending side long enough to defeat the purpose of using a worker.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Clone, transfer, share`,
       paragraphs: [
-        `Do not pass DOM nodes, functions, or event listeners; structured clone cannot carry them. Do not post a message every frame unless the payload is tiny and measured. Do not assume worker order is free from race bugs just because the DOM is protected. Once multiple executors coordinate, you are in the same design family as Message Queues and consensus protocols: isolation helps, but messages still need protocol discipline.`,
+        `There are three main ways to move data. Structured clone copies the value. That is simplest and safest for small control messages, settings objects, and compact results. Transferable objects move ownership instead of copying. ArrayBuffer, MessagePort, ImageBitmap, OffscreenCanvas, and some other objects can be transferred. After an ArrayBuffer is transferred, the sender's buffer is detached; the bytes now belong to the receiver. That is usually the right path for large one-way data flow.`,
+        `SharedArrayBuffer is the third option. It lets two threads observe the same memory at the same time. That is powerful and dangerous. Once memory is truly shared, the program needs Atomics, ordering discipline, and a clear synchronization protocol. Browsers also require cross-origin isolation headers for SharedArrayBuffer because of side-channel security concerns. Use it when the application really needs shared memory, not merely because copying feels inelegant.`,
       ],
     },
     {
-      heading: `Sources and platform details`,
+      heading: `Worked example`,
       paragraphs: [
-        `Official sources: MDN Using Web Workers explains the worker execution model and message passing: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers. MDN Transferable Objects documents ownership transfer for ArrayBuffer-style resources: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects. MDN Structured Clone explains what postMessage can and cannot copy: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm.`,
-        `Shared memory needs extra care. MDN SharedArrayBuffer documents cross-origin isolation requirements, Atomics, and WebAssembly.Memory sharing behavior: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer. The HTML structured-data section is the lower-level standard reference for structuredClone and transfer lists: https://html.spec.whatwg.org/multipage/structured-data.html.`,
+        `A spreadsheet imports a 50 MB CSV. On the main thread, parsing blocks input and paint. With a worker, the page reads the file as bytes, transfers the ArrayBuffer to parse-worker.js, and immediately returns control to the event loop. The worker tokenizes rows, validates fields, builds typed intermediate structures, and posts compact batches back to the page. The main thread receives each batch and updates visible rows during normal rendering opportunities.`,
+        `The same example shows the main design trap. If the page first turns the file into millions of JavaScript row objects and structured-clones that object graph into the worker, the sender pays a large copy cost on the main thread. If the worker posts one progress message per row, message overhead can swamp the parse itself. A better protocol transfers raw bytes, parses off-thread, sends progress at human-visible intervals such as every 50 or 100 ms, returns compact batches, and supports cancellation if the user closes the file.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `The key invariant is ownership separation. The main thread owns the DOM and visual responsiveness. The worker owns private computation state. The only ordinary connection is a message. Queue isolation is the proof idea: an 800 ms parse can occupy the worker queue while the main queue continues to receive input and rendering tasks. When the worker replies, the reply waits its turn on the main queue like any other task.`,
+        `This is also why workers do not automatically make a program faster. They protect responsiveness and may use another CPU core, but they do not improve algorithmic complexity. O(n squared) work remains O(n squared). If the application spends more time cloning, transferring, synchronizing, or merging results than it saves by moving compute, the worker is the wrong boundary or the protocol is too chatty.`,
+      ],
+    },
+    {
+      heading: `Decision guide`,
+      paragraphs: [
+        `Use a worker when the computation is CPU-heavy, can run without touching the DOM, has a clear input and output, and does enough work to outweigh startup and messaging costs. Parsing a large file, compressing a payload, resizing an image, running a search index, compiling a document, or invoking a WebAssembly module is usually a good candidate. UI event handlers, layout reads, small formatting functions, and DOM-bound operations are not.`,
+        `The postMessage tax should shape the design. Clone small objects. Transfer large buffers. Batch frequent updates. Keep messages coarse enough that the queue does not become the bottleneck. Prefer immutable request and response payloads unless SharedArrayBuffer is truly needed. If the worker must stream results, design a backpressure signal so the worker does not produce faster than the main thread can render or store.`,
+      ],
+    },
+    {
+      heading: `Worker families`,
+      paragraphs: [
+        `Dedicated workers are owned by one page or script and are the usual choice for offloading computation. Shared workers can be reached by multiple browsing contexts from the same origin, which makes them useful for shared coordination but less common. Service workers are different: they sit between pages and the network, receive lifecycle events, and power offline-first behavior, caching, push, and background sync. Worklets are smaller specialized execution contexts for audio, animation, layout, or paint hooks.`,
+        `OffscreenCanvas is an important worker-adjacent feature. It can transfer canvas rendering work away from the main thread, which matters for design tools, maps, games, and data visualization. OPFS synchronous access handles are another worker-only pattern: the browser permits synchronous file-like operations there because the blocking happens off the main thread. These APIs share the same lesson: isolate expensive work, then make the boundary explicit.`,
+      ],
+    },
+    {
+      heading: `Operational guidance`,
+      paragraphs: [
+        `Treat a worker as a service inside the browser. Define a message schema. Include request ids so out-of-order replies do not corrupt state. Represent errors as structured responses. Support cancellation with AbortController, a cancel message, or a shared cancellation flag. Decide what happens if the worker crashes or is terminated. Limit concurrent jobs so a page does not create a local denial of service by starting too many CPU-bound workers.`,
+        `Measure on real devices. A desktop with many cores can hide worker overhead; a low-end mobile device may struggle with memory, startup, and thermal limits. Measure main-thread blocking time, input delay, task duration, worker CPU time, message size, clone time, transfer count, and dropped frames. The goal is not to move every expensive-looking function. The goal is to protect the interaction budget with the simplest boundary that works.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `The common failure is sending too much data. A worker that receives a giant cloned object graph can freeze the page before the worker even starts useful work. Another failure is chatty progress: one message per row, pixel, or token can create more overhead than computation. A third failure is pretending workers remove concurrency concerns. They remove shared DOM races, but they introduce protocol races: duplicate requests, late replies, cancellation after completion, stale results, and errors that arrive after the UI has moved on.`,
+        `Shared memory raises the difficulty further. With SharedArrayBuffer, both sides can read and write the same bytes, so the program must reason about ordering, atomic updates, waiting, notification, and deadlock. Use ring buffers, single-producer/single-consumer rules, or well-tested synchronization patterns rather than ad hoc flags. If the application does not need shared memory, transfer ownership instead.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study The Event Loop first, then How a Browser Paints a Page to see why the main thread is precious. Structured Clone & Transferables explains the postMessage copy and ownership rules behind this page. OffscreenCanvas Worker Renderer shows how transferable ownership moves canvas rendering to a worker, and requestAnimationFrame Frame Budget explains the frame loop that renderer should respect. OPFS Origin Private File System shows why synchronous file access is pushed into dedicated workers. requestIdleCallback Idle Deadline Queue shows the opposite choice: keep optional background work on the main thread only when there is spare time. SharedArrayBuffer & Atomics shows the shared-memory alternative when transfer is not enough. Browser Message Channels & Broadcast Coordination covers MessagePort reply pipes and same-origin fanout. CSV Parser State Machine Case Study shows the concrete parser behind the 50 MB CSV example. Work-Stealing Deque Scheduler shows how multi-worker runtimes spread CPU tasks once one worker is not enough. Service Workers & Offline-First explains the worker-like proxy used for networking. Message Queues and Distributed Tracing show the same messaging and observability problems once the boundary is between services instead of browser threads.`,
+        `Official sources: MDN Using Web Workers at https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers, MDN Transferable Objects at https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects, MDN Structured Clone at https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm, MDN SharedArrayBuffer at https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer, and the HTML structured-data section at https://html.spec.whatwg.org/multipage/structured-data.html.`,
+        `Study The Event Loop first, then How a Browser Paints a Page and requestAnimationFrame Frame Budget to understand why main-thread time is scarce. Continue with Structured Clone & Transferables, OffscreenCanvas Worker Renderer, OPFS Origin Private File System, SharedArrayBuffer & Atomics, Browser Message Channels & Broadcast Coordination, CSV Parser State Machine Case Study, WebAssembly Linear Memory Case Study, Work-Stealing Deque Scheduler, Message Queue, Backpressure, and Distributed Tracing.`,
       ],
     },
   ],

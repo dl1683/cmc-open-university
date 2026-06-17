@@ -242,43 +242,111 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A persistent vector is an immutable indexed sequence implemented as a shallow wide trie. Instead of copying a whole array when one element changes, it path-copies the root-to-leaf route and shares every untouched node with the old version. The result feels array-like for lookup and update while supporting cheap snapshots.',
-        'An RRB tree, short for Relaxed Radix Balanced tree, extends that idea. Ordinary persistent vectors are good at lookup, append, and update, but concatenating or splitting large vectors is awkward. RRB nodes carry size tables that allow uneven child sizes while still routing indexes correctly. That relaxation makes concat, split, and insert-at practical.',
+        `RRB trees exist because immutable programs still want array-like sequences. Editors want undo history. Compilers want old intermediate representations to remain available while later passes create new ones. UI systems want previous state for comparison. Concurrent readers want a stable version while writers build the next version. A flat mutable array is fast, but it cannot give those old versions without copying itself.`,
+        `A persistent vector gives a better shape: every edit returns a new vector while most old nodes are shared. The user gets a sequence that feels close to an array for indexing and appending, but old roots still name old versions. That is the same broad reason persistent maps, tries, and segment trees exist: preserve past values without cloning the whole structure on every change.`,
+        `RRB trees refine persistent vectors for a harder set of operations. Ordinary persistent vectors are strong at lookup, append near the end, and point update. They are awkward at concatenating two large vectors, splitting a vector, and inserting near the middle. RRB means relaxed radix balanced. The relaxed part allows uneven child sizes, and the balancing part keeps those uneven nodes from turning into a slow mess.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and its wall',
       paragraphs: [
-        'The base vector trie uses a high branching factor, often 32. An index is split into fixed-size bit chunks. The top chunk chooses a child from the root, the next chunk chooses a child below that, and the low chunk chooses a slot in a leaf array. Because the branching factor is wide, the tree has very small height for ordinary collection sizes.',
-        'Updates copy only the nodes along the chosen path. The old root still points to the old path. The new root points to copied nodes where values changed and shared nodes everywhere else. RRB trees add relaxed internal nodes whose children may contain different numbers of elements. A cumulative size table maps an index to the correct child.',
+        `The obvious baseline is a flat array. It has excellent locality, tiny per-element overhead, and direct indexing. If the array is private and mutable, updating slot i is exactly what the machine wants: compute an address and write the value. For tight numeric loops and temporary buffers, that is hard to beat.`,
+        `The wall appears when old versions must remain valid. If version A and version B both point at the same flat array, mutating the array changes both versions. Copying the whole array fixes correctness but makes each point update O(n). A program that wants many snapshots pays for full copies even when only one element changes.`,
+        `A linked list shares structure cheaply. To add a new head, allocate one node and point it at the old list. Old versions are safe. But random access is now O(n), and sequence workloads often need indexing. A plain persistent vector trie solves point updates and indexing by copying a shallow path. The next wall is concat and split. Rigid vector tries assume child sizes are predictable from depth, so joining two uneven vectors can force too much restructuring.`,
+        `RRB trees target that exact wall. They keep the shallow trie shape for indexing, then store enough size information to route through uneven nodes after concat, split, or middle edits.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'Lookup and update cost O(log32 n), which is logarithmic but shallow enough to behave close to constant for many practical sizes. A point update allocates O(log32 n) new nodes. Iteration is linear and can be cache-friendlier than linked lists because leaves are arrays. RRB concat and split aim for O(log n), avoiding the linear suffix copying that plain persistent vectors can suffer.',
+        `The first insight is path copying in a wide tree. Store elements in leaf arrays. Point to those leaves through internal nodes with a high branching factor, commonly 32. A lookup splits the index into chunks and uses one chunk per level. A point update copies the leaf and each internal node on the path to that leaf. Everything outside that path is shared with the old root.`,
+        `The RRB insight is relaxation. In a regular vector trie, the number of elements under a child can be inferred from its depth and position, except near the far right edge. That rigid shape helps indexing but hurts concatenation. An RRB node may have children that cover uneven numbers of elements. To make lookup still work, the node stores cumulative size entries.`,
+        `The invariant has two parts. First, every published node is immutable, so any root that existed before an edit still describes the same sequence. Second, every relaxed size table accurately reports the number of elements covered up through each child. If child sizes are [12, 19, 24], the table might store [12, 31, 55]. That table partitions the node's index range.`,
+        `Balanced matters too. Relaxation cannot be unlimited. Implementations keep nodes within bounded occupancy rules and rebalance near operation boundaries. That keeps height logarithmic and prevents a series of concatenations from building a lopsided tree.`,
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Clojure popularized persistent vectors as everyday sequence values. The structure gives functional programs immutable state without full copies on each change. Clojure transients add a controlled mutable phase for efficient batch construction, then return to persistent values. RRB vectors were studied as an extension for general-purpose immutable sequences where concatenation and slicing matter. Finger Tree Measured Sequence solves a neighboring problem with fast ends and measured split/search.',
-        'A systems-language case study is Immer, which explored RRB-vector ideas for efficient immutable vectors in C++. The broader lesson is not language-specific: editors, compilers, UI state stores, and concurrent readers benefit when old versions remain available while new versions share almost all memory.',
+        `The wide-trie view teaches why indexing stays fast. The index becomes fixed-size chunks, such as 5-bit chunks when the branching factor is 32. Each chunk selects a child array slot. A million-element vector can still be only a few levels deep, so lookup is a handful of array reads rather than a long pointer walk.`,
+        `The path-copy frame teaches persistence. The old root remains alive. The new root points to a newly copied path, and all untouched branches remain shared. The cost of one edit is proportional to tree height, not sequence length. The picture should make it clear that persistence is not magic copying; it is disciplined sharing under immutable nodes.`,
+        `The relaxed-concat view teaches what RRB adds. In a perfectly regular trie, child size can be computed from the level. After concat or split, that assumption breaks. The size table becomes the routing guide. It tells lookup which child owns a given index even when children hold uneven amounts of data.`,
+        `The rebalance node in the visual model is also important. RRB concat is not just gluing two roots under a parent forever. It reuses large subtrees, repairs a bounded boundary region, and records sizes so future lookups remain reliable.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'Persistent does not mean written to disk. It means previous versions remain accessible after updates. Another misconception is that immutable vectors are free arrays. They have extra indirection, node headers, and path-copy allocation. Flat arrays still win for tight numeric loops and small local buffers. Persistent vectors win when versioning, undo, sharing, and safe concurrent reads are worth that overhead.',
-        'RRB trees are also more complex than plain persistent vectors. Size tables, relaxed balancing, transient construction, and concat rebalancing are implementation-heavy. Use them when split and concat are central operations, not merely because immutability sounds attractive.',
+        `A regular persistent vector is usually a wide trie plus a tail buffer. The tail holds recent append values in a flat array. When the tail fills, it is promoted into the tree. This keeps appends fast in the common case while preserving the immutable root structure.`,
+        `Lookup starts at the root. If the structure is regular, the implementation uses bit shifts and masks to choose the child at each level. With branching factor 32, five bits select one of 32 children. At the leaf, the low bits choose the element inside the leaf array. The height grows slowly because each level multiplies capacity by 32.`,
+        `Point update follows the same route as lookup, but it copies nodes on the way back out. The old root still points to old nodes. The new root points to copied internal nodes and a copied leaf with the changed value. Untouched leaves and internal nodes are shared.`,
+        `An RRB node adds a size table when children are not uniform. To find index 40 in a node with cumulative sizes [12, 31, 55, 64], choose the first entry greater than 40, which is 55. That selects child 2. The local index inside that child is 40 - 31 = 9. The lookup then descends with index 9.`,
+        `Concat works by joining two vectors without copying all elements. The implementation descends near the right edge of the left vector and the left edge of the right vector, gathers a small boundary set of nodes, redistributes children enough to satisfy occupancy rules, computes fresh size tables, and builds a new root. Most of both input vectors are reused unchanged.`,
+        `Split is the mirror image. It follows the split index down the tree, copies the boundary path, and shares whole subtrees on either side. The result is two persistent vectors that share untouched nodes with the original where safe.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Correctness',
       paragraphs: [
-        'Primary sources: Bagwell and Rompf, RRB-Trees: Efficient Immutable Vectors at https://infoscience.epfl.ch/bitstreams/e5d662ea-1e8d-4dda-b917-8cbb8bb40bf9/download, Clojure data structure reference at https://clojure.org/reference/data_structures, Clojure transients reference at https://clojure.org/reference/transients, Clojure core.rrb-vector notes at https://github.com/clojure/core.rrb-vector/blob/master/doc/rrb-tree-notes.md, and Persistence for the Masses: RRB-Vectors in a Systems Language at https://public.sinusoid.es/misc/immer/immer-icfp17.pdf. Study HAMT, Persistent Segment Tree, Finger Tree Measured Sequence, Text Rope Data Structure, Piece Table Text Buffer, and Git Internals next.',
+        `Structural sharing is correct because published nodes are immutable. If a reader has an old root, no operation mutates the nodes that root can reach. A writer allocates new nodes for the changed path and then publishes a new root. The two versions may share most of their structure, but neither version can observe a half-applied edit.`,
+        `Regular lookup is correct because each index chunk selects the unique child range that contains the target element. The tree shape encodes a radix decomposition of the index. At each level, the chosen child narrows the range until the leaf slot is reached.`,
+        `Relaxed lookup is correct when size tables match subtree sizes. A cumulative size table partitions a node's element range into consecutive child ranges. Choosing the first cumulative size greater than the target index selects exactly the range containing that index. Subtracting the previous cumulative size converts the global index at that node into the local index for the child.`,
+        `Concat and split are correct only if they preserve element order, keep published inputs immutable, rebuild all changed parent nodes, and recompute every affected size table. The result does not need to have perfectly equal child sizes. It needs to satisfy the occupancy and balance rules that keep height bounded and lookup routing valid.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Use a tiny branching factor of 4 for intuition. A regular vector with 16 elements can have four children of size 4 under the root. Index 10 goes to child 2 with offset 2, because child 0 covers 0..3, child 1 covers 4..7, and child 2 covers 8..11. No size table is needed because each child has the same capacity.`,
+        `Now update index 10. The implementation copies the root, copies child 2, changes slot 2 inside that copied child, and returns a new root. Children 0, 1, and 3 are shared. The old vector still sees the old child 2. The new vector sees the copied child 2. That is a persistent point update.`,
+        `Now imagine concatenating two uneven vectors. The new relaxed root has four children covering [3, 4, 3, 4] elements. The cumulative table is [3, 7, 10, 14]. Index 8 belongs to the first cumulative size greater than 8, which is 10. That selects child 2. The local offset is 8 - 7 = 1. The table is what keeps indexing meaningful after concat stops producing perfectly even blocks.`,
+        `Split at index 7 reverses the idea. The left result contains elements 0 through 6, and the right result contains elements 7 onward. Whole child subtrees that lie entirely on one side can be shared. Only the boundary path and size tables need to be rebuilt.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `Lookup and point update are O(log_B n), where B is the branching factor. With B = 32, the tree is shallow. A vector with millions of elements may need only a handful of levels. A point update allocates one new node per level plus a copied leaf, so the allocation cost is also O(log_B n).`,
+        `Append is often near O(1) amortized because the tail buffer absorbs many appends before a tree update is needed. When the tail fills, promoting it into the tree costs more, but the cost is spread across many prior appends.`,
+        `RRB concat and split aim for logarithmic work by reusing whole subtrees and rebalancing a bounded boundary. That is the main advantage over plain persistent vectors for sequence editing. The structure does not copy all elements from either side.`,
+        `The tradeoffs are real. Size tables add memory. Relaxed lookup may need a small search in the size table instead of pure bit arithmetic. Rebalance code is complex and easy to get wrong. Locality is worse than a flat array because internal nodes and leaves are separate allocations. Iteration can still be fast over leaf arrays, but it is not the same as streaming one contiguous buffer.`,
+        `The structure pays rent when old versions and sequence operations are both important. If the data is private, mutable, and cache-sensitive, a normal array should win.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `RRB-style vectors win in immutable sequence workloads that still need indexing. Functional language collections are the natural home. Programs can pass values freely, keep old versions, and still use near-array operations for nth, update, append, concat, and split.`,
+        `Editors can use persistent sequences to support undo and redo without copying the whole buffer after every edit. Compilers can preserve old versions of intermediate representation while transformations create new versions. UI state systems can keep previous states for comparison or time travel. Dataflow systems can concatenate and slice batches while retaining earlier views.`,
+        `They also fit concurrent read-mostly state. Readers can hold old roots without locks while a writer builds a new root. Publication becomes a pointer swap at the root level, assuming the surrounding language runtime provides the right memory visibility rules.`,
+        `The API appeal is strong: a vector-like sequence with immutable lifecycle. That is different from a rope, which is more text-oriented, and different from a persistent map, which is keyed by hash or order rather than by dense integer index.`,
+      ],
+    },
+    {
+      heading: 'Limits and failure cases',
+      paragraphs: [
+        `Persistent here does not mean stored on disk. It means old versions remain available as values. If the application needs durability across crashes, it needs a storage layer, serialization format, and recovery rules on top of the data structure.`,
+        `RRB trees are a poor choice for tight numeric loops, tiny buffers, and code that lives or dies by contiguous memory. A JavaScript array, typed array, or language-native vector is simpler and usually faster when mutation is allowed and snapshots are not part of the contract.`,
+        `They can also be too complex when the workload only needs append and random access. A plain persistent vector is easier to reason about and implement. The relaxed machinery is justified when concat, split, slicing, or middle insertion are common enough to dominate.`,
+        `Bad size tables are dangerous. If a rebalance step preserves the child pointers but computes one cumulative size incorrectly, lookup can silently return the wrong element. That kind of bug may pass simple append tests and fail only after a particular concat and split sequence.`,
+        `Memory retention is another limit. Structural sharing keeps old versions cheap, but keeping many roots alive also keeps shared old nodes alive. An application with unbounded undo history can still retain a lot of memory. Persistence lowers copying cost; it does not make history free.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Start with a plain persistent vector before implementing relaxation. Get lookup, append, tail promotion, point update, and path copying correct first. Then add relaxed nodes and size tables. This staged path reduces the number of moving parts when a lookup or update fails.`,
+        `Use small branching factors in tests, such as 2 or 4, even if production uses 32. Small branching factors force deeper trees, more boundary cases, and more rebalancing. They make bugs appear in tiny examples instead of requiring millions of elements.`,
+        `Test against a simple array model. Generate random operations: append, update, concat, split, slice, and lookup. After each operation, compare the persistent vector's sequence with the model array. Also keep old roots and check them after later edits, because version preservation is part of the contract.`,
+        `Validate size tables aggressively in debug builds. Each relaxed node should be able to recompute child sizes and compare them with stored cumulative sizes. Also check occupancy rules and tree height. The fastest way to lose trust in an RRB implementation is to let a rare rebalance bug corrupt a later lookup.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources include Bagwell and Rompf, RRB-Trees: Efficient Immutable Vectors; Clojure's persistent vector and transients documentation; Clojure core.rrb-vector notes; and Persistence for the Masses: RRB-Vectors in a Systems Language. Study HAMT for persistent maps, Persistent Segment Tree for versioned range queries, Finger Tree Measured Sequence for measured concatenation, Text Rope Data Structure and Piece Table Text Buffer for editor sequences, and Git Internals for structural sharing in content history.`,
       ],
     },
   ],

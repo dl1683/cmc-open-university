@@ -211,43 +211,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'PagedAttention is the memory-management idea behind vLLM. Autoregressive models store a KV cache for every live sequence so each new token can attend to previous tokens without recomputing all keys and values. That cache grows with context length and consumes scarce GPU memory. PagedAttention stores the cache in fixed-size blocks, much like virtual-memory pages, so memory can be allocated on demand instead of reserved in one contiguous slab.',
-        'This is a production systems topic disguised as an AI topic. The model weights are mostly fixed. The per-user KV cache is the variable part that expands with usage, context length, beam search, and parallel candidates. If the server wastes KV memory, fewer users fit on the same GPU. If fewer users fit, the cost per token rises.',
+        'Large language model serving is often limited less by raw arithmetic and more by the memory needed to keep many conversations alive. During decode, every active request stores a key and value tensor for each generated token, layer, and attention head. That KV cache is the reason the server does not need to recompute the whole prompt at every token, but it also grows one token at a time for every request in flight.',
+        'PagedAttention exists because this growth pattern is hostile to simple GPU memory allocation. Real users send short prompts, long prompts, early-stopping outputs, streaming chats, beam branches, and retries. A serving engine needs a way to pack that irregular state into HBM without wasting most of the space on tokens that might never be generated.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive Allocation',
       paragraphs: [
-        'The naive approach preallocates enough contiguous cache space for each request to reach its maximum length. Real users rarely consume exactly that maximum, so memory fragments: some is reserved but unused, and free space may be trapped in shapes the scheduler cannot use. PagedAttention breaks each sequence cache into blocks. The runtime keeps a block table mapping logical token positions to physical cache blocks. The attention kernel reads through that mapping when it needs keys and values.',
-        'Once KV cache is block-addressed, other serving features become simpler. Beam search can share prefix blocks and copy only when branches diverge. Multiple requests with the same prompt can share blocks. Long requests can be preempted by spilling or reclaiming blocks. KV Cache Transfer Fabric Case Study uses the same block-addressed mindset across machines: remote block IDs, readiness masks, and cleanup acknowledgements become the contract between prefill and decode. KV Cache Tiered Offload Store Case Study keeps that block contract but changes placement: hot blocks stay in HBM, warm blocks may sit in CPU memory, and cold reusable blocks can spill to SSD or remote storage. Continuous batching then keeps the GPU busy by admitting and removing requests at every decode iteration instead of treating a batch as a rigid unit.',
+        'The obvious approach is to reserve one contiguous KV region for each request at the maximum allowed length. It is simple, and it makes kernel addressing easy. It also turns unused future tokens into occupied GPU memory. If a request reserves 4096 token slots and stops after 350 tokens, the remaining slots are unavailable to other users even though they hold no useful information.',
+        'Another tempting fix is compaction: move live cache tensors together after requests finish. That works poorly in a decode server. Moving large tensors steals bandwidth from inference, complicates pointer validity, and happens exactly when the scheduler is trying to admit new work. The deeper problem is not that memory needs occasional cleanup. The problem is that one request owns too large a physical region.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight',
       paragraphs: [
-        'The key cost is bytes per live token. A decoder-only model stores keys and values for many layers, many KV heads, and every token in every active conversation. Longer context increases cache memory roughly linearly. The local document set frames this as the central inference economics problem: long context does not just add compute, it evicts other users from the GPU. PagedAttention does not remove the cache, but it sharply reduces waste and gives the scheduler better control.',
-        'The vLLM paper reports 2x to 4x throughput improvements over prior serving systems on evaluated workloads, without changing model outputs. That result matters because it moves the unit economics without retraining. The tradeoff is implementation complexity: kernels must follow block tables efficiently, the scheduler must manage blocks, and production deployments still need monitoring, admission control, fallback behavior, and tail-latency discipline.',
+        'PagedAttention borrows the central move from virtual memory. Logical positions in a sequence are separated from physical storage blocks. The request owns a block table. The block table says which fixed-size KV blocks contain the keys and values for each range of token positions. The blocks themselves can be scattered through GPU memory.',
+        'This changes the unit of ownership. A request no longer owns one giant slab. It owns a logical list of block references that can grow as tokens arrive, release blocks as the request ends, share blocks with a related request, or spill blocks under pressure. The attention kernel pays the cost of following the table, but the serving system gains a memory model that matches variable-length decoding.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Block Tables',
       paragraphs: [
-        'vLLM, TensorRT-LLM, SGLang, and other inference stacks all attack the same serving physics: keep GPU compute saturated while keeping KV memory under control. Public LLM APIs, internal copilots, RAG Pipeline products, and coding agents all face variable-length prompts and outputs. A server that handles 1,000 short chats well may collapse under a few long-context agent traces unless its memory manager and scheduler are built for it. SLO-Aware LLM Request Router adds the front-door placement question: which replica has enough queue budget and the right KV state to make those blocks useful?',
+        'The block table is the data structure that makes the idea operational. For each sequence, it maps logical token block number 0, 1, 2, and so on to a physical KV block. The kernel uses that mapping when it gathers old keys and values for attention. Correctness depends on exact addressability: the logical token position must resolve to the KV state produced for that token, request branch, layer, and head.',
+        'Fixed-size blocks reduce external fragmentation because any free block can satisfy any request. They also bound internal fragmentation because only the last block of a sequence is partly empty. In a serving workload with many partially completed requests, that is a large improvement over reserving a whole maximum-length slab per request.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Continuous Batching',
       paragraphs: [
-        'PagedAttention is not a replacement for efficient attention math. FlashAttention improves how attention computation uses memory inside a kernel; PagedAttention improves how the long-lived KV cache is allocated across requests. They solve different layers of the stack. Another misconception is that bigger context is mostly a model capability problem. It is also a serving-concurrency problem: every active long-context user consumes cache that another user could have used.',
-        'Continuous batching improves throughput, but it does not make latency free. If the scheduler overfills the batch, individual users wait longer. If it underfills the batch, the GPU idles. Production serving is a control problem over latency, throughput, fairness, and memory pressure.',
+        'PagedAttention is strongest when paired with iteration-level scheduling. Static batching groups requests and waits for the batch to finish or drain. That wastes GPU lanes because outputs have different lengths. Continuous batching admits and removes requests at each decode step. When one sequence finishes, another can enter on the next token iteration.',
+        'The memory allocator and scheduler need each other. Continuous batching creates constant churn in the live set of sequences. PagedAttention makes that churn cheap enough to handle because joining a batch means allocating a few blocks, not carving a new contiguous slab. Leaving a batch means freeing block references, not compacting the world.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'What The Visual Proves',
       paragraphs: [
-        'Primary sources: Efficient Memory Management for Large Language Model Serving with PagedAttention at https://arxiv.org/abs/2309.06180, the vLLM project at https://github.com/vllm-project/vllm, the vLLM documentation at https://docs.vllm.ai/, and Orca iteration-level scheduling at https://www.usenix.org/conference/osdi22/presentation/yu. Study KV Cache first, then Attention Mechanism, Chunked Prefill Token Budget Scheduler, Speculative Decoding, Quantization, KV Cache Transfer Fabric Case Study, KV Cache Tiered Offload Store Case Study, SLO-Aware LLM Request Router, Load Balancer, Tail Latency & p99 Thinking, and RAG Pipeline. Together they form the real LLM serving stack.',
+        'The visual first compares used tokens with reserved tokens. The important column is waste. With naive reservation, every request carries a long unused tail. With paged allocation, each request receives only the blocks it needs, plus a small amount of slack in the final block. The point is not that memory becomes free. The point is that unused future tokens stop blocking real current users.',
+        'The block-table view then shows why logical and physical order do not need to match. A sequence can be contiguous in token space while scattered in memory space. The continuous-batching view shows the scheduling payoff: once cache ownership is block based, the server can admit, retire, and preempt requests at token boundaries.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The correctness argument is simple if the block table is correct. Attention for token t needs the keys and values for earlier tokens. PagedAttention still supplies those exact tensors. It only changes how the tensors are addressed. The model sees the same numerical state it would have seen in a contiguous cache layout.',
+        'The performance argument is about utilization. GPU HBM is scarce, and decode kernels are most efficient when the server can keep many active sequences in flight. Smaller allocation units let the system turn stranded capacity into additional concurrency. The serving engine can trade a little indexing complexity for a large reduction in wasted cache reservation.',
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        'PagedAttention is not free. The attention kernel must handle indirect block lookup, the scheduler must maintain block ownership, and the runtime needs reference counts for shared prefixes or beam branches. Bugs in this layer are serious because a stale mapping can expose cache from another request or make the model attend to the wrong tokens.',
+        'There is also a tuning problem. Smaller blocks reduce slack but increase table size and lookup overhead. Larger blocks reduce metadata but waste more space in the last block. The best size depends on model shape, average sequence length, hardware, kernel design, and whether prefix sharing or offload is common.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'PagedAttention wins in high-concurrency services with variable prompt and output lengths: public chat APIs, internal copilots, RAG systems, coding agents, batch inference jobs, and any serving pool that mixes short and long requests. It is especially useful when the server runs near memory capacity and a small reduction in waste admits many more live sequences.',
+        'It also enables features that are awkward with slab allocation. Beam search can share prefix blocks and copy on write after divergence. Prefix caching can reuse system prompts or common documents. Preemption can evict or transfer blocks. Tiered KV systems can move blocks across HBM, CPU memory, SSD, or remote storage while keeping a stable logical identity.',
+      ],
+    },
+    {
+      heading: 'Failure Modes',
+      paragraphs: [
+        'PagedAttention does not reduce the true byte cost of KV cache. A long active context still consumes memory proportional to layers, heads, head dimension, precision, and token count. It reduces fragmentation and improves control. If demand is dominated by extremely long contexts, the system still needs admission control, context limits, offload policy, or more hardware.',
+        'It is also different from FlashAttention. FlashAttention improves IO efficiency inside attention computation. PagedAttention manages long-lived KV storage across requests. A mature serving stack often uses both, along with quantization, chunked prefill, speculative decoding, and routing. Confusing these layers leads to wrong performance explanations.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study KV Cache first, because PagedAttention is an allocator for that state. Then read Attention Mechanism, FlashAttention Case Study, Prefix Caching and RadixAttention, Chunked Prefill Token Budget Scheduler, Speculative Decoding, Prefill and Decode Disaggregation, KV Cache Transfer Fabric, KV Cache Tiered Offload Store, SLO-Aware LLM Request Router, Tail Latency, and Transformer Inference Roofline.',
+        'Primary references worth reading are the PagedAttention paper, the vLLM project and documentation, and Orca iteration-level scheduling. They show the same lesson from different angles: production LLM serving is a memory-management and scheduling problem as much as it is a model problem.',
       ],
     },
   ],

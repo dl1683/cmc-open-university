@@ -187,26 +187,92 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'An order-statistics tree is a balanced binary search tree augmented with subtree sizes. It supports the usual ordered-map operations, plus select(k), which returns the kth smallest key, and rank(x), which returns how many keys are less than or equal to x.',
-      'The augmentation is small but powerful. Each node stores size = size(left) + size(right) + 1. With that field, the search can skip entire subtrees while still handling dynamic inserts and deletes.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'To select(k), stand at a node and compute leftSize + 1. If k equals that number, the current node is the answer. If k is smaller, go left. If k is larger, go right after subtracting leftSize + 1. This is ordinary binary-search-tree navigation, but the branch condition is rank inside the subtree rather than key comparison.',
-      'To compute rank(x), search for x while accumulating the sizes of skipped left subtrees and current nodes. Or, if you already have the node pointer, walk upward and add the parent plus its left subtree whenever you climb from a right child.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'If the base tree is balanced, insert, delete, lookup, select, and rank are O(log n). The additional memory is one integer per node. The difficult part is maintenance: every rotation and structural update must recompute size fields locally and in the right order.',
-      'This is a model example of data-structure augmentation. You keep the balancing logic from Red-Black Tree or AVL Tree, add a field with a local recomputation rule, and gain a new set of queries without changing the asymptotic update cost.',
-      'Duplicates require an explicit policy. You can store counts per key, store duplicate records as separate nodes with tie-breakers, or make the key composite. The size formula must count whatever the API promises rank and select will count.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'A live leaderboard needs dynamic score updates, rank lookup for a player, percentile display, and pagination around a rank. A heap can show the top score but cannot efficiently answer arbitrary rank. A sorted array can answer rank but makes updates expensive. An order-statistics tree keeps the set sorted while supporting both updates and rank/select queries.',
-      'The same pattern appears in event streams, trading books, online medians, and scheduling systems where "what is the kth item?" matters while the set changes.',
-      'For a leaderboard, the key is usually not just score. It may be score plus timestamp plus user id, so ties are deterministic and rank pages do not jump unpredictably between requests.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: CLRS-style chapter on augmenting data structures and order-statistic trees, https://bobson.ludost.net/books/algo/book6/chap15.htm, and libstdc++ policy-based data-structure design notes, https://gcc.sourceware.org/onlinedocs/libstdc++/manual/policy_data_structures_design.html. Study Red-Black Tree, AVL Tree, Fenwick Tree, Segment Tree, and Treap next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A normal search tree answers key questions: is 50 present, what is the next key after 50, what is the smallest key. Many systems also need position questions: what is the 5th smallest key, what rank does this score have, what is the current median after thousands of updates.',
+        'Those position questions are easy on a sorted array and awkward on a plain balanced tree. The array knows positions but moves many elements on update. The tree updates cheaply but does not know how many keys sit inside each subtree.',
+      ],
+    },
+    {
+      heading: 'The naive tools break on different sides',
+      paragraphs: [
+        'A sorted array gives select(k) by indexing and rank(x) by binary search. Its update cost is the problem: inserting near the front may shift almost every element. When the set changes continuously, the cheap query is bought with expensive maintenance.',
+        'A heap gives the minimum or maximum quickly, but it has no sorted order for the middle. Finding the 500th item in a heap is not a heap operation. A plain balanced search tree keeps updates and lookups logarithmic, but without counts it cannot skip a subtree by rank.',
+      ],
+    },
+    {
+      heading: 'The core idea',
+      paragraphs: [
+        'An order-statistics tree is a balanced binary search tree with one extra field per node: size = size(left) + size(right) + 1. The field turns every node into a local rank boundary. If the left subtree has three nodes, the current node is the fourth key inside that subtree.',
+        'The invariant is small and strict: after every insert, delete, and rotation, every stored size must equal the real number of nodes below it. If that invariant holds, rank and select can treat an entire subtree as a counted block instead of walking through it.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the select view, watch the left subtree size at each node. The highlighted path is not searching for a key value; it is searching for a rank. When the query moves right, the visualization subtracts the current node and its whole left subtree because those ranks are already accounted for.',
+        'In the rotation view, focus on the two nodes connected by the rotation and the size labels near them. The shape changes to preserve balance, but the inorder sequence must stay the same. The important state change is the bottom-up repair of sizes after pointers move.',
+      ],
+    },
+    {
+      heading: 'Mechanics',
+      paragraphs: [
+        'To run select(k), stand at a node and compute leftSize + 1. If k is equal to that number, return the node. If k is smaller, the answer is in the left subtree. If k is larger, subtract leftSize + 1 and search the right subtree for the remaining rank.',
+        'To run rank(x), search for x while keeping a counter. Every time the search moves right from a node, add size(left) + 1 because every key in that left subtree and the current node is less than or equal to the right branch. If the key is found, add its own left subtree and stop according to the duplicate policy.',
+        'Rotations are the maintenance test. A left rotation or right rotation changes only a small parent-child neighborhood. After the pointers are correct, recompute the lower rotated node first and the upper rotated node second. Ancestors can then recompute from their children as usual.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'In the shown tree, select(5) starts at 40. The left subtree has three nodes, so 40 is rank 4 inside the whole tree. The target rank 5 is larger, so the search goes right and asks for rank 1 inside the right subtree.',
+        'At 60, the left subtree has one node, so 60 is rank 2 inside that subtree. The remaining target rank is 1, so the search goes left and returns 50. The algorithm skipped the entire left half of the original tree with one size read.',
+        'For rank(50), count 50 as rank 1 inside its own tiny subtree. Climbing to 60 adds nothing because 50 came from the left. Climbing to 40 from the right adds size(left of 40) + 1 = 4. The final rank is 5.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'A binary search tree partitions each subtree into three ordered parts: all left keys, the current key, and all right keys. The size field gives the exact number of ranks in the left part. Select uses that number to decide which part contains the kth key; rank uses it to count parts that are skipped.',
+        'The correctness argument is an invariant argument. The search tree invariant gives the order. The size invariant gives the count. Every select or rank step preserves the meaning of the remaining question: either the answer is in the chosen subtree, or the skipped subtree has been fully counted.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'With a balanced base tree, lookup, insert, delete, select, and rank are O(log n). Doubling the number of keys adds about one more level to the path. The extra space is one counter per node.',
+        'The hidden cost is implementation discipline. Every update path must refresh sizes, and every rotation must refresh them in the right order. A single stale size can make select return the wrong key while ordinary lookup still appears healthy.',
+        'Duplicates need an explicit design. You can store one node per record with a composite key, store a multiplicity count per key, or define rank as less-than rather than less-than-or-equal. The size formula and public API must agree.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'Order-statistics trees fit live leaderboards, online medians, percentile displays, ranked feeds, matching engines, and ordered pagination where inserts and deletes happen between rank queries. The structure is useful when the application needs both sorted order and positions inside that order.',
+        'A leaderboard key is rarely just score. It is usually score plus timestamp plus user id, or another tie-breaker that makes ranking deterministic. Without a stable tie policy, pages around a rank can jump even when the tree is correct.',
+      ],
+    },
+    {
+      heading: 'Where it is not the right tool',
+      paragraphs: [
+        'If keys are dense small integers, a Fenwick tree or segment tree over frequencies may be simpler and faster. If the data is mostly static, a sorted array gives excellent locality and trivial select. If the only query is top-k, a heap or partial selection structure may be enough.',
+        'It is also a poor fit when the team cannot afford custom tree maintenance risk. Many languages do not ship order-statistics trees in the standard library. A library tree with a proven augmentation is safer than a clever local implementation used in a money path.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The common bug is forgetting that balancing changes metadata. Insert and delete code may update sizes along the search path and still be wrong after a rotation. Test rotations directly with rank and select, not only with inorder traversal.',
+        'Another failure mode is counter overflow in long-lived systems with many duplicate records or logical weights. If size means total record count rather than distinct key count, use a counter type that matches the maximum population.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Red-Black Tree or AVL Tree for the balancing layer, Fenwick Tree and Segment Tree for dense-key rank queries, Treap for randomized balanced order-statistics, and Wavelet Tree or Wavelet Matrix for rank/select over static sequences.',
+        'Sources worth reading: the CLRS order-statistic tree and augmentation chapter at https://bobson.ludost.net/books/algo/book6/chap15.htm, and the GNU policy-based data structures notes at https://gcc.sourceware.org/onlinedocs/libstdc++/manual/policy_data_structures_design.html.',
+      ],
+    },
   ],
 };

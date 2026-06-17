@@ -216,43 +216,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A Merkle Mountain Range is an append-only authenticated array. Like a Merkle Tree, it hashes leaves and internal nodes so one root commits to many entries. Unlike a fixed balanced tree, it does not need the final size in advance. It keeps a frontier of complete subtree roots called peaks. As new leaves arrive on the right, equal-size peaks merge, and the remaining peaks represent the whole prefix.',
-        'This makes MMRs a good mental model for transparency logs, blockchain history, and timestamping systems: data only grows, old ranges should remain immutable, and clients want small proofs instead of downloading the whole log.',
+        'An append-only log is useful only if readers can trust its past. Package registries, timestamping services, transparency logs, blockchain histories, audit ledgers, and build artifact indexes all promise the same basic contract: new entries may appear at the right edge, but old entries must not be edited, removed, or reordered without being detected.',
+        'A plain file or database table can accept appends, but it gives weak evidence. A server can show one client one version of history and another client a different version. It can replace an old row and claim the row was always there. It can also publish a short digest that says almost nothing unless clients know how that digest was computed.',
+        'A Merkle Mountain Range, or MMR, is an authenticated append-only array. It keeps a compact frontier of complete Merkle subtrees called peaks. Each append creates a new leaf on the right. Equal-size peaks merge. The remaining peaks are combined in a fixed order to publish one commitment for the whole current prefix.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The peak sizes are the powers of two in the binary representation of the leaf count. Seven leaves is binary 111, so the frontier has peaks of sizes 4, 2, and 1. Appending the eighth leaf is binary addition: create a size-1 peak, merge 1+1 into 2, merge 2+2 into 4, and merge 4+4 into 8. Most appends only merge a short suffix; occasional carry chains do more work.',
-        'To publish one commitment, implementations bag the peaks: combine the peak roots in a deterministic order to produce one digest. To prove inclusion, a server sends the sibling hashes up to the relevant peak plus the other peak roots needed to recompute the bagged root. To prove append-only behavior, the server shows that an older prefix root is preserved inside the later frontier.',
+        'The obvious authenticated approach is a normal balanced Merkle tree. Put the entries in leaves, hash pairs upward, publish the root, and answer inclusion queries with sibling hashes. That works well when the set is fixed or when updates arrive in large batches.',
+        'The wall is online growth. An audit log does not know its final length. It may publish a checkpoint after every entry, every block, or every few seconds. Rebuilding a balanced tree after each append wastes work, and reshaping the tree makes it harder to reason about old prefixes. The log needs a shape that accepts one more leaf without moving earlier leaves.',
+        'The other weak approach is a chained hash: every entry includes the previous entry hash. That proves local order, but membership proofs are linear unless extra indexes are added. A client that wants proof for entry 50 million should not need 50 million links. The MMR keeps the append-friendly nature of a chain while recovering logarithmic Merkle proofs.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Append cost is O(log n) in the worst case and O(1) amortized merges if you count frontier carries over many appends. Inclusion proofs are O(log n) hashes. The frontier itself needs O(log n) peak roots. Stored history is still O(n), because old leaves and internal nodes must remain available for future proofs. The tricky parts are not big-O; they are serialization, hash domain separation, proof format, peak ordering, pruning policy, and root-version bookkeeping.',
+        'The core invariant is that the frontier contains one complete subtree for each 1 bit in the binary representation of the leaf count. Seven leaves is binary `111`, so the frontier has peaks of sizes 4, 2, and 1. Ten leaves is binary `1010`, so the frontier has peaks of sizes 8 and 2. This is the same decomposition every integer has into powers of two.',
+        'Appending is binary addition implemented with hashes. Add a size-1 peak for the new leaf. If the two rightmost peaks have the same size, hash them into a parent peak twice as large. Continue while there is a carry. When the rightmost peak sizes differ, the frontier again matches the 1 bits of the count.',
+        'This insight keeps old ranges stable. A later append may merge an old peak into a larger peak, but it never edits the leaves inside that peak. The peak root acts like a sealed summary of that range. Any change to an old entry changes the peak root and then changes every later commitment that includes it.',
       ],
     },
     {
-      heading: 'Real-world case studies',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Certificate Transparency defines Merkle audit paths and consistency proofs so browsers and monitors can check whether certificates are included and whether a later log root extends an earlier one. The RFC 6962 and RFC 9162 designs use Merkle history trees rather than the exact MMR layout, but the proof vocabulary is the same: inclusion, prefix consistency, signed roots, monitors, and witnesses.',
-        'OpenTimestamps describes Merkle Mountain Ranges as a way to keep a deterministic digest for an append-only timestamping log. Grin uses MMRs for blockchain data such as outputs, kernels, and rangeproofs, because nodes can append while still supporting compact proofs over historical state. These systems show the core tradeoff: one compact root is easy to publish, but robust auditing also needs proof serving, root gossip, and long-term storage.',
+        'The append-peaks view shows the MMR as a small state machine. The new leaf enters as a one-entry subtree. The merge node represents the carry rule. The peaks node is the live frontier, and the root node is the public commitment after bagging. The important shift is from thinking about one giant tree to thinking about a frontier of sealed complete subtrees.',
+        'The peak schedule table turns the rule into arithmetic. When the count moves from seven to eight, the table shows `4+2+1+1`, then `4+2+2`, then `4+4`, then `8`. That is exactly a binary carry chain. Most appends stop quickly, but a power-of-two boundary carries through the whole frontier.',
+        'The proofs-and-audits view separates two jobs. A membership proof climbs from an entry to the peak that contains it. A whole-log verification then combines that peak with the other peaks to match the published root. An append-only audit asks a different question: can the newer commitment be derived by extending the older frontier instead of changing it?',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Append mechanism',
       paragraphs: [
-        'An MMR does not make deletion cheap; it is explicitly append-only. Pruning old leaves may be possible in an application, but then proof availability changes and somebody must retain enough data to satisfy audits. It also does not stop a dishonest operator from publishing two different roots to two audiences by itself. Witnesses, gossip, signed checkpoints, and client policy are needed to expose equivocation.',
-        'Do not confuse append-only ordering with database durability. A Write-Ahead Log recovers recent writes after a crash. An MMR authenticates a history so outsiders can verify membership and prefix consistency. Many real systems use both ideas, but they solve different problems.',
+        'Each entry is first turned into a leaf hash. Production systems normally use domain separation so a leaf hash cannot be confused with an internal-node hash. A common pattern is to prefix leaf input with one tag and internal-node input with another tag before hashing.',
+        'The append operation stores the new leaf as a size-1 peak at the right edge. While the newest peak has the same size as the peak immediately to its left, the implementation removes both peaks and inserts their parent. The parent hash commits to left child, right child, and often the range size or node kind, depending on the proof format.',
+        'The frontier can be stored as an array of peaks ordered by position, or as slots indexed by height. The count tells the implementation which heights are currently occupied. The append path creates only the nodes on the carry chain. All older internal nodes can be retained in a proof index, written to a content-addressed store, or regenerated from archived leaves if that is acceptable for the system.',
+        'Publishing a root requires bagging the peaks. Bagging means combining all current peak roots in a deterministic order so clients see one digest rather than a list. The order and hash framing must be specified. If one implementation bags left to right and another bags right to left, they will disagree even when they store the same leaves.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Proofs and audits',
       paragraphs: [
-        'Primary references: OpenTimestamps MMR notes at https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/merkle-mountain-range.md, Grin MMR documentation at https://docs.grin.mw/wiki/chain-state/merkle-mountain-range/, Certificate Transparency RFC 6962 at https://www.rfc-editor.org/info/rfc6962/, Certificate Transparency v2 RFC 9162 at https://datatracker.ietf.org/doc/html/rfc9162, and the CT overview at https://certificate.transparency.dev/howctworks/. Study Merkle Tree, Git Internals, Transparency Log Witnessing Case Study, Write-Ahead Log (WAL), Byzantine Generals, and Ethereum Merkle-Patricia Trie Case Study next.',
+        'An inclusion proof identifies the leaf index, the leaf value or leaf hash, the sibling hashes needed to climb to the containing peak, and the other peak roots needed to recompute the bagged commitment. The verifier hashes upward inside the peak, then bags the result with the rest of the frontier and compares it with the signed root.',
+        'A consistency or append-only proof compares two checkpoints. The old checkpoint commits to an old prefix. The new checkpoint should contain that prefix plus later leaves. The proof shows where the old peaks appear in the newer structure: either still as peaks, or as descendants inside newer merged peaks. If an old entry was changed, the old peak root cannot be preserved.',
+        'The evidence is compact compared with replaying the whole log. A proof grows with the height of the containing peak and with the number of peaks needed for the bagged root. That is why MMRs are useful for clients that store a small checkpoint but do not mirror the entire log.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument starts with the uniqueness of the binary decomposition. For a given leaf count, there is only one set of peak sizes. If the append algorithm maintains those sizes and preserves left-to-right order, the shape of the frontier is deterministic.',
+        'Inside each peak, ordinary Merkle-tree reasoning applies. The peak root commits to every leaf under it because changing any leaf changes the hash path to the peak root. Bagging extends that commitment to the whole prefix by committing to the ordered set of peak roots.',
+        'Append-only history follows from immutability plus position. Appending creates new right-edge material and may create parents above older peaks, but it cannot alter an old sealed subtree without changing the old peak root. A signed checkpoint gives auditors a stable value to compare against later checkpoints.',
+      ],
+    },
+    {
+      heading: 'Costs and implementation guidance',
+      paragraphs: [
+        'Worst-case append work is `O(log n)` because a carry can merge peaks at every height. Across many appends, the amortized number of merges is small, just like binary counters. The live frontier stores `O(log n)` peak roots. Inclusion proofs are logarithmic in the range that contains the leaf, plus the extra peak data needed to verify the bagged root.',
+        'The implementation details matter more than the small algorithm suggests. Specify leaf hash framing, internal hash framing, peak ordering, bagging order, index base, byte encoding, hash function, checkpoint format, and signature format. A verifier should reject proofs with ambiguous encodings or unexpected node kinds.',
+        'Plan storage around proof serving. The frontier alone is enough to append, but it is not enough to answer arbitrary old inclusion queries. A log that promises proofs must keep leaves and internal nodes, or keep enough auxiliary indexes to reconstruct paths. Pruning can be valid, but only if another archival party or checkpoint policy covers the proofs the system still advertises.',
+        'Operationally, publish signed checkpoints with a count and root. Monitors should fetch entries, request random proofs, and compare checkpoint chains over time. Witnesses can remember roots from multiple logs or clients. Client policy should define what happens when a proof is missing, malformed, or inconsistent with a previous checkpoint.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose an artifact registry publishes one log entry for every package build. After seven builds, the frontier has peaks of sizes 4, 2, and 1. A client stores a signed checkpoint containing count 7 and the bagged root.',
+        'The eighth build arrives. The registry hashes the new entry as a size-1 leaf. The two size-1 peaks merge into a size-2 peak. That size-2 peak merges with the existing size-2 peak. The resulting size-4 peak merges with the existing size-4 peak. The new frontier is one size-8 peak.',
+        'Later, a client asks whether build 3 is included at count 8. The server returns the sibling path from build 3 up to the old size-4 peak, then enough data to show how that old range was merged into the size-8 peak. If the registry changed build 3, the first peak root would differ. If it showed two clients different count-8 roots, witnesses or monitors could expose the conflict by comparing signed checkpoints.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'MMRs win when the natural operation is append and the system needs compact cryptographic evidence. Good fits include timestamping services, blockchain history, package indexes, artifact registries, archival catalogs, replicated audit ledgers, and logs used by independent verifiers.',
+        'They are also useful when readers are light clients. A client can remember a small checkpoint, request an inclusion proof for one entry, and ask whether a later checkpoint extends the earlier one. The client does not need to download every log entry to catch many forms of rewriting.',
+        'The pattern also teaches transparency systems more broadly. Certificate Transparency uses a Merkle history tree rather than this exact MMR layout, but the surrounding practice is shared: signed roots, inclusion proofs, consistency evidence, monitors, witnesses, and clients that refuse unverifiable history.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'An MMR is a poor shape for frequent deletion, mutation, or insertion in the middle. You can append corrections, tombstones, revocations, or superseding entries, but the historical record remains. That is a feature for audit logs and a bad fit for mutable indexes.',
+        'The structure also does not stop split views by itself. A dishonest operator can publish one valid append-only history to one audience and another valid append-only history to a different audience. Detecting that requires witnesses, gossip, checkpoint exchange, monitor coverage, and client policy that makes equivocation costly.',
+        'Proof formats can become a source of bugs. Ambiguous serialization, missing domain separation, unclear peak order, weak hash choices, and inconsistent count handling can break interoperability or create verification gaps. Treat the format as a protocol, not as a helper function hidden inside one codebase.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study ordinary Merkle trees first, then compare MMRs with Certificate Transparency history trees. Then study sparse Merkle trees for key-value membership, Merkle Patricia tries for authenticated maps, Git object graphs for content-addressed snapshots, and write-ahead logs for durability without authentication.',
+        'Good primary references include OpenTimestamps MMR notes, Grin MMR documentation, Certificate Transparency RFC 6962, Certificate Transparency version 2 in RFC 9162, and real transparency-log witness designs. The next practical exercise is to write a verifier that rejects malformed proofs before it checks the final root.',
       ],
     },
   ],

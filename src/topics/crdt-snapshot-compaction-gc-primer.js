@@ -56,7 +56,7 @@ function* snapshotCompaction() {
   yield {
     state: compactGraph('CRDT storage needs snapshots plus causal summaries'),
     highlight: { active: ['ops', 'state', 'summary', 'snap', 'e-ops-state', 'e-ops-summary'], found: ['store'] },
-    explanation: 'A CRDT update log can grow forever. Snapshot compaction folds old operations into a materialized checkpoint while preserving enough causal summary for future sync.',
+    explanation: 'The graph shows what must survive a compaction. You can fold old operations into a checkpoint, but the snapshot still needs a causal summary so future peers know what history it represents.',
     invariant: 'A compacted snapshot must still know what history it represents.',
   };
 
@@ -81,13 +81,13 @@ function* snapshotCompaction() {
       ],
     ),
     highlight: { found: ['heads:why', 'sv:why'], compare: ['tail:breaks'] },
-    explanation: 'Snapshotting only visible document bytes is not enough. The sync protocol needs causal frontiers such as heads or state vectors so peers can ask for the right missing changes.',
+    explanation: 'Visible document bytes are only one row. Heads, state vectors, and a recent tail are what let sync continue after compaction. A plain JSON export can look correct and still be useless for incremental merge.',
   };
 
   yield {
     state: compactGraph('Compaction keeps a checkpoint and recent operation tail', { snap: 'base', tail: 'after base', store: 'base+tail' }),
     highlight: { active: ['snap', 'tail', 'store', 'e-snap-tail', 'e-gc-store'], compare: ['ops'] },
-    explanation: 'A practical store can keep a compact base snapshot plus recent update tail. Loading applies the tail over the base; syncing can still serve peers that are near the current frontier.',
+    explanation: 'Base plus tail is the common shape. Load the compact base, replay recent updates, and keep enough tail to serve peers that are only slightly behind. Far-behind peers may need a reset from snapshot.',
   };
 
   yield {
@@ -111,13 +111,13 @@ function* snapshotCompaction() {
       ],
     ),
     highlight: { active: ['merge:benefit', 'snapshot:benefit'], compare: ['rewrite:risk'] },
-    explanation: 'Yjs-style update merging, Automerge-style compact storage, and application snapshots are all compaction tools. The unsafe version is rewriting history while forgetting which peers or snapshots still rely on it.',
+    explanation: 'These are different tools with the same danger. Merging updates, compacting columns, or writing app snapshots can save space, but rewriting history is unsafe if peers, undo, audit, or old snapshots still depend on old IDs.',
   };
 
   yield {
     state: compactGraph('The store shrinks only after safety checks pass', { peer: 'known', gc: 'safe cut', store: 'compact' }),
     highlight: { active: ['peer', 'gc', 'store', 'e-peer-gc', 'e-gc-store'], found: ['snap', 'summary'] },
-    explanation: 'The compaction cut should be a protocol decision, not a cron job that deletes files by age. Age helps, but known peer state, retention policy, audit requirements, and privacy rules decide what can disappear.',
+    explanation: 'The safe cut is a protocol and product decision. Age is a hint, not proof. Known peer state, retention policy, audit requirements, privacy deletion, and snapshot reset rules decide what may disappear.',
   };
 }
 
@@ -143,7 +143,7 @@ function* gcSafety() {
       ],
     ),
     highlight: { active: ['offline:blocks', 'undo:blocks'], compare: ['audit:blocks'] },
-    explanation: 'CRDT garbage collection is not just memory cleanup. Offline peers, snapshots, undo, audit, and legal retention can all require old identifiers or operations to remain available.',
+    explanation: 'Garbage collection is not just freeing memory. Offline peers, old snapshots, undo stacks, audit trails, and retention rules may all still reference metadata that is invisible in the current document.',
     invariant: 'If future sync can refer to it, GC cannot blindly erase it.',
   };
 
@@ -174,7 +174,7 @@ function* gcSafety() {
       ],
     ),
     highlight: { found: ['delete:role', 'anchor:role'], compare: ['purge:risk'] },
-    explanation: 'Sequence CRDT tombstones or deleted structs can be anchors for future operations. Removing them may be safe only after the system can prove no future update will reference them.',
+    explanation: 'Tombstones are ugly but useful: they can be the only anchor a future remote operation understands. Purging them safely requires evidence that no accepted future update can reference those IDs.',
   };
 
   yield {
@@ -204,7 +204,7 @@ function* gcSafety() {
   yield {
     state: compactGraph('Safe GC is a protocol plus product contract', { summary: 'proof', peer: 'known', gc: 'policy', store: 'retained' }),
     highlight: { active: ['summary', 'peer', 'gc', 'store'], found: ['snap'] },
-    explanation: 'The right mental model is database checkpointing plus distributed sync. You can compact aggressively only if the protocol and product contract say what old peers, old snapshots, undo, audit, and deletion requests are allowed to do.',
+    explanation: 'The final graph is the right mental model: checkpointing plus distributed sync plus product policy. Aggressive GC is fine only when the protocol says how old peers, snapshots, undo, audit, and deletion requests behave afterward.',
   };
 }
 
@@ -218,42 +218,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why compaction exists',
       paragraphs: [
-        'CRDT snapshot compaction is the practice of reducing a growing local-first history into a smaller representation without breaking future sync. A collaborative document may store every insert, delete, mark, move, and map update. That history is valuable for offline sync and versioning, but it can become too large to load or transmit naively.',
-        'Garbage collection is the harder sibling. A deleted character or operation may still be needed by an offline peer, an undo stack, an old snapshot, or an audit workflow. The question is not merely "can I save space?" It is "which future conversations does this retained metadata still support?"',
+        `CRDTs let replicas accept local edits, go offline, and merge later without a single writer. That promise is bought with history. A collaborative document does not only store the text, shapes, or records the user sees. It also stores operation identifiers, causal links, delete markers, state vectors, clocks, and enough structure to understand updates that may arrive tomorrow from a device that has been offline for weeks.`,
+        `Without compaction, the cost keeps rising. Startup replays more updates, browser storage grows, sync sends larger payloads, and old tombstones stay in memory even after the visible document looks small. Compaction exists to keep the local-first contract while making old history cheaper to load, store, and transmit.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting wrong answers',
       paragraphs: [
-        'A compacted representation usually keeps a materialized document snapshot plus a causal summary: heads, state vectors, change hashes, or equivalent frontier metadata. Recent operations after the snapshot remain as a tail. Loading applies the tail over the base. Sync uses the causal summary to decide what peers are missing.',
-        'Yjs exposes APIs for merging updates, computing state vectors from updates, and diffing updates against state vectors. Automerge documents compact binary storage for complete history and Automerge Repo handles compression decisions around concurrent reads and writes. Both systems illustrate the same rule: compaction must preserve the information the sync protocol needs.',
+        `The safest answer is to keep every operation forever. That protects old peers, undo, audit, and forensic debugging, but it turns every long-lived document into a growing log. The cheap answer is to export visible JSON, save it as the new base, and delete the old metadata. That can make the document look correct while destroying the information needed for incremental merge.`,
+        `A third mistake is to use age as the only deletion rule. Old does not mean unused. An operation from a year ago may still be the parent of a future remote insert, the target of an undo action, or the only proof that a peer has already seen a delete. CRDT garbage collection has to ask who can still refer to the metadata, not just how old it is.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The costs are disk, memory, startup time, wire bytes, privacy, and product semantics. Keeping every operation forever maximizes compatibility with lagging peers and history tools, but it can hurt load time and retention obligations. Aggressive compaction lowers cost but may force old peers to resync from a snapshot or lose ability to apply old incremental updates.',
+        `A safe compacted document keeps three kinds of information: the materialized state, a causal summary of the history represented by that state, and a recent tail of updates that peers may still need. The exact names vary by implementation. Yjs uses update blobs and state vectors. Automerge stores changes and columnar history. Other systems may store heads, vector clocks, or version vectors. The rule is the same: the compacted base must still explain what it has already absorbed.`,
+        `Compaction changes representation. It should not change meaning. A peer that knows the compacted base should be able to ask for missing updates. A peer that is too far behind should receive a clear reset path. A new local edit should still produce an update that other replicas can place in the causal graph.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What a snapshot must keep',
       paragraphs: [
-        'A local-first notes app stores Yjs updates in IndexedDB. Every hour it merges recent updates and writes a compact snapshot blob plus a state vector. It keeps a recent tail for active peers. If a peer reconnects with a state vector near the tail, the server sends a diff. If the peer is months behind, the server sends the latest snapshot and asks it to reset that document. Product policy decides whether this is acceptable.',
-        'An Automerge app might instead persist the full change history in compact columnar form and rely on repository-level compression. The product can still define archive and deletion rules, but it should do so with explicit knowledge of heads, sync state, and history-retention requirements.',
+        `A snapshot is not just the visible document. It needs the document state, the heads or frontier that identify the latest absorbed operations, the state vector or equivalent clock summary, schema and encoding versions, and sometimes recent operation data. If the application supports undo, comments, cursors, audit history, or attachments, those references may need their own compaction rules.`,
+        `The recent tail matters because not every peer is at the same point. A peer that has the base and is only slightly behind can receive tail updates. A peer that predates the base may not be able to apply the tail safely, so the protocol must tell it to download the snapshot and restart from that checkpoint.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How compaction works',
       paragraphs: [
-        'The biggest mistake is deleting old CRDT metadata because it is not visible. Invisible does not mean unnecessary. A tombstone may be the only thing preventing a future remote insert from landing in the wrong place. Another mistake is treating snapshots as plain JSON exports. A plain export may show the right text but lack the causal metadata needed for future merges.',
+        `A common design is base plus tail. The system loads the compacted base, replays recent updates, and serves diffs from the tail when another peer can identify what it already has. Periodically the base is rewritten and the tail is shortened. The compactor may merge update blobs, rewrite storage columns, deduplicate repeated structures, or produce an application-level checkpoint backed by CRDT metadata.`,
+        `The compactor needs a cut point. Everything before the cut is represented by the base. Everything after the cut remains as operations. Choosing that cut is the hard part. It depends on known peer state, snapshot availability, retention policy, and whether any secondary feature can still refer to old identifiers.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Primary sources: Yjs document updates at https://docs.yjs.dev/api/document-updates, Yjs README update API at https://github.com/yjs/yjs/blob/main/README.md, Automerge concepts at https://automerge.org/docs/reference/concepts/, Automerge binary format at https://automerge.org/automerge-binary-format-spec/, and Automerge 3.0 storage discussion at https://automerge.org/blog/automerge-3/. Study Yjs Struct Store & Updates, Automerge Change Graph & Columnar Storage, Local-First Sync Engine Case Study, Delta-State CRDT Anti-Entropy Case Study, Sequence CRDTs for Collaborative Text, Collaborative Undo/Redo Intention Stack, IndexedDB Object Store Case Study, and Write-Ahead Log next.',
+        `The first graph separates visible state from causal summary. That is the main proof. If a compaction keeps only the state node, it has built a fast export, not a syncable CRDT snapshot. The summary node is what lets the system say which operations are already included and what kind of diff a peer should receive.`,
+        `The garbage-collection view adds the second proof: deletion is blocked by future references. Offline peers, old snapshots, undo stacks, audit records, and tombstone anchors may all point at metadata that is absent from the rendered document. The visual is not arguing that history can never be removed. It is arguing that removal needs evidence and a product contract.`,
+      ],
+    },
+    {
+      heading: 'Why state vectors matter',
+      paragraphs: [
+        `A state vector is a compact description of what a replica has seen. Instead of sending a whole document, a peer can say, in effect, "I have updates through these clocks." The other side computes the missing difference. That is why a compacted snapshot must preserve causal summaries even when it no longer stores every old update individually.`,
+        `Heads play a similar role in systems that represent history as a graph of changes. They identify the current frontier. If two replicas have different frontiers, the sync protocol can reason about what is shared and what is missing. Without that frontier information, the system falls back to expensive full transfer or, worse, accepts updates whose dependencies it no longer understands.`,
+      ],
+    },
+    {
+      heading: 'Tombstones and safe garbage collection',
+      paragraphs: [
+        `Tombstones are deleted objects that still occupy structural space. They may preserve ordering, identity, or a place where later remote operations attach. In collaborative text, deleting a character does not always mean its identifier can vanish immediately. A remote insert may arrive that says it belongs after that deleted character. If the anchor disappeared, the replica may place the insert incorrectly or reject a valid update.`,
+        `Safe tombstone cleanup needs proof that no accepted future update can refer to the removed identifiers. Some systems get this proof from server-mediated acknowledgement, bounded offline windows, epoch resets, or explicit snapshot migration. Others avoid aggressive tombstone cleanup because their product values offline compatibility more than small storage.`,
+      ],
+    },
+    {
+      heading: 'Policy is part of the protocol',
+      paragraphs: [
+        `There is no universal retention rule. A regulated editor may keep archives for audit. A privacy-sensitive app may delete old data quickly after account removal. A personal notes app may allow devices to be offline for months. A public multiplayer document may prefer forcing old tabs to reload rather than carrying unlimited history.`,
+        `Those choices must be encoded. The snapshot format should say which base it represents. The sync protocol should say when a peer can receive a diff and when it must reset. The UI should handle reset without data loss. The storage layer should expose watermarks, retention windows, and tombstone counts so operators can see the cost of the policy they chose.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `Keeping more history maximizes compatibility, auditability, incremental sync, and debugging power. It also increases disk use, memory pressure, startup latency, wire bytes, privacy exposure, and migration cost. Aggressive compaction lowers those costs, but it can weaken undo, make old updates impossible to apply, or force peers to download full snapshots more often.`,
+        `Compaction also adds engineering complexity. The system needs background jobs, crash-safe checkpoint writes, versioned encodings, corruption checks, and tests that compare compacted and uncompacted behavior. A broken compactor is worse than no compactor because it silently rewrites the ground truth of the document.`,
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        `Compaction wins in notes, documents, whiteboards, design files, local-first databases, and any workspace where documents stay alive while devices appear and disappear. It is especially useful when most edits are old, active peers are near the current frontier, and a snapshot reset is acceptable for very stale replicas.`,
+        `It fails when the system cannot name its retention contract. If users expect unlimited offline editing, cross-device undo, permanent audit, and small storage all at once, the data structure cannot satisfy every demand. The design has to choose which future interactions remain supported after history is rewritten.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Yjs document updates at https://docs.yjs.dev/api/document-updates, the Yjs update API at https://github.com/yjs/yjs/blob/main/README.md, Automerge concepts at https://automerge.org/docs/reference/concepts/, the Automerge binary format at https://automerge.org/automerge-binary-format-spec/, and Automerge storage notes at https://automerge.org/blog/automerge-3/.`,
+        `Study Yjs Struct Store & Updates, Automerge Change Graph & Columnar Storage, Local-First Sync Engine Case Study, Delta-State CRDT Anti-Entropy Case Study, Sequence CRDTs for Collaborative Text, Collaborative Undo/Redo Intention Stack, IndexedDB Object Store Case Study, and Write-Ahead Log next.`,
       ],
     },
   ],

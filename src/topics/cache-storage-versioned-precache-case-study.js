@@ -200,17 +200,48 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Cache Storage is the browser storage layer service workers commonly use for offline application shells. It stores Request to Response pairs inside named Cache objects. The data-structure lesson is a versioned key-value namespace: a precache manifest defines the expected key set, install fills a new namespace, fetch performs lookups, and activate removes namespaces that are no longer safe.',
+        'An offline-capable web app needs a stable shell: HTML, JavaScript chunks, CSS, fonts, and small assets that should be available before the network answers. The browser HTTP cache can help, but it is not an application-owned deployment ledger. It does not tell the service worker which exact release files must move together.',
+        'Cache Storage gives a service worker named Request-to-Response maps. Versioned precaching turns those maps into release namespaces. A manifest names the required key set, install fills the new namespace, fetch reads from the active namespace, and activate deletes namespaces that are no longer safe.',
         'MDN describes CacheStorage.open as returning a named Cache and creating it when needed: https://developer.mozilla.org/en-US/docs/Web/API/CacheStorage. MDN Cache.addAll documents the install-time bulk fill pattern for a list of URLs: https://developer.mozilla.org/en-US/docs/Web/API/Cache/addAll.',
+      ],
+    },
+    {
+      heading: 'The obvious attempt',
+      paragraphs: [
+        'The naive service worker caches whatever it sees and later serves matching requests from that cache. That works for demos because one page, one script, and one stylesheet are easy to keep in your head.',
+        'It fails in real deployments because app shells are multi-file releases. Old HTML can point at deleted chunks. New JavaScript can load old CSS. A missing file can still leave a worker installed. Runtime images can crowd out core shell files. Without a versioned key set and lifecycle gate, the cache becomes a pile of remembered responses rather than a safe release artifact.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core data structure is a versioned key-value namespace. Each named Cache is a map from normalized Request keys to Response values. The precache manifest is the expected set for one release, usually using content hashes or explicit revisions so changed content gets a changed key.',
+        'The important invariant is atomic enough for users: the new worker should serve traffic only after every required shell asset for that release is present. Old caches stay alive while old controlled tabs may still need them. Cleanup is delayed until the service-worker lifecycle makes deletion safe.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The install-manifest view is proving that precaching is a release protocol, not a bag of cached files. A manifest names the exact request keys that make one app shell coherent: HTML entry, JavaScript chunks, CSS, fonts, icons, and other small static assets. The service worker opens a versioned cache, fills that set, and refuses to activate if a required member is missing. That is why the app can start offline without mixing release v43 HTML with release v44 chunks.',
+        'The update-cleanup view is about lifecycle safety. Old controlled tabs may still execute old code and ask for old chunks, so deletion must wait until the new worker is active and the old namespace is no longer needed. The visual should be read as a small garbage collector with an allowlist: keep the current release cache, keep any runtime buckets with their own policy, and delete only namespaces whose purpose and version are known. Cache correctness comes from set membership, content revision, and service-worker lifecycle order.',
+        'This is also why the manifest should stay boring. If the core shell is small, versioned, and deterministic, install failure is easy to reason about. If the manifest includes user documents, large media, or volatile API responses, the install step becomes slow and fragile. Precaching should protect the boot path; fresher and larger data needs separate runtime caching rules.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A build emits a manifest: URLs with revisions, or URLs whose filenames already include content hashes. The service worker install event opens a new cache, adds the manifest entries, and waits for that promise. If a required asset fails, install fails. That is the right failure mode: an incomplete offline shell is worse than keeping the old worker.',
+        'A build emits a manifest: URLs with revisions, or URLs whose filenames already include content hashes. The service worker install event opens a new cache, adds the manifest entries, and waits for that promise. If a required asset fails, install fails. Keeping the old worker is better than activating an incomplete shell.',
         'Fetch uses the active cache as a request map. For immutable shell assets, cache-first is safe because the key changes when the content changes. For mutable API data, the worker should use network-first, stale-while-revalidate, HTTP validators, or a query cache rather than blindly precaching live truth.',
+        'Activate is the garbage-collection gate. The new worker can enumerate cache names, keep the allowlisted release caches, and delete older namespaces after the active worker has changed. That separation prevents cleanup from racing old tabs.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Correctness comes from set membership and lifecycle order. The manifest says which keys must exist. The install promise proves those keys were stored before the worker can become active. The active worker uses one chosen namespace for shell reads, so it does not accidentally mix release v43 JavaScript with release v44 CSS.',
+        'Content hashes and revisions make staleness visible in the key. If the bytes change, the key changes or the manifest revision changes. If the key does not change, the worker can reuse the cached response without guessing about freshness.',
       ],
     },
     {
@@ -221,17 +252,31 @@ export const article = {
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Install cost is proportional to the bytes in the manifest. Fetch lookup is cheap relative to network, but request matching still has real overhead and every cached byte counts against origin storage. Runtime image caches can grow until quota pressure or explicit expiration removes them. The right design keeps the core shell small, separates runtime caches, and makes cache misses ordinary.',
+        'Install cost is proportional to the bytes and request count in the manifest. Fetch lookup is cheap relative to network, but request matching still has overhead, and every cached byte counts against origin storage. Runtime image caches can grow until quota pressure or explicit expiration removes them.',
+        'The design tax is discipline. The core shell must stay small, runtime caches need size and age policies, mutable API data needs a different strategy, and misses must be normal. Cache Storage is useful local storage, not a promise that the browser will keep every response forever.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Versioned precaching wins for application shells, documentation PWAs, courseware, dashboards, and tools where the same static release files are reused across sessions. It is especially useful when startup must work on flaky networks and the asset graph is known at build time.',
+        'It fails when the content is large, personalized, legally sensitive, or rapidly changing. API truth, user documents, generated reports, and unbounded media galleries need freshness, authorization, quota, and eviction rules beyond a release manifest.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
         'The hard update bugs are split code, old-tab deletion, and bad manifests. Split code happens when an old HTML file references chunks deleted by a new activation. Old-tab deletion happens when cleanup ignores service-worker lifecycle. Bad manifests happen when install does not fail on missing required files.',
+        'Another failure is cache sprawl. If shell, images, API responses, and temporary blobs share one bucket, cleanup becomes guesswork. Production workers usually separate cache names by purpose so each bucket has its own eviction policy.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: MDN CacheStorage at https://developer.mozilla.org/en-US/docs/Web/API/CacheStorage, MDN Cache at https://developer.mozilla.org/en-US/docs/Web/API/Cache, MDN Cache.addAll at https://developer.mozilla.org/en-US/docs/Web/API/Cache/addAll, MDN Service Worker API at https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API, and the W3C Service Workers specification at https://www.w3.org/TR/service-workers/. Workbox documents production precaching and route strategies at https://developer.chrome.com/docs/workbox/modules/workbox-precaching and https://developer.chrome.com/docs/workbox/caching-strategies-overview.',
-        'Study next: Service Workers & Offline-First, Service Worker Navigation Preload Race, HTTP Cache ETag Revalidation, HTTP Vary Cache-Key Normalization, Cache Invalidation & Versioning, LRU Cache, Resource Hints: Preload & Preconnect, Query Cache: Stale Time & GC, IndexedDB Object Store Case Study, OPFS Origin Private File System, Browser Storage Quota & Eviction Manager, Background Sync Outbox Queue, and Local-First Sync Engine Case Study.',
+        'Study next by role: Service Workers & Offline-First for the lifecycle, Service Worker Navigation Preload Race for fast network-first navigations, HTTP Cache ETag Revalidation and HTTP Vary Cache-Key Normalization for freshness and key design, Cache Invalidation & Versioning and LRU Cache for eviction ideas, IndexedDB Object Store Case Study and OPFS Origin Private File System for structured local data, Browser Storage Quota & Eviction Manager for storage pressure, and Background Sync Outbox Queue for offline writes.',
       ],
     },
   ],

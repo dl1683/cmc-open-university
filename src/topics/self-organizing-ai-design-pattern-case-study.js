@@ -331,52 +331,98 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'The self-organizing AI design pattern builds a system from many repeated local parts instead of one central controller. Each unit has local state, reads nearby signals, applies a shared or repeated rule, and changes the world a little. The global pattern is the long-run result of those local interactions.',
-        'This case study sits above Cellular Automata, Neural Cellular Automata, Quality Diversity: MAP-Elites, and Hebbian Plasticity Meta-Learning. It asks how those pieces become an engineering pattern: what state is local, what rule is shared, what nudges are allowed, how outcomes are archived, and what tests prove repair rather than only generation.',
+        "The self-organizing AI design pattern is useful when a system should grow, adapt, repair, or search from local interactions instead of following one central script. The designer defines repeated units, local state, local communication, update rules, environmental feedback, and evaluation pressure. The global behavior is the long-run outcome of many small updates.",
+        "This pattern connects cellular automata, neural cellular automata, Hebbian plasticity, quality-diversity search, intrinsic motivation, and open-ended evolution. Those topics can look separate at first. The unifying question is practical: how do we design a system whose parts can coordinate without a complete blueprint, and how do we prove that the resulting behavior is robust rather than merely interesting to watch?",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive Approach',
       paragraphs: [
-        'Start by deciding the unit of local state: grid cell, robot limb, synapse, module, agent, or controller. Define the neighborhood or communication graph. Define the update rule, which may be hand-written, learned by gradient descent, evolved, or adjusted by local plasticity. Then define the environment and evaluator. The evaluator should measure function, persistence, repair, and transfer, not only visual similarity.',
-        'A central planner can directly command a global structure. A self-organizing system is steered indirectly. You shape initial conditions, local rules, rewards, perturbation tests, and archives. This is why the local source corpus emphasizes nudges, quality diversity, intrinsic motivation, and open-ended search: the control problem is not just "train a model"; it is "shape a dynamical process."',
+        "The naive approach is to build a central controller. For an image-like pattern, store a target image and train a model to paint it. For a robot, train a policy that maps the full sensor state to motor commands. For a generated level, optimize directly toward one score. This can work when the environment is stable and the desired outcome is fixed.",
+        "The weakness appears when the system is damaged, resized, partially observed, or moved to a new environment. A central controller can memorize a trajectory instead of learning a repair process. A single objective can find one brittle optimum. A pretty rollout can collapse after a small perturbation. The system needs local rules and tests that reward recovery, variation, and transfer.",
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The Wall',
       paragraphs: [
-        'The system needs several explicit ledgers. The state ledger records what each unit stores and what it can observe. The rule ledger records which parameters are shared and which can adapt during lifetime. The perturbation ledger defines damage, noise, domain shift, and reset tests. The archive ledger maps behavior descriptors to elites. The transfer ledger records which rule, controller, or agent worked in which environment and whether it helps elsewhere.',
-        'MAP-Elites makes the archive concrete: behavior descriptors are coordinates, and each cell stores the best known candidate for that niche. POET-style systems make environment-agent pairs concrete: a challenge and a solver move together, and transfer between pairs becomes a search operator. IMGEP-style systems make self-generated goals concrete: the agent chooses goals by intrinsic progress instead of waiting for one external target.',
+        "The wall is indirect control. In a self-organizing system, the designer does not write every global state transition. The designer chooses state variables, neighborhoods, update rules, nudges, objectives, archives, perturbations, and evaluation windows. Small changes to those choices can create stable repair, endless drift, frozen dead states, or explosive growth.",
+        "The wall is also evidence. Emergent behavior is easy to overclaim. A single animation may show generation from one seed, but it does not prove persistence, repair, robustness, or transfer. A serious claim needs held-out damage tests, multiple starting conditions, long-run stability checks, and environments that differ from the ones used during search.",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight',
       paragraphs: [
-        'One local update can be cheap, often O(number of units) for a fixed neighborhood. The expensive part is unfolding time. You may need hundreds or thousands of simulation steps before the outcome is visible. Backpropagating through those steps can be memory-heavy. Evolutionary, quality-diversity, and intrinsic-motivation methods avoid some gradient costs but spend many evaluator calls. The right budget is simulation steps times candidate count times perturbation tests.',
-        'The payoff is robustness and compression. A repeated local rule can specify behavior for many units. Damage recovery can happen through the same dynamics that produced the original pattern. A repertoire can preserve alternatives instead of betting on one brittle optimum. The cost is that these systems are harder to inspect and harder to control directly.',
+        "The core insight is to move part of the program into repeated local dynamics. Each unit stores local memory, senses nearby state or messages, applies a shared or repeated rule, and changes itself or its environment. The same rule runs many times. If the rule creates a useful attractor, the system can return toward useful behavior after perturbation.",
+        "The second insight is to keep a repertoire, not just one winner. Open-ended and quality-diversity methods preserve multiple useful behaviors across niches. A repertoire gives later search stepping stones: small repairers, large movers, fragile but fast solutions, robust slow solutions, and environment-agent pairs that can transfer.",
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Mechanics',
       paragraphs: [
-        'Sebastian Risi frames the central claim: self-organizing systems use local interactions without a central blueprint, and the same process that builds a pattern can repair it after damage: https://sebastianrisi.com/self_assembling_ai/. The post connects NCAs, self-assembling robots, Hebbian plasticity, quality diversity, and intrinsic motivation into one research direction.',
-        'Lenia is the artificial-life case study. It is a continuous cellular automaton with continuous space, time, and state, and it supports many complex autonomous patterns discovered through exploration: https://arxiv.org/abs/1812.05433. A later Lenia paper studies large-scale open-ended evolution and reports design issues such as localized genetic information, environmental constraints, and convergence to dominant expanding patterns: https://arxiv.org/abs/2304.05639.',
-        'IMGEP gives the intrinsic-motivation version: agents self-generate goals, select goals using intrinsic rewards, search policies for those goals, and reuse knowledge across goals: https://arxiv.org/abs/1708.02190. POET gives the open-ended environment-agent version: it generates environments and optimizes agents together, while transferring solutions between challenges: https://arxiv.org/abs/1901.01753.',
+        "The first design choice is the unit. It might be a grid cell in a neural cellular automaton, a neuron or synapse in a plastic network, a robot module, an agent in a swarm, or a controller paired with an environment. The unit needs local state. It also needs a neighborhood or communication graph that defines what information can move where.",
+        "The second choice is the rule. The rule may be hand-written, learned with gradient descent, evolved by a population method, or adapted during lifetime through local plasticity. A neural cellular automaton, for example, can use a small neural network as the shared rule applied to each cell. Hebbian-style plasticity can update connections from local activity instead of from a global optimizer at every step.",
+        "The third choice is the evaluator. The evaluator should measure function, persistence, repair after damage, variation across seeds, and transfer to new conditions. If the evaluator only measures visual similarity or one narrow score, the system can exploit that score without becoming robust.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why It Works',
       paragraphs: [
-        'Emergence is not evidence by itself. A beautiful rollout may be a brittle attractor. A robust claim needs growth from multiple seeds, long-run persistence, repair after held-out perturbations, variation across initial conditions, and transfer to new environments. Otherwise the system may only memorize one target trajectory.',
-        'Open-endedness is also not free creativity. A bad descriptor preserves fake novelty. A weak evaluator gets exploited. A virtual world can converge to one dominant expansion trick. A robot or agent can solve the simulator and fail outside it. These systems need adversarial perturbations, held-out environments, archive audits, and resource constraints.',
+        "The pattern works when the local rule creates useful attractors. An attractor is a region of state space the dynamics tend to return toward. If damage pushes the system away from a target behavior but the rule and environment pull it back, repair is not a separate scripted procedure. It is the same dynamics that produced the behavior in the first place.",
+        "Quality-diversity works for a related reason. Many hard goals require stepping stones that do not look immediately optimal. A single objective may discard a strange candidate that later enables transfer. An archive indexed by behavior descriptors preserves candidates that are best within their niches, so search keeps multiple directions alive.",
+        "Intrinsic motivation and open-ended search extend the idea further. Instead of waiting for one external target, the system can generate goals, measure progress, mutate environments, and transfer agents across challenges. The goal is not random novelty. The goal is to create a stream of learnable problems that keep producing useful structure.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked Example',
       paragraphs: [
-        'Primary sources: Risi self-organizing AI at https://sebastianrisi.com/self_assembling_ai/, Growing Neural Cellular Automata at https://distill.pub/2020/growing-ca/, Lenia at https://arxiv.org/abs/1812.05433, open-ended Lenia evolution at https://arxiv.org/abs/2304.05639, IMGEP at https://arxiv.org/abs/1708.02190, POET at https://arxiv.org/abs/1901.01753, and MAP-Elites at https://arxiv.org/abs/1504.04909. Study Cellular Automata, Neural Cellular Automata, Quality Diversity: MAP-Elites, Hebbian Plasticity Meta-Learning, Evolutionary Search, Multi-Armed Bandits, and Policy Gradients next.',
+        "Imagine training a neural cellular automaton to grow a simple tool shape on a grid. Each cell stores hidden channels, reads nearby cells, and applies the same small neural update rule. Training samples a seed state, runs many update steps, compares the final pattern to the target, damages part of the pattern during some rollouts, and rewards recovery of useful shape and function.",
+        "A central painter could draw the target once. The self-organizing rule has to do more. It must grow from a seed, maintain the pattern across time, and repair after a patch of cells is erased. If the damaged system returns toward useful function, the rule has learned a repair attractor rather than a fixed drawing.",
+        "Now add an archive. Instead of preserving only the closest match to the target, store elites by size and behavior: small fragile patterns, medium repairers, large movers, and large repairers. A later search step can select a medium repairer, mutate its rule, and discover a large mover. Without the archive, that intermediate candidate might have been discarded because it was not the best single target score.",
+      ],
+    },
+    {
+      heading: 'What The Animation Teaches',
+      paragraphs: [
+        "The local-repair view shows the engineering loop. Cells hold state, sense nearby messages, apply a rule, produce a global pattern, face damage, receive evaluation, and may be nudged by training or selection. The key lesson is that repair is a stronger claim than generation. A system that can rebuild after perturbation has learned more than a one-shot output.",
+        "The open-ended-archive view shows why a repertoire matters. Seeds grow into behaviors, behaviors receive scores and descriptors, archive cells store elites, and selected elites mutate into new candidates. The archive matrix is the data structure that prevents search from collapsing into one winner too early.",
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        "One local update can be cheap, often proportional to the number of units when neighborhood size is fixed. The expensive part is unfolding time. A candidate may need hundreds or thousands of steps before its behavior is visible. If training backpropagates through all those steps, memory use can be high. If search uses evolution or quality diversity, evaluator calls can dominate the budget.",
+        "The right cost model is candidate count times rollout length times perturbation tests times environment variations. A single beautiful rollout is cheap. Evidence of repair and transfer is not. Systems that claim self-organization should pay for damage tests, seed variation, long-run persistence checks, and held-out environments.",
+        "The benefit is compression and robustness. A repeated local rule can govern many units. Repair can come from the same dynamics as growth. An archive can preserve multiple ways to solve related problems. The cost is lower direct control: you shape conditions and pressures rather than writing every final behavior.",
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        "The pattern wins when locality is natural. It fits cellular automata, morphogenesis-inspired models, swarm robotics, modular robots, adaptive controllers, distributed agents, procedural content, plastic networks, and artificial-life environments. In these domains, central state is often unavailable, expensive, brittle, or unrealistic.",
+        "It also wins when robustness matters more than one perfect nominal solution. A damaged robot, noisy sensor field, changing game environment, or growing pattern needs adaptation after deployment. Local dynamics and repertoire search can provide fallback behaviors that a single optimized policy would not preserve.",
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        "The pattern fails when the task truly needs precise global coordination and there is no useful local decomposition. It can also fail when the communication graph is wrong. If units need information that never reaches them, no clever local rule can infer it reliably.",
+        "It fails when the evaluator rewards appearance instead of function. A pattern can look alive and still be useless. A level generator can produce visual novelty with poor playability. A robot controller can exploit simulator quirks and fail in the real world. Emergence is not the same as capability.",
+      ],
+    },
+    {
+      heading: 'Failure Modes',
+      paragraphs: [
+        "Common failure modes include dead dynamics, runaway expansion, frozen attractors, brittle single-target behavior, fake novelty, archive domination by one family, descriptors that do not match useful diversity, simulator exploitation, and repair that only works for the exact damage seen during training.",
+        "The mitigations are concrete. Use multiple seeds, randomized damage, held-out perturbations, resource constraints, descriptor audits, transfer tests, and function-based metrics. Keep examples of failure in the archive too, because they reveal where the search pressure or local rule is mis-specified.",
+      ],
+    },
+    {
+      heading: 'Sources And Study Next',
+      paragraphs: [
+        "Sebastian Risi frames self-organizing AI around local interactions, growth, repair, and open-ended discovery. Growing Neural Cellular Automata shows how learned local update rules can grow and repair images. Lenia provides a continuous cellular-automata world for artificial life. MAP-Elites formalizes quality-diversity archives. IMGEP studies self-generated goals. POET pairs environment generation with agent optimization and transfer.",
+        "Study Cellular Automata, Neural Cellular Automata, Quality Diversity: MAP-Elites, Hebbian Plasticity Meta-Learning, Evolutionary Search, Multi-Armed Bandits, Policy Gradients, Swarm Intelligence, Reinforcement Learning, and Agent-Based Modeling next. They supply the local-rule, search, archive, and evaluation tools behind this design pattern.",
       ],
     },
   ],

@@ -73,7 +73,7 @@ function* dynamicBytePatches() {
       ],
     ),
     highlight: { active: ['bytes:unit', 'bytes:cost'], compare: ['bpe:cost'] },
-    explanation: 'Byte Latent Transformer starts from raw UTF-8 bytes instead of a fixed BPE vocabulary. The problem is that bytes are too many time steps, so BLT groups them into dynamic patches and runs the expensive global transformer less often.',
+    explanation: 'Byte Latent Transformer starts from raw UTF-8 bytes instead of a fixed BPE vocabulary. The naive byte baseline is universal but too long. BLT keeps byte coverage, then groups bytes into dynamic patches so the expensive global transformer runs on fewer steps.',
   };
 
   yield {
@@ -94,7 +94,7 @@ function* dynamicBytePatches() {
       ],
     }),
     highlight: { active: ['entropy'], found: ['cut1', 'cut2', 'cut3'] },
-    explanation: 'BLT segments bytes based on next-byte entropy. Predictable spans can become longer patches; high-entropy regions get shorter patches and more compute. This is a data-dependent compute allocation rule.',
+    explanation: 'Read the peaks as uncertainty. Predictable byte spans can be packed into longer patches; high-entropy spans get shorter patches and more local modeling. The patch policy is a compute allocation rule, not a linguistic tokenizer.',
     invariant: 'Low entropy gets longer patches; high entropy gets more local resolution.',
   };
 
@@ -151,7 +151,7 @@ function* fastByteGeneration() {
       ],
     ),
     highlight: { active: ['byteAR:bottleneck'], found: ['draft:step shape', 'diffuse:step shape'] },
-    explanation: 'The May 2026 Fast BLT paper targets a practical problem: byte-level language models avoid tokenization, but naive byte-by-byte autoregressive generation is slow.',
+    explanation: 'The May 2026 Fast BLT paper targets the serving bottleneck: byte-level models avoid tokenizer edge cases, but one full forward pass per byte is too slow for generation. The rest of this view is about reducing expensive passes per output span.',
   };
 
   yield {
@@ -230,42 +230,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why BLT exists',
       paragraphs: [
-        'Byte Latent Transformer (BLT) is a tokenizer-free LLM architecture introduced in "Byte Latent Transformer: Patches Scale Better Than Tokens." Instead of committing to a fixed BPE or SentencePiece vocabulary, BLT trains directly on raw UTF-8 bytes. To avoid the obvious cost problem - byte sequences are much longer than token sequences - it groups bytes into dynamically sized patches and runs the expensive global transformer over those patches.',
-        'The patch boundaries are based on next-byte entropy. Predictable spans can be represented with longer patches; difficult spans get shorter patches and more local resolution. That makes BLT a concrete example of adaptive computation: spend more model capacity where the data is information-dense and less where it is predictable.',
+        'Byte Latent Transformer, or BLT, is a tokenizer-free language-model architecture from Byte Latent Transformer: Patches Scale Better Than Tokens. It starts from raw UTF-8 bytes instead of a fixed subword vocabulary. That removes a large design dependency from the model stack. There is no out-of-vocabulary token. Messy Unicode, rare identifiers, code, spelling variation, and multilingual text are all represented as bytes.',
+        'The obvious problem is length. A byte sequence is much longer than a BPE token sequence. Running a full transformer step at every byte position would make training and generation expensive. BLT keeps byte universality but groups bytes into dynamically sized patches. The expensive global transformer works over patch states rather than individual bytes, while local modules preserve byte-level detail.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and wall',
       paragraphs: [
-        'BLT separates local byte modeling from global patch reasoning. A local encoder turns byte spans into patch representations. A global latent transformer reasons over those patch states. A local decoder produces bytes again. The architecture keeps the universality of bytes while avoiding a full transformer step for every byte position.',
-        'The 2026 Fast Byte Latent Transformer follow-up attacks generation speed. Byte-level autoregressive generation can be slow if it emits one byte per forward pass. Fast BLT variants use block-wise diffusion objectives, self-speculation, and diffusion-plus-verification to generate or draft multiple bytes per expensive pass. This connects directly to Speculative Decoding and Transformer Inference Roofline: fewer memory-bound decode passes can matter as much as model quality.',
+        'The obvious approach is subword tokenization. BPE and related tokenizers compress common strings into reusable units, keep sequence length manageable, and fit well with existing transformer serving systems. They are not a mistake. They are one reason modern language models became efficient enough to train and serve at scale.',
+        'The wall is that a fixed tokenizer is a brittle interface. Token boundaries are chosen before model training and cannot adapt to each context. Common strings receive compact units while rare strings fragment. Some languages, code patterns, byte sequences, or noisy user inputs are represented awkwardly. Tokenization also leaks into product behavior: context accounting, safety filters, evaluation, sampling, and APIs often inherit tokenizer quirks. A byte model avoids that vocabulary boundary, but it must solve the compute problem that tokenizers were hiding.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'BLT trades tokenizer complexity for architecture complexity. It removes a fixed vocabulary and the weird edge cases of subword segmentation, but it introduces entropy-based patching, local byte encoders and decoders, and serving questions around patch boundaries. For fixed inference cost, the original paper reports better scaling trends than tokenization-based architectures by growing both patch size and model size.',
-        'The serving cost must be measured by phase. Prefill, decode, KV cache residency, batch size, and memory bandwidth all matter. A byte model that improves long-tail text handling but streams too slowly may be unattractive. A fast byte model that drafts several bytes per pass but loses quality needs verification. The architecture belongs in the same mental bucket as Transformer Inference Roofline, KV Cache, LLM Continuous Batching, and PagedAttention.',
+        'The core insight is dynamic granularity. Not every byte deserves the same amount of global computation. Predictable spans can be packed into larger patches. High-entropy spans need shorter patches and more local resolution. BLT estimates next-byte uncertainty and uses that signal to decide patch boundaries. Compute follows information density rather than a fixed tokenizer vocabulary.',
+        'This changes the basic unit of modeling. The model still sees bytes, but the global transformer reasons over learned latent patch representations. Local encoders and decoders handle the byte details inside a patch. The global model spends its capacity on fewer, richer units. The invariant is that the raw byte sequence remains recoverable and modelable, while expensive global attention is paid per patch rather than per byte.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'Tokenizer-free models are attractive for multilingual text, code, rare strings, messy Unicode, URLs, identifiers, spelling-sensitive tasks, and long-tail generalization. They avoid out-of-vocabulary behavior because every text is bytes. The hard question is whether dynamic patches can keep training and inference efficient enough to compete with heavily optimized token-based stacks. Perceiver IO is a useful companion study because it attacks the adjacent interface problem: how huge raw inputs can be read into a fixed latent memory before task-specific decoding.',
+        'A BLT implementation needs a byte stream, an entropy or patching policy, local byte encoders, patch state buffers, a global latent transformer, local byte decoders, and metadata that maps byte positions to patch positions. The patching policy is the data-structure hinge. It decides which bytes become one latent unit and which spans should be split more finely.',
+        'The global transformer is expensive because attention cost grows with the number of global units. The local modules are cheaper and closer to the raw bytes. This separation resembles other bottleneck architectures: detailed input lives at the edge, and a smaller latent sequence carries the information that deserves global reasoning. The design avoids a fixed vocabulary, but it introduces new state that tokenized systems do not have: patch boundaries, local decode state, byte-to-patch maps, and entropy-model behavior.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'BLT does not mean tokenization instantly disappears from production. Tokenizers are deeply integrated with serving APIs, context accounting, sampling, safety filters, and evaluation harnesses. BLT also does not make language easier by itself; it changes the units of computation and the inductive bias. The right comparison is compute-controlled quality, latency, memory traffic, robustness, and operational simplicity.',
+        'BLT works when the patching policy preserves the useful local detail while reducing the number of expensive global steps. Low-entropy bytes are often predictable from nearby context. Spending a global transformer state on every one of them is wasteful. High-entropy spans are where the model needs more representational attention. Entropy-based patching gives those spans more resolution.',
+        'The correctness argument is again architectural rather than exact. A tokenizer-based model assumes a fixed segmentation is a good compression of text for all contexts. BLT assumes segmentation should be learned or computed from uncertainty. If that uncertainty signal aligns with real modeling difficulty, the global model gets a better quality-cost tradeoff. The BLT paper reports that byte-level models can match tokenized models at scale while improving inference efficiency and robustness under controlled comparisons.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Generation bottleneck',
       paragraphs: [
-        'Primary sources: Byte Latent Transformer at https://arxiv.org/abs/2412.09871, the official code at https://github.com/facebookresearch/blt, and Fast Byte Latent Transformer at https://arxiv.org/abs/2605.08044. Study Tokenization (BPE), The Transformer Block, Attention Mechanism, Perceiver IO Latent Array Bottleneck, KV Cache, Transformer Inference Roofline, Speculative Decoding, and LLM Serving: PagedAttention next.',
+        'Training over byte patches is only half the story. Generation is the serving wall. A naive byte-level autoregressive model can require too many forward passes because it emits very small units. Even if the global model operates over patches, serving has to produce exact bytes in order. Decode is often memory-bandwidth bound, so reducing expensive forward passes per output span can matter as much as reducing FLOPs.',
+        'The May 2026 Fast Byte Latent Transformer paper targets this bottleneck. BLT Diffusion trains a block-wise diffusion objective so the decoder can generate multiple future bytes in parallel. BLT Self-speculation lets the local decoder draft beyond normal patch boundaries and verifies the draft with the full model. BLT Diffusion plus Verification combines diffusion drafts with an autoregressive verification step. The shared mechanism is draft or generate more bytes per expensive pass, then use verification or training design to control quality loss.',
+      ],
+    },
+    {
+      heading: 'Cost behavior',
+      paragraphs: [
+        'BLT trades tokenizer complexity for model and runtime complexity. It removes a fixed vocabulary, but it adds local models, patching policy, patch metadata, and byte-level serving logic. The original BLT result is important because it studies fixed inference cost: larger patches can reduce the number of global steps, and the saved compute can be spent on a larger or stronger latent transformer. That creates a scaling dimension tokenized models do not have in the same way.',
+        'The operational cost must be measured by phase. Prefill cost depends on how many patch states represent the input. Decode cost depends on how many full-model passes are needed per output bytes. KV cache residency, batching, patch-boundary variance, memory bandwidth, verification overhead, and safety filters all matter. A tokenizer-free model that improves long-tail robustness but streams too slowly may still lose in production.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'BLT is useful where tokenization is a real source of error or cost. Multilingual text, mixed scripts, code, URLs, identifiers, hashes, biomedical strings, legal citations, noisy OCR, spelling-sensitive tasks, and adversarial text can all expose subword quirks. Byte coverage is a clean promise: any text is representable because bytes are the base alphabet.',
+        'It is also useful as a systems lesson. BLT shows that the input unit of a model is not just a preprocessing choice. It is a data structure that controls compute, robustness, cache behavior, and product semantics. The same idea appears in Perceiver-style latent arrays, adaptive token banks, retrieval systems, and image patching. Choose the unit poorly and the model spends work in the wrong places.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'BLT is not automatic replacement for tokenized LLMs. Tokenizers are deeply integrated into deployed stacks. Rate limits, context windows, billing, safety filters, evaluation harnesses, prompt tooling, and model APIs all assume token units. A byte model changes those contracts. Even if quality is strong, the migration cost can be high.',
+        'The architecture can also fail if the patching policy is wrong. Overly long patches can hide distinctions that matter. Overly short patches give back the byte-length cost. Entropy estimates can be noisy on rare domains. Fast generation variants can trade quality for speed if drafts are weak or verification is too loose. The system needs honest compute-controlled comparisons, not claims based on one favorable phase of inference.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track bytes per patch, patch-count distribution, entropy thresholds, prefill latency, decode bytes per full-model pass, KV cache memory, verification acceptance rate, memory-bandwidth cost, p50 and p99 latency, quality by language and script, code-task accuracy, rare-string behavior, and safety-filter compatibility. Good dashboards should show when text becomes many small patches, because that is where cost can surprise operators.',
+        'Evaluation should compare BLT against strong tokenized baselines at matched training FLOPs, matched inference cost, and matched serving constraints. Include long-tail text, clean common text, multilingual samples, code, structured strings, and generation latency. The claim to test is not that bytes are more elegant. The claim is that dynamic byte patches produce better robustness and efficiency under the same budget.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources are the BLT paper at https://arxiv.org/abs/2412.09871, the Meta AI publication page at https://ai.meta.com/research/publications/byte-latent-transformer-patches-scale-better-than-tokens/, the official code at https://github.com/facebookresearch/blt, and Fast Byte Latent Transformer at https://arxiv.org/abs/2605.08044.',
+        'Study byte-pair encoding, Unicode and UTF-8, attention, transformer inference rooflines, KV cache layout, PagedAttention, speculative decoding, block diffusion language models, Perceiver IO, and adaptive token banks next. The bigger lesson is dynamic granularity: the best unit of computation is often not the raw symbol and not a fixed vocabulary item, but a learned or computed span whose size follows information density.',
       ],
     },
   ],

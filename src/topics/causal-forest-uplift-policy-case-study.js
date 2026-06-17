@@ -226,37 +226,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A causal forest estimates heterogeneous treatment effects: how much a treatment changes an outcome for different kinds of units. It adapts random-forest neighborhoods to causal questions, then ranks units by predicted uplift for policy targeting.',
-        'This is different from predicting who will buy, churn, recover, or click. Uplift asks who changes because of treatment. A high-probability user may have low uplift if they would act anyway.',
+        'Many interventions should not be sent to everyone. A coupon costs money. A notification can annoy a user. A retention call can waste staff time. A clinical treatment can carry risk. The useful targeting question is not "who has a high outcome probability?" It is "whose outcome changes because of the intervention?"',
+        'Causal forests exist for that question. They estimate heterogeneous treatment effects: how the effect varies by covariates. A policy can then target the people whose predicted incremental gain is large enough to justify cost, capacity, and risk.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is response modeling. Train a model to predict who will buy, renew, recover, or click, then target the highest scores. That often sends treatment to people who would have acted anyway. High response is not the same as high uplift.',
+        'The other obvious approach is to estimate one average treatment effect and apply it to every person. That hides the policy problem. The average may be positive while one segment benefits strongly, another segment is unaffected, and a third segment is harmed.',
+        'The wall is causal identification. A forest can discover structure, but it cannot create counterfactual evidence out of nothing. Randomized treatment logs are strongest. Observational logs still need overlap, propensity modeling, outcome nuisance models, and defensible assumptions.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A causal forest builds adaptive neighborhoods where treated and control outcomes can be compared locally. Instead of asking for one global effect, it asks which training examples are most relevant for estimating the effect at this user, patient, account, or case.',
+        'Many honest trees create those neighborhoods. Each tree routes a unit to a leaf. Across the forest, the leaves define weights over similar examples. Those weighted examples are used to estimate the conditional average treatment effect, often called CATE.',
+      ],
+    },
+    {
+      heading: 'What to inspect in the visual',
+      paragraphs: [
+        'In the honest-leaves view, watch the data split into roles. Some data chooses tree structure. Different data estimates treatment effects inside the leaves. That separation is the honesty idea: the tree should not both search for a noisy effect pattern and then claim the same noise as evidence.',
+        'In the uplift-policy view, focus on the ranking decision. The policy is not choosing the people with the highest raw outcome probability. It is choosing people whose estimated incremental effect, after cost and constraints, is worth acting on.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Causal forests build many trees that split on covariates to find leaves where treatment effects differ. Honest estimation separates split selection from effect estimation. Modern generalized random forest workflows also estimate nuisance functions such as outcome baselines and propensity scores, then use residualized comparisons to estimate CATE.',
-        'The policy layer ranks units by estimated effect minus cost, then applies eligibility, fairness, capacity, and safety constraints. Offline uplift ranking should be verified by randomized holdouts whenever possible.',
+        'Training starts with logs containing covariates X, treatment T, and outcome Y. In a randomized experiment, T came from the experiment. In observational data, treatment assignment must be modeled and checked more carefully.',
+        'The forest grows trees that split on covariates to expose treatment-effect variation. Honest estimation separates split selection from effect estimation. Modern generalized random forest workflows also estimate nuisance functions: the expected outcome m(x) and the propensity e(x). Residualized comparisons reduce bias from baseline outcome differences and unequal treatment assignment.',
+        'At prediction time, the forest gives a CATE estimate for each candidate. The policy layer then converts that estimate into an action: predicted uplift minus treatment cost, subject to budget, fairness, eligibility, safety, and capacity constraints.',
       ],
     },
     {
-      heading: 'Complete case study: retention coupon',
+      heading: 'Why it works',
       paragraphs: [
-        'A subscription company wants to send retention coupons. A normal response model targets users likely to renew, wasting coupons on people who would renew anyway. A causal forest estimates incremental renewal lift and finds that new price-sensitive users respond strongly, loyal users barely move, and some churn-risk users react negatively.',
-        'The policy treats the top uplift slice under a budget constraint and keeps a randomized holdout. The business evaluates incremental renewals and coupon cost, not raw renewal rate among targeted users.',
+        'It works when treatment effects vary by observed covariates and the data contains comparable treated and control evidence near the unit being scored. The forest is useful because it searches for local effect structure without forcing the analyst to hand-code every interaction.',
+        'Honesty helps because effect heterogeneity is noisy. If the same rows choose the split and estimate the effect, a tree can chase random differences. Splitting the roles lowers that adaptive bias. Averaging many trees then stabilizes the local neighborhoods.',
+        'The policy works because it shifts the target from raw outcome probability to incremental value. A customer with an 80 percent renewal probability and 1 percent uplift is a worse coupon target than a customer with a 31 percent renewal probability and 14 percent uplift.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'A causal forest is not a confounding eraser. If treatment assignment is observational, the estimate depends on measured covariates, overlap, nuisance models, and causal assumptions. Without comparable treated and control examples in a region, leaf estimates are extrapolation.',
-        'Do not optimize only for uplift rank offline. Policies can fail under capacity limits, fairness constraints, treatment interference, delayed outcomes, or targeting feedback loops. Always separate estimation from policy evaluation.',
+        'The first cost is data. Honest forests spend data on split selection and effect estimation separately, so small datasets can become unstable. Leaves also need enough treated and control evidence. A beautiful tree structure is useless if a leaf has no real comparison.',
+        'The second cost is causal discipline. Observational data needs overlap checks, propensity diagnostics, outcome nuisance modeling, and sensitivity analysis. Randomized holdouts are still needed to validate a targeting policy before it is trusted.',
+        'The third cost is policy feedback. Once the model targets people, future data is no longer neutral. The system may stop observing untreated outcomes for high-uplift users, capacity limits can change who receives treatment, and user behavior can adapt to the policy.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Generalized Random Forests at https://arxiv.org/pdf/1610.01271 and the grf project at https://grf-labs.github.io/grf/. Study Random Forest, Doubly Robust Estimation, Propensity Score Overlap Diagnostics, Causal Graphs, A/B Testing, and Multi-Armed Bandits next.',
+        'Causal forests win when the goal is a budgeted intervention and effects plausibly differ across people. They fit retention coupons, marketing campaigns, medical treatment targeting, collections outreach, student support programs, product nudges, and fraud review policies.',
+        'They are especially useful when the organization can act on a ranked list. The value is not just an effect estimate; it is a treatment policy that can say who should be treated first under a fixed budget.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when treatment assignment is confounded by missing variables. If sales reps chose who got a discount based on private judgment that is absent from the data, the forest can learn a precise but biased targeting rule.',
+        'It fails when overlap is weak. A leaf with treated examples but no comparable controls is not estimating a local treatment effect; it is extrapolating. It also fails when treatment spills over between units, outcomes arrive late, or the policy changes user behavior in ways the training data never observed.',
+      ],
+    },
+    {
+      heading: 'Worked case study',
+      paragraphs: [
+        'A subscription company can send a 20 percent renewal coupon to only 20,000 users. A normal response model ranks loyal users first because they have the highest renewal probability. Finance notices the campaign looks good by renewal rate but bad by profit because many targeted users would have renewed anyway.',
+        'The company runs a randomized coupon experiment and trains a causal forest on pre-treatment covariates: tenure, usage trend, support tickets, plan price, prior discounts, renewal date, and product surface. The forest estimates that new price-sensitive users have +14 percentage points of renewal uplift, loyal heavy users have +1 point, and some chronic discount seekers have negative margin impact.',
+        'The policy ranks users by estimated renewal uplift times margin minus coupon cost. It treats the top budget-constrained slice and keeps a randomized holdout inside each score band. The final report shows incremental renewals, net margin, and a Qini-style uplift curve. It does not report the raw renewal rate of treated users as success, because that would reward targeting people who were going to renew anyway.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Keep features pre-treatment. A variable measured after the coupon, message, or clinical intervention can leak the treatment effect into the model and make the policy look stronger than it is. Lock the feature timestamp before assignment, and audit every high-importance feature for leakage.',
+        'Validate the policy with randomized holdouts, not only offline fit. Report incremental outcome, incremental profit or harm, treatment cost, calibration by score band, and uncertainty. A good uplift score is useful only if acting on the top band beats the next best targeting rule under the same budget and eligibility rules.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Generalized Random Forests at https://arxiv.org/pdf/1610.01271 and the grf project at https://grf-labs.github.io/grf/.',
+        'Study Random Forest, Doubly Robust Estimation, Propensity Score Overlap Diagnostics, Causal Graphs, A/B Testing, and Multi-Armed Bandits next.',
       ],
     },
   ],

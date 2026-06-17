@@ -167,41 +167,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Borg is Google\'s cluster management system. It admits, schedules, starts, restarts, and monitors jobs across large cells of machines. It runs both long-lived services and batch jobs, which lets Google share infrastructure while preserving production reliability.',
-        'The case study matters because cluster scheduling is where algorithms become operations. Bin packing, priorities, quotas, health checks, failure handling, isolation, and policy all meet in one system.',
+        `A datacenter is not useful just because it owns many machines. The hard problem is turning those machines into a shared computer where production services stay healthy, batch jobs use spare capacity, failures are handled quickly, and teams do not hand-place processes one host at a time.`,
+        `Borg is Google's cluster management system for that problem. The Borg paper describes a system that admits, schedules, starts, restarts, and monitors jobs across cells of machines. Its educational value is that scheduling is not only bin packing. It is resource allocation under priority, quota, isolation, locality, health, and failure constraints.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The obvious approach is direct placement. A team picks machines, starts processes, writes scripts to restart them, and reserves extra capacity so production does not fight experiments. That works for a small fleet because the mental model fits in a few people's heads.`,
+        `The wall appears when the fleet becomes heterogeneous and shared. One team over-reserves, another fills a rack with correlated replicas, a machine dies, a batch job starves a service, and no one can tell whether the cluster is wasting capacity or protecting reliability. Manual placement loses both efficiency and control.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `Make desired work declarative and let a control plane continuously reconcile it with the actual cluster. Users submit jobs made of tasks. The system stores desired state, checks policy, chooses machines, starts tasks, watches health, and repairs drift when machines or tasks fail.`,
+        `The scheduler is the policy point. It does not simply find any machine with enough CPU and memory. It considers constraints, priority, quota, locality, anti-affinity, machine health, and disruption cost. Good placement is a resource fit plus an operational decision.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `In the placement view, follow the job from user API to Borgmaster to scheduler to candidate machines. The scheduler edges represent scoring, not blind first-fit placement. A highlighted machine matters only if it satisfies the job's resource request and policy constraints.`,
+        `In the packing frame, compare the service task and the batch task. The service wants stability, low latency, and protection from correlated failure. The batch task wants throughput and can often tolerate preemption. Borg's utilization gain comes from mixing them without pretending they have the same priority.`,
+        `In the priority and failure view, removed tasks are not visual noise. They show preemption or loss. The important state change is that lower-priority work gives way under pressure, and failed work is rescheduled only if the application and policy allow restart.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Users submit jobs made of tasks. The control plane stores job state and the scheduler picks machines for tasks based on resource requests, constraints, priorities, locality, and current machine state. Agents on machines start and monitor tasks, while the control plane restarts or reschedules failed tasks.',
-        'Borg mixes services and batch work. High-priority production tasks get stronger guarantees. Lower-priority batch tasks can use spare capacity and be preempted when needed. This raises utilization without treating all work as equally urgent.',
+        `A Borg job describes one or more tasks, their resource needs, constraints, priority, and runtime behavior. The Borgmaster stores cluster state and exposes the control surface. The scheduler chooses placements. Borglets on machines start tasks, monitor them, and report state back to the control plane.`,
+        `Placement has two phases in the mental model. First, filter out machines that cannot legally run the task: not enough resources, wrong attributes, bad health, violated constraints, or quota limits. Second, score feasible machines according to policy: spread replicas, improve packing, keep data local, avoid hot spots, and reduce correlated failure risk.`,
+        `Borg mixes long-running services with batch jobs. High-priority production tasks receive stronger protection. Lower-priority batch jobs can fill idle resources and be preempted when capacity is needed elsewhere. That is how the system improves utilization without making all work equally important.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'The scheduler must balance utilization, reliability, fairness, locality, and disruption. Overpacking causes interference. Underpacking wastes machines. Preemption improves availability for important work but creates churn for low-priority jobs. Health checks and restart policy can save a service or amplify a bad rollout.',
+        `The invariant is reconciliation toward declared intent under policy. If a task should be running and its machine dies, the control plane can mark the task lost and try to place it elsewhere. If a low-priority task consumes capacity needed by a high-priority service, preemption restores the priority rule. If replicas are too concentrated, placement policy can spread future work across failure domains.`,
+        `This works because the system separates application intent from machine accident. Users declare what should run. The platform observes what is actually running. The scheduler and restart logic close the gap. The application still has responsibilities: idempotent startup, persistent state design, readiness checks, graceful shutdown, and backpressure.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Worked example',
       paragraphs: [
-        'Borg influenced Kubernetes, Mesos, Nomad, and modern cloud orchestration. Its ideas appear anywhere teams run services and batch workloads on shared fleets: jobs, tasks, desired state, health checks, resource isolation, placement rules, quotas, and priorities.',
+        `Suppose a frontend service needs ten replicas across failure domains and a log-processing batch job needs thousands of CPU-hours. A simple bin-packer might place work wherever CPU and memory fit. Borg-style scheduling adds policy. Frontend replicas should spread across racks or machines, keep enough reserved resources, and restart quickly. Batch tasks can pack tightly into spare capacity and lose their slots when production needs them.`,
+        `Now machine 1 fails. The platform can notice missing health signals, mark the affected tasks lost, and ask the scheduler for new placements. If the frontend handles restart cleanly, users see little disruption. If the service stores local-only state or has slow startup, the scheduler cannot save it. Borg makes failure handling a platform behavior, not an application correctness proof.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'A cluster scheduler cannot make unreliable applications reliable by itself. It can restart tasks and isolate resources, but the service still needs idempotent startup, persistent state design, readiness signals, graceful shutdown, and backpressure. Another misconception is that high utilization is automatically good; without isolation and priority, utilization becomes interference.',
+        `The scheduler balances utilization, reliability, fairness, locality, and disruption. Overpacking raises utilization and can cause interference. Underpacking protects latency and wastes machines. Preemption protects important work and creates churn for lower-priority jobs. Locality saves network or disk work and can concentrate risk.`,
+        `The control plane also becomes critical infrastructure. It needs durable state, careful rollout discipline, observability, and simulation or analysis tools. A bad scheduler policy can move a problem from one host to the whole fleet.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary source: "Large-scale cluster management at Google with Borg" at https://research.google.com/pubs/archive/43438.pdf. Study Load Balancer, Sharding & Partitioning, Bulkheads & Resource Isolation, Circuit Breakers & Deadlines, Load Shedding & Graceful Degradation, and Backpressure & Flow Control next.',
+        `A Borg-style scheduler wins when many teams share a fleet and run mixed workloads: serving systems, batch analytics, ML training, cron jobs, canaries, and experiments. Shared scheduling lets the organization buy fewer idle machines while still protecting production work with priority, quota, isolation, and health rules.`,
+        `The ideas show up in Kubernetes, Mesos, Nomad, and cloud orchestration because the underlying problem is common. Jobs and tasks describe work. Schedulers bind work to nodes. Health checks and restart policy repair drift. Priority and quota encode fairness under scarcity.`,
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        `Do not use a Borg-scale mental model for a tiny deployment that fits on one host or a simple managed platform. The overhead is real: declarative specs, control-plane operation, debugging placement, capacity modeling, and rollout policy.`,
+        `It is also the wrong abstraction for application-level load distribution. A cluster scheduler chooses where processes run. A load balancer chooses where requests go. A queue decides when work is consumed. Mixing those responsibilities makes outages harder to reason about.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The common failure is treating utilization as the only goal. High CPU graphs can mean efficient sharing or widespread interference. Without isolation, priority, and backpressure, spare-capacity batch work can damage latency-sensitive services.`,
+        `Another failure is restart optimism. Restarting a broken binary faster only creates a faster crash loop. Health checks, readiness signals, canaries, circuit breakers, and rollback policy decide whether restart is recovery or amplification.`,
+        `A third failure is hidden coupling. If all replicas land in the same rack, depend on the same storage path, or start at the same time after a failure, the scheduler can create correlated outages while appearing to satisfy resource requests.`,
+      ],
+    },
+    {
+      heading: 'Study next and sources',
+      paragraphs: [
+        `Study Load Balancer next to separate process placement from request routing. Study Sharding & Partitioning for data placement, Bulkheads & Resource Isolation for blast-radius control, Circuit Breakers & Deadlines for failing dependencies, Load Shedding & Graceful Degradation for overload policy, and Backpressure & Flow Control for producer-consumer stability.`,
+        `Primary source: Large-scale cluster management at Google with Borg at https://research.google.com/pubs/archive/43438.pdf. For the modern open-source descendant vocabulary, compare Kubernetes scheduling, node affinity, taints, tolerations, priority, preemption, and eviction in the official Kubernetes docs at https://kubernetes.io/docs/concepts/scheduling-eviction/.`,
       ],
     },
   ],

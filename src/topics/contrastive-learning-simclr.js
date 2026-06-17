@@ -230,42 +230,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this topic exists',
       paragraphs: [
-        'SimCLR is a contrastive self-supervised learning framework. It learns visual representations without human labels by creating two augmented views of the same image and training the encoder to place those two views close together while pushing views from other images away. The model is not told "this is a dog." It is told "these two distorted views came from the same source image; those others did not."',
-        'The local notes highlight the key teaching point: data augmentation is not a side trick here. It defines the learning task. Random cropping, resizing, color distortion, and blur tell the encoder what variation should be ignored. If the augmentations are too weak, the task is trivial. If they destroy the semantic object, the task becomes noisy.',
+        `Deep vision models used to depend heavily on labeled datasets. Labels are expensive, slow, inconsistent, and often too narrow. A hospital may have millions of scans but only a small number with expert annotations. A retailer may have product photos but no clean taxonomy. A robot may collect frames continuously while only a small fraction receive task labels. The question behind SimCLR is simple: can the model learn useful visual features before humans label the data?`,
+        `Contrastive self-supervision answers yes by creating a training signal from the data itself. SimCLR does not ask a human to name the object. It takes one image, creates two distorted views, and trains the model to recognize that those views came from the same source. At the same time, it pushes views from other images away. The result is an encoder that can be reused for classification, retrieval, clustering, detection, or fine-tuning with fewer labels.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approaches',
       paragraphs: [
-        'A minibatch of images is augmented twice, producing two views per image. Both views pass through the same Convolution encoder and then through a projection MLP. The NT-Xent loss compares each view against the other views in the batch. Its positive is the sibling view from the same image. Its negatives are the views from other images. Softmax & Temperature controls how sharply similarity scores are converted into probabilities.',
-        'After pretraining, the projection head is often discarded and the encoder representation is evaluated with a linear probe or fine-tuned on a labeled task. This is why contrastive learning connects to Embeddings & Similarity: it shapes a space where semantic closeness becomes geometric closeness.',
+        `The first naive approach is supervised training from scratch. Collect labels, train a classifier, and hope the representation generalizes. This works when labels are abundant and aligned with the deployment task. It fails when labels are scarce, expensive, noisy, or too specific. A classifier trained only to separate a fixed set of classes may learn features that are good for that label set but weak for retrieval, anomaly detection, or a new domain.`,
+        `The second naive approach is reconstruction. An autoencoder can hide part of an image and train the network to rebuild pixels. Reconstruction gives a self-supervised signal, but it can spend capacity on low-level detail that is not semantically useful. A model can become good at color, texture, and local continuity without learning an embedding space where related objects are close. SimCLR shifts the target from "rebuild the pixels" to "learn invariances that make two views of the same image agree."`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'SimCLR benefits from large batches because more examples provide more negatives. That creates a richer classification problem but raises accelerator memory and synchronization costs. The paper also reports benefits from more training steps and larger models. This links the method to Batch Size Scaling: self-supervised representation learning can be more hungry for batch and compute than the supervised baseline.',
-        'The biggest design cost is choosing augmentations. Strong color distortion helped in SimCLR because color can be a shortcut. Random cropping helped define global and local views without specialized architecture. But different domains need different invariances. Medical images, satellite images, code, audio, and product photos should not inherit ImageNet augmentations blindly.',
+        `The core insight is that augmentations define identity. If two random crops, color distortions, and blurs come from the same image, SimCLR treats them as a positive pair. The model is trained to keep them close in representation space. Other images in the same batch become negatives, and the model is trained to keep them farther away. The task forces the encoder to keep information that survives the augmentations and ignore information that the augmentations deliberately disturb.`,
+        `This is why augmentation is not decoration in SimCLR. It is the curriculum. A weak augmentation pipeline makes the task trivial because the two views are nearly identical. The model can win by matching pixels. An overly destructive pipeline makes the task noisy because the two views may no longer preserve the same semantic object. The useful middle is domain-specific: strong enough to prevent shortcuts, but not so strong that it changes the meaning of the example.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the algorithm works',
       paragraphs: [
-        'Contrastive learning appears in vision pretraining, image retrieval, multimodal embedding models, recommendation, audio representation learning, face verification, anomaly detection, and weak-label settings where labels are expensive. CLIP-like systems extend the same pull-together/push-apart idea across text and images, while RAG and vector search systems consume the resulting embedding spaces.',
+        `A training step starts with a minibatch of N images. Each image is augmented twice, producing 2N views. The two views from the same source image are the positive pair. Every other view in the batch is treated as a negative for that anchor. Both views pass through the same encoder, often a convolutional network, so the encoder weights are shared. The encoder output then passes through a projection head, usually a small MLP, to produce the vector used by the contrastive loss.`,
+        `The loss used in SimCLR is commonly called NT-Xent: normalized temperature-scaled cross entropy. For one anchor view, the loss computes similarity between the anchor and its positive, then compares that score with similarities to all negatives in the batch. A softmax turns those similarities into a probability distribution. Temperature controls how sharply the model reacts to similarity differences. Low temperature makes the competition sharper; high temperature smooths it.`,
+        `After pretraining, the projection head is often discarded. The representation before the projection head is kept as the general-purpose embedding. Researchers evaluate it with a linear probe, where the encoder is frozen and only a linear classifier is trained, or they fine-tune the encoder on a labeled downstream task. This separation matters. The projection head can specialize for the contrastive objective while the encoder learns features that transfer better.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The main misconception is that self-supervised means assumption-free. It is full of assumptions: which augmentations preserve identity, which negatives are truly different, which projection head is used, how large the batch is, and which downstream task will judge the representation. False negatives can push semantically similar examples apart. A model can also learn augmentation artifacts rather than semantic features if the pipeline leaks shortcuts.',
+        `The positive-pair view is proving that labels can be replaced by a designed agreement task. One image becomes two views. The shared encoder maps both views into representation space. The model is rewarded when their projected vectors are close. The important lesson is not that the image was copied twice. The lesson is that the data pipeline states which changes should not alter identity: crop, color shift, blur, resize, or other domain-specific transforms.`,
+        `The batch-negatives view is proving that agreement alone is not enough. If the model only pulled positives together, it could collapse and map everything to the same vector. Negatives create pressure to preserve distinctions between examples. A large batch gives each anchor many alternatives to beat, making the contrastive classification problem harder and more informative. The loss therefore depends on both sides: positives define invariance, negatives define separation.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: SimCLR at https://arxiv.org/abs/2002.05709, the PMLR paper at https://proceedings.mlr.press/v119/chen20j.html, and the Google Research SimCLR repository at https://github.com/google-research/simclr. Study Embeddings & Similarity, Convolution, Softmax & Temperature, Batch Size Scaling, K-Means Clustering, and Product Quantization for Vector Search next.',
+        `SimCLR works when the augmentations preserve semantic identity better than they preserve shortcuts. Random cropping forces the model to connect local and global views of the same object. Color distortion prevents easy dependence on color histograms. Blur can reduce texture shortcuts. Because the positive pair shares identity but not exact pixels, the encoder must learn features that survive those changes. Those features are often useful for downstream tasks.`,
+        `The batch comparison also shapes the embedding space. Each anchor has to identify its positive among many negatives, so the model learns a geometry where related views have high similarity and unrelated views have lower similarity. This connects SimCLR to embeddings and nearest-neighbor search. The representation is valuable not because it stores a class label, but because distance in the learned space begins to reflect visual relatedness.`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `SimCLR is compute-hungry. Every image is processed twice, and the contrastive loss compares many pairs in the batch. Large batches help because they provide more negatives, but they require more accelerator memory and often distributed synchronization. Longer pretraining and larger encoders can improve representation quality, but they raise cost. Batch size, temperature, optimizer settings, and projection-head design are not minor details. They are part of the method's performance envelope.`,
+        `The main design tradeoff is the augmentation policy. ImageNet-style random crops and color distortion do not transfer automatically to every domain. In medical imaging, color or intensity changes may remove clinically meaningful information. In satellite imagery, rotation may or may not preserve the label. In audio, text, graphs, or code, the right positive-pair construction is completely different. Contrastive learning is powerful, but it moves much of the burden into defining transformations that preserve meaning.`,
+      ],
+    },
+    {
+      heading: 'Real uses',
+      paragraphs: [
+        `SimCLR-style contrastive learning is used for visual pretraining, image retrieval, product search, face verification, anomaly detection, medical-image representation learning, remote sensing, robotics perception, and label-efficient transfer. It is also a conceptual ancestor of many multimodal systems. CLIP-like models use a related contrastive idea across image and text pairs, pulling matching captions and images together while pushing mismatches apart.`,
+        `The embeddings produced by contrastive learning can feed practical systems. A retrieval service can find visually similar products. A clustering job can group unlabeled images for review. A small labeled dataset can train a linear probe on top of a frozen encoder. A downstream detector can fine-tune from a stronger initialization than random weights. The value is not only accuracy; it is reducing dependence on a large clean label set for every new task.`,
+      ],
+    },
+    {
+      heading: 'Failure modes and limits',
+      paragraphs: [
+        `The most common failure is a bad positive definition. If augmentations are too weak, the model learns low-level matching. If augmentations destroy the object, positives become contradictory. If the data pipeline creates artifacts, the model may learn the artifact instead of semantics. False negatives are another problem: two different images in the batch may show the same class or even nearly the same object, yet the loss pushes them apart because SimCLR does not know their labels.`,
+        `Collapse is the extreme failure where embeddings become uninformative. SimCLR's negatives help prevent that, but the broader lesson is that self-supervised learning needs a mechanism that prevents trivial solutions. Transfer can also fail. A representation learned from consumer photos may not serve pathology slides, industrial defects, or satellite scenes without careful fine-tuning. Good SimCLR practice includes domain-specific augmentations, downstream evaluation, false-negative awareness, and comparison with supervised and non-contrastive baselines.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Read the SimCLR paper, the PMLR version, and the Google Research SimCLR repository for the original method and ablations. Then study Embeddings & Similarity, Convolution, Softmax & Temperature, Batch Size Scaling, K-Means Clustering, Product Quantization for Vector Search, and Attention Mechanism. The next useful question is how SimCLR differs from methods that remove explicit negatives, such as BYOL-style and masked-image-modeling approaches. That comparison clarifies which parts of representation learning come from invariance, separation, prediction, and scale.`,
       ],
     },
   ],

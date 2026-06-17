@@ -61,7 +61,7 @@ function* paretoSweep() {
   yield {
     state: ledgerGraph('A vector index needs a measured tuning ledger'),
     highlight: { active: ['mix', 'truth', 'sweep'], found: ['ledger'], compare: ['gate'] },
-    explanation: 'Production ANN tuning should start from a query mix, an exact nearest-neighbor baseline, and a replayable sweep of index configurations. The output is a ledger, not a gut feeling.',
+    explanation: 'The graph starts with two inputs that make tuning honest: a representative query mix and an exact nearest-neighbor baseline. The sweep is only meaningful because every approximate setting is compared against the same truth set and written into a ledger.',
     invariant: 'A vector-index setting is not a constant; it is a measured operating point.',
   };
 
@@ -108,7 +108,7 @@ function* paretoSweep() {
       ],
     }),
     highlight: { found: ['knee'], active: ['hnsw', 'ivfpq'], compare: ['dom', 'disk'] },
-    explanation: 'The Pareto frontier is the non-dominated edge of the sweep: no other measured point is both faster and more accurate. The knee is often the best production default because it buys most of the recall before latency bends upward.',
+    explanation: 'Read right as slower and up as more accurate. The Pareto frontier keeps points no other measured config beats on both axes. The knee is often the default because it buys most of the recall before latency starts rising steeply.',
   };
 
   yield {
@@ -376,45 +376,70 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An ANN recall-latency Pareto ledger is the production data structure around vector-index tuning. It records which embedding model, corpus snapshot, query sample, exact kNN baseline, index configuration, recall metric, latency percentile, memory footprint, build cost, rerank depth, and workload slice produced each operating point.',
-        'This topic connects the algorithm pages to the act of shipping a search system. HNSW, Faiss IVF-PQ, ScaNN, FINGER, DiskANN, and Filtered Vector Search all expose knobs. The ledger decides which knob setting is allowed to serve which user traffic, and why.',
+        'Approximate nearest-neighbor search exists because exact vector search gets expensive fast. If a corpus has ten million embeddings and every query compares against every vector, the math is simple but the product is too slow. Vector indexes such as HNSW, IVF-PQ, ScaNN, and DiskANN reduce the search work by visiting only a useful part of the space.',
+        'That shortcut creates an engineering problem. The index is no longer just correct or incorrect. It has an operating point: how much recall it gets, how much latency it spends, how much memory it uses, how long it takes to build, and which workload slices it harms. A recall-latency Pareto ledger is the record that keeps those tradeoffs visible.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'Start with representative query samples and compute exact kNN for those queries. Exact search may be too slow for production, but it is the calibration target for approximate search. Then run every candidate index setting against the same queries: HNSW ef_search, IVFFlat probes, IVF-PQ nprobe and rerank depth, ScaNN partition and rescoring settings, DiskANN beam and cache settings, and filter-aware search policies.',
-        'For each run, write a row: config id, corpus version, embedding model id, recall@k, distance-quality metric if available, nDCG or task-quality score, p50/p95/p99 latency, QPS, memory, index size, build time, update behavior, and worst-slice score. The Pareto frontier keeps the non-dominated points: configurations where no other measured setting is both faster and better.',
+        'The first reasonable approach is exact search. Compute the distance from the query vector to every document vector, sort the distances, and return the top k. This is excellent as a truth source. It is also the right baseline for small corpora, offline evaluation, and spot checks.',
+        'The second common approach is copying a setting from a blog post or benchmark. Someone says HNSW with ef_search 100 worked well, or IVF with nprobe 32 was a good default. That is not a foolish starting point. These knobs have real directions: more search usually buys more recall and spends more latency.',
+        'The wall is that neither approach answers the shipping question. Exact search may miss the latency SLO. Copied settings may fit a different embedding model, corpus shape, hardware profile, filter pattern, or user risk level. The question is not "what is a good ANN setting?" The question is "which measured setting is good enough for this traffic, under this cost envelope, with this rollback plan?"',
       ],
     },
     {
-      heading: 'Why recall is not the whole story',
+      heading: 'The core insight',
       paragraphs: [
-        'Recall@k is the first safety rail because it checks whether approximate search is close to exact kNN. Qdrant documents this exact-vs-ANN comparison directly and recommends representative query vectors for CI-style checks. ANN-Benchmarks makes the same speed-quality tradeoff visible by plotting recall against queries per second, with detail for approximate recall, index size, and build time.',
-        'But overlap recall is not the same as application quality. Recent ANN research argues that a retrieved set can miss exact ids while still being near enough in distance to preserve downstream classification or RAG quality. Treat that as a caution, not permission to ignore recall. A strong gate keeps recall, distance quality, reranking quality, final-answer quality, and latency together.',
+        'The core insight is to treat index tuning as a ledger of measured operating points, not as a one-time parameter choice. A row in the ledger says: with this embedding model, this corpus snapshot, this query sample, this exact baseline, and this index configuration, we observed this recall, this latency distribution, this memory footprint, this build cost, and these slice failures.',
+        'Once the rows exist, the Pareto frontier does the first cut. A configuration is dominated if another measured configuration is both faster and more accurate, or equally accurate with lower cost. Dominated points are not useful defaults. The frontier contains the real tradeoffs, and the knee of the curve often becomes the default because it captures most of the recall before latency rises sharply.',
       ],
     },
     {
-      heading: 'Production case study',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'Imagine an enterprise RAG system with policy documents, ticket histories, and product manuals. A fast HNSW profile with ef_search 64 may work for autocomplete. A default IVF-PQ profile with moderate nprobe and exact reranking may work for normal support questions. A strict legal-citation profile may need higher ef_search, larger rerank depth, or exact fallback for a small sample of high-value queries.',
-        'The ledger prevents accidental regression. If a new embedding model changes vector geometry, the old HNSW or PQ settings may no longer hit recall targets. If a new authorization filter leaves only 2 percent of the corpus eligible, post-filter ANN may return too few results. If an index rebuild changes graph quality, p95 can stay fine while recall drops on tail slices. Versioned rows make those changes visible.',
+        'Start by sampling representative queries. The sample should include head queries, rare queries, short queries, long queries, filtered queries, fresh documents, important tenants, and domain-specific high-risk cases. Then compute exact kNN for that sample. Exact search can be slow, but it gives the calibration target that approximate search is trying to recover.',
+        'Next, run candidate configurations against the same query set. For HNSW, sweep ef_search and sometimes construction parameters. For IVF and IVF-PQ, sweep probe count, quantization settings, and rerank depth. For disk-backed graph search, sweep beam width, cache size, and I/O-sensitive settings. For filtered vector search, test whether filters are applied before, during, or after graph traversal.',
+        'Each run writes a ledger row. Useful columns include config id, embedding model id, corpus version, index build id, query sample id, recall@k, distance error, nDCG if ranking matters, downstream answer score if the index feeds RAG, p50, p95, p99, memory, index size, build time, update cost, and worst-slice score. The row is not just a metric record. It is provenance for a future production decision.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The first mistake is copying someone else\'s HNSW or IVF parameters. pgvector documents the basic direction of the knobs: higher ef_search improves recall at speed cost, and higher ef_construction improves build quality at build-time or insert-speed cost. Those directions are useful, but they do not select your operating point. Your corpus, filters, hardware, embedding model, reranker, and user SLOs decide the point.',
-        'The second mistake is optimizing only the average. A configuration can look excellent overall while failing fresh documents, rare languages, filtered tenants, long queries, or image/table embeddings. The third mistake is launching a config without provenance. If the row does not identify the corpus, model, query sample, exact baseline, and index build, it cannot explain future regressions.',
+        'The first view proves that a tuning decision needs two sources of truth: a representative query mix and an exact nearest-neighbor baseline. The approximate sweep is meaningful only because every candidate is compared against the same target. The ledger node is the join point where labels, measurements, and provenance become one record.',
+        'The plot view proves why a single metric is not enough. Moving up improves recall; moving right spends latency. The frontier keeps configurations that cannot be beaten on both axes. The knee marker shows why production defaults are usually compromises, not maximum-recall settings. The truth-set and production-gate views extend the lesson: a config must survive slice analysis, task-quality checks, canary rollout, and drift monitoring.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why the method works',
       paragraphs: [
-        'Primary sources: ANN-Benchmarks at https://ann-benchmarks.com/, the ANN-Benchmarks GitHub project at https://github.com/erikbern/ann-benchmarks, Faiss documentation at https://faiss.ai/index.html, Faiss index-selection guidelines at https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index, pgvector HNSW and IVFFlat docs at https://github.com/pgvector/pgvector, Qdrant search parameters at https://qdrant.tech/documentation/search/search/, Qdrant indexing docs at https://qdrant.tech/documentation/manage-data/indexing/, Qdrant Measuring ANN Recall at https://qdrant.tech/documentation/tutorials-search-engineering/ann-recall/, and ANN Search: Recall What Matters at https://arxiv.org/abs/2606.04522.',
-        'Study HNSW, Product Quantization for Vector Search, Faiss IVF-PQ Case Study, ScaNN Vector Search Case Study, FINGER Graph ANN Case Study, DiskANN SSD Vector Search Case Study, Filtered Vector Search and Bitset Gates, Multi-Index RAG, RAG Evaluation, Cross-Encoder Reranker, and Benchmark Variance & Model Selection next.',
+        'The method works because it separates truth, measurement, and policy. Exact kNN supplies the reference set. The sweep supplies measured behavior under different cost budgets. The production gate supplies the business rule for which measured behavior is acceptable. Mixing these together is what causes weak tuning decisions.',
+        'The Pareto rule is also easy to defend. If configuration A has lower recall and higher latency than configuration B on the same benchmark, A has no reason to be a default. The frontier does not prove that every remaining point is safe, but it removes points that are plainly worse. Slice checks then catch the cases where an average frontier point hides a tail failure.',
+        'The ledger gives repeatability. If recall drops after an embedding-model upgrade, the team can compare the new row to the old row. If p99 spikes after moving to different SSDs, the team can see whether the index choice, cache behavior, or hardware changed. Without provenance, every regression becomes a guessing exercise.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The main cost is evaluation discipline. Exact baselines can be expensive. Large sweeps consume CPU, memory, SSD bandwidth, and engineering time. Task-quality evaluation can require labeled data or judge models. A serious ledger also needs storage, versioning, and dashboards so old runs remain comparable.',
+        'The payoff is that the live system can route intelligently. A fast profile may serve autocomplete or low-risk browsing. A default profile may serve normal RAG. A strict profile may serve legal, medical, or audit-heavy retrieval. Exact fallback may be reserved for offline jobs or small high-value slices. One universal knob is simpler, but it wastes either latency or quality.',
+        'Real systems use this pattern whenever vector search affects user-visible behavior: semantic search, recommendations, deduplication, image retrieval, support-answer retrieval, code search, fraud similarity, and retrieval-augmented generation. The ledger is especially important when filters are strong, documents change often, or a reranker can hide some index misses but not others.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Averages are the easiest trap. A config can look good overall while failing tail documents, rare languages, fresh content, long queries, or tenants with restrictive filters. Another trap is measuring only recall@k. Overlap with exact neighbors is valuable, but task quality also depends on distance ties, ranking, reranking, prompt construction, and whether the final answer needed the missed item.',
+        'The ledger can also go stale. New embeddings change geometry. Corpus growth changes graph quality. Deletes and updates leave index artifacts. New filters change selectivity. Hardware changes alter tail latency. A row that was safe last quarter is not automatically safe after these changes. Drift triggers should tell the team when to rebuild, resweep, or reroute.',
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        'Study HNSW for graph-based search, product quantization for memory reduction, IVF-PQ for coarse partitioning plus compressed vectors, DiskANN for SSD-backed vector search, and filtered vector search for payload-aware retrieval. Then connect this topic to cross-encoder reranking, RAG evaluation, benchmark variance, and SLO-aware request routing.',
+        'Useful primary references include ANN-Benchmarks for recall-speed plots, Faiss documentation for index families, pgvector documentation for HNSW and IVFFlat knobs, and Qdrant documentation for measuring ANN recall. The important habit is not memorizing one library default. It is building the evidence loop that lets a team change a vector index without changing product behavior by accident.',
       ],
     },
   ],

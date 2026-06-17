@@ -182,26 +182,93 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'A disjoint sparse table is a static range-query structure for associative operations. It resembles a Sparse Table, but it stores prefix and suffix aggregates inside blocks so every query can be answered by combining two non-overlapping precomputed cells.',
-      'That difference matters. Classic Sparse Table gets O(1) range minimum because min is idempotent: overlapping the same element twice is harmless. Disjoint Sparse Table does not overlap, so it can support sum, xor, gcd, min, max, string concatenation, and other associative operations.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'For each level, split the array into blocks. Around the midpoint of every block, compute suffix aggregates to the left and prefix aggregates to the right. For a query [l, r], find the highest bit where l and r differ. At that level, l and r lie on opposite sides of a midpoint, so table[level][l] and table[level][r] exactly cover the range.',
-      'The result is table[level][l] op table[level][r]. If l equals r, return the single array element. If the operation is not commutative, preserve the order: left aggregate first, right aggregate second.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'Preprocessing costs O(n log n) memory and time. Each query costs O(1). The structure is immutable: updates require rebuilding affected levels, which usually defeats the point. Use Segment Tree, Fenwick Tree, or a block decomposition if updates are frequent.',
-      'The main bugs are selecting the wrong level, mishandling non-power-of-two sizes, and assuming commutativity. Associativity is enough only if the implementation preserves range order.',
-      'The memory tradeoff is intentional. You keep multiple aggregate views of the same array so query code can avoid loops. That makes it a good fit when the array is queried many more times than it is built, and a poor fit for tiny arrays where a loop is simpler and faster.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'Suppose an analytics system seals telemetry into immutable hourly segments. Dashboards repeatedly ask for sums, maximums, xor checksums, and custom associative aggregates over time ranges within each sealed segment. A disjoint sparse table can be built once per segment and then answer repeated queries with two memory reads and one combine operation.',
-      'This is the same architectural pattern as many storage engines: immutable files make expensive preprocessing attractive. Once a chunk will not change, the data structure can spend more memory to make reads predictable.',
-      'The case study also clarifies its boundary. If a dashboard query crosses multiple sealed segments, each segment can answer its local subrange in O(1), and a higher-level index or merge step combines those segment answers. The table solves the in-segment problem, not the whole query planner.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: CP-Algorithms Sparse Table overview, https://cp-algorithms.com/data_structures/sparse-table.html, and the Codeforces Disjoint Sparse Table tutorial, https://codeforces.com/blog/entry/79108. Study Sparse Table, Segment Tree, Prefix Sum, Binary Lifting, and Wavelet Tree next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A disjoint sparse table is for static range queries. You have an array that will not change, an associative operation, and many queries like "combine A[l] through A[r]." You are willing to spend preprocessing time and memory so each later query is constant time.',
+        'It exists because the classic sparse table has a narrow trick. A normal sparse table answers range minimum or maximum in O(1) by combining two overlapping blocks. Overlap is harmless for idempotent operations such as min, max, and gcd. It is not harmless for sum, product, string concatenation, matrix multiplication, or function composition.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and its wall',
+      paragraphs: [
+        'The obvious approach is to precompute answers for powers of two, then answer a query with two blocks. For range minimum over [l, r], choose the largest power-of-two block length that fits, take one block starting at l and one block ending at r, and combine them. If they overlap, the minimum is still correct.',
+        'The wall appears the moment overlap changes the answer. For sum, overlapping an element counts it twice. For string concatenation, overlap duplicates characters. For matrix multiplication or function composition, overlap and order both matter. A normal sparse table is O(1) only because idempotent operations tolerate the duplicate coverage.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The disjoint sparse table removes overlap by choosing the level where the query endpoints split around a midpoint. At that level, the table has already stored a suffix aggregate from l up to the midpoint side and a prefix aggregate from the other side to r.',
+        'Those two stored cells are disjoint, ordered, and complete. Because the operation is associative, the table does not need to know how the range was parenthesized. It only needs to preserve left-to-right order and avoid counting any element twice.',
+      ],
+    },
+    {
+      heading: 'Reading the two views',
+      paragraphs: [
+        'In the build-levels view, watch each level divide the array into larger blocks. Inside each block, the left half stores suffix aggregates that run toward the middle, and the right half stores prefix aggregates that run away from the middle. The highlighted cells are not arbitrary labels; they are the future answers for ranges that cross that block midpoint.',
+        'In the range-query view, follow the endpoints. For [1, 6], the chosen level is the one whose midpoint separates index 1 from index 6. The answer is the left suffix A[1..3] combined with the right prefix A[4..6]. Two cells, one combine operation, no overlap.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Preprocessing builds levels by block size. For a block, compute aggregates from the midpoint down to the left edge and from the midpoint plus one up to the right edge. Store each aggregate at the index where a future query endpoint might land.',
+        'To answer [l, r], first handle the one-element case by returning A[l]. Otherwise compute the highest bit where l and r differ. That bit identifies the level whose block midpoint lies between l and r. Return table[level][l] op table[level][r].',
+        'The order matters. The left aggregate must be combined before the right aggregate. The operation may be associative without being commutative, so string concatenation, matrix multiplication, and function composition are valid only if the implementation keeps this order.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'For any two different indices l and r, the highest differing bit tells you the largest aligned block in which the endpoints fall on opposite sides of the block midpoint. The preprocessing for that level was designed exactly for ranges that cross that midpoint.',
+        'The left table cell covers every element from l to the left side of the midpoint. The right table cell covers every element from the right side of the midpoint to r. The pieces are adjacent. They do not overlap. They do not leave a gap. Associativity lets the two precomputed pieces stand in for the full left-to-right reduction.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Use A = [5, 2, 7, 1, 4, 6, 3, 8] and query the sum over [1, 6]. The endpoints 1 and 6 are separated by the midpoint of the whole 0..7 block. The table already stores the suffix A[1..3] = 2 + 7 + 1 = 10 and the prefix A[4..6] = 4 + 6 + 3 = 13.',
+        'The answer is 10 + 13 = 23. The table did not loop across six elements. It did not combine overlapping blocks. It used two precomputed cells chosen by the endpoint split.',
+        'The same example works for non-commutative operations. If the operation were string concatenation, the left suffix would contain the text from index 1 through 3 in order, the right prefix would contain index 4 through 6 in order, and the query would concatenate left then right.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Preprocessing costs O(n log n) time and memory. Each query costs O(1). That tradeoff makes sense only when the array is static and query volume is high enough to repay the build.',
+        'Updates are the main weakness. A single changed element can invalidate aggregates across multiple levels, so a segment tree, Fenwick tree, sqrt decomposition, or rebuilt immutable segment is usually better when data changes often.',
+        'The main implementation bugs are selecting the wrong level, mishandling ragged non-power-of-two endings, forgetting the one-element case, and accidentally assuming commutativity. Associativity is the required algebraic property; commutativity is not.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Precompute logs or highest-bit lookup carefully. Query speed depends on finding the level from l xor r without branching through many cases. Handle l == r before that calculation so the single-element range does not read a meaningless level.',
+        'For non-power-of-two arrays, either pad with a true identity element or build levels that respect the actual end of the array. Padding is simple only when the operation has an identity value and the implementation never lets that value leak into real answers incorrectly.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'It wins on immutable arrays, sealed log segments, static telemetry windows, offline competitive-programming inputs, and custom aggregate records where queries greatly outnumber builds. It is especially useful when the operation is associative but not idempotent, so a classic sparse table cannot safely overlap blocks.',
+        'It fails for frequently updated data, tiny arrays, low query volume, memory-constrained settings, and operations that are not associative. It also does not solve cross-segment planning by itself; if a query spans several immutable chunks, another layer must combine the per-chunk answers.',
+        'The most subtle failure is order. Developers often remember that associativity is enough and forget that commutativity is not guaranteed. If the operation is matrix multiplication or string concatenation, the left precomputed cell must be combined before the right one.',
+        'A practical implementation should include tests with non-commutative operations. They catch reversed combine order immediately, while sums and minimums can hide the bug.',
+      ],
+    },
+    {
+      heading: 'Case study: sealed analytics segments',
+      paragraphs: [
+        'Suppose an analytics engine writes hourly telemetry segments and never mutates them after sealing. Dashboards repeatedly ask for sums, maximums, xor checksums, and custom associative counters inside each segment. A disjoint sparse table can be built once when the segment seals, then serve each in-segment range with two reads and one combine.',
+        'This is the same reason storage engines like immutable files: once a chunk stops changing, expensive preprocessing can buy predictable reads. The disjoint sparse table is not the whole storage engine. It is the range-query accelerator inside one sealed chunk.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Sources: CP-Algorithms Sparse Table overview, https://cp-algorithms.com/data_structures/sparse-table.html, and the Codeforces Disjoint Sparse Table tutorial, https://codeforces.com/blog/entry/79108. Study Sparse Table, Segment Tree, Prefix Sum, Binary Lifting, Fenwick Tree, Sqrt Decomposition, and Wavelet Tree next.',
+      ],
+    },
   ],
 };

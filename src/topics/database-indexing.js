@@ -118,6 +118,20 @@ export const article = {
       ],
     },
     {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is to keep the table as the only copy of the data and scan it whenever a predicate appears. That is correct, simple, and often fine for tiny tables. It also preserves one write path: inserting a row only updates the table itself.',
+        'The wall arrives when the query is selective and the table is large. If one user lookup, order lookup, or date range asks the engine to examine every row, the system spends most of its time proving that rows are not relevant. An index is the escape hatch: pay extra storage and write work so reads can start from an ordered proof structure instead of from ignorance.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The visual compares three versions of the same query. In the scan case, every row is a candidate until the predicate rejects it. This is not the database being foolish; it simply has no narrower proof. In the indexed case, the search begins in a sorted key structure, so most rows are never candidates at all. In the covering-index case, the answer is already present in the index leaf, so the engine does not need to visit the table heap or clustered row.',
+        'That last jump is the lesson beginners often miss. An index is not just a fast lookup. It is a physical layout decision. Column order, selected columns, sort direction, cardinality, and table fetch cost decide whether an index is only a filter, a range-scan accelerator, an ordering mechanism, or a complete answer store for a narrow query.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
         `When you query "WHERE age = 41" on an unindexed column, the database has no choice: scan the whole table, test every row's age, return matches. This is O(n). When you CREATE INDEX ON users(age), the database builds a B-tree keyed on age values: (23 → row6), (29 → row2), (31 → row8), … sorted. Now the same query becomes a B-tree descent (binary search): O(log n). For a million rows, the scan is 1,000,000 page touches; the index is 20 touches — a 50,000× speedup.`,
@@ -143,6 +157,13 @@ export const article = {
       paragraphs: [
         `One myth: "add an index and queries get faster." Indexes help only on high-cardinality filters (columns with many distinct values). An index on a boolean or status field (cardinality = 2) barely helps because half the rows match anyway. Another myth: "use SELECT *." This forces the database to fetch every column from the table, preventing covering indexes. Name your columns and let the database stay in a smaller index if possible.`,
         `The biggest pitfall is indexing without measuring. Add too many indexes and writes slow down (write amplification strikes); queries might still scan because the optimizer chose a cheaper full scan. Always run EXPLAIN first, measure before and after, and delete indexes that don't earn back their write cost. Finally, indexes are data structures too: they grow, they fragment, they need maintenance (REINDEX, VACUUM in Postgres). They are not free intelligence — they are a workload trade-off.`,
+      ],
+    },
+    {
+      heading: 'How planners decide',
+      paragraphs: [
+        'A planner does not ask whether an index exists. It asks whether using that index is cheaper than the alternatives. It estimates selectivity from statistics, estimates how many table pages must be fetched, checks whether the index order can satisfy ORDER BY, and checks whether the requested columns can be returned from the index alone. A sequential scan over a small table can be the best plan. An index scan that jumps randomly across a huge heap can be worse than reading the table once in order.',
+        'Composite indexes make this concrete. An index on (tenant_id, created_at) is ideal for one tenant over a time range because the equality prefix narrows the tree before the range scan begins. The same index is weak for all tenants over one date range because created_at is not the leading key. This is why index design starts from repeated query shapes, not from a list of columns that feel important.',
       ],
     },
     {

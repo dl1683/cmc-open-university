@@ -69,13 +69,13 @@ function* researchLoop() {
   yield {
     state: researchGraph('Deep research is an agentic evidence loop'),
     highlight: { active: ['ask', 'scope', 'plan', 'e-ask-scope', 'e-scope-plan'], compare: ['report'] },
-    explanation: 'A research agent should not start by dumping search results. It first scopes the task, identifies constraints, decomposes the question, and decides which evidence channels are needed.',
+    explanation: 'The naive baseline is search first, summarize later. A usable research agent scopes before it browses: what decision is being made, what is time-sensitive, what files matter, and which evidence channels are needed.',
   };
 
   yield {
     state: researchGraph('The plan fans out across web, files, and computation'),
     highlight: { active: ['plan', 'search', 'files', 'code', 'e-plan-search', 'e-plan-files', 'e-plan-code'], found: ['ledger'] },
-    explanation: 'Serious research often mixes web sources, uploaded documents, and executable analysis. The agent needs tool contracts for each channel and a way to bring results back into one claim ledger.',
+    explanation: 'The fanout is deliberate. Web search, file reading, and code are separate evidence channels, but their outputs must converge into one claim ledger or the final report becomes impossible to audit.',
     invariant: 'Every important claim needs provenance before it enters the final report.',
   };
 
@@ -102,13 +102,13 @@ function* researchLoop() {
       ],
     ),
     highlight: { active: ['source:stores', 'claim:stores', 'support:stores', 'conflict:stores'], found: ['use:why'] },
-    explanation: 'The source ledger is the core data structure. It separates evidence collection from synthesis so the final report can be audited, repaired, and rerun when sources change.',
+    explanation: 'The source ledger is the core data structure. It turns "I read this" into checkable rows: claim, source, support span, conflict, and intended use. That separation lets synthesis be repaired without redoing all discovery.',
   };
 
   yield {
     state: researchGraph('Audit can send the agent back to planning'),
     highlight: { active: ['ledger', 'audit', 'plan', 'e-ledger-audit', 'e-audit-plan'], compare: ['synth'], found: ['report'] },
-    explanation: 'Good deep research loops do not only summarize what they found. They look for missing slices, weak sources, stale facts, unsupported claims, and contradictions, then reopen the plan when needed.',
+    explanation: 'Good deep research loops do not only summarize what they found. They turn weak sources, stale facts, unsupported claims, contradictions, and unfinished sections into new work instead of burying them in confident prose.',
   };
 }
 
@@ -191,7 +191,7 @@ export function* run(input) {
   else throw new InputError('Pick a deep-research-agent view.');
 }
 
-export const article = {
+const legacyArticle = {
   sections: [
     {
       heading: 'What it is',
@@ -201,9 +201,16 @@ export const article = {
       ],
     },
     {
+      heading: 'Legacy visual note',
+      paragraphs: [
+        'In research loop view, follow the graph left to right: ask, scope, plan, gather evidence, write claims into the ledger, synthesize, audit, and only then produce the report. The back edge from audit to plan is the point of the architecture. A contradiction or missing source is not a footnote; it reopens work.',
+        'In quality gates view, read the matrices as release checks. The animation is not saying every research job needs maximum process. It is showing which artifacts make a report trustworthy: source support, freshness, contradiction handling, file spans, trace logs, and permissions around private or unsafe inputs.',
+      ],
+    },
+    {
       heading: 'Architecture',
       paragraphs: [
-        'The minimum architecture has a planner, search tools, document readers, optional code execution, a source ledger, a synthesis step, and evaluation gates. The source ledger is the important data structure: every atomic claim should carry source URL or file/page location, support snippet or data pointer, source date, authority level, contradiction notes, and the section where the claim will be used. Agent Memory & Context Engineering Case Study explains the adjacent runtime problem: preserving that evidence across long work without stuffing every old turn into the current prompt. Without that ledger, a research report becomes a fluent pile of unverifiable memory.',
+        'The minimum architecture has a planner, search tools, document readers, optional code execution, a source ledger, a synthesis step, and evaluation gates. The source ledger is the important data structure: every atomic claim should carry source URL or file/page location, support snippet or data pointer, source date, authority level, contradiction notes, and the section where the claim will be used. Agent Memory & Context Engineering Case Study explains the adjacent runtime problem: preserving that evidence across long work without stuffing every old turn into the current prompt. Without the ledger, the system has no clean way to distinguish supported findings from fluent recollection.',
         'WebGPT is an early foundation for this shape. It used a text-based browser, collected references while browsing, and trained long-form answers with human feedback: https://arxiv.org/abs/2112.09332. ReAct supplies the control-loop pattern: interleave reasoning with actions so the model can update plans after observations: https://arxiv.org/abs/2210.03629. Anthropic frames production systems as augmented LLMs, workflows, and agents, and warns that agent complexity should be earned by the task: https://www.anthropic.com/research/building-effective-agents. Agent Model Router & Context Handoff Ledger covers the missing runtime decision: when research should move from search, to file reading, to code execution, to synthesis, to judging without losing the source ledger.',
       ],
     },
@@ -233,6 +240,121 @@ export const article = {
       paragraphs: [
         'Primary sources: OpenAI introducing deep research at https://openai.com/index/introducing-deep-research/, OpenAI Deep Research system card at https://openai.com/index/deep-research-system-card/, system-card PDF at https://cdn.openai.com/deep-research-system-card.pdf, WebGPT at https://arxiv.org/abs/2112.09332, ReAct at https://arxiv.org/abs/2210.03629, STORM at https://arxiv.org/abs/2402.14207, Stanford STORM page at https://storm-project.stanford.edu/research/storm/, STORM repository at https://github.com/stanford-oval/storm, Anthropic Building Effective Agents at https://www.anthropic.com/research/building-effective-agents, Anthropic multi-agent research system at https://www.anthropic.com/engineering/multi-agent-research-system, and Anthropic context engineering for agents at https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents.',
         'Study Agent Model Router & Context Handoff Ledger, Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Blackboard Architecture Agent Coordination, Claim Graph & Source Ledger, Deep Research Evaluation Harness Case Study, Agentic AI Patterns, Agent Memory & Context Engineering Case Study, RAG Pipeline, Query Expansion, Multi-Index RAG, LightRAG Dual-Level Retrieval, LLM Evaluation Harnesses, RAG Evaluation, Prompt Injection Threat Model, Model Context Protocol Case Study, Distributed Tracing, Zanzibar Authorization Case Study, and Temporal Workflow Case Study next.',
+      ],
+    },
+  ],
+};
+
+export const article = {
+  sections: [
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Deep research agents exist because serious research tasks are not one prompt and one answer. They involve source discovery, query reformulation, reading, extraction, contradiction tracking, synthesis, citation support, freshness checks, and final writing.',
+        'The architecture matters because a fluent answer can be wrong in many ways: weak sources, stale facts, unsupported claims, hidden contradictions, shallow search, or no audit trail. A research agent needs a workflow that makes evidence and uncertainty visible.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is a single long prompt: ask the model to search, reason, and write. That can produce a good-looking report, but it collapses planning, retrieval, evidence review, and synthesis into one opaque step.',
+        'Another tempting approach is a fixed search checklist. Search five queries, read five pages, write a summary. That is more disciplined, but it still fails when the question changes during reading. Research needs adaptive branching based on what has been found.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'A deep research agent should be structured as a state machine over evidence. The unit of progress is not tokens written; it is claims supported, sources evaluated, contradictions resolved, and gaps identified.',
+        'The system should separate roles: planner, searcher, reader, extractor, verifier, synthesizer, and editor. These can be separate agents or separate phases, but the artifacts should be distinct so quality can be audited.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The planner turns the user question into subquestions, expected evidence types, freshness requirements, and acceptance criteria. Search workers gather candidate sources. Readers extract claims, numbers, dates, definitions, methods, and caveats into structured notes.',
+        'A verifier checks whether important claims have support, whether sources disagree, whether dates are current, and whether the answer overstates evidence. The synthesizer then builds a narrative from supported claims rather than from raw search results.',
+        'The final editor removes scaffolding, repetition, and unsupported hedging. The best output reads like a clear article or report, but underneath it there should be a trace from each claim to evidence.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The pipeline view proves that research is not retrieval alone. Search finds candidates. Reading extracts evidence. Verification tests support. Synthesis organizes meaning. Each step has its own failure modes.',
+        'The evidence-board view proves why structured notes matter. A raw pile of links is not knowledge. The agent needs claim records, source records, contradiction records, freshness labels, and open questions to avoid losing important context.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The architecture works because it makes intermediate uncertainty explicit. A weak source can be downgraded. A contradiction can be carried forward instead of smoothed over. A missing source can block a claim before it becomes polished prose.',
+        'It also works because research is iterative. Early sources reveal new terminology, important actors, better queries, and hidden assumptions. A stateful architecture can revise its plan as the evidence changes.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Deep research is slower and more expensive than direct answering. It spends calls on search, reading, extraction, verification, and revision. That cost is justified only when accuracy, provenance, freshness, or depth matter.',
+        'The tradeoff is complexity. More agents can improve coverage but also create coordination overhead, duplicate reading, inconsistent notes, and synthesis drift. The architecture needs schemas and ownership boundaries, not just more parallelism.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins for market reports, technical landscape reviews, policy analysis, literature surveys, due diligence, benchmark audits, legal research support, and any topic where the answer depends on current sources and careful synthesis.',
+        'It is also useful inside product teams. A research agent can map competitor features, summarize incident histories, compare architecture options, or build a curriculum if it preserves evidence and turns findings into teachable structure.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure is source laundering. The final answer sounds confident, but the underlying sources are weak, circular, promotional, or stale. The fix is source grading and claim-level citation discipline.',
+        'The second failure is shallow breadth. An agent can visit many pages while learning little. Reading quality matters more than link count. Extracted notes should capture why a source matters, not only that it was opened.',
+        'A third failure is synthesis without contradiction handling. If two good sources disagree, the answer should explain the disagreement or scope the claim. Hiding conflicts makes the report easier to read and less trustworthy.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Store sources, claims, quotes, dates, and confidence separately. Require every important claim to point to source evidence. Track open questions explicitly so the agent can decide whether to search more or state a limitation.',
+        'Use freshness rules by domain. A math definition may be stable. A company pricing page, model leaderboard, legal rule, or API version may not be. The research plan should say which facts require current verification.',
+        'Evaluate the final output against the user question, source support, missed counterarguments, unnecessary length, and readability. A research agent is not done when it has gathered enough text; it is done when the answer teaches the issue clearly and defensibly.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'For a technical market report, the agent might begin with subquestions: market size, buyer pain, technical architecture, incumbent products, adoption barriers, pricing, regulation, and open questions. Each subquestion gets its own source needs and freshness threshold.',
+        'Search then produces candidate sources: company docs, standards, benchmark papers, customer case studies, financial filings, and independent analysis. The reader extracts claims into cards: who said it, when, what evidence supports it, and what it implies.',
+        'The final article should not simply summarize sources in order. It should teach the market structure: why the problem exists, why now, what changed technically, who benefits, what can fail, and which claims remain uncertain.',
+      ],
+    },
+    {
+      heading: 'How to judge quality',
+      paragraphs: [
+        'A good research agent is measured by supported insight, not by volume. More citations do not help if they all support obvious claims. The agent should find the few sources that change the answer and explain why they matter.',
+        'The writing should also compress rather than sprawl. If the evidence is complex, the structure should make it easier for the reader: definitions before disputes, mechanisms before implications, and caveats near the claims they limit.',
+        'The strongest agents leave an audit trail that another person can inspect. They do not require blind trust in the final prose. Claims, source quality, and unresolved uncertainty remain visible behind the article.',
+      ],
+    },
+    {
+      heading: 'What to watch in production',
+      paragraphs: [
+        'The main production risk is silent degradation. A search API changes, a source disappears, a model becomes more verbose, or a scraper starts returning boilerplate. The final report may still look polished while the evidence pipeline has weakened.',
+        'Track source diversity, rejected-source reasons, claim coverage, unresolved contradictions, freshness debt, and how often a human reviewer changes the conclusion. These are better health signals than token volume or number of pages visited.',
+        'The writing system should be part of the architecture. If the agent collects evidence well but writes in stiff generic summaries, the user still loses. The final article should teach mechanisms, name uncertainty, and remove work for the reader without hiding the trail that produced the claim.',
+      ],
+    },
+    {
+      heading: 'Common misconception',
+      paragraphs: [
+        'The misconception is that deep research means longer answers. Length is only a side effect. The real product is a better map of the question: which terms matter, which mechanisms drive the answer, which sources are reliable, which claims are weak, and what a reader should do with the information.',
+        'This is why the architecture needs both retrieval discipline and editorial discipline. Without retrieval discipline, the article is unsupported. Without editorial discipline, the supported material still wastes the reader time.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Blackboard Architecture, Multi-Agent Orchestration Topologies, Claim Graph Source Ledger, RAG Evaluation, Cross-Encoder Reranker, Web Search Query Expansion, and Writing Simplicity. A useful exercise is to turn one research question into claim cards before writing any prose.',
       ],
     },
   ],

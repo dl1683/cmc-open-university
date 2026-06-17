@@ -162,38 +162,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Content Security Policy is a browser-enforced policy that controls which resources a page may load or execute. For XSS mitigation, strict CSP focuses on script execution. Instead of allowing every inline script, the page authorizes intended scripts with a nonce or a hash.',
-        'The data structure is a policy table plus a script-authorization graph. Each script candidate is checked against script-src, nonce sources, hash sources, strict-dynamic inheritance, and reporting configuration.',
+        'Cross-site scripting is dangerous because a small injection can become same-origin code execution. Once attacker JavaScript runs inside the page, it can read DOM state, send authenticated requests, steal tokens exposed to script, and act as the user.',
+        'Content Security Policy exists because the browser sees every script candidate before it executes. A strict `script-src` policy turns that moment into an authorization check. The page no longer says "run any inline code that appears in the HTML." It says "run only code that carries a valid proof."',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first answer is still correct: escape output, sanitize HTML, avoid string-to-code APIs, remove inline event handlers, and keep untrusted data out of executable contexts. CSP does not replace any of that work.',
+        'The wall is coverage. One missed template sink can put a `<script>` tag or `onclick` handler into the page. A host allowlist helps, but it is coarse. If an allowed CDN, JSONP endpoint, upload path, or compromised third party can serve attacker-controlled JavaScript, the browser may still see an allowed source.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core idea is to authorize script execution by proof, not by accident of placement. Every script candidate must match the policy before it crosses the execution boundary.',
+        'A nonce proves that the server selected this script element for this response. A hash proves that the script bytes are exactly the approved bytes. `strict-dynamic` can let a nonce- or hash-authorized loader extend trust to scripts it creates, which is useful for modern bundlers but makes that loader part of the security boundary.',
+        'This is a policy data-structure lesson. The browser maintains a set of accepted tokens, hashes, sources, and flags. Each script candidate is a lookup against that policy plus a decision: execute, block, or report.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In nonce flow, follow the value from server to policy header to trusted script element. The important state change is not that the script tag exists. The important state change is that the browser can match the element nonce to the nonce listed in `script-src`.',
+        'The injected node is drawn beside the trusted script because it may be in the same HTML document. CSP is not deciding based on location in the DOM. It is deciding based on proof. No matching nonce means the parser blocks execution and can emit a violation report.',
+        'In hash policy, watch the decision move from "selected element" to "exact bytes." A one-character change matters because the hash no longer names the script. The rollout frame is operational: report-only mode finds real breakage before enforcement blocks users.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Nonce mode is response-specific. The server creates an unpredictable nonce, includes it in the CSP header, and places it on trusted script tags. The browser allows matching scripts and blocks injected scripts without the nonce.',
-        'Hash mode is content-specific. The policy contains hashes of exact inline script bytes. The browser recomputes the hash of each inline script and allows only exact matches. This fits stable bootstraps better than dynamic templates.',
+        'Nonce mode is response-specific. The server generates a fresh unpredictable value, sends it in `Content-Security-Policy`, and places the same value on trusted script elements. The browser allows a matching element and blocks injected inline scripts, event handlers, and other script candidates that lack authorization.',
+        'Hash mode is content-specific. The policy contains a cryptographic hash such as `sha256-...` for stable inline script bytes. At parse time, the browser hashes the candidate and allows execution only on an exact match. Whitespace and build output matter because the hash names bytes, not intent.',
+        '`strict-dynamic` changes how descendants are handled. If a trusted root script was authorized by nonce or hash, scripts it programmatically loads can inherit that trust. That helps applications with loader scripts, but it raises the value of compromising the loader.',
+        'A safe migration starts in `Content-Security-Policy-Report-Only`, groups violations by real cause, removes inline handlers, moves dynamic data into non-executable JSON or data attributes, adds nonces or hashes, then switches to enforcement.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A legacy app has inline boot scripts, inline event handlers, third-party widgets, and templated data. The migration starts with Content-Security-Policy-Report-Only, collects violations, replaces inline handlers with addEventListener, moves data out of executable code, adds nonces for dynamic scripts or hashes for stable boot scripts, and only then switches to enforcement.',
-        'CSP Nonce & Hash Policy links browser parsing to security policy. DOM Event Propagation & Path explains why inline event handlers are execution sinks. Resource Hints: Preload & Preconnect and HTTP Cache ETag Revalidation explain the adjacent loading and caching controls that should not become script execution bypasses.',
+        'The invariant is simple: a script may execute only if the browser can match it to an authorization token, exact approved bytes, or another allowed policy rule. Injected markup does not gain that proof merely by appearing in the DOM.',
+        'For nonce policies, an attacker who can inject HTML after the server rendered the response usually cannot predict the fresh nonce. For hash policies, an attacker cannot change the script without changing the digest. The browser check is local, deterministic, and close to the execution boundary.',
+        'The proof collapses if the attacker can read or reuse the nonce, inject into a trusted script body, control a trusted loader, weaken the policy with `unsafe-inline`, or load attacker-controlled code from an allowed source.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'A nonce must be unpredictable and fresh per response. Reusing one nonce across pages turns it into a reusable bypass value. Do not put secrets into nonce-bearing scripts that attacker-controlled markup can read through another bug.',
-        'A host allowlist is not equivalent to strict CSP. If an allowed host can serve user-controlled JavaScript, JSONP, or compromised third-party code, the host entry may still allow attacker execution. unsafe-inline largely gives up the protection strict CSP is trying to create.',
+        'A server renders a payment page with `Content-Security-Policy: script-src \'nonce-r7\' \'strict-dynamic\'; object-src \'none\'; base-uri \'none\'`. It marks the intended bootstrap script with `nonce="r7"`.',
+        'A template bug lets an attacker inject `<script>steal()</script>`. The injected tag is in the DOM, but it has no nonce and its bytes are not hashed in the policy. The browser blocks it before execution and can send a violation report.',
+        'The bootstrap script then loads the bundled application script. With `strict-dynamic`, the trusted loader can create that descendant script without enumerating every host in a brittle allowlist. The loader has become a narrow trust root, so it must not turn user data into script URLs or executable strings.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Nonces add server and template plumbing. The value must be fresh and unpredictable per response, and every trusted script element has to receive it. Full-page HTML caching becomes harder when the nonce changes on every response.',
+        'Hashes are brittle by design. A whitespace change, minifier change, framework upgrade, or build output change can require a policy update. That brittleness is useful for security but noisy for deployment.',
+        'Reports are necessary but messy. Browser extensions, older clients, third-party widgets, and partial rollouts can create noisy violation streams. A team needs triage, sampling, and a clear path from report-only to enforce.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Strict CSP wins on pages where the team controls rendering and can make intended script execution explicit. Account pages, admin tools, payment flows, and authenticated dashboards benefit because a single XSS bug has high impact.',
+        'It also wins during legacy cleanup. Report-only mode gives a map of old inline execution paths before enforcement breaks users. The reports show which templates, widgets, and script patterns must change.',
+        'Nonce or hash policies are especially useful when host allowlists are too broad. They authorize the page bootstrap directly instead of trusting every script that can be served by a large domain.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        '`unsafe-inline` largely gives up the script-execution protection this page is about. A broad host allowlist is also weaker than a strict nonce or hash policy when an allowed host can serve attacker-controlled code.',
+        'CSP does not make unsafe HTML safe. It does not replace output encoding, HTML sanitization, URL validation, cookie hardening, dependency review, or server-side authorization.',
+        'CSP also cannot express every client-side sink boundary. Trusted Types covers the DOM-XSS problem of controlling which code may write strings into dangerous DOM sinks. CSP and Trusted Types are adjacent tools, not substitutes.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'A nonce reused across responses becomes closer to a password than a one-response proof. A nonce inserted into attacker-controlled HTML gives the attacker the proof they need. A policy generator that logs nonces into visible markup can leak the boundary.',
+        'A hash policy can fail operationally when teams forget to update hashes after a deploy. It can fail strategically when the hashed bootstrap reads untrusted data and turns it into code.',
+        'A rollout can fail by enforcing before reports have been cleaned up. Breakages often come from inline event handlers, third-party widgets, injected analytics snippets, and old templates that still depend on `eval` or string event attributes.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: MDN CSP guide at https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP, MDN script-src at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/script-src, MDN nonce attribute at https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes/nonce, W3C CSP Level 3 at https://www.w3.org/TR/CSP3/, and OWASP CSP Cheat Sheet at https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html. Study DOM Event Propagation & Path, Capability Security & Attenuation, OPA Rego Policy Decision Graph, OAuth PKCE Token Lifecycle Case Study, Resource Hints: Preload & Preconnect, HTTP Cache ETag Revalidation, Subresource Integrity Hash Manifest, CORS Preflight Cache, and Permissions Policy Feature Gate next.',
-        'Then continue into Trusted Types DOM XSS Sink Guard for the client-side sink boundary CSP cannot express with nonces alone, and Cross-Origin Isolation for the adjacent resource-policy headers that protect powerful browser features.',
+        'Primary sources: MDN CSP guide at https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP, MDN `script-src` reference at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/script-src, MDN nonce attribute reference at https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes/nonce, W3C CSP Level 3 at https://www.w3.org/TR/CSP3/, and OWASP CSP Cheat Sheet at https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html.',
+        'Study Trusted Types DOM XSS Sink Guard next for client-side sink control, Subresource Integrity Hash Manifest for resource-byte integrity, CORS Preflight Cache for cross-origin request gates, Permissions Policy Feature Gate for browser capability control, and Capability Security Attenuation for the general idea of passing narrow authority instead of broad ambient power.',
       ],
     },
   ],

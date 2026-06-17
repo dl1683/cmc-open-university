@@ -186,35 +186,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why atlases and mipmaps exist',
       paragraphs: [
-        'A texture atlas packs many images into one texture so a renderer can draw many sprites, glyphs, or tiles without constantly changing bound textures. A mipmap stores a pyramid of prefiltered versions of a texture so distant or minified surfaces sample a level that matches the screen footprint.',
-        'The data-structure view is concrete: image pixels, atlas rectangles, UV transforms, padding/gutters, mip levels, sampler state, and shader bindings. The GPU sees a texture resource and sampler; the application must keep the metadata correct.',
+        'Texture atlases and mipmaps solve two different GPU problems that often meet in the same renderer. Atlases reduce binding churn by packing many small images into one texture. Mipmaps reduce aliasing and bandwidth by storing prefiltered lower-resolution versions of a texture.',
+        'The practical problem is not just storing pixels. A renderer must draw many quads without changing state constantly, map each quad to the correct subimage, choose the right level of detail, and avoid seams caused by filtering across neighboring atlas entries.',
+        'That makes the topic a data-structure case study: one large pixel array, a metadata table of UV rectangles, padding rules, a mip pyramid, and sampler state that tells the GPU how to read it.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is one texture per image. That is simple for a few objects and keeps every asset isolated.',
+        'The wall is draw overhead and batching. A UI with thousands of icons, a sprite game, a font renderer, or a tile map cannot afford to bind a different texture for every small quad. State changes break batching and make the CPU-GPU command stream heavier than it needs to be.',
+        'The second wall is minification. If a distant pixel covers dozens of source texels, sampling one full-resolution texel creates shimmer and aliasing. The sampler needs prefiltered summaries, not just the original image.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'An atlas turns many images into one texture plus a metadata table. The texture stores pixels. The table says where each sprite, glyph, icon, or tile lives inside the atlas and how to map local coordinates into atlas UV coordinates.',
+        'A mip chain turns one texture into a pyramid of prefiltered images. The sampler estimates how large the texture footprint is on screen and chooses a level whose texel density better matches the pixel footprint.',
+        'The difficult part is that these ideas interact. A mipmap generated over a whole atlas can blend neighboring subimages unless the atlas includes gutters or generates mips carefully.',
+      ],
+    },
+    {
+      heading: 'What the views show',
+      paragraphs: [
+        'In the atlas-packing view, read the packer as producing two artifacts, not one: the atlas image and the UV metadata. If those drift apart, the renderer samples the wrong pixels even if the texture itself is correct.',
+        'The gutter node is the seam-control mechanism. Linear filtering samples nearby texels. Without duplicated edge pixels or padding, a pixel near one sprite can blend with the neighboring sprite in the atlas.',
+        'In the mip-sampling view, follow the chain from UV derivatives to LOD to sampler. The shader does not usually choose a mip level manually. The GPU estimates the texture footprint and sampler state decides how levels and texels are filtered.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'An atlas builder packs rectangles, copies pixels into an atlas, expands edge pixels into gutters, and emits metadata. Runtime draw calls use the metadata to map local sprite coordinates into atlas UV coordinates. A bind group can carry the atlas texture and sampler to the shader.',
-        'Mipmaps add a level dimension. Level 0 is the full-resolution texture, level 1 is half-sized, and so on until 1x1. The sampler uses UV derivatives and filter state to pick or blend mip levels. WGSL defines texture and sampler types for shaders: https://www.w3.org/TR/WGSL/#texture-and-sampler-types.',
+        'An atlas builder takes source rectangles, packs them into a larger image, copies pixels, expands edge pixels into gutters, and emits metadata: x, y, width, height, original size, trim offset, rotation if used, and padding. Runtime draw code uses that metadata to generate UVs.',
+        'Mip level 0 is the original texture. Level 1 is half width and half height. The chain continues until 1x1. Each lower level should be a filtered summary, not a random resize, because the sampler will use it when the texture is minified.',
+        'Sampler state controls nearest filtering, linear filtering, mip filtering, anisotropic filtering, wrapping, and clamping. The shader provides coordinates; the sampler defines how coordinates become texel reads.',
       ],
     },
     {
-      heading: 'Complete case study: tile map renderer',
+      heading: 'Why it works',
+      paragraphs: [
+        'The atlas works because many quads share one texture binding. The UV rectangle is the indirection layer: it lets each quad interpret the same bound texture as a different subimage.',
+        'Mipmaps work because minification is a prefiltering problem. A distant pixel represents an area of the original texture, not one exact texel. A smaller mip level stores an approximation of that area, reducing shimmer and cache waste.',
+        'Gutters work because they make nearby samples safe. If the sampler reads just outside the intended sub-rectangle, it sees duplicated edge color rather than unrelated pixels from the next sprite.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A tile-map renderer packs grass, road, water, and wall tiles into one atlas. Each tile ID maps to a UV rectangle. The renderer draws many quads with one texture bound, changing only tile IDs or per-instance UV data.',
+        'When the camera zooms out, the sampler chooses lower mip levels. If the atlas was mipmapped naively, road pixels may bleed into grass tiles at distance. A correct pipeline adds gutters, extrudes edges, generates per-tile mips before packing, or uses texture arrays for tiles that need independent sampling.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The atlas saves binding overhead and improves batching, but it costs metadata, packing complexity, padding space, and update complexity. Dynamic atlases can fragment. Repacking can invalidate UV metadata or require an indirection layer.',
+        'Mipmaps usually add about one third extra texture storage for a full pyramid. They often pay for themselves through better cache behavior, less shimmer, and lower bandwidth on minified surfaces.',
+        'Filtering choices are visible. Nearest filtering can look sharp but jagged. Linear filtering smooths but can blur. Trilinear filtering reduces mip popping. Anisotropic filtering improves oblique surfaces at higher sample cost.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Atlases win for sprites, glyphs, icons, tile maps, particle sheets, and UI elements where many small images draw with the same material and sampler state.',
+        'Mipmaps win for textured 3D surfaces, zoomable maps, scaled UI, terrain, and any case where a texture may appear at many screen sizes.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Atlases fail when images need different sampler states, wrap modes, compression formats, update rates, dimensions, or lifetimes. If one asset updates every frame and another is static for months, packing them together may be operationally awkward.',
+        'The seam problem is real. Linear filtering and mipmap generation can sample across tile boundaries unless gutters, edge extrusion, per-tile mip generation, or texture arrays are used carefully.',
+        'Texture arrays or bindless-style approaches can be cleaner when the platform supports them and assets have compatible dimensions and formats. Atlases are a batching tool, not the universal texture layout.',
+      ],
+    },
+    {
+      heading: 'Complete case study',
       paragraphs: [
         'A 2D tile-map renderer packs thousands of terrain tiles into one atlas. The map stores tile IDs, the atlas metadata maps each ID to a UV rectangle, and the renderer instantiates quads for visible tiles. The shader samples one atlas and one sampler while drawing many tiles.',
-        'The hard production detail is seams. Linear filtering and mipmap generation can sample across tile boundaries. A robust atlas uses gutters, edge extrusion, per-tile mip generation, or texture arrays when available. The atlas is not just a packing trick; it is a sampling contract.',
+        'The hard production detail is seams. A robust atlas uses gutters, edge extrusion, per-tile mip generation, or texture arrays when available. The atlas is not just a packing trick; it is a sampling contract.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Implementation guidance',
       paragraphs: [
-        'Texture atlases reduce binding overhead but add metadata and edge cases. UV rounding, missing gutters, compressed texture blocks, premultiplied alpha, wrap modes, and mip generation can all create visible seams.',
-        'Mipmaps do not make texture memory free. They usually add about one third extra storage for a full pyramid, but can improve cache behavior and image quality enough to justify the cost.',
+        'Group assets by sampler state, compression format, wrap mode, update rate, and lifetime before packing. Putting every image in one giant atlas can make batching look good on paper while making streaming, hot reload, or partial updates harder than separate atlases would be.',
+        'Make metadata deterministic and testable. Store untrimmed size, trim offset, atlas rectangle, rotation, gutter width, and normalized UVs. Render a debug view at several zoom levels and camera angles to catch bleeding that only appears after mip selection. For tiles, gutters must be large enough for the lowest mip level you intend to sample.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: WebGPU specification at https://www.w3.org/TR/webgpu/, WGSL texture and sampler types at https://www.w3.org/TR/WGSL/#texture-and-sampler-types, and Khronos OpenGL texture sampling reference at https://registry.khronos.org/OpenGL-Refpages/gl4/html/texture.xhtml.',
         'Study WebGPU Buffer & Bind Group Case Study, Render Graph Framegraph Resource Lifetimes, Quadtree Spatial Index & Map Tiles, Cache Invalidation & Versioning, Browser Rendering, and Dirty Rectangle Damage Tracking next.',

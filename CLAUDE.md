@@ -18,6 +18,8 @@ Teach anyone, for free, how computing actually works — by *showing* it. Every 
 ## Product requirements
 
 - **Synchronized step-by-step explanations**: every animation step carries a human-readable explanation rendered alongside it.
+- **Writing system required**: read `WRITING_SYSTEM.md` before creating or revising any topic. The animation explanation is not enough; every topic must teach why the idea exists, why it works, what it costs, where it wins, where it fails, and what it unlocks. Caption-level text is unfinished work.
+- **Simplicity doctrine required**: prose must be plain, compressed, and useful. Do not waste the reader's time with stiff AI phrasing, rhetorical setup, repeated points, significance theater, or textbook fog. Depth comes from mechanisms, invariants, examples, tradeoffs, and limits.
 - **Education-first pacing (Devansh, 2026-06-11)**: people come here to learn, not to watch boxes fly. The explanation text sits ABOVE the animation so both can be followed at once, and the default playback speed must be slow enough to read every step (1× = 5s/step — there is text AND animation to absorb). Users can speed up to 8×; they cannot slow down past a point, so defaults always err slow. A fast default is a bug.
 - **Site-wide search**: client-side, so visitors can find any topic instantly.
 - **Visitor world map**: ClustrMaps and its sister Mapmyvisitors are dead (DNS/origin gone, verified 2026-06-11). Dropped for now; bring a map back when Devansh registers with a living service (GoatCounter is the healthiest free option, needs his signup).

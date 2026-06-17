@@ -178,43 +178,112 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `A Count-Min Sketch is a probabilistic frequency table for streams. It answers "how many times have I seen this key?" using a fixed-size matrix of counters instead of a full map of every key. Like Bloom Filter, it gives up exactness to save memory, but it solves a different problem: Bloom answers membership, Count-Min answers approximate counts.`,
-        `The guarantee is asymmetric. A Count-Min Sketch never undercounts, because every update only increments counters. It may overcount when other keys collide with the queried key's positions. Returning the minimum row estimate is the trick that chooses the least polluted row.`,
+        'Streams can contain millions or billions of distinct keys: URLs, IPs, queries, products, tokens, or user ids. An exact hash map grows with the number of distinct keys and can become too large for telemetry, abuse detection, or distributed analytics. Count-Min Sketch exists to answer approximate frequency questions with fixed memory.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Create d rows and w columns of counters. Each row has its own hash function. To update key x, compute d column positions and increment one counter per row. To estimate count(x), read those d counters and return the smallest. Width controls collision rate; depth controls the probability that every row is polluted at once. The original Count-Min Sketch analysis gives space roughly O(1 / epsilon * log(1 / delta)) for additive error epsilon with failure probability delta.`,
-        `The data structure is linear: sketches with the same shape and hash seeds can be added cell by cell. That makes it natural for distributed stream processing. Each worker sketches its partition locally; aggregation merges the matrices without shipping all raw keys.`,
+        'The first attempt is a hash table from key to exact count. It is simple, mergeable by key, and correct. It fails when the key universe is huge, the tail is long, and most keys are not important enough to deserve their own stored identity.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The wall',
       paragraphs: [
-        `Update cost is O(d), query cost is O(d), and space is O(d * w), where d and w are fixed by the desired error. In practice that is constant time per event and fixed memory for an unbounded stream. The bill is statistical: rare keys can be inflated by collisions with common keys, and the sketch cannot list all keys by itself. Heavy-hitter systems usually pair it with a candidate set or exact verification store.`,
+        'A single hashed counter per key-like bucket loses too much information because collisions are indistinguishable. A rare key that collides with a hot key looks hot. The wall is bounding collision damage without storing identities for every distinct key.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Core insight',
       paragraphs: [
-        `Count-Min Sketch appears in network telemetry, streaming analytics, approximate dashboards, query planning, abuse detection, ad-tech counters, and feature-monitoring pipelines. It is especially useful when the key universe is huge and long-tailed: IP addresses, search queries, user IDs, URLs, product IDs, or tokens. Roaring Bitmaps are strong when you need exact set algebra over IDs; Count-Min is strong when you need approximate frequencies over an endless stream.`,
-        `A common production shape is: Message Queues carry raw events, stream workers maintain sketches, alerts ask for heavy hitters, and an exact store verifies the few candidates that matter. That composition gives bounded memory and bounded network cost without pretending approximate counts are legally exact.`,
+        'Use several independent hash rows and take the minimum estimate. Collisions only add count, never subtract it. If at least one row is relatively clean, the minimum row is the least polluted witness for the key.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Reading the visualization',
       paragraphs: [
-        `Do not use Count-Min Sketch for money, inventory, permissions, or deletion decisions unless a downstream exact check confirms the result. The estimate is biased upward. It is excellent for "is this key worth investigating?" and weak for "charge this customer for exactly N events." Another trap is adversarial hashing: if attackers can choose keys that collide, they can inflate other counts. Use keyed hashes or rotate seeds when the threat model includes hostile input.`,
-        `Count-Min also does not discover keys from nowhere. It estimates a key you ask about. To find heavy hitters, pair it with a candidate tracker, a heap, Space-Saving, or stream summaries that retain candidate identities.`,
+        'In the stream-counts view, follow one key across all hash rows. Every touched counter is a noisy witness. The minimum is chosen because collisions only add mass; the least inflated witness is the best estimate.',
+        'In the merge view, notice that mergeability is not an afterthought. Sketches with the same dimensions and hash seeds can be added cell by cell, which is why this structure is useful in distributed streaming systems.',
       ],
     },
     {
-      heading: `Sources and study next`,
+      heading: 'How it works',
       paragraphs: [
-        `Primary source: Cormode and Muthukrishnan, "An Improved Data Stream Summary: The Count-Min Sketch and its Applications" at https://dimacs.rutgers.edu/~graham/pubs/papers/cm-full.pdf. Then study Conservative Count-Min Sketch for lower positive-stream bias, Count Sketch: Signed Frequency for turnstile updates, Feature Hashing Signed Projection Primer for hashed sparse feature vectors, Heavy Hitters: Space-Saving Summaries for retaining candidate keys, and Elastic Sketch Network Telemetry Case Study for a production heavy/light split. Bloom Filter covers approximate membership, Reservoir Sampling covers representative examples, and Message Queues show the production stream that feeds sketches.`,
+        'Create d rows and w columns of counters. Each row has its own hash function. Updating key x increments one counter per row. Querying x reads those same counters and returns the smallest. Width lowers collision pressure; depth lowers the chance that every row is badly polluted.',
+        'The key itself is not stored in the sketch. That saves memory, but it means the sketch cannot list all frequent keys. A production heavy-hitter pipeline usually pairs Count-Min with a candidate table, sample store, or exact replay for the small set of keys worth investigating.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'For positive streams, every counter touched by x contains the true count of x plus counts from colliding keys. That means each row is an upper bound. Taking the minimum keeps the estimate one-sided and chooses the row with the least extra mass. The original analysis sizes width and depth for additive error and failure probability.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Update is O(d), query is O(d), and memory is O(d * w), fixed by the desired error rather than stream length. Sketches with the same dimensions and hash seeds merge by cell-wise addition. The bill is statistical: rare keys can be inflated, and the sketch cannot list keys by itself.',
+        'Counter size is also a real systems choice. Small counters save memory but can saturate. Conservative update reduces positive-stream bias. Time-decayed or windowed variants need rotation, subtraction, or multiple sketches, which changes the simple merge story.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Choose width from tolerated overcount and depth from tolerated probability of a bad estimate. Wider rows reduce collision pressure; more rows reduce the chance that every estimate path is polluted. Record both choices with the metric definition so dashboards remain interpretable.',
+        'Use the same hash functions, seeds, dimensions, and counter widths everywhere a sketch may be merged. A cell-wise sum is meaningful only when every shard put the same logical hash row and bucket in the same cell.',
+        'Pair the sketch with a candidate mechanism when you need heavy hitters. Count-Min can estimate a key you already know, but it cannot enumerate unknown keys because it does not store them. Space-Saving, heap candidates, or sampled exact windows often fill that gap.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Count-Min fits network telemetry, streaming analytics, approximate dashboards, query planning, abuse detection, ad-tech counters, and feature-monitoring pipelines. A common production pattern is message queues feeding stream workers, sketches generating candidates, and an exact store verifying the few decisions that matter.',
+        'It is especially strong when the stream is too large to retain but approximate upper bounds are enough. Alerting on possible spikes, estimating hot keys, and routing suspicious traffic can all tolerate a one-sided estimate as long as final expensive actions are checked elsewhere.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Do not use it for money, inventory, permissions, deletion, or legal decisions without exact verification. It is biased upward and vulnerable to adversarial collision choices if hashing is weak. It also estimates keys you ask about; finding heavy hitters requires a candidate tracker such as Space-Saving or another retained-identity summary.',
+        'It is also the wrong tool for signed updates unless the contract is changed. If counts can decrease, Count-Min loses its one-sided overestimate logic. Count Sketch or another turnstile sketch fits that world better.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A stream sees login four times and bot twice. In one row, login collides with bot, so that row reports 6 for login. In another row, login avoids bot and reports 4. Taking the minimum returns 4, which is exact in this toy case. If every row collided, the answer would be too high, never too low.',
+        'In a distributed log pipeline, each shard can keep its own sketch. As long as every shard uses the same hash seeds and dimensions, the coordinator adds matrices cell by cell. The merged sketch behaves like one sketch over the combined stream without shipping raw events.',
+      ],
+    },
+    {
+      heading: 'Rule of thumb',
+      paragraphs: [
+        'Use Count-Min when the cost of exact counting grows with the stream and overestimates are safer than underestimates. Use a different structure when counts can be negative, identity must be retained, or decisions require exactness.',
+        'The most useful production habit is to treat sketch answers as candidate evidence. They are excellent for narrowing attention and dangerous when silently promoted into billing, deletion, or access-control truth.',
+      ],
+    },
+    {
+      heading: 'Operational case study',
+      paragraphs: [
+        'A network telemetry service wants rough request counts for millions of source IPs per minute. Keeping an exact counter for every IP on every edge node is expensive, and shipping those maps centrally is worse. Each edge node can update a Count-Min sketch locally and merge sketches for regional dashboards.',
+        'The dashboard can safely ask candidate questions such as "which known IPs might have spiked?" because the sketch gives upper bounds. It should not ban an IP from the sketch alone. A high estimate should trigger exact log lookup, sampled packet review, or a heavier retained-identity summary before enforcement.',
+        'This pattern is why Count-Min often appears beside other summaries. The sketch gives cheap frequency pressure, Space-Saving keeps candidate identities, and exact storage verifies the small number of decisions that matter.',
+      ],
+    },
+    {
+      heading: 'How to size it',
+      paragraphs: [
+        'Width controls additive error because wider rows spread keys across more buckets. Depth controls confidence because more independent rows make it less likely that every witness for a key is badly polluted. The usual theory expresses this as an error budget and failure probability rather than as a magic table size.',
+        'In production, size is also constrained by cache, network, and counter width. A sketch that fits in CPU cache may beat a theoretically nicer sketch that causes memory stalls. A sketch sent between workers may need compact counters and clear saturation behavior.',
+        'Sizing should be tied to action thresholds. If an alert fires at 10,000 events, an error of 50 may be fine. If an admission decision flips at 8 versus 9 events, the same sketch may be too noisy.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: Cormode and Muthukrishnan, "An Improved Data Stream Summary: The Count-Min Sketch and its Applications" at https://dimacs.rutgers.edu/~graham/pubs/papers/cm-full.pdf. Then study Conservative Count-Min Sketch for lower positive-stream bias, Count Sketch: Signed Frequency for turnstile updates, Feature Hashing Signed Projection Primer for hashed sparse feature vectors, Heavy Hitters: Space-Saving Summaries for retaining candidate keys, and Elastic Sketch Network Telemetry Case Study for a production heavy/light split. Bloom Filter covers approximate membership, Reservoir Sampling covers representative examples, and Message Queues show the production stream that feeds sketches.',
       ],
     },
   ],

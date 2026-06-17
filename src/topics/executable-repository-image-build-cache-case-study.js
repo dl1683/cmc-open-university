@@ -95,7 +95,7 @@ function* imageCacheGraph() {
       ],
     ),
     highlight: { active: ['base:key', 'apt:key', 'pip:key', 'src:key'], compare: ['pip:hit', 'src:hit'], found: ['test:risk'] },
-    explanation: 'The useful cache key is not only the Dockerfile text. It includes base image digest, package lockfiles, language runtime, source tree hash, test command, and sometimes runner hardware.',
+    explanation: 'Each highlighted row is part of the real cache key. Dockerfile text is not enough: base image digest, lockfiles, runtime, source tree hash, test command, and sometimes runner hardware decide whether a reused image is still the same executable environment.',
   };
 
   yield {
@@ -151,7 +151,7 @@ function* runnerEvidenceLedger() {
       ],
     ),
     highlight: { active: ['img:check', 'cmd:check', 'log:check'], found: ['img:keep', 'cmd:keep'], compare: ['env:keep', 'art:keep'] },
-    explanation: 'The ledger keeps enough to rerun and audit the example, but it also redacts secrets and drops artifacts that carry license or privacy risk.',
+    explanation: 'The ledger keeps the fields needed to rerun and audit the example, but the compare cells show the tax: environment variables and artifacts may contain secrets, licenses, or private data, so reproducibility has to include redaction rules.',
     invariant: 'Reproducibility and privacy are both first-class ledger fields.',
   };
 
@@ -198,31 +198,70 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An executable repository image is the runnable snapshot behind a coding-agent task. It bundles the repository commit, base image, system packages, language dependencies, test command, environment metadata, and evidence needed to rerun the issue later.',
-        'Code World Models Case Study explains why execution traces matter. Verified Agent Trajectory Store explains how to keep task, action, oracle, and proof together. This module fills in the missing factory layer: how the repository becomes an executable object before the agent ever starts editing.',
+        'An executable repository image exists because a coding-agent task is only as good as its replay environment. A prompt that says "fix this bug" is weak evidence. A runnable repository image with a failing command, logs, patch, passing command, and digest is a task that can be audited.',
+        'Without an executable snapshot, every rerun is exposed to dependency drift, base-image changes, package-index changes, local machine differences, environment variables, and test-command drift. A benchmark can look like it measures coding skill while actually measuring who happened to have the right environment.',
+        'The build cache exists because execution evidence is expensive. Building a clean image for every task is too slow and costly at benchmark-factory scale. A content-addressed cache lets the factory reuse safe layers while still pinning the exact image that produced the proof.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The core structures are a repository tree hash, dependency lock index, Docker layer cache, image digest table, runner evidence ledger, artifact hash table, and split-safe provenance record. The image digest acts like a content-addressed key for execution.',
-        'A good cache key is layered. Base image digest, package manager lockfile, runtime version, source tree hash, test command, runner architecture, and selected environment variables all participate. That prevents accidental reuse of a stale environment while still letting expensive dependency layers be shared.',
+        'The obvious approach is to run the issue on whatever machine is available and save the transcript. That is convenient, but it loses the conditions that made the result true. A passing test on one laptop may fail in CI because the interpreter, OS package, or dependency version changed.',
+        'Another shortcut is to store only the final Docker image. That proves what could run, not what did run. The evidence ledger still needs command, exit status, logs, artifacts, timestamps, runner metadata, and redaction status.',
+        'A third mistake is to chase cache hits without correctness. A fast cache that silently reuses the wrong dependency layer is worse than a slow rebuild because it contaminates the dataset with false labels.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that a benchmark task is a proof chain. Repository snapshot, dependency lockfiles, base image digest, build commands, test commands, runner identity, failing output, repair patch, passing output, and artifact hashes all belong to one record.',
+        'The image digest acts like a content-addressed key for the runnable environment. The proof ledger says what happened inside that environment. The cache key says which layers can be reused without changing the meaning of the run.',
+        'This separates reproducibility from convenience. Cache hits lower cost, but the canonical evidence is still the failing-to-passing run tied to an image digest and command hash.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The builder starts from a task and commit. It resolves lockfiles, builds or retrieves base and dependency layers, copies source, runs setup commands, records the image digest, and then launches tests or agent rollouts against that digest. Each run writes exit status, logs, artifacts, and timing into the evidence ledger.',
-        'For high-volume factories, the build cache is not an optimization afterthought. It is the difference between a toy benchmark and a reusable trajectory factory. Cache misses become operating metrics, because every miss increases cost and may indicate dependency drift.',
+        'The builder starts from a task and commit. It resolves lockfiles, pins the base image, installs system and language dependencies, copies source, runs setup commands, records the image digest, and then launches tests or agent rollouts against that digest.',
+        'A good cache key is layered. Base image digest, package manager lockfile, runtime version, source tree hash, test command, runner architecture, and selected environment variables all participate. That prevents accidental reuse of a stale environment while still letting expensive dependency layers be shared.',
+        'Each run writes exit status, logs, artifacts, timing, command hash, and redaction metadata into the evidence ledger. If a task is later reused for training or evaluation, the ledger can prove which environment produced the label.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A Python project has a real GitHub issue caused by a stale dependency pin. The factory snapshots the failing commit, builds the image from a pinned base, installs from lockfiles, runs the failing test, and stores that failure as the starting oracle. The agent edits the dependency constraint, the factory rebuilds only the affected layers, reruns the same test, and stores the passing evidence.',
-        'The resulting record is richer than a patch: it contains issue id, base commit, image digest, lockfile fingerprint, failing command, failing log, patch fingerprint, passing command, passing log, artifact hashes, timing, and redaction status. That record can be deduped, audited, and replayed.',
+        'The build graph proves that the issue, repository, lockfiles, base image, dependencies, source copy, and cache key must all be fixed before the image digest is meaningful. The digest is not decoration; it is the identity of the runnable task environment.',
+        'The evidence-ledger view proves the correctness boundary. An image digest says what could run. The ledger says what did run, with which command, exit status, logs, artifacts, and timestamps.',
+        'The cache curve proves the factory economics. A cold build farm may be too expensive for large-scale agent evaluation. A warm, correct cache turns the same task stream into a repeatable factory.',
+        'The stale-dependency case proves why both sides are needed. The image and failing command establish the original bug. The rebuilt image and passing command establish the repair. Without both, the dataset cannot distinguish a real fix from an environment accident.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because content addressing makes hidden drift visible. If the base image, lockfile, source tree, or command changes, the cache key and evidence record should change. That is what prevents two different environments from masquerading as one task.',
+        'It also works because proof is stored near execution. A patch is not enough. A passing result needs the command, output, artifact hashes, and image digest that made it pass. A failing starting point needs the same treatment.',
+        'Deduplication works better with image evidence. Two transcripts may look different, but if they share base commit, image digest, failing command, patch hunk, and passing proof, the split ledger should treat them as one family.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The cost is storage, build time, cache invalidation, and privacy review. Logs and artifacts may contain secrets, licenses, customer data, or private paths. Reproducibility has to include redaction policy, not just more retention.',
+        'The cache key has to balance reuse and correctness. Too broad and stale layers poison tasks. Too narrow and every task rebuilds from scratch. High-volume factories need cache-hit metrics, drift alerts, and controlled rebuild policies.',
+        'There is also a portability tradeoff. A container captures a lot, but not everything: CPU architecture, kernel behavior, filesystem semantics, network access, and external services can still affect the run.',
+        'Security is part of the cost. Building arbitrary repositories can execute setup scripts, download packages, or touch network resources. The runner needs isolation, network policy, secret handling, and artifact redaction before the evidence is safe to keep.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Executable repository images win in coding-agent benchmarks, repair-data factories, regression corpora, CI replay systems, and verified trajectory stores. They turn a natural-language issue into a runnable object with an oracle.',
+        'A concrete case is a stale dependency repair. The factory snapshots the failing commit, builds from a pinned base, installs from lockfiles, runs the failing test, lets an agent update the dependency constraint, rebuilds affected layers, reruns the same test, and stores the passing evidence.',
+        'The resulting record is richer than a patch: issue id, base commit, image digest, lockfile fingerprint, failing command, failing log, patch fingerprint, passing command, passing log, artifact hashes, timing, and redaction status.',
+        'It also wins for curriculum design. Tasks can be grouped by language, dependency manager, failing command type, test duration, image family, and repair pattern, letting a course move from small deterministic fixes to larger multi-service repairs.',
       ],
     },
     {
@@ -230,10 +269,12 @@ export const article = {
       paragraphs: [
         'The most common failure is hidden nondeterminism: unpinned package indexes, floating base images, network-dependent setup scripts, local timezone assumptions, and tests that depend on execution order. The next failure is evidence loss: a passing result without the exact image digest and command is weak training data.',
         'A production factory should also separate cacheability from correctness. A fast cache that silently reuses the wrong layer is worse than a slow rebuild, because it contaminates the trajectory store with false labels.',
+        'A third failure is split leakage. If the same repository state, image digest, failing command, and patch family appear in both training and evaluation splits, the benchmark can reward memorization rather than repair ability.',
+        'A fourth failure is over-normalizing tasks. If the factory patches every repository into the same clean shape before agents see it, the benchmark stops measuring real repair and starts measuring a curated exercise format.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: CWM at https://arxiv.org/abs/2510.02387 and https://ai.meta.com/research/publications/cwm-an-open-weights-llm-for-research-on-code-generation-with-world-models/, Docker build cache at https://docs.docker.com/build/cache/ and https://docs.docker.com/build/cache/optimize/, GitHub Actions workflow syntax at https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions, SWE-bench at https://arxiv.org/abs/2310.06770, and SWE-agent at https://arxiv.org/abs/2405.15793.',
         'Study next: Verified Agent Trajectory Store, Agent Trajectory Dedupe & Provenance Hash, Content-Addressed Merkle DAG Object Store, Bootstrap CI, Software Supply Chain Provenance Graph, and the Synthetic Bug Mutation Oracle Case Study.',

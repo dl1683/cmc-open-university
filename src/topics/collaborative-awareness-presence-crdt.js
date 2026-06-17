@@ -86,26 +86,26 @@ function* awarenessMap() {
   yield {
     state: awarenessGraph('Awareness is a per-client state map'),
     highlight: { active: ['local', 'state', 'map', 'e-local-state', 'e-clock-map'], compare: ['remote'] },
-    explanation: 'Document content belongs in the CRDT document. Presence belongs in an awareness map keyed by client id. Each client owns its own ephemeral state: name, color, cursor, focus, or selection.',
+    explanation: 'The first split is content versus presence. Durable document data belongs in the CRDT document; live user state belongs in an awareness map keyed by client id. Each client owns only its own ephemeral record.',
   };
 
   yield {
     state: awarenessGraph('Each local change increments a clock'),
     highlight: { active: ['state', 'clock', 'map', 'e-state-clock', 'e-clock-map'], compare: ['ttl'] },
-    explanation: 'The clock lets receivers decide whether an awareness update is newer than what they already know for that client. This is a last-writer-wins register per client, not persistent document history.',
+    explanation: 'The clock is only per-client freshness. Receivers keep the newer awareness record for that client and discard older ones. This is a lossy last-writer-wins register, not a history of every cursor move.',
     invariant: 'Awareness state should be replaceable; document content should be durable.',
   };
 
   yield {
     state: awarenessGraph('Providers broadcast encoded awareness updates'),
     highlight: { active: ['map', 'encode', 'provider', 'remote', 'e-map-encode', 'e-encode-provider', 'e-provider-remote'], found: ['ttl'] },
-    explanation: 'The provider encodes changed client states and broadcasts them. A new peer can receive the current awareness map; later updates can carry only the changed client ids.',
+    explanation: 'Providers broadcast changed client records, not durable edits. A joining peer can receive the current map; later messages can carry only changed client ids. Dropping one cursor update should not damage document state.',
   };
 
   yield {
     state: awarenessGraph('Timeouts remove stale presence'),
     highlight: { active: ['provider', 'ttl', 'map', 'e-provider-ttl', 'e-ttl-map'], removed: ['remote'] },
-    explanation: 'Presence needs liveness. If a client stops refreshing its awareness state, peers should mark it offline after a timeout. A clean disconnect can send a null state immediately.',
+    explanation: 'Presence needs expiry because tabs crash and networks vanish. If heartbeats stop, peers mark the record offline after a timeout. A clean disconnect can speed that up by sending null state.',
   };
 
   yield {
@@ -131,7 +131,7 @@ function* awarenessMap() {
       ],
     ),
     highlight: { active: ['cursor:stores', 'clock:rule', 'focus:rule'], compare: ['user:rule'] },
-    explanation: 'Awareness is intentionally small and lossy. It makes collaboration feel live without polluting the durable document history with every cursor twitch.',
+    explanation: 'Awareness should stay small, public to the room, and safe to lose. It makes collaboration feel live without filling the durable document log with cursor twitches and typing flags.',
   };
 }
 
@@ -139,13 +139,13 @@ function* cursorLifecycle() {
   yield {
     state: cursorGraph('Cursor coordinates must survive document edits'),
     highlight: { active: ['editor', 'relative', 'awareness', 'e-editor-relative', 'e-relative-awareness'], compare: ['doc'] },
-    explanation: 'A raw character offset is fragile while everyone types. Collaborative editors usually encode cursor positions relative to stable CRDT positions or document anchors so the cursor can be resolved after remote edits.',
+    explanation: 'Raw offsets drift while everyone types. Cursor state should use relative positions or anchors tied to stable CRDT structure, then resolve against the receiver\'s current document at render time.',
   };
 
   yield {
     state: cursorGraph('Awareness updates travel beside document updates'),
     highlight: { active: ['awareness', 'network', 'peer', 'e-awareness-network', 'e-network-peer'], compare: ['doc'] },
-    explanation: 'Presence is sent through the collaboration provider but is not the same as document sync. It can be dropped, throttled, or expired without damaging the actual document.',
+    explanation: 'Awareness travels beside document sync, not inside it. The provider may throttle, drop, or expire presence updates because the document truth is stored in the CRDT update path.',
   };
 
   yield {
@@ -181,7 +181,7 @@ function* cursorLifecycle() {
       ],
     ),
     highlight: { active: ['cursor:layer', 'typing:retention'], compare: ['text:retention', 'marks:retention'] },
-    explanation: 'The product distinction is crisp: content is durable, presence is temporary. Mixing the two creates noisy histories and bad privacy defaults.',
+    explanation: 'The table draws the retention boundary. Text and marks are durable collaboration data. Cursors and typing flags expire quickly. Mixing them creates noisy history, larger sync, and worse privacy defaults.',
   };
 }
 
@@ -195,44 +195,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Collaborative awareness is the ephemeral state that makes a shared editor feel alive: who is online, where their cursor is, what they selected, which color/name/avatar represents them, whether they are typing, and which viewport they are focused on. It is not document content. It should be safe to lose, expire, throttle, and replace.',
-        'Yjs documents awareness as an optional feature defined in y-protocols and usually implemented by providers. Its awareness protocol is a network-agnostic CRDT for user status and information such as cursor location, username, or email address: https://docs.yjs.dev/api/about-awareness.',
+        'Collaborative awareness exists because users need to understand where other people are without turning every sign of life into permanent document history. In a shared editor, the text is only part of the experience. Users also care who is online, where their cursors are, what ranges they selected, which panel has focus, and whether somebody appears to be typing. That state makes the room feel live.',
+        'Presence is different from content. Document text, rich-text marks, shapes, comments, and spreadsheet cells need durable conflict resolution. Cursor motion, typing flags, names, colors, and active panels need freshness, expiry, and privacy. They should be safe to drop, throttle, replace, and forget. A presence CRDT or awareness protocol gives the app a small mergeable state layer beside the durable document CRDT.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'The core data structure is a map from client id to awareness state. Each state is a schemaless JSON object with an increasing clock. When a client updates its local state, it increments the clock and broadcasts the changed state. When another peer receives an update, it overwrites that client entry only if the incoming clock is newer. A null state marks the client offline.',
-        'Yjs also specifies timeout behavior: if a peer does not receive updates from a remote client for a period, it marks that client offline, and clients should refresh their own awareness state regularly. The protocol provides encoding and application functions for awareness updates, and providers broadcast those updates similarly to document updates: https://docs.yjs.dev/api/about-awareness.',
+        'The naive approach is to store presence in the same document log as edits. Every cursor move becomes an update. Every typing flag becomes history. Every focus change becomes part of the durable collaboration stream. This works for a quick demo because everyone receives the data, but it fails as soon as the room is active. The log fills with noisy state that nobody needs later, sync gets heavier, and private behavior is retained longer than the product requires.',
+        'A second naive approach sends raw coordinates or character offsets over the network and treats the latest message as truth. That breaks under concurrent editing. If Alice says her cursor is at offset 120 while Bob inserts text near the start of the document, offset 120 may point to a different semantic location on Bob\'s screen. Presence should feel live, but it should not pretend that every peer has the same pixels at the same time.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The core insight',
       paragraphs: [
-        'The awareness layer uses a client-id map, per-client logical clock, JSON state record, heartbeat timer, timeout heap or timer wheel, provider broadcast queue, and rendering cache. Cursor fields should use stable positions when possible, such as relative positions anchored to CRDT elements, because raw offsets drift under concurrent edits.',
-        'This separation protects the durable document. A collaborator moving a mouse over a paragraph should not create a permanent CRDT change. Awareness is a last-writer-wins presence map with expiration. Sequence CRDTs and Peritext Rich-Text CRDT Case Study handle durable text and formatting; Collaborative Awareness handles the temporary social layer around them.',
+        'The core insight is to model awareness as a per-client last-writer-wins record with expiry. The shared state is a map from client id to a small JSON object and a monotonically increasing clock. Each client owns only its own entry. When the local user moves a cursor, changes selection, or updates profile color, the client increments its own clock and broadcasts the replacement state. Peers keep the newest clock for that client and ignore older duplicates.',
+        'This is CRDT-like in the narrow sense that peers can merge updates without coordination and eventually agree on the newest visible state for each client, assuming messages continue to arrive. It is not the same as the durable document CRDT. It does not need to preserve every operation. It needs to preserve freshness. A null state or heartbeat timeout removes the entry. Losing one cursor update should make animation less smooth, not corrupt the document.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the system works',
       paragraphs: [
-        'A local-first note app has a CRDT text document and an awareness provider. Alice sets her local state to user name, color, and cursor relative position. The provider broadcasts that update to Bob. Bob stores Alice under her client id, resolves the cursor position against his current document, and renders a colored caret. Alice types, the content sync engine sends document updates, and awareness sends cursor moves beside them. If Alice closes her laptop, peers eventually remove her state after timeout.',
-        'The important product detail is that presence should degrade gracefully. If a cursor anchor was deleted, render nothing or move to a safe nearby anchor. If the network drops, fade remote users rather than blocking edits. If a user is unauthorized for the document, never send their awareness state to that room.',
+        'A client maintains local awareness state such as user name, color, avatar, cursor anchor, selection range, focused panel, and typing flag. When that state changes, the client increments its awareness clock and updates its local map entry. The provider encodes the changed client ids and broadcasts them to peers. A peer receives the update, compares the incoming clock with the stored clock for that client, and applies the state only if it is newer.',
+        'Cursors and selections should use stable anchors when possible. In CRDT-backed text editors, that often means relative positions tied to document structure rather than raw offsets. The sender publishes the anchor as awareness state. The receiver resolves that anchor against its own current document only when rendering. If the anchor no longer resolves cleanly because the referenced content was deleted or the peer is far behind, the UI can hide, fade, or approximate the cursor without changing document truth.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The first mistake is storing awareness in the document log. That creates noisy history, privacy risk, and unnecessary sync load. The second mistake is sending raw cursor offsets that break under concurrent inserts and deletes. The third mistake is treating awareness as authoritative. A green dot means a recent heartbeat, not a guarantee that the user sees the same pixels.',
-        'Presence also has abuse and privacy concerns. User names, emails, exact cursor locations, and active panels may reveal sensitive behavior. Scope awareness to authorized rooms, keep payloads small, expire aggressively, and do not retain it longer than the product needs.',
+        'The awareness-map view proves the ownership and freshness rules. One local client creates a small state object, increments its own clock, stores the result in a client-id map, and broadcasts an encoded update. Receivers do not run a complex conflict resolver for cursor motion. They keep the newest record for that client. The timeout edge proves that disappearance is also part of the protocol: stale presence should be removed when heartbeats stop.',
+        'The cursor-lifecycle view proves the retention boundary. The editor selection becomes a relative position, then awareness state, then a network update, then a rendered remote cursor. The edge toward the document CRDT is deliberately marked as a separation, not a write. The presence-versus-content table is the lesson: text and formatting are durable collaboration data; cursors and typing flags are ephemeral signals. The app should not confuse those layers.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: Yjs Awareness docs at https://docs.yjs.dev/api/about-awareness, Yjs Awareness & Presence guide at https://docs.yjs.dev/getting-started/adding-awareness, and y-protocols repository at https://github.com/yjs/y-protocols. Study Local-First Sync Engine Case Study, Yjs Struct Store & Updates, Sequence CRDTs for Collaborative Text, Peritext Rich-Text CRDT Case Study, Collaborative Undo/Redo Intention Stack, Logical Clocks, and Service Workers next.',
+        'The design works because each client is the only writer for its own presence record. That removes the hardest conflict: no peer should edit another peer\'s cursor. The merge rule is simple and deterministic. For a given client id, the higher clock wins. Across different client ids, records coexist in the map. Peers can receive updates in different orders and still converge on the newest known state per client.',
+        'It also works because it matches the value of the data. Presence is useful only while it is fresh. If a cursor update is delayed, the next one replaces it. If a tab crashes, timeout removes it. If a network drops messages, the document CRDT still carries durable truth and later awareness updates can refresh the UI. The protocol intentionally sacrifices history in exchange for low overhead, privacy, and responsiveness.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost is that awareness is only a hint. A green dot means a recent heartbeat, not proof that the person is looking at the same pixels. A remote cursor means the receiver resolved the last known anchor against its local document, not that the sender sees that exact layout. The UI must degrade gracefully when anchors disappear, clients fall behind, or provider broadcasts are delayed.',
+        'There is also network and privacy cost. Cursor motion can be high frequency, so clients usually throttle or coalesce updates. Payloads should stay small and room-scoped. Names, emails, avatars, exact selections, viewport data, and active-panel names can reveal sensitive behavior. Presence should be sent only to authorized peers, expire aggressively, and avoid long retention unless the product has a clear reason and user expectation.',
+      ],
+    },
+    {
+      heading: 'Real uses',
+      paragraphs: [
+        'Awareness appears in documents, code editors, whiteboards, design tools, spreadsheets, shared terminals, multiplayer dashboards, support consoles, and local-first notes apps. The visible features are familiar: colored carets, selection highlights, user avatars, follow mode, active cell outlines, typing indicators, and online lists. The underlying data is usually small JSON state plus a clock, not a permanent edit.',
+        'Consider a local-first notes app. Alice publishes her name, color, and cursor relative position under client id 7. Bob receives the update, stores it in his awareness map, resolves the relative position against his current copy of the note, and renders Alice\'s caret. Document edits travel through the durable CRDT update path. Cursor moves travel beside it. If Alice closes the tab, a null state or timeout removes her presence while the note itself remains unchanged.',
+      ],
+    },
+    {
+      heading: 'Failure modes and limits',
+      paragraphs: [
+        'The first failure mode is putting awareness in the document log. That creates noisy history, larger sync payloads, worse privacy defaults, and strange undo behavior. The second is using raw offsets that drift under concurrent edits. The third is allowing arbitrary clients to overwrite other users presence records. The client-id ownership rule and clock check exist to prevent that class of confusion.',
+        'Presence can also become a product risk. It can leak whether somebody opened a file, which paragraph they selected, which customer they inspected, or whether they are active after hours. It can be spoofed if the provider does not authenticate clients. It can become expensive if every mouse move broadcasts to a large room. Treat awareness as scoped, authenticated, lossy UI state. Do not use it as durable audit evidence or a source of permission decisions.',
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        'Study last-writer-wins registers, logical clocks, and map CRDTs first, because awareness is easiest to understand as a map of per-client freshness records. Then study sequence CRDTs for collaborative text, Yjs struct stores and updates, relative positions, and rich-text CRDTs such as Peritext. Those topics explain the durable layer that awareness deliberately stays out of.',
+        'After that, study provider protocols, local-first sync engines, service workers, WebSocket fanout, authorization for collaborative rooms, and collaborative undo. The useful mental model is simple: document CRDTs protect durable shared meaning; awareness protocols project temporary human attention. Good collaborative software needs both, but it should never make them the same data structure.',
       ],
     },
   ],

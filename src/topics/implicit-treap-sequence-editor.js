@@ -343,50 +343,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Problem',
       paragraphs: [
-        'An implicit treap is a treap used as an indexed sequence. It keeps random heap priorities for balance, but it does not store explicit search keys. Instead, each node stores subtree size, and the node position is implied by how many items are in its left subtree and ancestors.',
-        'That makes array-like positions compatible with treap split and merge. Insert at index i, delete a range, move a block, reverse a range, or cut a playlist segment by splitting around positions and merging the pieces back in a new order.',
-        'The structure sits between Treap, Order-Statistics Tree, Text Rope Data Structure, Piece Table Text Buffer, and Finger Tree Measured Sequence. It is not always the best text-editor structure, but it is a clean general-purpose sequence surgery tool.',
+        'Many applications store an ordered sequence and then edit the middle of it. A text editor inserts and deletes spans. A playlist lets the user drag songs. A timeline editor moves clips. A browser tab strip reorders tabs. A flat array gives fast indexing, but inserting or removing in the middle shifts many elements. A linked list edits locally, but finding position i requires scanning.',
+        'An implicit treap solves the middle ground: keep sequence order, support rank-based access, and make cut, paste, insert, delete, move, and reverse run in expected logarithmic time. It is "implicit" because the tree does not store explicit keys. The key of a node is its position in the in-order traversal, derived from subtree sizes.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive approach',
       paragraphs: [
-        'Each node stores value, random priority, left child, right child, subtree size, and optional lazy tags such as reverse. The in-order traversal is the sequence. select(i) compares i with size(left). If i is smaller, go left. If i equals size(left), the current node is the answer. If i is larger, subtract size(left) + 1 and go right.',
-        'split(root, k) returns two treaps: the first k items and the remaining items. merge(left, right) combines two adjacent sequences by choosing the higher-priority root and recursively merging one child. Both operations update subtree sizes on the way out.',
-        'Operations become recipes. Insert is split at i, merge with the new one-node treap, then merge the right side. Delete is split at l and r, discard the middle, then merge the sides. Move is cut the middle range, split the destination, then merge in the desired order.',
+        'The obvious structure is an array. select(i) is O(1), rendering a contiguous window is cache-friendly, and appending is cheap. But insertion at the front or middle shifts O(n) items. Moving a block can require two shifts. Reversing a long selected range can touch every item even when the UI only needs to record the operation.',
+        'A linked list fixes local insertion and deletion, but now select(i), split at i, or render rows 100000 through 100050 require walking from a known pointer. Skip lists, ropes, piece tables, and finger trees each solve parts of the problem. An implicit treap is the compact randomized-tree version built around two primitives: split by rank and merge adjacent sequences.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'With independent random priorities, access by index, split, merge, insert, delete, move, and lazy range reverse are O(log n) expected time, plus the number of produced or rendered items. Space is O(n).',
-        'The worst case is still possible if priorities are poor or adversarial. Production implementations should generate stable priorities with enough bits, update sizes after every pointer mutation, and push lazy tags before comparing child order or descending.',
-        'For character-level text, one node per character is usually too much overhead. Use chunks, ropes, or piece tables for raw text, and use an implicit treap when the sequence elements are already meaningful units such as cards, tracks, spans, tokens, clips, or chunks.',
+        'The wall is that position changes after every edit. If every element stores its numeric index, inserting one item at the front invalidates all later indices. If the structure stores only next pointers, position queries become slow. The sequence needs ranks that update locally, not labels that must be rewritten globally.',
+        'The second wall is range surgery. Insert one item is not enough. Real editors need delete [l, r), move [l, r) to position j, reverse [l, r), apply a style to a range, or extract a segment for undo. A good structure should express these as a small number of balanced-tree operations instead of loops over every item.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core insight',
       paragraphs: [
-        'A collaborative media editor stores a timeline as a sequence of clips. Users drag a range, paste a new clip at a position, reverse a selected run, or delete an advertisement slot. A flat array makes middle edits shift many entries. A linked list makes indexing slow. An implicit treap splits by position and merges ranges back together in expected logarithmic time.',
-        'For a move operation, split before the selected range, split after it, split at the destination in the remaining sequence, and merge the pieces in the new order. The UI can keep a visible-window renderer on top, asking select(i) for visible rows while edits update the underlying sequence.',
-        'Undo can be implemented as an operation log or with path-copying persistence. Since split and merge only change nodes along logarithmic paths, persistent versions can share most of the old treap, similar in spirit to Persistent Segment Tree and RRB Tree Persistent Vector.',
+        'Use a treap where the binary-search order is not stored as a field. The in-order traversal is the sequence. Each node stores a random priority for balance and a subtree size for rank. The priority gives expected logarithmic height. The size tells how many items appear before the current node inside its subtree.',
+        'The structure has two invariants. First, in-order order is sequence order: everything in the left subtree comes before the node, and everything in the right subtree comes after it. Second, heap priority gives balance: a parent has higher priority than its children. Because positions are implied by sizes, an insertion changes sizes only on the paths touched by split and merge.',
+        'This is why the data structure is useful for editors. Instead of updating every later index after an insert, update O(log n) size fields. Instead of moving a range item by item, split the sequence into pieces, then merge the pieces in the new order.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'An implicit treap is not a binary search tree over values. If you compare item values while splitting by position, the structure is wrong. Rank comes only from subtree sizes.',
-        'Lazy reversal is another common bug source. Before descending, push the reverse flag so left and right children reflect the logical order. Otherwise select, split, or traversal can silently return the wrong sequence.',
-        'Do not use one node per Unicode character for a serious editor without thinking about grapheme clusters and chunking. Text Rope Data Structure and Piece Table Text Buffer handle large text buffers more directly.',
+        'Each node stores value, priority, left child, right child, subtree size, and optional lazy tags. The size is 1 + size(left) + size(right). select(i) compares i with size(left). If i is smaller, descend left. If i equals size(left), return the current node. If i is larger, subtract size(left) + 1 and descend right.',
+        'split(root, k) returns two treaps: the first k items and the rest. If the left subtree size is at least k, split the left child and attach the right result back under the current node. Otherwise split the right child with k - size(left) - 1 and attach the left result back under the current node. Every return updates size.',
+        'merge(a, b) combines two adjacent sequences where every item in a must appear before every item in b. If one side is empty, return the other. Otherwise choose the root with the higher priority. If a has the higher priority, set a.right = merge(a.right, b). If b has the higher priority, set b.left = merge(a, b.left). Update size on the way out.',
+        'Lazy reverse is a common extension. A reverse flag on a subtree means its logical order is flipped, but the children may not have been physically swapped yet. Before descending, push the flag: swap children and toggle the reverse flag on each child. This keeps range reverse O(log n) without visiting every node in the range.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Sources: CP-Algorithms Treap, including implicit treaps, at https://cp-algorithms.com/data_structures/treap.html, OI Wiki treap notes at https://oi-wiki.org/ds/treap/, and Aragon and Seidel randomized search trees at https://faculty.washington.edu/aragon/pubs/rst89.pdf.',
-        'Study Treap, Order-Statistics Tree, Text Rope Data Structure, Piece Table Text Buffer, Finger Tree Measured Sequence, RRB Tree Persistent Vector, and Sequence CRDTs for Collaborative Text next.',
+        'Correctness comes from preserving two invariants through split and merge. split never changes relative order; it only separates the first k in-order nodes from the rest. merge assumes the two inputs are already adjacent in sequence order, then chooses roots by priority while preserving the in-order concatenation. That is enough to build insert, delete, and move.',
+        'Balance comes from independent random priorities. The shape is the same as inserting nodes into a binary search tree in random priority order. With high probability the height is logarithmic, so split and merge touch logarithmic paths. This is expected time, not a deterministic worst-case guarantee.',
+        'Ranks are always derived, never trusted as stale labels. If size fields are correct, select(i) and split(k) know how many elements are skipped when they move right. That local rank accounting is what avoids rewriting all positions after a middle edit.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Start with sequence A B C D E F G. The tree shape is balanced by priorities, but the in-order traversal is the sequence. To insert X at index 3, call split(root, 3). The left result contains A B C. The right result contains D E F G. Create a one-node treap X. The final result is merge(merge(left, X), right), whose in-order traversal is A B C X D E F G.',
+        'To move range [2, 5), meaning C D E, to the front, split(root, 2) to get A B and C D E F G. Then split the second part at 3 to get C D E and F G. Remove the middle by merging A B with F G. Then merge C D E before that remainder. The result is C D E A B F G.',
+        'To reverse [1, 6), split at 1 and 6 to isolate B C D E F. Toggle the reverse flag on that middle treap. Merge the pieces back. The logical sequence becomes A F E D C B G, and the implementation only touched logarithmic paths plus one lazy flag.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The "rank keys" view shows how position is recovered from subtree sizes. A node does not need a stored index. When the search moves right, it skips the left subtree and the current node by subtracting size(left) + 1. When the search moves left, the target rank is still inside the left subtree.',
+        'The "split insert" view shows the main recipe: isolate a boundary by rank, insert a one-node treap, and merge pieces while preserving in-order sequence order. The animation also shows why priorities matter: the new node may become a high node in the tree even though its sequence position is fixed.',
+        'The "playlist case study" view shows range editing as composition. Paste, cut, move, and undo are not separate low-level algorithms. They are short recipes built from split, merge, optional lazy tags, and a log of operations or versions.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'With independent random priorities, select, split, merge, insert, delete, move, and lazy range reverse are O(log n) expected time. Rendering k consecutive items is O(log n + k) if the renderer first finds the starting rank and then walks in order. Space is O(n), plus per-node pointer, priority, size, and lazy-tag overhead.',
+        'The constants are not as friendly as an array. Nodes are pointer-heavy, less cache-local, and more expensive to allocate. If the workload is mostly append and random access, an array or gap buffer may be faster. If the workload is character-level text, one node per character is usually wasteful; chunked ropes or piece tables often fit better.',
+        'The worst case is possible if priorities are adversarial, duplicated badly, or generated from a weak source. Production implementations usually use enough random bits, stable per-node priorities, iterative forms when recursion depth is a concern, and explicit testing for size updates after every pointer mutation.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Implicit treaps win when the sequence elements are meaningful units and range edits are common: playlist tracks, timeline clips, cards on a board, syntax nodes, tokens, subtitle segments, image layers, ordered tasks, or chunks in a larger text structure. The structure gives a small API that can express many edits.',
+        'They are also useful in competitive programming and algorithm prototyping because split and merge make range operations concise. Add lazy tags for reverse, add aggregate fields for range sums or minimums, add path copying for persistence, and the same skeleton becomes a flexible measured sequence.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'An implicit treap is not a good fit when deterministic worst-case bounds are required. Randomized balance is usually excellent, but a real-time system may prefer a deterministic balanced tree or a structure with stricter latency guarantees. It is also a poor fit when cache locality dominates and edits are rare.',
+        'It fails as a text editor core if it ignores Unicode and storage granularity. Users edit grapheme clusters, not bytes, and serious editors need efficient piece storage, file snapshots, style spans, and collaboration metadata. An implicit treap can manage chunks or spans, but using one node per character is often the wrong abstraction.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The most common bug is treating the node value as a search key. In an implicit treap, values do not determine tree order. Only in-order position matters. split compares k with size(left), not with the stored value. Mixing explicit-key treap logic into an implicit treap corrupts the sequence.',
+        'Other bugs are stale size fields, forgetting to push lazy reverse before descending, merging sequences that are not logically adjacent, applying a destination index after removing a range without adjusting it, recursion stack overflow on a bad tree, and reusing mutable nodes across persistent versions.',
+        'Testing should include random operation sequences compared against a plain array oracle. Generate insert, delete, move, reverse, and select operations, then compare traversal after every step. Also test repeated boundaries: split at 0, split at n, move a range before itself, delete the full sequence, and reverse twice.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary references are CP-Algorithms on treaps and implicit treaps, OI Wiki treap notes, and the Aragon-Seidel randomized search tree paper. Read those after understanding this article, because the compact code relies on the invariants described here: in-order sequence order, heap priority balance, subtree sizes, and lazy propagation.',
+        'Inside this curriculum, study Treap for the randomized tree foundation, Order-Statistics Tree for rank queries, Text Rope Data Structure and Piece Table Text Buffer for editor storage, Finger Tree Measured Sequence for a functional measured-sequence alternative, RRB Tree Persistent Vector for persistent sequence tradeoffs, Sequence CRDTs for Collaborative Text for multi-user ordering, and Segment Tree with Lazy Propagation for range-tag reasoning.',
       ],
     },
   ],

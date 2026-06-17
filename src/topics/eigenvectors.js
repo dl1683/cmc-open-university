@@ -153,41 +153,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `An eigenvector is a direction a matrix does not turn. Apply the matrix and the vector comes back on the same line, only scaled by an eigenvalue: Av = lambda v. The visualization uses A = [[2,1],[1,2]]. The x-axis and y-axis rotate, but the diagonal (1,1) stretches by 3 and the anti-diagonal (1,-1) stretches by 1. Those two directions are the matrix's skeleton.`,
-        `SVD & Low-Rank Approximation gives every matrix a rotate-stretch-rotate anatomy. Eigenvalues & Eigenvectors is the square-matrix version where some directions are preserved exactly.`,
+        `A matrix is a rule for moving vectors. In two dimensions it may stretch, shrink, shear, reflect, or rotate directions. If you only inspect the entries of the matrix, it is hard to see which directions the transformation really cares about.`,
+        `Eigenvectors answer that question. An eigenvector is a nonzero direction that the matrix does not turn. The matrix may stretch it, shrink it, or flip it, but the output stays on the same line. The scale factor is the eigenvalue, written as Av = lambda v.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The obvious approach`,
       paragraphs: [
-        `The demo finds the dominant eigenvector by power iteration. Start with (1,0), apply A, normalize, and repeat. The angle moves from 0 degrees toward 45 degrees: roughly 26.6, 38.7, 42.9, and then closer. The reason is decomposition. Any starting vector is a mix of eigen-directions; each multiplication scales each ingredient by its eigenvalue, so the lambda = 3 component overwhelms the lambda = 1 component exponentially.`,
-        `Convergence speed depends on the ratio |lambda2/lambda1|, often called the spectral gap story. A small ratio converges fast; a ratio near 1 crawls. This is the same compounding intuition behind Vanishing & Exploding Gradients, where repeated layers amplify or damp directions.`,
+        `The first thing most people try is to test the coordinate axes. Feed in (1, 0), feed in (0, 1), and see what comes out. That works for diagonal matrices because each coordinate axis already behaves independently.`,
+        `The wall appears as soon as the matrix mixes coordinates. For A = [[2,1],[1,2]], the x-axis vector becomes (2,1) and the y-axis vector becomes (1,2). Both have turned. The standard axes were convenient for writing the matrix, but they were not the directions the matrix preserves.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core insight`,
       paragraphs: [
-        `Dense all-eigenvalue algorithms such as QR are O(n^3). Power iteration for one dominant direction costs one matrix-vector multiply per step: O(n^2) for dense matrices and O(nnz) for sparse ones. It needs a unique dominant eigenvalue and a starting vector with some component in that direction; ties or near-ties make convergence ambiguous or slow.`,
+        `Change basis to the directions the matrix does not turn. Along those directions the matrix stops being a complicated coordinate mixer and becomes ordinary multiplication by a number. For the demo matrix, the diagonal direction (1,1) is stretched by 3, and the anti-diagonal direction (1,-1) is stretched by 1.`,
+        `That is why eigenvectors feel like a matrix's skeleton. They show the axes along which the transformation acts independently. Eigenvalues say how strongly each axis is stretched, damped, or flipped.`,
+        `The practical payoff is compression of explanation. A messy repeated transformation becomes a small list of preferred directions and multipliers. That is why the same equation keeps showing up in ranking, stability, vibration, optimization, and dimensionality reduction.`,
+        `Once you learn to ask for the directions a system preserves, many unrelated problems become easier to compare. A ranking system asks where repeated link flow settles. A mechanical system asks which vibration modes it naturally supports. An optimizer asks which curvature directions are steep enough to destabilize a step.`,
+      ],
+    },
+    {
+      heading: `How the visual model teaches it`,
+      paragraphs: [
+        `In the opening frame, compare each input arrow to its output arrow. If the output arrow points somewhere else, that direction is not an eigenvector. If the output arrow lies on the same line, the matrix has preserved the direction and only changed the length.`,
+        `In the power-iteration frame, do not treat the moving arrows as a search over every possible angle. The loop is simpler: multiply by A, normalize so the arrow stays readable, and repeat. The arrow turns toward 45 degrees because the component in the lambda = 3 direction grows faster than the component in the lambda = 1 direction.`,
+        `In the field-summary frames, read each row as the same equation in a different costume. PageRank wants a steady importance vector. PCA wants directions of variance. A Hessian wants directions of curvature. The matrix changes, but the question stays the same: which directions keep coming back?`,
+      ],
+    },
+    {
+      heading: `How power iteration works`,
+      paragraphs: [
+        `Power iteration finds one dominant eigenvector without solving the full eigenproblem. Start with almost any nonzero vector v. Repeatedly compute A v, then normalize the result. If the matrix has one eigenvalue with largest magnitude and the starting vector has some component in that direction, the normalized vector converges toward that dominant direction.`,
+        `The method works because any starting vector can be written as a mixture of eigen-directions when the matrix has a usable eigenbasis. Each multiplication by A scales each ingredient by its own eigenvalue. After n multiplications, the component with the largest absolute eigenvalue has been multiplied by its eigenvalue n times, so it dominates the mixture.`,
+      ],
+    },
+    {
+      heading: `Worked example`,
+      paragraphs: [
+        `For A = [[2,1],[1,2]], the two eigen-directions are e1 = (1,1) and e2 = (1,-1). A e1 = (3,3), so e1 is scaled by 3. A e2 = (1,-1), so e2 is scaled by 1.`,
+        `The starting vector (1,0) can be written as 0.5(1,1) + 0.5(1,-1). After one multiplication, it becomes 0.5*3(1,1) + 0.5*1(1,-1). After ten multiplications, the ratio between those parts is 3^10 to 1^10. The diagonal component is now 59,049 times larger than the anti-diagonal component before normalization. The visible vector points almost exactly along (1,1).`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `The correctness argument is a dominance argument. If |lambda1| is larger than every other eigenvalue magnitude, then the lambda1 component grows faster under repeated multiplication. Normalization changes the length, not the direction, so it does not remove the dominance.`,
+        `The spectral gap controls the speed. If |lambda2/lambda1| is small, the second component fades quickly. If the ratio is near 1, convergence is slow. If two eigenvalues tie in magnitude, plain power iteration may not pick a stable unique direction.`,
+      ],
+    },
+    {
+      heading: `Cost and behavior`,
+      paragraphs: [
+        `Finding all eigenvalues and eigenvectors of a dense n by n matrix with standard direct methods is roughly O(n^3). Power iteration is cheaper when you only need the dominant direction: each step costs one matrix-vector multiply, which is O(n^2) for a dense matrix and O(nnz) for a sparse matrix with nnz stored nonzero entries.`,
+        `The hidden cost is iteration count. A matrix with a large spectral gap may converge in a few steps. A matrix with close top eigenvalues may need many steps. Numerical stability also matters because repeated multiplication can overflow, underflow, or amplify roundoff unless the vector is normalized and the implementation is careful.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `PageRank is power iteration on the web graph: importance flows until it reaches a steady eigenvector. Markov Chains & Steady States uses the same fixed-point idea for probabilities. PCA: Principal Component Analysis finds eigenvectors of a covariance matrix; the eigenvalues are variances. The Hessian: Curvature & Newton's Step reads eigenvalues as curvature directions, and Natural Gradient & Fisher Information changes the metric when Euclidean directions mislead.`,
+        `PageRank uses a steady eigenvector of a link-flow matrix: importance flows through links until repeated updates stop changing the score vector. Markov chains use the same fixed-point idea for long-run probabilities when the chain has the right mixing properties.`,
+        `PCA finds eigenvectors of a covariance matrix. The eigenvectors are directions in feature space, and the eigenvalues measure variance along those directions. Hessian analysis uses eigenvalues as curvature strengths: large positive values mean steep directions, small values mean flat directions, and negative values expose directions that curve downward.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `Where it is not enough`,
       paragraphs: [
-        `Eigenvalues are numbers; eigenvectors are directions. Scaling an eigenvector does not make a new direction, so normalizing is just a convention. Not every real matrix has real eigenvectors: a pure 90-degree rotation has complex eigenvalues because every real direction turns. Also, "dominant" means largest magnitude, not largest signed value; a negative eigenvalue flips direction while scaling.`,
+        `Not every useful matrix has a full set of real eigenvectors. A 90-degree rotation has no real direction that stays on the same line. Non-symmetric matrices can have complex eigenvalues, defective structure, or unstable numerical behavior. In those cases, SVD is often the safer tool because it works for every real matrix and describes input-output stretching even when eigenvectors are awkward.`,
+        `Power iteration is also the wrong tool when you need interior eigenvalues, many eigenvectors, or a guaranteed answer for clustered eigenvalues. Krylov methods, QR iteration, Lanczos, Arnoldi, or SVD-based methods are better fits depending on the matrix and the question.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `Eigenvectors are directions, not single arrows. Multiplying an eigenvector by 2 gives the same eigen-direction, so normalization is a convention, not a mathematical change. Eigenvalues are scale factors, not probabilities or importance scores by themselves.`,
+        `The dominant eigenvalue means largest absolute value. A negative dominant eigenvalue flips the vector each step while still dominating the magnitude. A complex dominant pair can make simple real iteration rotate instead of settling. These are not edge trivia; they determine whether the algorithm visible in the demo is valid for a new matrix.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Study PCA: Principal Component Analysis for covariance eigenvectors, SVD & Low-Rank Approximation for rectangular matrices, and PageRank for the billion-node power-iteration story. Then read Loss Landscapes & Optimization Geometry and The Hessian: Curvature & Newton's Step to see eigenvalues become the language of sharp and flat directions.`,
+        `Study Matrix Multiplication and Linear Transformations if the geometry still feels slippery. Study SVD and Low-Rank Approximation for the more general stretch-axis story. Study PCA for covariance eigenvectors, PageRank for power iteration at graph scale, and Markov Chains and Steady States for fixed points.`,
+        `Then study Loss Landscapes and Optimization Geometry, The Hessian: Curvature and Newton's Step, Vanishing and Exploding Gradients, and Natural Gradient and Fisher Information to see eigenvalues become the language of optimization stability.`,
       ],
     },
   ],

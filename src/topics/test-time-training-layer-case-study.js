@@ -319,44 +319,60 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why TTT layers exist',
       paragraphs: [
-        'Test-Time Training layers, or TTT layers, are a sequence-modeling idea where the recurrent hidden state is not just a vector. The hidden state is a small machine-learning model. As the layer reads a sequence, it updates that hidden model with self-supervised gradient steps, so the state can adapt to the current context during inference.',
-        'The core paper frames TTT as a way to combine two desirable properties: the linear-time execution shape of recurrent models and the expressive long-context behavior usually associated with attention. The two main examples are TTT-Linear, whose hidden state is a linear model, and TTT-MLP, whose hidden state is a small multilayer perceptron.',
+        'Test-Time Training layers exist because long-context sequence models face an uncomfortable choice. Full attention stores a growing KV cache of token-level memory. That is accurate and flexible, but the cache grows with context length, batch size, layers, KV heads, and precision. Recurrent and state-space models keep bounded state and scan efficiently, but a small fixed vector or state can forget exact details. TTT layers propose a different hidden state: instead of carrying only a vector, the layer carries a small model that can be trained while reading the sequence.',
+        'The idea comes from Learning to Learn at Test Time, where the hidden state is treated as parameters theta_t of an inner model rather than a passive activation: https://arxiv.org/abs/2407.04620. As tokens arrive, the layer builds a self-supervised local objective, updates theta_t by gradient descent, and carries the updated parameters forward. TTT-Linear uses a linear hidden model. TTT-MLP uses a small multilayer perceptron. The promise is linear-time recurrent execution with a hidden state more expressive than a fixed vector.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive answers fail',
       paragraphs: [
-        'A token enters the layer, features are computed, and the hidden model theta_t is read to produce an output. Then a local self-supervised loss is formed from the same stream. The layer takes a gradient step and carries theta_(t+1) forward. In data-structure terms, the hidden state is an updateable object with read, write, and carry operations, not a static activation vector.',
-        'The hard part is systems design. A literal optimizer step per token would waste accelerator throughput. Practical TTT variants use mini-batch and dual-form views so the online update can be expressed as block operations and scans. That makes TTT belong beside Mamba, RWKV, RetNet, Kimi Linear, and KV Cache as another answer to the question: what should long-context memory look like?',
+        'The naive attention answer is to keep every relevant token in the KV cache and let later tokens attend back to it. That is strong for exact recall, but it makes serving memory grow linearly with context and concurrency. A 100k-token request is not just a prompt; it is a resident memory commitment during decoding. Compression, eviction, sliding windows, grouped-query attention, and paged cache allocators help, but the basic cost remains tied to token history.',
+        'The naive recurrent answer is to compress history into a fixed state and update it once per token. That gives predictable memory and fast scans, but the state may blur rare names, numbers, code identifiers, or contradictions. A third naive version of TTT would literally run a tiny optimizer step in Python for every token. That captures the concept but destroys accelerator throughput. A useful TTT layer has to satisfy both sides: it must behave like online learning over the sequence and still compile into large, fused tensor operations.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The mechanism',
       paragraphs: [
-        'The upside is bounded state: the hidden model can be much smaller than a full token-level KV cache. The risk is forgetting or blurring facts that exact attention would preserve. TTT-Linear is easier to optimize because the hidden model is simple. TTT-MLP can be more expressive, but its memory traffic and kernel complexity are harder.',
-        'The key engineering tests are not only perplexity. A production-grade review would measure exact-copy tasks, needle position sweeps, long multi-step reasoning, batching behavior, p50 and p99 latency, and how the layer composes with quantization, prefix caching, and serving schedulers.',
+        'A token enters the layer and is converted into features. The hidden model theta_t is read to produce an output for the token stream. The layer also forms a local self-supervised target from the same stream, computes a loss, takes a gradient step, and carries theta_(t+1) to the next position. In data-structure terms, the hidden state is an updateable object with read, score, gradient, write, and carry operations. It is not simply a cache entry or a vector register.',
+        'The paper introduces systems tricks so the inner learning process is not a serial optimizer loop. Mini-batch formulations group tokens so the update can be expressed as block tensor work. Dual-form views make some updates more parallelizable. Prefix-scan structure preserves the recurrence order while exposing enough work for accelerators. This is why TTT belongs beside Mamba, RWKV, RetNet, linear attention, and KV-cache compression in the curriculum. All of them ask what kind of state should represent long history, but TTT makes the state itself a trainable predictor.',
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Imagine an agent reading a 100k-token repository trace. A full-attention model stores a growing cache of every token. A pure recurrent model stores a compressed state but may lose exact names and dependencies. A TTT layer tries to learn a context-specific predictor as it reads: common file names, APIs, local style, and recurring error patterns can be absorbed into theta_t. The verifier still handles exact correctness.',
-        'This is why TTT is a useful educational module even if a given deployment never uses it directly. It makes the hidden state explicit as a data structure with update semantics, quality gates, and hardware constraints.',
+        'The hidden-model view proves the conceptual shift. The node labeled theta is the hidden state, but it is also a model with parameters. The read path produces an output. The target and loss path creates an update signal from the current sequence. The gradient step produces the next hidden model. That picture is the difference between ordinary recurrence and TTT: the state is not only carried forward; it is trained during the forward pass.',
+        'The mini-batch scan view proves why the idea is partly a systems problem. The clear mathematical story is one online update after another. The efficient hardware story needs blocks, scans, and fused kernels. The serving-fit view proves the product question: a bounded theta cache is useful only if it replaces enough exact token memory without forgetting facts the answer needs. The plot contrasting KV growth with bounded TTT state is not a free-lunch claim. It is a tradeoff curve whose missing axis is what information the compressed state lost.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Why it works',
       paragraphs: [
-        'The biggest misconception is that TTT gives unlimited context for free. It gives an adaptive compressed state. Compression can lose facts. Another trap is ignoring kernels: an elegant recurrence can be slower than attention if it creates small, unfused operations. Finally, test-time adaptation changes the failure surface. Debugging requires logs of the state update path, not just input and output tokens.',
+        'TTT can work when a long sequence contains patterns that are useful to learn locally. A repository trace may repeat file names, APIs, style conventions, error messages, and build-system patterns. A long video or sensor stream may contain stable local dynamics. A long conversation may contain recurring entities and preferences. If the hidden model can adapt to these regularities as it reads, later tokens can consult a context-specialized predictor rather than a generic fixed state.',
+        'The design is also attractive because it separates exact token memory from learned context memory. Not every piece of history needs to be recalled verbatim. Some history is better represented as a local model of the current stream. Attention can still be used elsewhere in a hybrid architecture, and external retrieval or verification can handle exact facts. TTT is strongest as a candidate memory representation, not as a universal replacement for all attention.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Primary sources: Learning to Learn at Test Time at https://arxiv.org/abs/2407.04620 and the official implementation at https://github.com/test-time-training/ttt-lm-jax.',
-        'Study Selective State Space Models: Mamba, RWKV Recurrent Transformer, RetNet Retention State Case Study, Kimi Linear Attention, KV Cache, Transformer Inference Roofline, Gradient Flow, Backpropagation, and Hybrid Attention State Budget Case Study next.',
+        'The first cost is compute. A hidden model update includes loss computation and gradient-like work inside the forward path. Even if the state is bounded, the update has to be implemented efficiently enough to compete with optimized attention and state-space kernels. TTT-Linear is simpler and more kernel-friendly. TTT-MLP can represent richer transformations but carries more memory traffic and arithmetic. If operations are too small or unfused, the layer can lose despite having an elegant asymptotic story.',
+        'The second cost is reliability. A learned compressed state can forget or distort exact spans, numbers, citations, code symbols, or safety instructions. Test-time adaptation also changes the debugging surface. Engineers need visibility into the state update path, not just the prompt and final output. A bad local target, unstable learning rate, precision issue, or batching approximation can change behavior across long contexts. Quality gates must include exact-copy tasks, needle sweeps, long multi-step reasoning, and adversarial cases where a compressed state is tempted to summarize away the decisive fact.',
+      ],
+    },
+    {
+      heading: 'Operational checklist',
+      paragraphs: [
+        'Evaluate a TTT layer by the information it preserves, not only by its asymptotic memory curve. The checklist should include exact-copy spans, rare identifiers, late contradictions, long-range dependency tasks, latency under mixed batch sizes, and failure behavior when the inner update becomes unstable.',
+        'A serving design also needs state observability. If theta is a cache artifact, the system should know which model version produced it, which context prefix trained it, whether it can be reused, and when it must be discarded. Otherwise the hidden model becomes an opaque source of quality drift.',
+      ],
+    },
+    {
+      heading: 'Where it helps and where it fails',
+      paragraphs: [
+        'Promising workloads are long, structured streams where local adaptation can absorb repeated regularities: agent traces, codebase reading, scientific logs, video, robotics trajectories, and conversations with stable local entities. These are settings where a context-specific predictor may be more useful than a generic recurrent vector. In serving, the attraction is a state object that can be cached after prefill and reused during decode with less growth than full KV memory.',
+        'TTT fails when the task requires exact recall that the hidden model did not preserve, when the kernel path is immature, when batching changes the intended update semantics, or when aggregate perplexity hides failures on exact long-context tasks. It is also not a replacement for external memory, retrieval, citation checks, or verifiers. A credible deployment plan would compare against full attention, sliding-window attention, state-space models, recurrent transformers, hybrid attention, and KV compression at the same latency and memory budget.',
+        'Primary sources: Learning to Learn at Test Time at https://arxiv.org/abs/2407.04620 and the official implementation at https://github.com/test-time-training/ttt-lm-jax. Study Backpropagation, Gradient Flow, KV Cache, Transformer Inference Roofline, Selective State Space Models: Mamba, RWKV Recurrent Transformer, RetNet Retention State Case Study, Hybrid Attention State Budget Case Study, Titans Test-Time Neural Memory, Activation Checkpointing, and Benchmark Variance and Model Selection next. The durable habit is to treat hidden state as a data structure with semantics, costs, and failure modes.',
       ],
     },
   ],

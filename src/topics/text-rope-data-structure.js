@@ -210,46 +210,97 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'A text rope is a tree representation of a string. Leaves hold small flat strings, and internal nodes represent concatenation while storing enough length metadata to navigate by index.',
-        'The goal is to avoid copying huge strings for concat, slice, and localized edits. Instead of moving bytes, the rope creates or rearranges tree nodes that point at existing chunks.',
-        'This topic is named Text Rope Data Structure to avoid confusion with RoPE, Rotary Positional Embeddings, which is a separate AI topic in this repo.',
+        `Large text is expensive to edit when it lives as one contiguous string. Inserting near the front of a 200 MB document can copy almost the whole buffer. Concatenating many fragments can repeatedly copy the growing result.`,
+        `A rope represents text as a balanced tree of chunks. Edits rearrange tree nodes and small leaves instead of moving the whole string. The full text still exists conceptually: it is the left-to-right concatenation of the leaf chunks.`,
+        `This topic is about text ropes, not RoPE, Rotary Positional Embeddings. They share a name but solve unrelated problems.`,
+        `The structure exists for workloads where most operations preserve most of the text. A source editor may insert a character in the middle of a large file, a compiler may assemble generated output from many fragments, and a log viewer may keep appending while still serving slices from earlier regions. In each case, copying the whole string is wasted work because the edit touches only a small neighborhood.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The baseline and the wall`,
       paragraphs: [
-        'Index lookup descends the tree using left-subtree lengths. Concatenation can create a new parent node. Split descends to the split position, divides a leaf if needed, and returns two ropes. Insert is split, concatenate inserted leaf, then concatenate the right side.',
-        'Balanced ropes maintain reasonable depth and leaf size. Some implementations share immutable subtrees, which can make undo, snapshots, and substring operations cheaper than copying flat buffers.',
+        `The obvious representation is a flat string or array. It stays compact, cache-friendly, and fast for scanning. That is why most programs should use it for ordinary strings.`,
+        `The wall appears when edits are large, frequent, or nonlocal. A flat buffer copies too much for insertion and deletion away from the end. A linked list of chunks avoids large copies but makes indexing, slicing, and line navigation slow because the structure has no way to skip whole regions by length.`,
+        `A rope keeps chunks but adds a tree index over their lengths. That gives the structure a way to edit locally and still navigate by position.`,
+        `The nearby alternatives are useful to keep straight. A gap buffer is excellent when most edits happen near one cursor because the gap absorbs local insertions. A piece table is excellent for editor undo because it preserves the original file and records inserted pieces separately. A rope is more general when the text is huge, edits appear in different places, concatenation matters, or persistent snapshots are valuable. It pays pointer and balancing overhead to avoid whole-buffer movement.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Core data layout`,
       paragraphs: [
-        'Balanced ropes give logarithmic navigation and editing costs plus the size of touched leaves. Full traversal and flattening are still O(n). Ropes also pay pointer overhead and can have worse cache locality than a flat array for small strings.',
-        'Implementation quality matters. Without rebalancing, repeated appends or edits can create a tall tree. Without chunk-size management, leaves become too tiny or too large, hurting either metadata overhead or edit cost.',
-        'Ropes also need clear rules for character encoding. Splitting by byte offset is unsafe for variable-width text if the user-facing operation is by character, grapheme, or line. Serious editors layer text-indexing rules above the raw chunk tree.',
+        `Leaves store small flat string chunks. Internal nodes represent concatenation. Each internal node stores enough length metadata, usually the length of the left subtree, to route an index search without scanning every character.`,
+        `The invariant is simple: an in-order traversal of the leaves equals the document. The metadata doesn't define a different string. It only caches lengths so operations can skip subtrees.`,
+        `A useful rope also has balance and chunk-size rules. Without them, repeated appends can create a tall chain, and repeated tiny edits can create too many tiny leaves.`,
+        `The metadata can be richer than character count. Editors often need byte offsets, UTF-16 code units, Unicode scalar counts, grapheme clusters, line counts, or newline positions. A production rope may store several measures per subtree so a cursor can move by visual character, a language server can report line and column, and a file writer can stream bytes. The idea is the same: cache enough subtree facts to skip over text that is not being inspected.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Reading the visualization`,
       paragraphs: [
-        'Ropes are used in text editors, compilers, language runtimes, large-string builders, diff tools, and systems that need persistent or shared string snapshots.',
-        'A complete case study is assembling a generated source file from many fragments. A flat string repeatedly copies the growing output. A rope links fragments as leaves, then streams the final tree only when output is needed.',
-        'Another case is background analysis in an editor. A snapshot can share most rope nodes with the live document while the user keeps editing, letting parsers or indexers work against a stable version without copying the whole file. In a collaborative editor, Operational Transformation Collaborative Editing Case Study or Sequence CRDTs for Collaborative Text decides how remote operations map into that local rope-backed view.',
+        `The concat-tree view shows the reason a rope is not just a string builder. Concatenation can create a parent node that points at existing left and right texts. The final text order is still the in-order leaf order, but the operation avoids copying both children into a new flat array immediately.`,
+        `The split-insert view shows the editor pattern. To insert at position i, find the leaf containing i, split that leaf if needed, attach the inserted chunk, and join the pieces back into a balanced tree. The untouched left and right subtrees do not move. They are only reconnected through new internal nodes and rebalanced when the shape gets unhealthy.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Mechanism`,
       paragraphs: [
-      'Ropes are not always better than strings. Small strings, tight scans, and simple append buffers may be faster as arrays. For interactive editors, Gap Buffer Text Editor or Piece Table Text Buffer may better match the edit pattern. For generic indexed items such as clips, cards, or chunks, Implicit Treap Sequence Editor is another split/merge option.',
+        `Index lookup compares the target position with the left-subtree length. If the index is smaller, descend left. If it is larger or equal, subtract the left length and descend right. At a leaf, read inside the flat chunk.`,
+        `Concatenation can create one new parent node pointing at two existing ropes. Split descends to the split position, divides a leaf if needed, and returns two ropes. Insert is split at the insertion point, concatenate the inserted text, then concatenate the right side.`,
+        `Deletion is split twice: split before the removed range, split after it, then join the remaining left and right ropes. Substring can be represented by shared subtrees in persistent implementations, or flattened when the caller needs a contiguous string.`,
+        `Rebalancing is what keeps the mechanism honest. A rope that repeatedly concatenates on the right can become a linked list of right children. A rope that receives thousands of single-character edits can become a dust cloud of tiny leaves. Implementations usually enforce maximum depth, minimum and maximum leaf sizes, and rebuilding rules that flatten a local region and rebuild it into a balanced subtree.`,
+        `Chunk policy is part of the design. Very small chunks waste memory and pointer traversals. Very large chunks make local edits expensive because splitting or copying inside the leaf becomes large again. A common strategy is to keep leaves within a target byte or character range, merge underfull neighbors after deletion, and split overfull leaves after insertion.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Why it works`,
       paragraphs: [
-        'Primary source: Boehm, Atkinson, and Plass, Ropes: An Alternative to Strings, at https://www.cs.tufts.edu/comp/150FP/archive/hans-boehm/ropes.pdf and Google Research listing at https://research.google/pubs/ropes-an-alternative-to-strings/. Study Implicit Treap Sequence Editor, Gap Buffer Text Editor, Tree Traversals, Splay Tree, Red-Black Tree, Piece Table Text Buffer, Sequence CRDTs, Operational Transformation Collaborative Editing Case Study, and Peritext Rich-Text CRDT Case Study next.',
+        `The correctness argument is structural. Each internal node means left text followed by right text. Replacing a flat string with a tree doesn't change the order because the leaves are read in-order.`,
+        `The weights are cached proofs of length. If a node says its left subtree has 6 characters, an index below 6 must be in the left subtree, and an index at least 6 must be in the right subtree after subtracting 6.`,
+        `Balancing is a performance guarantee, not a string-order guarantee. An unbalanced rope can still represent the right text, but it loses the reason to use a rope because operations degrade toward walking a chain.`,
+      ],
+    },
+    {
+      heading: `Cost behavior`,
+      paragraphs: [
+        `A balanced rope gives O(log n) navigation to a position, plus the cost of touching the leaf chunk. Split, insert, and delete are O(log n) plus the size of the edited chunks and any rebalancing work. Concatenation can be O(1) before rebalancing because it creates a parent node.`,
+        `Flattening, saving, searching all text, and full traversal are still O(n). A rope doesn't make reading every character cheaper. It avoids copying untouched text during structural edits.`,
+        `The hidden costs are pointer overhead, poorer cache locality, metadata maintenance, and rebalancing. Small strings usually belong in flat arrays because the rope overhead is larger than the copied data.`,
+        `There is also a latency tradeoff. A flat string often has excellent constant factors because adjacent characters live together in memory. A rope turns one large memory move into several pointer hops and branch decisions. That is a good trade for large nonlocal edits and snapshots, but a poor trade for small strings, tight scanning loops, or workloads that repeatedly convert the rope back to a flat string after every change.`,
+      ],
+    },
+    {
+      heading: `Production uses`,
+      paragraphs: [
+        `Ropes are useful in text editors, compilers, language runtimes, large-string builders, diff tools, log viewers, and systems that need persistent string snapshots. They fit workloads where many operations preserve most of the existing text.`,
+        `A concrete build example is generated source output. A flat string builder that repeatedly appends fragments may copy the growing result many times unless it has a special buffer. A rope can store fragments as leaves and stream the final text once.`,
+        `A concrete editor example is background parsing. The editor can keep a rope snapshot for the parser while the user continues editing a newer rope that shares most old subtrees. That gives the parser a stable document without copying the whole file.`,
+        `Undo and redo are another natural fit when the rope is persistent. An edit can return a new root while old roots keep pointing at the old version of unchanged subtrees. The system then stores roots for snapshots rather than full document copies. This does not make history free, because edited leaves and rebalanced paths still allocate, but it makes the cost proportional to change rather than document size.`,
+      ],
+    },
+    {
+      heading: `Limits and misconceptions`,
+      paragraphs: [
+        `Ropes aren't always better than strings. Flat arrays are faster for small text, simple scanning, and append-only builders with enough spare capacity. Gap buffers can be better for edits near one cursor. Piece tables can be better when undo and original-file preservation dominate.`,
+        `Encoding rules matter. Splitting by byte offset can break UTF-8. Splitting by code unit can break surrogate pairs. Splitting by Unicode grapheme cluster is closer to user-visible editing, but it requires extra indexing above the rope.`,
+        `Collaborative editing is a different layer. Operational Transformation or a sequence CRDT decides how remote edits map into a shared document order. A rope can store the local text efficiently, but it doesn't solve conflict resolution by itself.`,
+        `The easiest rope to get wrong is an unbalanced one. It may pass correctness tests because traversal still returns the right text, but performance silently degrades until every index lookup walks a long chain. Test shape invariants, not just final strings. Track depth, leaf sizes, total cached length, and whether every internal weight equals the true size of its left subtree.`,
+        `Another misconception is that a rope automatically makes random editing cheap at every scale. It reduces the amount of copied text, but each edit still has allocation, tree traversal, cache misses, and potential rebalancing. The workload has to be large enough or persistent enough for those costs to pay back.`,
+      ],
+    },
+    {
+      heading: `Implementation checklist`,
+      paragraphs: [
+        `Define the unit of length first. A file-storage rope may index bytes. A JavaScript-facing rope may need UTF-16 code units. A user-facing editor may need grapheme clusters and line columns. Mixing those units inside one set of weights causes cursor bugs that are hard to reproduce, especially with emoji, combining marks, and different newline conventions.`,
+        `Keep operations small and composable: lookup, split, concat, rebalance, flatten, and measure. Insert and delete should be built from those primitives so the invariants are centralized. After every mutation in tests, verify that cached lengths equal the flattened text, the leaves stay within size bounds, and traversal order matches the expected string.`,
+        `Do not flatten accidentally. Debug logging, equality checks, syntax highlighting, search, and serialization can all force a full traversal. That may be correct, but it should be visible in profiles. A rope-based editor that flattens the document after every keystroke has kept the complexity and lost the benefit.`,
+      ],
+    },
+    {
+      heading: `Study next`,
+      paragraphs: [
+        `Primary source: Boehm, Atkinson, and Plass, "Ropes: An Alternative to Strings," at https://www.cs.tufts.edu/comp/150FP/archive/hans-boehm/ropes.pdf and https://research.google/pubs/ropes-an-alternative-to-strings/. Study Tree Traversals for the in-order invariant, Splay Tree and Red-Black Tree for balancing, Gap Buffer Text Editor and Piece Table Text Buffer for editor alternatives, Implicit Treap Sequence Editor for split/merge sequences, and Sequence CRDTs, Operational Transformation Collaborative Editing Case Study, and Peritext Rich-Text CRDT Case Study for collaborative text.`,
       ],
     },
   ],

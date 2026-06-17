@@ -198,46 +198,109 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Heavy-light decomposition is a technique for answering path queries on a static rooted tree. It partitions the tree into heavy paths and light edges so any path can be expressed as O(log n) contiguous ranges in a base array.',
-        'The structure is a bridge between tree algorithms and array data structures. Once nodes or edges are laid out by chains, Segment Tree and Fenwick Tree machinery can handle updates and range queries.',
-        'This is a common pattern in serious data-structure design: preserve the original object for correctness, then build a second coordinate system where the hot operation is easy. HLD keeps the tree, but it makes tree paths look like a handful of array intervals.',
+        'Path queries on trees are awkward because a path between two nodes can zig through ancestors and descendants. Array range structures are powerful, but a tree path is not usually one array interval.',
+        'Heavy-light decomposition exists to turn any static-tree path into a small number of contiguous array ranges, so segment trees or Fenwick trees can do the heavy lifting.',
+        'It is a bridge between two worlds. Trees express hierarchy, ancestry, ownership, and network topology. Arrays are where fast range data structures live. HLD gives the tree a layout that preserves enough path structure for array tools to work.',
+        'The topic appears whenever the tree topology is fixed but values on nodes or edges change. A plain LCA structure can find the meeting point, but it cannot answer changing max, min, sum, xor, or custom path aggregates by itself.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to climb one edge at a time along the path and aggregate values. That can be O(length of path), which is too slow on deep trees.',
+        'Another approach is to flatten the tree by Euler tour. That works well for subtree queries, but an arbitrary path is not generally one contiguous Euler interval.',
+        'Precomputing every pair path answer is also a dead end for large trees. There are O(n^2) pairs, and updates would invalidate too much cached information. HLD avoids that by storing local range aggregates and decomposing each path at query time.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is controlling how many pieces a path becomes. If the decomposition creates too many chain fragments, each query is still expensive.',
+        'The second wall is indexing. Values may live on vertices or edges, intervals may be inclusive or exclusive, and edge values are usually mapped to the deeper endpoint.',
+        'The third wall is operation choice. HLD composes with associative range operations. If the desired query cannot be combined from subpath answers in a stable order, the segment tree layer will not save the decomposition.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'At each node, mark the child with largest subtree as heavy. All other child edges are light. Crossing a light edge at least halves the remaining subtree size, so any root-to-node path crosses only O(log n) light edges.',
+        'Heavy edges form disjoint chains. Lay each chain contiguously in a base array. A tree path becomes a logarithmic number of array ranges.',
+        'The decomposition is not trying to make every possible path one interval. That would be impossible for a branching tree. It is trying to guarantee a small number of intervals, which is enough because each interval can be answered by a segment tree or Fenwick tree.',
+        'The heavy child choice is local but the guarantee is global. A node does not need to know future queries. It only needs subtree sizes so that every non-heavy descent loses at least half the remaining subtree.',
+      ],
+    },
+    {
+      heading: 'Animation Meaning',
+      paragraphs: [
+        'In the build-chains view, the heavy edges are the child choices with largest subtrees. Following those edges creates chains. The base-array node means the chain has been assigned contiguous positions, so an ordinary range data structure can work over tree data.',
+        'In the path-query view, the chain heads drive the loop. The algorithm does not walk every edge from one endpoint to the other. It repeatedly takes the deeper chain, queries one contiguous interval, jumps to the parent of that chain head, and stops when both endpoints land on the same chain.',
+        'The segment-tree node is not a separate tree algorithm competing with HLD. It is the range engine attached to the linearized chain positions. HLD decides which intervals to ask for; the segment tree answers those interval queries.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'First run a DFS to compute subtree sizes. For each node, mark the child with largest subtree as the heavy child. All other child edges are light. A second DFS assigns chain heads and positions in a base array, keeping each heavy path contiguous.',
-        'For a path query u to v, compare chain heads. While the heads differ, query the deeper head-to-node segment and move that node to the parent of its chain head. When both nodes share a chain, query the remaining contiguous interval.',
+        'Run one DFS to compute subtree sizes. Choose heavy children. Run a second DFS to assign chain heads and base-array positions. Build a segment tree or Fenwick tree over the base array.',
+        'For path query u to v, compare chain heads. While they differ, query the deeper chain-head-to-node interval and move that node to the parent of its chain head. Once both nodes share a chain, query the final interval.',
+        'Vertex values and edge values need slightly different layouts. Vertex values can live at the vertex position. Edge values are often stored at the deeper endpoint position, because each non-root vertex has exactly one parent edge. That convention keeps path intervals simple but makes LCA inclusivity important.',
+        'For edge queries, the final same-chain interval usually excludes the LCA position because that position stores the edge from the LCA to its parent, not an edge on the path between u and v. For vertex queries, the LCA is usually included. This one distinction prevents many off-by-one errors.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Preprocessing is O(n). Each path crosses O(log n) light edges because crossing a light edge at least halves the remaining subtree size. With a segment tree on chain positions, many path queries cost O(log^2 n), or O(log n) with extra prefix tricks for some operations.',
-        'The implementation details are mostly indexing. You must decide whether values live on vertices or edges, how to map an edge to its deeper endpoint, and whether intervals are inclusive or exclusive.',
-        'The decomposition is stable only as long as the tree topology is stable. Changing one edge can alter subtree sizes and heavy-child choices throughout a region. That is why dynamic-forest structures exist even though HLD is often simpler and faster for static trees.',
+        'It works because light edges are rare on any root path. If an edge is light, the child subtree is at most half the parent subtree, so the size can halve only O(log n) times.',
+        'It also works because chain layout gives each heavy path array locality. The hard tree path is decomposed into easy array intervals.',
+        'During a query, each loop iteration either finishes inside one chain or crosses a light edge by jumping above the current chain head. Since there are only O(log n) light edges on a root path, the number of chain intervals is logarithmic. Each interval query then pays the cost of the range structure.',
+        'Correctness of the aggregate comes from covering the path exactly once. Every queried interval lies on the u-to-v path, and the jumps remove that interval from consideration before moving upward. When both endpoints share a chain, the remaining interval completes the path without overlap.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Implementation guidance',
       paragraphs: [
-      'HLD appears in network path analytics, game trees, compiler dominator-tree annotations, organizational hierarchies, file-system trees, and contest problems with changing weights on a fixed topology.',
-      'A complete case study is a backbone network represented as a tree of failover links. Link capacities change, and operators ask for the bottleneck capacity between two routers. HLD maps the router path to a few segment-tree max or min queries.',
-      'If each query touches only a small marked subset rather than arbitrary paths, Virtual Tree LCA Compression can be a better fit. It keeps only marked nodes and LCAs, while HLD keeps a reusable path-query coordinate system for the whole tree.',
+        'Store parent, depth, subtree size, heavy child, chain head, and position arrays explicitly. Keeping these arrays separate makes the query loop easier to audit and avoids hiding index rules inside recursive helper calls.',
+        'Pick one convention for the base array and document it next to the query function. If edge weights live at the deeper endpoint, updateEdge(parent, child, value) should update pos[child]. If vertex weights live at vertices, updateVertex(v, value) should update pos[v].',
+        'Test path queries where one node is ancestor of the other, both nodes are the same, the path crosses the root, the path stays inside one heavy chain, and the path crosses many light edges. Those cases expose chain-head comparison and LCA inclusivity mistakes.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'HLD does not handle link and cut topology changes by itself. If the tree changes structurally, use Link-Cut Tree or Euler Tour Tree. HLD also does not replace LCA; most implementations use depth and chain heads, and many include an LCA-style final step.',
+        'In the sample tree, the chain 1-2-4-8 can occupy base-array positions [0, 3], and chain 3-6 can occupy [4, 5]. To query the path from 8 to 6, HLD first sees that the endpoints are on different chains. It queries the interval from 8 up to the head of its chain, then moves to the parent above that head.',
+        'The query eventually handles the chain containing 6 and the light edge crossing near the root. The original tree path is split into a few array intervals. If the aggregate is max edge weight, each interval calls the segment tree for a range max and then combines the answers with max.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and behavior',
       paragraphs: [
-      'References: CP-Algorithms heavy-light decomposition at https://cp-algorithms.com/graph/hld.html and USACO Guide HLD notes at https://usaco.guide/plat/hld. Study Virtual Tree LCA Compression, Segment Tree, Fenwick Tree, Sparse Table, Link-Cut Tree, and Euler Tour Tree next.',
+        'Preprocessing is O(n). With a segment tree on chain positions, many path queries and point updates cost O(log^2 n). Some operations can be optimized to O(log n) with prefix data per chain.',
+        'The decomposition is stable only while topology is stable. Changing an edge can alter subtree sizes and heavy-child choices across a region. If topology changes often, rebuilding HLD may cost more than using a dynamic-tree structure.',
+        'Implementation bugs usually come from indexing, not from the idea. Common mistakes include querying the LCA edge when edge values should exclude it, mixing zero-based and one-based positions, or using a non-associative operation in the segment tree.',
+        'The memory cost is linear for HLD metadata plus the range structure. That is small compared with precomputing path answers, but it is still more state than a pure LCA table when the only query is ancestor lookup.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'HLD wins on static trees with changing vertex or edge values and frequent path max, min, sum, xor, or custom associative queries.',
+        'A complete case study is a backbone network tree. Link capacities change, and operators ask for the bottleneck between two routers. HLD maps the path to a few segment-tree min queries.',
+        'It also wins in competitive programming and infrastructure-style hierarchy queries because it composes cleanly with LCA, segment trees, and Fenwick trees. You can update one node or edge and have future path queries reflect the new value without recomputing the whole tree.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when tree topology changes online. Link-Cut Trees or Euler Tour Trees are the dynamic-forest tools.',
+        'It can also be the wrong tool when each query touches a small marked subset rather than arbitrary paths. Virtual Tree LCA Compression keeps only marked nodes and LCAs for that per-query shape.',
+        'It is overbuilt for static idempotent path queries that can be answered with sparse tables or binary lifting. Use HLD when updates or non-idempotent aggregates make a live range structure valuable.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'References: CP-Algorithms heavy-light decomposition at https://cp-algorithms.com/graph/hld.html and USACO Guide HLD notes at https://usaco.guide/plat/hld. Study Virtual Tree LCA Compression, Segment Tree, Fenwick Tree, Sparse Table, Link-Cut Tree, and Euler Tour Tree next.',
       ],
     },
   ],

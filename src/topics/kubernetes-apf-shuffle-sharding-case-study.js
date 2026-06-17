@@ -181,30 +181,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Kubernetes API Priority and Fairness, or APF, is the kube-apiserver overload-control layer. It classifies requests, assigns them to priority levels, optionally queues them, and dispatches them according to concurrency and fairness rules.',
-        'The official APF documentation describes FlowSchemas, PriorityLevelConfigurations, shuffle sharding, queues, and how the feature protects low-intensity flows from high-intensity flows: https://kubernetes.io/docs/concepts/cluster-administration/flow-control/. Debugging guidance lives at https://kubernetes.io/docs/reference/debug-cluster/flow-control/.',
+        'The Kubernetes API server is the shared doorway to the cluster. Every controller, scheduler, operator, kubectl user, and workload automation path depends on it. If a noisy client fills that doorway, unrelated control loops stop making progress.',
+        'API Priority and Fairness exists because overload is a control-plane correctness problem, not just a latency problem. A tenant that loops on expensive list requests can delay node heartbeats, deployment rollouts, admission decisions, and cleanup controllers unless the API server has a fair way to queue, reject, and dispatch requests.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The baseline approach',
       paragraphs: [
-        'The main structures are FlowSchema match rules, flow distinguisher, priority level, queue set, shuffle-shard hand, request seats, queue depth, dispatch clock, and rejection decision. Together they replace one global request queue with policy-aware fair queues.',
-        'Shuffle sharding is the educational center: each flow maps to a small subset of queues. Heavy flows mostly congest their own subset instead of poisoning every queue in the priority level.',
+        'A simple API server can use one global in-flight limit and one queue. Requests arrive, wait in order, and run when capacity opens. This works while traffic is small, clients are polite, and every request has roughly the same cost.',
+        'Kubernetes does not get that traffic shape. Watches can stay open. Large list calls can consume much more server work than a small get. Controllers retry after timeouts. Human users, system components, and tenants all share the same server but should not all receive the same failure behavior under stress.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The wall',
       paragraphs: [
-        'A tenant accidentally loops on list pods across many namespaces. Without APF, the API server request queue can starve controllers and health-critical reads. With APF, that tenant flow maps to a bounded hand of queues and consumes bounded seats. Controller flows and other tenants keep a path through the server.',
+        'A global queue has head-of-line blocking. If tenant A fills it with expensive calls, a low-volume request from tenant B waits behind work that has nothing to do with B. The API server has preserved arrival order, but it has lost service isolation.',
+        'A single priority flag is also too crude. System traffic needs protection, but exempting too much traffic recreates overload. Treating every request as one unit also lies about cost: one short read and one expensive list do not consume the same server capacity.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'The core insight',
       paragraphs: [
-        'Fairness is not free. Bad FlowSchema matches can classify traffic into the wrong priority. Overusing exempt levels can bypass protection. Rejected requests can create client retry storms unless clients use backoff.',
-        'Study next: Kubernetes Informer DeltaFIFO for controller client behavior, Rate Limiter for retry discipline, Token Bucket for admission budgets, and Tail Latency for why queue isolation matters.',
+        'APF treats overload as a scheduling problem with named boundaries. The key invariant is that a request is not admitted as anonymous work. It is classified into a flow, placed under a priority-level budget, mapped to a limited queue hand, and charged for the seats it consumes.',
+        'That structure gives operators separate levers for separate problems. FlowSchemas define who should share fate. Priority levels define which classes of work should be protected. Shuffle-sharded queues reduce noisy-neighbor collisions. Seat accounting keeps expensive requests from hiding behind the same count as cheap ones.',
+      ],
+    },
+    {
+      heading: 'The core data model',
+      paragraphs: [
+        'APF turns an incoming request into a scheduling record. A FlowSchema matches request attributes such as user, group, service account, verb, resource, namespace, and non-resource URL. The first matching FlowSchema assigns the request to a priority level and defines how to distinguish flows inside that level.',
+        'A PriorityLevelConfiguration supplies the concurrency policy. Exempt priority levels bypass normal queueing and must stay tiny. Limited priority levels have a concurrency budget, queue count, hand size, queue length, and rejection behavior. Seats represent approximate execution cost, so a request can consume more than one unit of concurrency.',
+        'Shuffle sharding is the data-structure move. Each flow maps deterministically to a small hand of queues instead of sharing every queue in the priority level. The dispatcher chooses among that hand, usually preferring the least loaded queue.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'The flow-queues view should be read as a control-plane admission path. The request is still ordinary Kubernetes API work, but APF inserts a policy decision before execution. The important transition is from request attributes to a flow identity, because that is the moment unrelated clients either become isolated or accidentally share one queueing fate.',
+        'The overload-fairness view shows why the system has more than one queue. The graph is not promising that latency stays low under every burst. It is showing which state decides degradation: priority level, queue hand, queue depth, seat budget, and rejection. If those fields are wrong, the animation still runs, but the cluster policy is wrong.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'A request enters kube-apiserver before normal execution. APF checks FlowSchemas in precedence order. The match chooses the priority level and flow distinguisher. That flow is mapped to a queue hand inside the priority level.',
+        'If the priority level has enough seats, the request can run. If seats are unavailable, the request enters one of its hand queues. If the selected queue is full, APF rejects the request so the server sheds load instead of accepting unbounded work.',
+        'When running requests finish and seats open, APF dispatches queued requests according to the priority level policy. The important state is small and explicit: classified flow, queue hand, queue depth, seats in use, seats available, and reject count.',
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        "Tenant A deploys a broken script that repeatedly lists every Pod in a namespace. Those requests match a tenant FlowSchema, land in a limited priority level, map to tenant A's queue hand, and consume seats while they run.",
+        'At the same time, controller traffic matches a different FlowSchema with a higher priority level. A quiet tenant B maps to a different queue hand. Tenant A can still hurt its own latency and may receive rejections, but it should not fill every queue that controller traffic and tenant B need.',
+      ],
+    },
+    {
+      heading: 'Why it is reliable',
+      paragraphs: [
+        'The reliability argument is isolation plus bounded admission. FlowSchemas make classification deterministic. Priority levels reserve different concurrency budgets. Queue length limits prevent the API server from storing infinite waiting work.',
+        'Shuffle sharding limits collision. A heavy flow can congest the queues in its hand, but it is unlikely to collide with every quiet flow when queue count and hand size are configured well. The guarantee is probabilistic, not magical: it reduces blast radius instead of proving that collisions never happen.',
+        'Seat accounting protects the concurrency budget from the worst lie in a FIFO design: that every request costs the same. It is an approximation, but even an approximate cost model is better than letting long or expensive requests hide behind a count of one.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Request classification costs a scan through FlowSchemas until the first match. Queue choice and dispatch are small compared with API execution, but APF still adds policy evaluation, queue memory, metrics, and operational tuning.',
+        'The behavior under load is deliberate. Some requests wait. Some requests are rejected. Latency becomes less uniform but more controlled. The point is not to make overload disappear; it is to decide which work degrades first.',
+        'The hidden cost is client behavior. Rejections are only useful when clients use backoff and jitter. If every rejected controller retries immediately, APF turns a flood into a retry storm.',
+      ],
+    },
+    {
+      heading: 'Production uses',
+      paragraphs: [
+        'APF matters most in shared clusters, managed Kubernetes control planes, large controller fleets, and clusters where many automation systems talk to the API server at once.',
+        'Operators use it to protect low-volume critical flows from bulk traffic, to keep tenant traffic from starving system controllers, and to make overload visible through queue, dispatch, seat, and rejection metrics.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Broad exemptions are the fastest way to defeat APF. Exempt traffic skips the fairness machinery, so exempting controllers, operators, or tenants because they feel important can bring back the original overload path.',
+        'Bad FlowSchemas protect the wrong boundary. A flow distinguisher that groups too much work together can make unrelated clients share a fate. A distinguisher that splits work too finely can weaken fairness by spreading one workload across many flows.',
+        'Small queues reject too early. Large queues hide overload until clients time out. Wrong seat estimates let expensive requests consume more work than the priority level was meant to allow. APF still needs API server capacity, efficient watches, good list usage, and client-side rate limits.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Kubernetes API Priority and Fairness at https://kubernetes.io/docs/concepts/cluster-administration/flow-control/ and debugging APF at https://kubernetes.io/docs/reference/debug-cluster/flow-control/.',
+        'Study Kubernetes Informer DeltaFIFO for controller watch behavior, Rate Limiter for retry discipline, Token Bucket for admission budgets, Tail Latency for queue isolation, and Load Shedding for overload policy.',
       ],
     },
   ],

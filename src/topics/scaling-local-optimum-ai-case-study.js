@@ -85,7 +85,7 @@ function* scalingLoop() {
   yield {
     state: loopGraph('Scaling can become a self-reinforcing loop'),
     highlight: { active: ['metric', 'paper', 'fund', 'cluster', 'team', 'model'], found: ['e-model-metric'] },
-    explanation: 'Scaling is powerful because it is measurable, fundable, repeatable, and infrastructure-friendly. Those strengths can become a loop: benchmarks reward scale, funding buys clusters, teams specialize around clusters, and the next proposal is another scale-up.',
+    explanation: 'Scaling works often enough to become the default move. The loop starts when metrics reward bigger runs, funding buys clusters, teams specialize around clusters, and the next plausible proposal is another scale-up.',
   };
 
   yield {
@@ -111,7 +111,7 @@ function* scalingLoop() {
       ],
     ),
     highlight: { active: ['params:buys', 'tokens:buys', 'compute:buys'], compare: ['metric:hides', 'serving:hides'] },
-    explanation: 'Bigger can buy real capability, but the ledger must include what it hides: serving cost, data quality, energy, p99, bad proxies, and product economics.',
+    explanation: 'Bigger can buy real capability, but the ledger must include what it hides: serving cost, data quality, energy, p99, bad proxies, and product economics. Otherwise scale becomes a substitute for diagnosis.',
     invariant: 'Scaling is a lever, not a diagnosis.',
   };
 
@@ -127,7 +127,7 @@ function* scalingLoop() {
       ],
     }),
     highlight: { active: ['prob'], compare: ['acc', 'cutoff'] },
-    explanation: 'The mirage paper shows the danger of nonlinear or discontinuous metrics. A smooth improvement in underlying probability can look like a sudden emergent jump when the score is thresholded.',
+    explanation: 'The mirage paper shows the danger of nonlinear or discontinuous metrics. A smooth improvement in underlying probability can look like a sudden emergent jump when the public score is thresholded.',
   };
 
   yield {
@@ -189,7 +189,7 @@ function* escapeRoutes() {
   yield {
     state: escapeGraph('Escape starts with bottleneck triage'),
     highlight: { active: ['bottleneck', 'data', 'eval', 'arch', 'serving'], found: ['proof', 'rollout'] },
-    explanation: 'The escape from a local optimum is not anti-scaling. It is bottleneck triage: identify whether the next gain should come from data, evaluation, architecture, serving, or product design.',
+    explanation: 'The escape from a local optimum is not anti-scaling. It is bottleneck triage: identify whether the next gain should come from data, evaluation, architecture, serving, or product design before buying the next run.',
   };
 
   yield {
@@ -319,44 +319,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Scaling as a local optimum means "make it bigger" is often the locally rational next move even when it is not the globally best research or product move. Scaling is not fake. Scaling laws showed that language-model loss can improve predictably with parameters, data, and compute. The problem begins when metrics, funding, infrastructure, hiring, publication incentives, and serving economics make scaling the default diagnosis for every bottleneck.',
-        'The local source notes frame this as an incentive loop: scaling is measurable, easy to fund, easy to schedule, compatible with existing GPU clusters, and legible to stakeholders. This case study turns that argument into data structures: scaling ledgers, metric curves, infrastructure loops, evidence gates, and alternative-lever maps.',
+        `Scaling is one of the real discoveries of modern machine learning. Bigger models, more data, and more compute have repeatedly improved loss, benchmark performance, and product capability. That success created a planning language: parameter count, token count, FLOPs, cluster size, training run length, and benchmark target. Those numbers are measurable, fundable, and easy to compare. A team can write a proposal around them and stakeholders can understand what is being bought.`,
+        `Scaling as a local optimum names the failure mode where "make it bigger" becomes the locally rational next move even when it is not the globally best move. The problem is not that scaling is fake. The problem is that metrics, papers, funding, GPU commitments, hiring pipelines, evaluation rituals, and serving economics can make scaling the default diagnosis. A bottleneck in data quality, evaluation, architecture, latency, workflow, or product design may be real, but scale is the easiest lever to package.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach and its wall',
       paragraphs: [
-        'A scale-up proposal usually has clean artifacts: more parameters, more tokens, more GPUs, a benchmark target, and a timeline. That clarity is useful. But it can crowd out alternatives whose evidence is harder to package: better data curation, retrieval, distillation, a new architecture, on-device routing, better evaluation, or a product workflow that changes the task.',
-        'The sharpest technical warning is metric choice. Are Emergent Abilities of Large Language Models a Mirage? argues that some apparent sharp jumps can arise from nonlinear or discontinuous metrics applied to smoothly improving model behavior. That does not mean all capability changes are fake. It means benchmark curves should show underlying continuous signals when possible, not only thresholded pass/fail headlines.',
+        `The naive approach is to treat every capability gap as a scale gap. If the model misses reasoning tasks, train a larger one. If retrieval fails, increase context length. If latency is high, buy faster accelerators. If a benchmark is just below a threshold, run a bigger experiment. Sometimes this is correct. The wall appears when the next unit of scale attacks the wrong constraint. More parameters do not clean mislabeled data. More context does not fix a bad retriever. More compute does not make a discontinuous metric honest.`,
+        `The second naive approach is anti-scaling reflex. That is also wrong. Scaling laws became influential because they were empirically useful allocation tools. Chinchilla was not a rejection of scale; it corrected how compute should be split between model size and training tokens under a fixed budget. The better question is not "scale or no scale?" It is "Which bottleneck does the next dollar attack, and what evidence would prove that it moved?"`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Scaling costs more than training dollars. It can raise inference cost, memory pressure, energy use, p99 latency, operational complexity, and platform lock-in. It can also consume the organization: teams hire around distributed training, buy long-lead hardware, tune tooling around one stack, and then naturally choose proposals that reuse the stack. The path becomes cheaper to choose because the organization already paid for it.',
-        'Chinchilla is the useful correction to naive scale talk. Under a fixed compute budget, model size and training tokens should be balanced. That is already a systems allocation lesson, not a slogan. LLM Inference Cost Stack Case Study then adds the serving side: a model that is compute-optimal to train can still be expensive to serve if decode, KV cache, latency, or routing economics break the product.',
+        `The core insight is that scaling is a lever, not a diagnosis. It buys capacity: lower training loss, broader memorized coverage, more latent skills, more context, or more throughput. But a product system has many other levers: data curation, retrieval quality, distillation, quantization, routing, caching, architecture, process supervision, verifier search, interface design, and evaluation repair. The local optimum forms when the organization has great machinery for one lever and weak machinery for measuring the others.`,
+        `Metric design sharpens the problem. Are Emergent Abilities of Large Language Models a Mirage? argues that nonlinear or discontinuous metrics can make smooth improvement look like a sudden jump. That does not mean every capability jump is fake. It means a thresholded public score may hide the continuous signal underneath. If the metric itself creates the appearance of a cliff, then scaling can look like the only path to "emergence" even when smaller interventions improve the underlying probability.`,
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        `The scaling loop is a control system. Metrics reward larger runs. Larger runs produce papers, demos, or internal wins. Those wins justify funding. Funding buys clusters. Clusters shape hiring and tooling. The team becomes better at distributed training, benchmark reporting, and cluster utilization. The next proposal naturally reuses that machinery, so the loop returns to a larger model and another metric target. Every step can be locally reasonable.`,
+        `The escape route is also a control system. Start with bottleneck triage. Is the failure caused by missing data, noisy labels, stale retrieval, bad evals, weak architecture, serving cost, latency, tool use, or product workflow? For each candidate lever, require proof: slice lift, ablation, groundedness, teacher-gap analysis, router evaluation, p99 cost model, locked holdout, or online guardrail. Alternatives become fundable only when they carry evidence as cleanly as a scale-up proposal carries GPU counts.`,
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        `The scaling-loop view proves why a path can be rational and limiting at the same time. Metric, paper, funding, cluster, team, bigger model, and back to metric form a reinforcing cycle. The diagram is not an accusation that scale is bad. It shows why scale becomes the path of least resistance once the organization, infrastructure, and status system are aligned around it.`,
+        `The escape-routes view proves that leaving the local optimum requires a comparable artifact economy. Data, evaluation, architecture, serving, and product design are not slogans. Each branch must produce evidence before rollout. The evidence ladder turns an alternative from a story into a decision object: mechanism, toy test, ablation, fair-budget comparison, holdout result, online lift, and monitoring plan.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `Scaling works when the bottleneck really is capacity under a sane allocation. If the data distribution is broad, the labels are usable, the metric is smooth enough to guide learning, and the product can afford inference, larger models and more tokens can buy real capability. Scaling laws help teams forecast returns, compare runs, and avoid pure guesswork. Chinchilla shows that even inside scaling, allocation matters: model size and training data must be balanced under the compute budget.`,
+        `The local-optimum critique works because systems have switching costs. A company that has invested in clusters, distributed training, data pipelines, and benchmark rituals can evaluate scale faster than it can evaluate unfamiliar research paths. That speed becomes a bias. Without explicit bottleneck ledgers and fair comparisons, the organization may keep improving the thing it knows how to improve while the actual product constraint sits elsewhere.`,
+      ],
+    },
+    {
+      heading: 'Tradeoffs and cost',
+      paragraphs: [
+        `The obvious cost is training spend, but that is only the first line. Scale can raise inference cost, memory pressure, energy use, p99 latency, networking complexity, failure blast radius, data-center dependency, and release risk. A model that is compute-optimal to train can be uneconomic to serve. Decode latency, KV cache memory, routing, batching, quantization, and context length all decide whether capability turns into a product that can be used at acceptable cost.`,
+        `There is also an opportunity cost. A large run can consume months of attention and make smaller alternatives look unserious because their artifacts are less legible. Better evals may be cheaper than a bigger model, but they do not produce a parameter count. Data curation may raise a weak slice, but it lacks the drama of a frontier run. The practical fix is not rhetoric; it is a portfolio with reserved budget for evidence-gated non-scaling work.`,
+      ],
+    },
+    {
+      heading: 'Uses and failure modes',
+      paragraphs: [
+        `This framing is useful for research planning, model-roadmap reviews, infrastructure investment, product architecture, benchmark interpretation, and postmortems after expensive runs. It helps a team ask whether a proposal attacks training loss, data coverage, task format, retrieval, inference economics, or user workflow. It also helps compare scale with RAG, distillation, MoE, caching, verifier search, on-device inference, tool use, or domain-specific smaller models.`,
+        `The failure mode is using "local optimum" as a fashionable way to reject scale. Sometimes scale is the best evidenced lever. Another failure is under-instrumented exploration: a team funds alternatives but never defines gates, so every path becomes storytelling. A third failure is bad metric accounting. If the benchmark is a proxy artifact, a scale-up can win the leaderboard while leaving product value flat. If serving cost is ignored, a research win can become an economic loss.`,
       ],
     },
     {
       heading: 'Case studies and sources',
       paragraphs: [
-        'Scaling Laws for Neural Language Models found empirical power-law relationships between loss and model size, dataset size, and training compute, making scale a predictable planning tool: https://arxiv.org/abs/2001.08361. Chinchilla showed that many large models were undertrained for their size and that compute-optimal training should scale model size and tokens together: https://arxiv.org/abs/2203.15556.',
-        'Are Emergent Abilities of Large Language Models a Mirage? argues that nonlinear or discontinuous metrics can create apparent sharp emergence from smoothly improving outputs: https://arxiv.org/abs/2304.15004 and https://openreview.net/forum?id=ITw9edRDlD. The growing influence of industry in AI research analyzes how industry increasingly dominates compute, data, and talent inputs: https://ide.mit.edu/wp-content/uploads/2023/03/0303PolicyForum_Ai_FF-2.pdf.',
-      ],
-    },
-    {
-      heading: 'Escape routes',
-      paragraphs: [
-        'The escape is not refusing scale. It is bottleneck triage. If data is weak, curate and audit slices. If the metric is a bad proxy, redesign the eval before increasing compute. If serving cost is the wall, use caching, distillation, quantization, retrieval, or on-device routing. If reasoning depth is the wall, test verifier search or process supervision. If exploration is the wall, fund small evidence-gated bets outside the dominant stack.',
-        'Good alternatives carry proof. RAG needs groundedness and citation tests. MoE needs router and load-balance evaluation, not only parameter count. Distillation needs teacher-gap and slice checks. On-device inference needs device-class evals and update controls. Self-organizing or open-ended approaches need held-out perturbation and transfer evidence. Search-based systems need locked holdouts so they do not Goodhart the evaluator.',
+        `Scaling Laws for Neural Language Models found empirical power-law relationships between loss and model size, dataset size, and training compute, making scale a predictable planning tool: https://arxiv.org/abs/2001.08361. Chinchilla showed that many large models were undertrained for their size and that compute-optimal training should scale model size and tokens together: https://arxiv.org/abs/2203.15556.`,
+        `Are Emergent Abilities of Large Language Models a Mirage? argues that nonlinear or discontinuous metrics can create apparent sharp emergence from smoothly improving outputs: https://arxiv.org/abs/2304.15004 and https://openreview.net/forum?id=ITw9edRDlD. The growing influence of industry in AI research analyzes how industry increasingly dominates compute, data, and talent inputs: https://ide.mit.edu/wp-content/uploads/2023/03/0303PolicyForum_Ai_FF-2.pdf.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Scaling Laws through Batch Size Scaling, Benchmark Variance & Model Selection, AI Engineering Stack: Five Parts Primer, LLM Inference Cost Stack Case Study, LLM Unit Economics Ledger Case Study, LLM Inference Scaling Playbook, Mixture of Experts, RAG Context Packing Token Budget, On-Device LLM Inference Cost Crossover, Self-Organizing AI Design Pattern, Process Reward Models & Verifier Search, and AlphaEvolve Case Study. The durable skill is asking which bottleneck the next dollar actually attacks.',
+        `Study Scaling Laws through Batch Size Scaling for the training-side allocation problem, Benchmark Variance and Model Selection for metric uncertainty, AI Engineering Stack: Five Parts Primer for the full system boundary, LLM Inference Cost Stack Case Study and LLM Unit Economics Ledger Case Study for serving economics, Mixture of Experts for conditional capacity, RAG Context Packing Token Budget for evidence use, On-Device LLM Inference Cost Crossover for deployment constraints, and Process Reward Models and Verifier Search for non-scaling reasoning levers.`,
+        `The durable practice is a pre-scale review. Demand a bottleneck statement, a metric curve that exposes continuous signals when possible, a data audit, a serving cost model, a fair-budget comparison with alternatives, and a post-run decision rule. Then scale when scale wins. The point is not to escape scale; it is to escape automatic scale.`,
       ],
     },
   ],

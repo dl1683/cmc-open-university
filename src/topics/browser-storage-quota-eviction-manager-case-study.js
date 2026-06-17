@@ -324,45 +324,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Browser storage quota is the user-agent-managed budget for an origin. IndexedDB records, Cache Storage responses, OPFS files, and other storage APIs all contribute to the origin usage the browser may estimate, persist, or evict under pressure.',
-        'MDN documents the quota and eviction criteria across web storage technologies: https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria. The practical lesson is that storage architecture is a shared ledger, not a per-API afterthought.',
+        'Modern web apps store far more than cookies and preferences. A serious offline app may keep a versioned app shell in Cache Storage, structured documents in IndexedDB, thumbnails and media responses in caches, large project files in OPFS, a search index, an outbox of unsynced mutations, logs, feature flags, and temporary traces. From the user\'s point of view this can feel like a local application. From the browser\'s point of view it is one origin competing for finite device storage.',
+        'Browser storage quota exists because the browser is responsible for the health of the whole profile and device, not just one app. It has to prevent a single origin from filling disk, protect privacy, respect user clearing actions, and keep enough free space for the operating system and other sites. IndexedDB, Cache Storage, OPFS, service worker caches, and other storage APIs are separate programming surfaces, but quota pressure is managed at the origin and storage-bucket level according to browser policy.',
+        'The engineering lesson is that local data durability is a product promise, not an API guarantee. Best-effort storage can be evicted under pressure. Persistent storage is stronger, but users and policies can still clear it. A quota-aware app therefore needs a storage ledger, compaction policy, persistence request strategy, export or sync path, and tested failure handling.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting wrong answer',
       paragraphs: [
-        'navigator.storage.estimate() returns approximate usage and quota. navigator.storage.persisted() reports whether the origin is already in persistent mode. navigator.storage.persist() requests persistent storage, and the browser may grant or deny it according to browser-specific rules, user engagement, permissions, or prompts.',
-        'Default storage is usually best effort. Best-effort data can be cleared by the browser under storage pressure without interrupting the user. Persistent storage is stronger: web.dev explains that it is not automatically cleared when storage is low and usually requires explicit user action to remove: https://web.dev/articles/storage-for-the-web.',
+        'The first naive plan is to write until QuotaExceededError appears, then tell the user something went wrong. That makes quota an emergency rather than a budget. The app discovers the problem at the most sensitive moment: while saving a document, receiving an offline edit, downloading a map region, or committing an outbox item. By then the app may have half-written data, blocked sync, or forced the user to choose between clearing data and losing work.',
+        'The second naive plan is to treat every byte the same. If a trim job simply deletes the largest store, it may remove unacknowledged outbox mutations before deleting a rebuildable thumbnail cache. That is a product bug disguised as storage management. The app must know which bytes are user-owned, which are derived, which can be rebuilt, which can be refetched, and which are the only local copy.',
+        'The third naive plan is to request persistent storage and consider the problem solved. Persistence reduces automatic eviction risk, but it is not backup. Users can clear site data, browser settings can remove storage, enterprise policies may enforce cleanup, private browsing modes may behave differently, and a damaged profile or device failure can still destroy local state. Critical user data needs sync, export, or another recovery path even after persistence is granted.',
       ],
     },
     {
-      heading: 'Data structures behind it',
+      heading: 'Core model',
       paragraphs: [
-        'A robust app maintains a quota ledger: storage class, API, owner, current usage, cap, rebuildability, persistence need, compaction plan, and recovery plan. It also maintains a trim queue for rebuildable bytes and an export/sync path for user-critical bytes.',
-        'This connects IndexedDB Object Store Case Study, Cache Storage Versioned Precache, OPFS Origin Private File System, Local-First Sync Engine Case Study, LRU Cache, Cache Invalidation & Versioning, and Backpressure & Flow Control. Storage pressure is backpressure from the user device.',
+        'The core data structure is an origin storage ledger. Each class of data should have a row: API, owner, current estimated bytes, soft cap, hard cap if any, rebuildability, last-access policy, persistence need, compaction command, export or sync path, and user-facing consequence if lost. The point is not perfect accounting. The point is to make deletion choices explicit before the browser or a failed write makes them for you.',
+        'The basic web API surface is small. navigator.storage.estimate() asks for approximate usage and quota. navigator.storage.persisted() tells whether the origin is already in persistent mode. navigator.storage.persist() requests persistent storage and resolves to true or false according to browser-specific policy. Writes can still fail, and estimates are not exact promises. They are signals for budget decisions.',
+        'A useful invariant is simple: rebuildable bytes are expendable; user-critical bytes need protection. A cached app shell can be versioned and replaced. A generated search index can be rebuilt. Thumbnails can be trimmed by least-recently-used policy. An unsynced document, local-only project file, or outbox mutation is different. Those bytes need persistence, sync, export, or a clear warning that they are local only.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the system works',
       paragraphs: [
-        'A local-first docs app stores documents and outbox rows in IndexedDB, app shell and thumbnails in Cache Storage, and a search index in OPFS. It caps thumbnails at 2 GB, search index at 1 GB, shell at 80 MB, outbox at 200 MB, and user documents according to available quota and sync/export status.',
-        'When usage crosses a warning line, the app trims thumbnail LRU entries, compacts the OPFS index, prunes old telemetry, and retries writes. If a user-document write still fails, it offers export or sync rather than silently losing work.',
+        'A quota-aware app starts by classifying data. App shell files live in Cache Storage and are owned by the release system. Documents may live in IndexedDB and are owned by the user. Large local files may live in OPFS. A search index may live in OPFS or IndexedDB and be owned by the indexing subsystem. Runtime logs may be owned by observability. Once ownership is explicit, each class can get a cap and a trim policy.',
+        'The app periodically samples navigator.storage.estimate(), records local store-level estimates when it can, and compares usage against soft thresholds. It does not wait for the hard edge. At 70 or 80 percent of budget, it might trim old media, compact OPFS files, prune logs, remove old cache versions, and verify that usage dropped.',
+        'When a write fails, the handler follows a deterministic ladder. First, identify whether the failed write is user-critical or rebuildable. Second, trim rebuildable classes in priority order. Third, retry the write once or a bounded number of times. Fourth, if the write still cannot land, offer export, sync, or an explicit "free space" flow for user data. Swallowing QuotaExceededError is wrong because it converts a storage failure into silent data loss.',
+        'Persistence is requested at the moment it has context. Asking on first page load is hard to justify. Asking when the user creates local-only work, enables offline mode, imports a large project, or stores drafts on this device is easier to explain. The request may be granted automatically, denied automatically, or involve browser-specific behavior. The app must work either way.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Do not treat persistence as backup. Persistent storage is less likely to be automatically evicted under pressure, but users, browser settings, enterprise policies, private browsing, Clear-Site-Data, and profile resets can still remove local data.',
-        'Do not treat quota estimates as exact numbers. They are estimates and browser policies differ. Do not let caches compete with user documents. Do not request persistence on page load without context; web.dev recommends asking when the user saves critical data, ideally with a user gesture: https://web.dev/articles/persistent-storage.',
+        'The quota-ledger visual is proving that separate storage APIs still share a pressure boundary. IndexedDB, Cache Storage, and OPFS may have different code paths, but their bytes contribute to the origin\'s usage. An app that manages each API in isolation can accidentally let a rebuildable media cache crowd out a user document store.',
+        'The eviction-pressure visual is proving the boundary of responsibility. The browser ranks and evicts according to its own policy when device pressure appears, especially for best-effort storage. The app cannot control that global choice. It can control whether cold caches are easy to delete, whether warm critical data is persistent or synced, and whether recovery after eviction is a designed flow instead of a surprise.',
+        'The offline-app case visual is proving that bytes encode promises. User documents and outbox rows represent work. Shell files, thumbnails, logs, and indexes represent convenience. The budget table is therefore not just storage accounting. It is a product policy table for what may be lost, rebuilt, synced, or exported.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Practical guidance',
       paragraphs: [
-        'Primary sources: MDN Storage quotas and eviction criteria at https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria, MDN StorageManager.estimate at https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/estimate, MDN StorageManager.persist at https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/persist, web.dev Storage for the web at https://web.dev/articles/storage-for-the-web, web.dev Persistent storage at https://web.dev/articles/persistent-storage, the WHATWG Storage Standard at https://storage.spec.whatwg.org/, and the WICG Storage Buckets explainer at https://wicg.github.io/storage-buckets/explainer.html.',
-        'Study next: IndexedDB Object Store Case Study, OPFS Origin Private File System, Cache Storage Versioned Precache, Background Sync Outbox Queue, Service Workers & Offline-First, Local-First Sync Engine Case Study, LRU Cache, Cache Invalidation & Versioning, Backpressure & Flow Control, Web Locks API Lock Manager, and Data Leakage.',
+        'Build an internal ledger even if the browser only gives approximate origin totals. Track app shell cache versions, document counts and byte estimates, media cache size, index size, outbox size, logs, and temporary files. Give each class an owner and a trim command. A quota handler without this ledger has no principled way to decide what to delete.',
+        'Use soft caps rather than one global hard cap. For example, a local-first docs app might cap shell assets at 80 MB, thumbnails at 2 GB with LRU eviction, search indexes at 1 GB with rebuild, outbox rows at 200 MB with no automatic deletion, and user documents according to sync or export status.',
+        'Test storage survival before release: low quota, QuotaExceededError during a user save, persistence denied, site data cleared, network sync broken, stale cache cleanup, OPFS rebuild, export success, and honest local-only warnings.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The main cost is bookkeeping. The app has to estimate data sizes, run cleanup jobs, migrate storage formats, and keep indexes rebuildable. This takes engineering time that a purely online app may not need. But the alternative is worse for offline-first products: random write failures and unexplained data loss.',
+        'The second cost is user experience complexity. If the app warns too early, users see noise. If it warns too late, users lose control. If it asks for persistence without context, the request feels suspicious. If it hides local-only risk, the product overpromises. A good design ties storage prompts to meaningful actions: enabling offline mode, saving critical local data, importing a large workspace, or approaching a known budget edge.',
+        'The third cost is portability. Browser quotas, eviction policies, private browsing behavior, installed-app treatment, and persistence prompts vary. Code should treat estimates as approximate, persistence as conditional, and eviction as real for anything not backed up elsewhere.',
+      ],
+    },
+    {
+      heading: 'Uses and limits',
+      paragraphs: [
+        'Quota management matters most in local-first editors, browser IDEs, drawing tools, offline maps, media apps, email clients, medical or field-work apps, and enterprise tools used in unreliable networks. These apps create user trust by working without a server round trip. That trust is lost quickly if local state disappears without warning or if a save fails after the user has already done the work.',
+        'The limits are clear. Browser storage is not a database appliance. It has no cross-device durability by itself, no guarantee against user clearing, no universal quota number, and no perfect per-store accounting API across all browsers. OPFS, IndexedDB, and Cache Storage are useful primitives, but the durability story comes from policy, sync, export, and testing layered above them.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary references are MDN Storage quotas and eviction criteria at https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria, MDN StorageManager.estimate at https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/estimate, MDN StorageManager.persist at https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/persist, web.dev Storage for the web at https://web.dev/articles/storage-for-the-web, web.dev Persistent storage at https://web.dev/articles/persistent-storage, and the WHATWG Storage Standard at https://storage.spec.whatwg.org/.',
+        'In this curriculum, study IndexedDB Object Store Case Study, OPFS Origin Private File System, Cache Storage Versioned Precache, Background Sync Outbox Queue, Service Workers & Offline-First, Local-First Sync Engine Case Study, LRU Cache, Cache Invalidation & Versioning, Web Streams Backpressure Queues, Backpressure & Flow Control, Web Locks API Lock Manager, Data Leakage, and BFCache Page Lifecycle.',
       ],
     },
   ],

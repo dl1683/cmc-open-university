@@ -212,44 +212,75 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'RDMA stands for Remote Direct Memory Access. It lets one machine access memory associated with another machine without involving the remote operating system and CPU on the data path. The programming model is built around registered memory, queue pairs, work requests, and completion queues.',
-        'NVIDIA documents RDMA as direct memory access from one host to another without remote OS and CPU involvement, reducing latency, CPU load, and copy overhead compared with TCP/IP-style paths: https://networking-docs.nvidia.com/rdmaawareprogramming.',
+        'RDMA exists because some systems cannot afford to treat networking as a stream of kernel-mediated copies. A storage server, distributed database, training job, or inference cluster may move small control messages and large data buffers at rates where extra copies, syscalls, interrupts, and scheduler wakeups dominate the useful work.',
+        'Remote Direct Memory Access moves bytes between registered memory regions through the network adapter. The remote CPU does not have to run an application receive handler for every data movement on the hot path. That promise is attractive, but it is also dangerous. If a NIC can DMA into process memory, the system needs explicit objects that describe which memory is legal, which endpoint may use it, which operation is outstanding, and when ownership returns.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'The application registers memory so the HCA can DMA to or from it safely. Registration pins pages, records address translation, and assigns access permissions. Then the application creates queue pairs. A queue pair has a send queue and a receive queue. The app posts work requests into those queues, and the network adapter executes them. Completion queue entries report the outcome.',
-        'NVIDIA key concepts describe Completion Queues as FIFOs of completion entries for ended work requests, and Memory Registration as the process of pinning memory, checking permissions, writing virtual-to-physical mappings to the adapter, and assigning local and remote keys: https://docs.nvidia.com/networking/display/RDMAAwareProgrammingv17/Key+Concepts.',
+        'The reasonable first attempt is to use TCP sockets. The application writes bytes to a socket, the kernel copies or references buffers, the network stack handles segmentation and retransmission, and the receiver reads bytes when it is scheduled. This model is portable and forgiving. The kernel owns a large part of the safety story.',
+        'Sockets are often the right answer. They become the wrong answer when the cost of generality is larger than the work itself. A microsecond-scale storage read or parameter transfer can spend too much budget on copy paths and CPU wakeups. The tempting shortcut is to remove those costs by letting the adapter move data directly. RDMA does that, but it replaces kernel convenience with a stricter application contract.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Wall',
       paragraphs: [
-        'RDMA moves overhead out of the kernel data path and into setup discipline. That can be a very good trade for high-throughput storage, training, inference, and database systems. But it means mistakes can be sharp. A stale rkey, freed memory region, missing receive, undrained completion queue, or mismatched queue-pair state can produce hangs, retries, access errors, or data corruption.',
-        'The application must manage backpressure explicitly. Queue depths are finite. Completion queues must be drained. Receive buffers must be posted before the sender expects them. Memory lifetimes must extend through all outstanding work requests. In other words, RDMA gives a faster path by making ownership visible and strict.',
+        'Zero-copy is not magic; it is a transfer of responsibility. If the application posts a send work request that points at a buffer, that buffer must remain valid until the hardware reports completion. If a receiver expects a message-based operation, it must have receive buffers posted before the packet arrives. If completion queues fill because the application stopped polling, the data path can stall or fail.',
+        'The other wall is capability safety. A remote peer cannot be allowed to write arbitrary virtual memory. RDMA therefore uses memory registration and keys. A local key authorizes the local adapter to access a registered region. A remote key can authorize a peer to perform RDMA read or write against that region, depending on permissions. Stale or leaked keys are not bookkeeping mistakes; they are access-control bugs.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Core Insight',
       paragraphs: [
-        'RDMA appears in high-performance storage, databases, distributed training, parameter exchange, KV-cache movement, and GPU-adjacent systems. It is the transport idea behind many low-latency fabrics because it cuts CPU copies and lets adapters move bytes directly between registered buffers.',
-        'In AI infrastructure, RDMA matters because GPU clusters are often bottlenecked by moving activations, gradients, expert tokens, or KV-cache blocks. GPU All-Reduce, KV Cache Transfer Fabric Case Study, and GPUDirect RDMA Peer Memory Case Study all build on this queue-and-completion model.',
+        'RDMA verbs turn direct hardware data movement into a set of explicit ownership records. A memory region says which pages are pinned and which keys authorize access. A queue pair says which endpoint state and queues belong together. A work request says which operation the adapter may perform. A completion queue entry says when the operation finished and whether the application may reclaim the buffers.',
+        'The invariant is ownership until completion. Posting a work request is a promise about buffers, keys, opcodes, queue capacity, and lifetimes. Ringing the doorbell hands that promise to the host channel adapter. Polling the completion queue is how the application learns that the promise has been settled.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism',
       paragraphs: [
-        'A common misconception is that RDMA means no CPU work at all. The CPU still sets up memory registrations, queue pairs, routing, permissions, polling loops, and error handling. The point is that the repetitive data movement can bypass the remote CPU and avoid ordinary copy-heavy network paths.',
-        'Another misconception is that RDMA removes flow control. It does not. It shifts flow control into posted receives, send queue depth, completion queue draining, retry policy, congestion control, and buffer ownership. If those are wrong, the faster data plane just fails faster.',
+        'The path starts with memory registration. The application asks the RDMA stack to register a memory range. Registration pins pages, records translation information for the adapter, checks access permissions, and returns keys. This step is often expensive, so serious systems pool buffers, reuse memory regions, or build registration caches rather than registering on every operation.',
+        'The application then creates queue pairs. A queue pair contains a send queue and a receive queue plus state needed to talk to a peer. For reliable connected transport, the queue pair moves through reset, init, ready to receive, and ready to send. Those states prevent a half-configured endpoint from being treated as a live data path.',
+        'Work requests are posted into the queues. A send, receive, RDMA read, RDMA write, or atomic operation names buffers and keys through scatter-gather entries. The application rings a doorbell so the HCA can fetch work. The adapter performs protocol work and DMA. When the operation ends, it writes a completion queue entry. The application polls or waits on the completion queue, checks status, and then reuses or frees resources only after completion permits it.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Visual Proof',
       paragraphs: [
-        'Primary sources: NVIDIA RDMA Aware Networks Programming User Manual at https://networking-docs.nvidia.com/rdmaawareprogramming and NVIDIA RDMA key concepts at https://docs.nvidia.com/networking/display/RDMAAwareProgrammingv17/Key+Concepts. Study Queue, Ring Buffer, io_uring Submission/Completion Rings, NIC RX Ring & NAPI Poll, Backpressure & Flow Control, GPUDirect RDMA Peer Memory Case Study, and KV Cache Transfer Fabric Case Study next.',
+        'The verbs path proves that RDMA is not one object. The application, memory region, send queue, receive queue, queue pair, HCA, wire, peer, completion queue, and polling loop each hold a different part of the contract. Removing any one of them makes the safety story incomplete. A buffer without a key cannot be used by the adapter; a work request without a completion leaves ownership unresolved; a queue pair without state can point hardware at a peer that is not ready.',
+        'The flow-control view proves that zero-copy still has backpressure. Receive credits are real capacity. A sender can be fast only when the receiver has posted buffers and the application is draining completions. The failure ledger names the practical bugs: missing receives, full completion queues, freed memory regions, wrong keys, weak ordering, and timeout paths that do not clean up both sides.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The model works because every unsafe action is represented by an object that can be checked. The HCA can DMA only to memory the process registered with the required permissions. A remote peer needs a valid remote key for remote access. A work request can execute only after it is posted to a queue pair in the right state. A buffer is not safely reusable until the relevant completion says the adapter is done with it.',
+        'This is not a proof that every RDMA program is correct. It is a proof of where correctness has to live. The application must maintain the lifetime invariant, queue-depth invariant, and key-permission invariant. The adapter enforces the parts it can see. Bugs happen when the program assumes the kernel is still managing a resource that the verbs contract moved into user space.',
+      ],
+    },
+    {
+      heading: 'Cost and Tradeoffs',
+      paragraphs: [
+        'RDMA can reduce copy overhead, CPU load, and latency, but it adds setup cost and operational complexity. Memory registration pins pages and consumes adapter resources. Polling can burn CPU to avoid interrupt latency. Queue pairs, completion queues, and memory regions have capacity limits. A design that creates too many connections or registers too many tiny buffers can lose the performance it was trying to buy.',
+        'The main scaling behavior is queue pressure. More outstanding operations require deeper send queues, receive queues, and completion queues. Larger messages amortize setup better than tiny messages, but they hold buffers longer. More peers can mean more queue pairs or a more complex transport choice. On RoCE, the Ethernet fabric also matters: congestion control, loss behavior, priority flow control, and ECN tuning can decide whether the fast path remains fast.',
+      ],
+    },
+    {
+      heading: 'Uses and Failure Modes',
+      paragraphs: [
+        'RDMA fits systems where data movement is frequent, latency-sensitive, and buffer ownership can be engineered carefully. High-performance storage uses it to move blocks with less CPU work. Databases use it for low-latency replication or disaggregated memory experiments. Distributed training and inference systems use it for parameter movement, embedding tables, KV-cache transfer, or GPU-adjacent data paths when the rest of the stack can honor the ownership rules.',
+        'It is the wrong tool for ordinary request-response services that value simplicity, portability, and failure isolation more than shaving microseconds. Sockets, HTTP, or a message broker are better when the bottleneck is application logic, serialization, disk, or business workflow. RDMA raises the engineering floor: deployment, observability, retry policy, memory lifetime, and fabric behavior all need expertise.',
+        'The common failures are ownership failures. A receive queue runs empty and the sender hits an error. A completion queue fills because polling stopped. A memory region is deregistered while work is still outstanding. A remote key remains valid after the application meant to revoke access. A timeout moves one side to error while the other still believes the queue pair is ready. RDMA makes the data path faster, so these mistakes surface quickly and sometimes severely.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary sources: NVIDIA RDMA Aware Networks Programming User Manual at https://networking-docs.nvidia.com/rdmaawareprogramming and NVIDIA RDMA key concepts at https://docs.nvidia.com/networking/display/RDMAAwareProgrammingv17/Key+Concepts. Those docs define the verbs vocabulary: memory regions, local and remote keys, queue pairs, work requests, completion queues, and state transitions.',
+        'Study Queue and Ring Buffer for the bounded-buffer base. Study io_uring Submission/Completion Rings for a related user-kernel ownership model. Study NIC RX Ring and NAPI Poll for adapter-to-CPU packet flow. Study Backpressure and Flow Control for the queue-depth invariant. Then study GPUDirect RDMA Peer Memory Case Study, RoCE PFC ECN DCQCN Lossless Fabric Case Study, and KV Cache Transfer Fabric Case Study to see why RDMA becomes a systems design problem rather than only an API.',
       ],
     },
   ],

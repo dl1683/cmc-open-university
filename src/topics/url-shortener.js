@@ -75,7 +75,7 @@ export function* run(input) {
   };
 }
 
-export const article = {
+const legacyArticle = {
   sections: [
     {
       heading: 'What it is',
@@ -90,6 +90,13 @@ export const article = {
         `Minting a short code: every new URL gets a database ID from a distributed counter. Instead of storing that ID directly (billions of tiny rows blow up storage), encode it in base 62 — 10 digits plus 26 lowercase plus 26 uppercase letters, 62 symbols total. A 7-character code in base 62 yields 62^7 ≈ 3.5 trillion unique codes, enough for centuries at today's growth. Divide the ID by 62 repeatedly; each remainder is one symbol. Counter ranges solve the coordination bottleneck: server A mints IDs 1–1,000,000; server B mints 1,000,001–2,000,000. No locking, no Paxos, no distributed consensus — just pre-allocated ranges.`,
         `Serving redirects: on every click, do a primary-key lookup in a B-tree index (microseconds for billions of rows) and return a 302 Found response with the original URL. That 302 matters: a 301 Permanent redirect gets cached by browsers, so clicks stop hitting your servers and you lose analytics. A 302 Temporary forces every click through you — that is the business model. Behind a load balancer, an LRU Cache intercepts 90%+ of clicks (zipfian click distribution — a few viral links get all the traffic), so the database sees only 400 reads/sec despite 4,000 total clicks/sec. Each click event streams onto a message queue (Kafka, RabbitMQ) for the analytics system to consume at its own pace, decoupling the redirect latency from analytics computation.`,
         `Rate limiting: without it, someone scripts a million requests and you get a surprise $50k AWS bill. A token bucket (or leaky bucket) rate limiter sits in front of each shortened link, allowing N clicks/sec and dropping or delaying excess traffic. Sharding: at massive scale, one database table splits across multiple shards using consistent hashing on the short code; hashing ensures that any code always maps to the same shard, avoiding distributed lookups.`,
+      ],
+    },
+    {
+      heading: 'Legacy visual note',
+      paragraphs: [
+        `The first half of the animation is the write path. The service mints an internal numeric ID, encodes it in base 62, stores the mapping, and chooses redirect semantics. The important lesson is identity: a counter plus encoding gives unique short codes without treating the long URL itself as the key.`,
+        `The second half is the read path. A click should hit cache first, fall back to the database only on misses, return a redirect immediately, and push analytics onto a queue. The obvious but wrong design does analytics inline on the redirect request; that puts the slowest part of the product on the latency-critical path.`,
       ],
     },
     {
@@ -114,6 +121,97 @@ export const article = {
       heading: 'Study next',
       paragraphs: [
         `Dive into Database Indexing to understand why B-tree lookups on billions of rows are still microseconds. Explore LRU Cache to see how a tiny in-memory layer absorbs 90% of traffic. Study Message Queues to decouple the fast redirect path from the slow analytics pipeline. Learn Consistent Hashing when you add sharding — how to map short codes to database shards without knowing how many shards exist. Finally, Rate Limiter (Token Bucket) is your firewall against abuse: implement it correctly and you sleep well knowing a single malicious user cannot sink your service.`,
+      ],
+    },
+  ],
+};
+
+export const article = {
+  sections: [
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'A URL shortener looks like a toy service: accept a long URL, return a short code, and redirect clicks. It is useful because it compresses long links for messages, QR codes, campaigns, internal tools, and analytics.',
+        'The reason it is a classic system-design problem is that the small product surface hides many core distributed-systems choices: id generation, encoding, storage, caching, redirect semantics, rate limiting, analytics queues, abuse prevention, and sharding.',
+        'The product also has an asymmetric workload. Writes create short links. Reads are clicks. Popular links can receive many orders of magnitude more reads than writes, so the read path and cache strategy dominate user experience and cost.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to hash the long URL and use the first few characters as the code. That sounds deterministic and simple, but collisions become product decisions. Two users shortening the same destination may need separate analytics, ownership, expiration, and abuse controls.',
+        'Another shortcut is to run analytics inline during redirect. That makes the slowest part of the product sit on the latency-critical path. A redirect should be fast; click events can flow into a queue and be counted later.',
+        'A third shortcut is to use permanent redirects everywhere. A 301 can reduce load because browsers cache it, but it also means future clicks may bypass the shortener, hurting analytics and making destination changes harder. Many products prefer 302 or another temporary redirect because measurement is part of the product.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is to separate identity from destination. The short code identifies a row owned by the shortener. The row stores long URL, owner, creation time, expiration, redirect policy, abuse state, and analytics configuration.',
+        'A counter plus base-62 encoding gives compact, unique codes without relying on the long URL as the key. Base 62 uses digits, lowercase letters, and uppercase letters. Seven characters cover trillions of ids, enough for very large services.',
+        'The read path is a lookup problem, not a computation problem. Given a code, find the destination quickly, return a redirect, and record the click asynchronously. That separation is what keeps clicks fast while analytics stays rich.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'On creation, validate the destination, apply abuse and rate-limit checks, allocate an id, encode it in base 62, store the mapping, and return the short URL. At scale, id allocators can hand ranges to application servers so link creation does not require a single hot counter on every request.',
+        'On click, parse the code, check cache, fall back to the database on miss, verify link status, and return the configured redirect. Hot links follow a power-law distribution, so an LRU or similar cache can absorb a large share of redirect traffic.',
+        'Analytics should be decoupled. The redirect service emits a click event containing code, timestamp, coarse geography, referrer, user agent, and fraud signals. A queue lets analytics consumers aggregate clicks without delaying the redirect response.',
+        'Large deployments shard by code, id range, owner, or hash, depending on operational needs. Replication and regional routing matter because redirect latency is user-visible, while link creation can tolerate slightly more coordination.',
+        'Expiration and takedown are part of the write model. A link can be active, expired, suspended, deleted, or owner-disabled. The redirect path must check that state before returning the destination, and cache entries must respect state changes.',
+        'Custom aliases add another path. Instead of allocating a numeric id, the service reserves a human word under a namespace. That requires uniqueness checks, moderation, ownership transfer rules, and sometimes paid-plan limits.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The base-62 steps prove that a short code is just a number written in a denser alphabet. Each remainder becomes one character. The code is short because the alphabet is large, not because the system is magical.',
+        'The storage step proves that the code is a primary key into a richer row. The row can hold owner, destination, status, expiration, and analytics settings.',
+        'The read-path step proves why caching and queues matter. Cache protects the database from hot links. The queue keeps analytics off the redirect path. The redirect itself stays simple and fast.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Counter-based ids work because uniqueness is solved once, before encoding. Base-62 encoding preserves that uniqueness while producing human-usable codes.',
+        'Caching works because clicks are skewed. A few links get most of the traffic, so keeping hot mappings in memory avoids repeated database lookups.',
+        'Queues work because analytics is not required to decide the redirect. The system can acknowledge a click event to durable infrastructure and let downstream jobs compute dashboards, fraud signals, and campaign reports later.',
+        'State checks work because the code is only an indirection handle. Changing a destination, expiring a campaign, or suspending an abusive link updates the row behind the code rather than changing the public link.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The write path is simpler than the read path but still needs id allocation, validation, abuse prevention, and persistence. The read path needs low latency, cache consistency, fallback behavior, and protection against hot-link spikes.',
+        'Custom aliases are a product feature but create namespace contention, moderation concerns, and ownership disputes. Random or counter-generated codes are easier to scale.',
+        'Analytics increases value but adds privacy, storage, and compliance costs. Keeping every click forever may be unnecessary or risky. Aggregate data, retention windows, and redaction policies should be designed explicitly.',
+        'Regional deployment adds another tradeoff. Serving redirects close to users lowers latency, but writes, takedowns, and abuse decisions must propagate quickly enough that dangerous links do not remain active in one region after removal elsewhere.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'URL shorteners are useful for public links, internal go links, QR codes, marketing campaigns, affiliate links, documentation redirects, release notes, and any workflow where the destination may change while the public link should stay stable.',
+        'Internal shorteners are especially valuable because they turn tribal paths into stable names: go/oncall, go/roadmap, go/pricing. The short link becomes an organizational index.',
+        'The same architecture pattern appears in invite links, file-sharing handles, paste links, tracking links, and object ids that need a small public token over a richer private row.',
+        'They also help migrations. If a documentation site, product page, or PDF moves, the short link can stay stable while the destination row changes behind it, as long as ownership and audit rules are enforced.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Collision handling is a common mistake when teams truncate hashes without a clear ownership model. If different users need different link records for the same destination, deterministic destination hashing is the wrong primary identity.',
+        'Open redirects and phishing are serious risks. The service should validate schemes, block dangerous destinations, support abuse takedown, and make preview or warning flows available for suspicious links.',
+        'Another failure is cache stampede. If a viral link expires from cache, thousands of clicks can hit the database at once. Use request coalescing, TTL jitter, hot-key protection, and graceful fallback.',
+        'A final failure is weak observability. Redirect errors, abuse blocks, cache hit rate, queue lag, hot keys, takedown propagation, and regional latency should be visible separately. Otherwise all failures look like generic redirect slowness.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Database Indexing for primary-key lookup, LRU Cache for hot redirect mappings, Message Queue for analytics decoupling, Consistent Hashing for sharding, Rate Limiter Token Bucket for abuse protection, Idempotency Keys for safe retries, and Cache Invalidation & Versioning for destination changes and takedowns.',
+        'When designing one yourself, write down who owns each code, who can change the destination, how takedowns propagate, and what evidence is kept after abuse reports. Those rules matter as much as the base-62 encoder.',
       ],
     },
   ],

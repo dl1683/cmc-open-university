@@ -212,42 +212,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A hierarchical heavy hitter is a heavy aggregate in a tree or lattice of categories. In networking, the hierarchy is often IP prefixes: 10/8 contains 10.4/16, which contains 10.4.7/24, which contains individual hosts. A flat heavy-hitter algorithm can report one host or flow; a hierarchical algorithm can report the prefix that explains many smaller flows together.',
-        'The key idea is residual mass. If a descendant is already reported as heavy, subtract that descendant when deciding whether an ancestor is independently heavy. The output is not every large counter; it is a compact explanation of where the stream mass sits in the hierarchy.',
+        'Flat heavy hitters answer which individual keys are frequent. Operators often need a different answer: which prefix, customer, URL subtree, region, or organization unit explains the load?',
+        'Hierarchical heavy hitters exist for streams whose keys live inside a tree. Instead of reporting only leaves, they report the level where the mass is still heavy after already-explained descendants are removed. That turns raw counters into an operational explanation.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive baseline and wall',
       paragraphs: [
-        'For each event, map the key to every ancestor on its path. A packet from 10.4.7.9 updates the host, 10.4.7/24, 10.4/16, 10/8, and 0/0. The system maintains candidate counts or sketches at each level. During reporting, it walks the hierarchy and computes each node residual by subtracting heavy descendants that have already been selected.',
-        'The threshold is usually a fraction of total stream weight, such as prefixes carrying at least phi*N bytes or packets. Approximation is needed because exact counts for all nodes can be too expensive at line rate. Count-Min, Count Sketch, Space-Saving summaries, and adaptive traffic synopses can all serve as components depending on whether the stream is positive, turnstile, or adversarial.',
+        'The first baseline is flat top-k over source IPs, flow IDs, users, or documents. That works when one key dominates. It fails when a crowd of related keys is heavy together but no single leaf is large enough to stand out.',
+        'The second baseline is to count every prefix exactly. That gives the right vocabulary, but it can be too expensive at line rate and it produces redundant output: if one host is heavy, all of its ancestors may look heavy too.',
+        'The wall is not only finding mass. It is explaining mass once. A useful report should say whether the problem is one host, one /24, one /16, or a wider aggregate without listing the same traffic at every level.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'Each event may touch O(height) hierarchy nodes, such as /8, /16, /24, and host. Memory depends on how many levels, candidates, and sketches are retained. Reporting costs more than a flat point query because the algorithm must reason about descendants and residual mass. The payoff is interpretability: the result names the operational level where action can happen.',
+        'The core idea is residual mass. A node is independently heavy only if its total count minus the counts of already-reported heavy descendants still exceeds the threshold.',
+        'The invariant is that reported nodes form an explanation of disjoint residual traffic. Descendant traffic should not make every ancestor look independently important. Ancestors are reported only when they contain heavy mass not already explained below.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'A network operations center sees inbound traffic spike from a botnet. Flat top-k reports thousands of modest source IPs, none large enough to explain the incident alone. A hierarchical heavy-hitter pipeline reports 10.4.7/24 and 10.9/16 as heavy residual prefixes. Operators can rate-limit those prefixes, route them through scrubbing, or contact the owning customer. The hierarchy converts a noisy leaf list into an actionable rollup.',
+        'In the prefix hierarchy view, read the tree as containment. The root is all traffic, 10/8 contains its /16 children, 10.4/16 contains /24 children, and a host is a leaf. A highlighted path means one event contributes to every prefix on that path.',
+        'The residual table is the key frame. Raw count says how large a node looks before explanation. Child HHH says how much has already been explained by reported descendants. Residual says whether the parent still deserves to be reported on its own.',
+        'In the DDoS case-study view, watch the answer move between abstraction levels. A single elephant source should stay at host level. A distributed group inside a subnet should rise to the subnet. The output level is part of the diagnosis.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'Do not report every ancestor of a heavy host as a separate finding. That double-counts the same traffic and overwhelms the operator. Residual accounting is what turns the output into an explanation. Also be careful with hierarchies that are not trees. Multidimensional hierarchies, such as source prefix by destination prefix by port, form a lattice and require more careful algorithms.',
-        'Approximate sketches can misrank prefixes near the threshold. Use reported prefixes as candidates for deeper flow-log inspection, packet samples, routing context, or exact counters before applying severe mitigation.',
+        'For each stream event, update the nodes on its path through the hierarchy. A packet from 10.4.7.9 contributes to 10.4.7.9, 10.4.7/24, 10.4/16, 10/8, and 0/0. A URL request might contribute to /, /products, /products/search, and the full path.',
+        'The counters can be exact for small retained candidate sets, or approximate sketches when the stream is too large. Common designs keep a summary per level, recover candidate nodes, then verify or estimate their counts before reporting.',
+        'Reporting is usually bottom-up. Decide whether descendants are heavy, subtract their explained mass from ancestors, and report an ancestor only if its residual count remains above the threshold.',
+        'A production implementation often separates discovery from confirmation. Sketches find likely heavy prefixes fast, then an exact or sampled pass checks those candidates before paging an operator or changing network policy. That two-stage shape keeps the streaming path small while keeping severe actions tied to evidence.',
+      ],
+    },
+    {
+      heading: 'Correctness',
+      paragraphs: [
+        'Updating every ancestor ensures no aggregate is hidden. If many small leaves inside 10.4/16 create a spike, the 10.4/16 counter rises even when none of the leaves individually crosses the threshold.',
+        'Residual subtraction is what makes the report concise. Because children partition their parent in a tree, subtracting reported descendants removes traffic already explained at a more specific level. What remains is the parent traffic that still needs its own explanation.',
+        'With approximate sketches, correctness is usually thresholded rather than exact. A production system uses error margins, conservative thresholds, or verification against exact logs before treating a near-threshold prefix as fact.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose 10.4.7.9 contributes 17 percent of traffic, 10.4.7/24 contributes 24 percent total, and 10.4/16 contributes 30 percent total. With a 15 percent threshold, the host is a heavy hitter.',
+        'After the host is reported, the /24 residual is 24 - 17 = 7 percent, so the /24 does not need a separate report at that threshold. The /16 residual is 30 - 17 = 13 percent if no other descendant was reported, so it also stays below 15 percent. The report says one host explains the spike, not every ancestor of that host.',
+        'If the same 30 percent were spread across many hosts under 10.4/16, no single host might cross the threshold. Then the residual at 10.4/16 would remain heavy, and the correct report would move up to the prefix.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Each event costs O(height) updates if every ancestor on the path is touched. For IP prefixes with a few retained levels, that is manageable. For deep URL paths, taxonomies, or multidimensional hierarchies, the height and candidate count can dominate.',
+        'Memory depends on the number of levels, the number of candidates retained at each level, and whether counts are exact or sketched. Sketches save memory but add error. Exact counters simplify reporting but may be too expensive for high-cardinality streams.',
+        'The output is more interpretable than flat top-k, but the implementation has sharper edges: threshold choice, sketch error, descendant subtraction, and verification policy all affect whether operators trust the result.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins when action happens at aggregate boundaries: rate-limit a subnet, route traffic away from a region, page a service owner, split a customer bill, identify a hot URL subtree, or explain a monitoring spike.',
+        'It is especially useful during distributed attacks. Thousands of modest bot IPs can become a small number of residual prefixes, which is far more actionable than a flat list of leaves.',
+        'It also improves communication. A flat list says "these keys are large." A hierarchical report says "this part of the tree explains the load after more specific causes are removed." That is closer to how operators assign ownership and choose a response.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the hierarchy is the wrong model. Some problems are not tree-shaped, and multidimensional questions such as source prefix by destination prefix by port form a lattice with many overlapping explanations.',
+        'It also fails as an automatic mitigation engine. Approximate prefixes near the threshold need packet samples, exact flow logs, routing context, or owner metadata before severe actions such as blocking or blackholing traffic.',
+        'Another failure is stale hierarchy metadata. IP ownership, customer mappings, URL routing, and organization charts change. If the prefix tree or taxonomy is old, the algorithm can still be mathematically consistent while explaining load in terms the current system no longer uses.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Cormode, Korn, Muthukrishnan, and Srivastava, "Finding Hierarchical Heavy Hitters in Data Streams": https://dimacs.rutgers.edu/~graham/pubs/papers/h4.pdf and the VLDB 2003 version: https://www.vldb.org/conf/2003/papers/S15P01.pdf. For online traffic monitoring, see "Online Identification of Hierarchical Heavy Hitters": https://www.cs.princeton.edu/courses/archive/spr05/cos598E/bib/p101-zhang.pdf. Study Trie and PATRICIA Trie for prefix structure, IP FIB Longest-Prefix Match Case Study for the forwarding use of the same hierarchy, Heavy Hitters: Space-Saving Summaries for candidate retention, Count Sketch for signed streams, and Elastic Sketch for a production network-measurement design.',
+        'Study Trie and PATRICIA Trie for prefix representation, IP FIB Longest-Prefix Match Case Study for the forwarding side of the same hierarchy, Heavy Hitters: Space-Saving Summaries for candidate retention, Count-Min Sketch and Count Sketch for approximate stream counts, and Elastic Sketch for production network measurement.',
+        'For the original research line, read Cormode, Korn, Muthukrishnan, and Srivastava on hierarchical heavy hitters, then compare it with online traffic-monitoring work that adds operational constraints and verification.',
       ],
     },
   ],

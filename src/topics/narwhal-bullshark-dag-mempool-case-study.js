@@ -327,6 +327,27 @@ export const article = {
       ],
     },
     {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The classic BFT approach asks a leader to propose transaction batches and gather votes. That is conceptually clean, but the leader can become the data bottleneck. If the leader has to move all transaction bytes, ordering progress is tied to one node\'s bandwidth and scheduling.',
+        'Another simple approach is to make the mempool an ordinary gossip layer and let consensus pull from it. That spreads bytes, but it leaves the ordering protocol with weaker evidence about who actually has the data. A digest in consensus is unsafe if honest parties cannot fetch the payload it names.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Separate data availability from ordering, but make the separation cryptographic. Narwhal turns batch dissemination into certified DAG vertices. Bullshark then orders the certified history rather than dragging transaction bytes through every consensus proposal.',
+        'This is a data-structure idea before it is a blockchain idea. The mempool becomes a signed, content-addressed DAG with rounds, authors, parent certificates, and availability evidence. Consensus becomes a deterministic interpretation over that DAG.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The DAG-mempool view shows why a vertex is more than a batch pointer. It includes availability evidence and parent links to prior certified vertices. Those parent links make causal history inspectable.',
+        'The Bullshark-order view shows how a partial order becomes a ledger. Anchors and strong support identify what can be committed; deterministic topological ordering linearizes newly committed ancestors.',
+      ],
+    },
+    {
       heading: 'DAG mempool as a data structure',
       paragraphs: [
         'A Narwhal vertex contains a batch digest, author, round, parent certificates, and signatures or acknowledgments that prove enough validators have stored the data. Edges point backward to certified vertices from previous rounds. The graph is acyclic because rounds increase monotonically. The parent set is a causal-history commitment: a vertex does not only say "here are my transactions"; it says "these earlier certified batches were visible to me."',
@@ -352,6 +373,7 @@ export const article = {
       paragraphs: [
         'The clean separation is the main lesson. Mempool is not a bag of pending transactions; at this scale it is a replicated, signed, content-addressed DAG. Consensus is not responsible for dragging bytes around; it is responsible for choosing an order over already-certified data references. Execution and state sync then need to fetch data, validate certificates, apply transactions, and retain enough history for late peers.',
         'This connects directly to Message Queue, Content-Addressed Merkle DAG Object Store, Topological Sort, HotStuff BFT Quorum Certificate Case Study, Distributed Tracing, Backpressure, and Rate Limiter. A production DAG-BFT system needs all of them: queues for inbound transactions, hashes for identity, graph indexes for ancestors, consensus certificates for safety, tracing for fetch paths, and backpressure for validators that fall behind.',
+        'The model also clarifies accountability. If a transaction is delayed, the operator can ask whether it was batched, certified, linked into the DAG, committed by an anchor, fetched for execution, or blocked in state application. Each stage has a different proof object and a different failure mode.',
       ],
     },
     {
@@ -359,6 +381,14 @@ export const article = {
       paragraphs: [
         'Do not confuse "DAG" with "no ordering." The DAG is a partial order plus evidence. The ledger still needs a deterministic linearization rule. Do not confuse availability certificates with execution success. A certified batch proves data was disseminated; it does not prove the transactions are valid, non-conflicting, or already applied to state.',
         'Do not ignore garbage collection. If a node prunes a batch before all honest peers can fetch and execute it, certificates become frustrating proof objects pointing to missing data. Do not ignore duplicate transactions either. Many validators can include the same client transaction in different certified batches; execution or a transaction manager must deduplicate by transaction identity. Finally, DAG-BFT reduces leader bottlenecks but does not erase network, storage, crypto, or adversarial scheduling costs.',
+      ],
+    },
+    {
+      heading: 'Operational review',
+      paragraphs: [
+        'A validator implementation needs indexes by round, author, digest, parent, certificate, and commit status. It also needs fetch queues for missing batches, rate limits for peers, signature-verification accounting, and garbage-collection cuts tied to execution progress. The DAG is not useful if the node cannot find, fetch, and retain the vertices that certificates name.',
+        'A performance review should separate batch dissemination throughput, certificate formation latency, DAG construction, anchor commitment, deterministic ordering, execution, and state sync. Collapsing those into one transactions-per-second number hides whether the bottleneck is network, crypto, storage, consensus interpretation, or application execution.',
+        'Garbage collection is a safety topic, not just a disk topic. A node should prune only below cuts that are no longer needed for fetching, ordering, execution, or late-peer recovery. If pruning outruns those guarantees, certificates become pointers to missing evidence.',
       ],
     },
     {

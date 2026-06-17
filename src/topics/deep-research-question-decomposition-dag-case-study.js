@@ -77,7 +77,7 @@ function* decompositionDag() {
   yield {
     state: planGraph('A deep research request becomes a dependency DAG'),
     highlight: { active: ['ask', 'scope', 'q1', 'q2', 'q3', 'q4', 'e-ask-scope', 'e-scope-q1', 'e-scope-q2', 'e-scope-q3', 'e-scope-q4'], compare: ['report'] },
-    explanation: 'The planner turns a vague request into subquestions with scope, dependencies, expected artifacts, and stop conditions. This prevents a research agent from writing before it knows what evidence it needs.',
+    explanation: 'The naive baseline is to browse immediately and hope coverage emerges. The DAG forces the agent to name subquestions, dependencies, expected artifacts, and stop conditions before it starts writing.',
   };
 
   yield {
@@ -112,7 +112,7 @@ function* decompositionDag() {
   yield {
     state: planGraph('Ready nodes feed the research frontier'),
     highlight: { active: ['q1', 'q2', 'frontier', 'e-q1-frontier', 'e-q2-frontier'], compare: ['q3', 'q4'], found: ['search', 'files'] },
-    explanation: 'Only dependency-ready questions enter the frontier. A question that needs numbers should wait until source definitions and claim scope are known; otherwise the agent computes the wrong thing quickly.',
+    explanation: 'Only dependency-ready questions enter the frontier. A cost or benchmark node should wait until definitions, source scope, and units are known; otherwise the agent computes the wrong thing quickly and confidently.',
   };
 
   yield {
@@ -196,7 +196,7 @@ function* frontierQueue() {
       ],
     ),
     highlight: { active: ['defs:status', 'nums:status', 'risks:status'], compare: ['claims:status'], removed: ['gaps:status'] },
-    explanation: 'Stop rules keep the frontier finite. The agent should know which sections are done, which need another source, which need calculation, and which are blocked by unresolved gaps.',
+    explanation: 'Stop rules keep the frontier finite. A node is done when its artifact exists in the ledger, not when the agent feels it searched enough. That distinction keeps planning from becoming decorative.',
   };
 }
 
@@ -217,9 +217,16 @@ export const article = {
       ],
     },
     {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'Inspect the DAG as a research control plane. The root is the user decision or artifact. Children are definitions, claims, numbers, source families, contradictions, calculations, and risks. Edges say which questions must be answered before another question can be trusted. The frontier is the active work queue.',
+        'This is not breadth-first web search. A high-risk contradiction can outrank three easy background nodes. A cheap calculation can outrank another source if it decides whether a claim is material. A node that unlocks several downstream questions should move earlier than a node that only makes the report feel fuller.',
+      ],
+    },
+    {
       heading: 'How it works',
       paragraphs: [
-        'The planner starts with scope: what decision is the user trying to make, which terms need definitions, which facts are current, which claims require primary sources, and which calculations would change the answer. It then creates subquestions with dependencies. A cost calculation should depend on source discovery. A contradiction audit should depend on at least two source families. A final synthesis should depend on enough supported claims in the ledger.',
+        'The planner starts with scope: what decision is the user trying to make, which terms need definitions, which facts are current, which claims require primary sources, and which calculations would change the answer. It then creates subquestions with dependencies. A cost calculation should depend on source discovery. A contradiction audit should depend on at least two source families. A final synthesis should depend on enough supported claims in the ledger. The DAG exists to keep the agent from substituting activity for coverage.',
         'STORM is the main research pattern behind this shape. The Stanford project describes Synthesis of Topic Outlines through Retrieval and Multi-perspective Question Asking, with a pre-writing phase that discovers perspectives and asks grounded follow-up questions: https://storm-project.stanford.edu/research/storm/. Its arXiv paper is at https://arxiv.org/abs/2402.14207, and the implementation notes are at https://github.com/stanford-oval/storm.',
       ],
     },
@@ -245,10 +252,47 @@ export const article = {
       ],
     },
     {
+      heading: 'Why it works',
+      paragraphs: [
+        'The DAG works because it separates question management from answer writing. A model can write a fluent report before it has earned the report. The DAG makes missing prerequisites visible: definitions not pinned down, numbers without sources, claims without primary evidence, contradictions not resolved, and calculations not checked.',
+        'It also gives subagents and tools a clean contract. One node may need web search. Another needs a PDF table extraction. Another needs a calculation. Another needs a contradiction audit. The planner can assign work without losing why the work exists.',
+        'The important algorithmic move is dependency control. A good planner does not merely list subquestions; it prevents downstream prose from starting before upstream evidence exists. That is what makes the structure useful for teaching. Students can see that research quality comes from ordering, evidence state, and explicit uncertainty, not from writing more confident paragraphs.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track open high-risk nodes, stale nodes, unsupported claims, source-family coverage, contradiction count, calculation count, reopened nodes, and final claims without ledger support. These are research-quality metrics. They tell you whether the agent is converging on evidence or merely accumulating text.',
+        'A useful report handoff should include the DAG state, not only the prose. Future reviewers should be able to see which branches were answered, which were deferred, and which claim in the final article depends on which evidence node.',
+      ],
+    },
+    {
+      heading: 'A worked decomposition',
+      paragraphs: [
+        'Suppose the user asks whether a new inference framework will reduce serving cost. A weak agent searches the framework name and summarizes the first few sources. A DAG planner splits the question into workloads, cost phases, compatibility, deployment constraints, benchmark evidence, migration cost, and failure modes. The cost node depends on phase-level inference facts. The compatibility node depends on supported models, hardware, and runtime APIs. The benchmark node depends on source authority and workload match.',
+        'As evidence arrives, the DAG changes. If official docs show strong KV-cache routing but benchmarks omit long prompts, a new evaluation-gap node appears. If user workloads are mostly short chat, the cost model changes. If migration requires new Kubernetes operators, an operational-risk node unlocks. The answer becomes a synthesis of answered branches, not a loose pile of citations.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The DAG can become bureaucracy if every tiny fact becomes a node. The right level is a question whose answer can change the final artifact. It can also become theater if priorities are invented after the fact or if unsupported nodes are marked done because a source was found.',
+        'The planner must preserve user intent. A beautiful internal DAG is useless if it optimizes for what is easy to research rather than what the user needs to decide. The final report should show the strongest supported answer, the material uncertainties, and the evidence gaps that still matter.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'A research decomposition DAG is the difference between a search transcript and a research plan. It organizes uncertainty before writing, chooses the next best evidence action, and keeps the final synthesis tied to supported claims.',
+        'The deep lesson is that good research agents need project-management data structures. Questions, dependencies, evidence, risk, and stop rules deserve first-class state.',
+        'In a curriculum, this belongs after graph traversal and priority queues. The student should already understand dependencies and frontier selection. This topic then shows why those old structures matter inside modern research agents: they turn "go find information" into a controlled investigation with checkable intermediate artifacts.',
+      ],
+    },
+    {
       heading: 'Pitfalls and study next',
       paragraphs: [
         'Do not make the DAG so large that planning replaces research. Do not let the model invent dependencies that only make the work look rigorous. Do not route every node to web search. Do not mark a node done because a source was found; mark it done only when the expected artifact exists in the ledger. Do not let the DAG hide user intent behind internal task names.',
-        'Study Deep Research Agent Architecture, Deep Research Evaluation Harness, Claim Graph & Source Ledger, Source Authority Triage Priority Queue, Research Contradiction Resolution Graph, Evidence Freshness Refresh Scheduler, RAG Context Packing, RAG Claim Verification Support Ledger, STORM, WebGPT at https://arxiv.org/abs/2112.09332, ReAct at https://arxiv.org/abs/2210.03629, Anthropic Building Effective Agents at https://www.anthropic.com/research/building-effective-agents, and Anthropic multi-agent research system at https://www.anthropic.com/engineering/multi-agent-research-system.',
+        'Study Deep Research Agent Architecture, Deep Research Evaluation System, Claim Graph & Source Ledger, Source Authority Triage Priority Queue, Research Contradiction Resolution Graph, Evidence Freshness Refresh Scheduler, RAG Context Packing, RAG Claim Verification Support Ledger, STORM, WebGPT at https://arxiv.org/abs/2112.09332, ReAct at https://arxiv.org/abs/2210.03629, Anthropic Building Effective Agents at https://www.anthropic.com/research/building-effective-agents, and Anthropic multi-agent research system at https://www.anthropic.com/engineering/multi-agent-research-system.',
       ],
     },
   ],

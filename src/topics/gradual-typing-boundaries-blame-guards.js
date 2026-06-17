@@ -135,37 +135,115 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Gradual typing lets a language or codebase mix statically typed and dynamically typed regions. The promise is incremental adoption: add types where they help without rewriting the whole program at once.',
-        'The data-structure view is a graph of boundaries. Values cross from typed code to untyped code and back. At each crossing, the system either checks a contract, marks the value as dynamic, requires narrowing, or lets Any bypass static checking.',
+        'Real codebases are rarely all static or all dynamic. A typed module imports an untyped library, a JavaScript service consumes JSON from another team, a Python package has partial hints, or a migration leaves old and new modules side by side.',
+        'Gradual typing is the discipline for that mixed world. It lets typed and untyped regions coexist, but it must answer a concrete question at every crossing: what evidence lets this value be treated as this type?',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The wall',
       paragraphs: [
-        'Some gradual systems enforce runtime contracts at boundaries and assign blame when a value violates the promised type. Other practical systems, such as Python type hints and TypeScript, mostly use static checkers and leave ordinary runtime behavior unchanged unless the application adds explicit guards.',
-        'Flow-sensitive narrowing is the bridge from dynamic checks back to static facts. After a predicate succeeds, the checker can refine a value inside that branch. When control flow merges, the refined fact may be weakened again.',
+        'One obvious approach is to rewrite everything before trusting the type checker. That is clean on paper and usually impossible in production. Another approach is to annotate the easy parts and let unchecked values flow as Any.',
+        'The wall is misplaced trust. If typed code accepts unvalidated dynamic data, the checker may approve a field access that still crashes at runtime. If Any spreads through core logic, the program can look typed while the checker has stopped protecting the important paths.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is to make a codebase fully typed before trusting it. That is rarely viable for real migrations. The opposite shortcut is to mark hard values as Any and move on.',
+        'The wall is that unchecked values can cross into typed code and make the static model lie. Gradual typing is useful only when the boundary tells the truth about what has and has not been checked.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Treat the boundary as executable structure, not as a comment. A value crossing from dynamic to typed code can be checked by a runtime contract, wrapped by a proxy, parsed by an adapter, accepted as Any, or received as unknown and narrowed before use.',
+        'Any and unknown are different policies. Any says "stop checking this value and trust the programmer." unknown says "there is a value here, but prove its shape before using it." Guards and narrowing are the mechanism that turns runtime evidence back into static facts.',
+      ],
+    },
+    {
+      heading: 'Invariant and proof idea',
+      paragraphs: [
+        'The useful invariant is local trust: typed code should use a value as type T only when the checker has a static proof, the boundary has produced a runtime proof, or the code is deliberately inside an unchecked region such as Any.',
+        'Blame is the debugging version of that invariant. When a guarded boundary fails, the system should report which side broke the contract: the provider that supplied a bad value, or the typed side that promised an invalid shape to dynamic code.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a typed TypeScript module reads provider JSON for a user profile. If the response is typed as Any, code can immediately call user.email.toLowerCase(), even when email is missing. The crash happens later and far from the boundary.',
+        'If the response is received as unknown, the module must parse or guard it first. After a predicate proves that email is a string, the checker can allow string methods in the dominated branch. The runtime check and static narrowing now point to the same fact.',
+      ],
+    },
+    {
+      heading: 'Animation notes',
+      paragraphs: [
+        'In the typed-untyped-boundary view, follow the API edge. The guarded path represents a boundary that checks before allowing typed use; the Any path represents a faster migration path that moves risk inward. The blame node is not an error decoration; it is the location where a failed contract should be explained.',
+        'In the narrowing-and-any view, watch how the narrow node turns a dynamic value into a scoped safe use. Compare it with the Any path, where the checker has less information and the failure can move deeper into runtime behavior.',
+      ],
+    },
+    {
+      heading: 'Runtime and static behavior',
+      paragraphs: [
+        'Gradual systems differ. Typed Racket-style systems can enforce contracts at typed/untyped boundaries. TypeScript and Python type hints mostly add static analysis and leave runtime behavior unchanged unless the program uses explicit parsers, guards, assertions, or validation libraries.',
+        'Flow-sensitive narrowing is scoped by control flow. A typeof check, discriminant check, predicate function, or parser result can refine a value only along paths where the check is known to hold. Once control merges with paths where the predicate may be false, the checker must weaken the fact.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Runtime contracts add checking cost, wrapper complexity, and sometimes proxy overhead. Static-only annotations are cheaper at runtime but cannot prove that external data actually has the annotated shape. Any is fastest to adopt but easiest to misuse.',
+        'The engineering rule is containment. Validate at IO, API, plugin, and module edges, then pass typed values inward. Every Any that escapes those edges expands the unchecked region and makes later failures harder to localize.',
+      ],
+    },
+    {
+      heading: 'Useful contexts',
+      paragraphs: [
+        'Gradual typing is useful for migrations, public APIs, plugin systems, JSON adapters, mixed-language services, notebook-to-library hardening, and teams that need better editor feedback before they can afford full static coverage.',
+        'It also helps design conversations. A boundary forces the team to decide which modules are trusted, which data is external, which adapters own validation, and where blame should land when a contract fails.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'Gradual typing fails when annotations are treated as validation. A TypeScript interface for provider JSON does not inspect the response. Without a parser or guard, the interface is a claim, not evidence.',
+        'It also fails socially when Any becomes normal in core code. The codebase can accumulate a typed surface and a dynamic interior, which is worse than being honest about the remaining untyped region.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Put validators at IO and module boundaries, not deep inside business logic. Parse JSON, plugin payloads, CLI arguments, environment variables, and database rows into typed internal records before they spread.',
+        'Track Any as debt. A temporary Any at an adapter can be acceptable during migration; an exported Any in a core type turns the checker off for every caller that touches it.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'Imagine migrating a JavaScript payment adapter into TypeScript. The untyped adapter returns JSON from a provider. If the result is typed as any, callers can immediately read result.card.last4 and crash later if the provider changed shape. If the result is unknown, callers must validate the shape before use.',
-        'A boundary adapter can parse the JSON, check that card exists, check that last4 is a string, and return a typed object. If validation fails, the adapter owns the blame and reports a provider-contract error. The rest of the typed application no longer has to treat every field access as a gamble.',
+        'A payments service migrates one endpoint from JavaScript to TypeScript. The external payment provider still returns untyped JSON. If the response is cast to PaymentResult, the compiler trusts fields that may not exist. A malformed provider response can then break reconciliation hours later.',
+        'A better adapter receives unknown, validates the provider schema, converts it into an internal PaymentResult, and records blame when validation fails. The rest of the service sees a typed object because the boundary created evidence, not because an annotation wished the evidence into existence.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'Operational guidance',
       paragraphs: [
-        'The safest migration pattern is to keep dynamic values near the edge. Parse, validate, and narrow at boundaries, then pass typed values inward. Do not let Any spread through core logic, because every use of Any suppresses useful checker feedback.',
-        'This module connects to Data-Flow Worklist Analysis because narrowing facts are flow-sensitive. It also connects to Bidirectional Type Checking: Synthesis & Checking because expected types and annotations often define where a dynamic value must become specific.',
+        'Measure migration health by unchecked boundary count, not by percentage of files with annotations. A small number of exported Any types can poison a large typed surface, while many private migration shims may be low risk if they are contained.',
+        'Prefer narrow escape hatches. If a library has no types, wrap the handful of functions you use and validate their outputs. Do not let the library Any flow through the application as a substitute for an adapter.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Failure analysis',
       paragraphs: [
-        'Primary sources: Siek and Taha gradual typing paper at https://scheme2006.cs.uchicago.edu/13-siek.pdf, Python typing concepts at https://typing.python.org/en/latest/spec/concepts.html, mypy dynamic typing docs at https://mypy.readthedocs.io/en/stable/dynamic_typing.html, TypeScript narrowing handbook at https://www.typescriptlang.org/docs/handbook/2/narrowing.html, TypeScript basic types any discussion at https://www.typescriptlang.org/docs/handbook/basic-types.html, and Typed Racket guide at https://docs.racket-lang.org/ts-guide/. Study Bidirectional Type Checking: Synthesis & Checking, Data-Flow Worklist Analysis, Taint Analysis Source-to-Sink Case Study, and JavaScript Lexical Environments & Closures next.',
+        'When a runtime type failure appears inside typed code, trace the value backward to the last unchecked boundary. The bug is often not the line that crashed; it is the earlier cast, Any export, unchecked JSON parse, or dynamic callback that let an unproved value enter the typed region.',
+        'Good blame messages shorten that search. They should name the boundary, the expected shape, the actual value, and the side that supplied the bad value. Without that information, gradual typing can turn runtime bugs into archaeology.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Siek and Taha gradual typing at https://scheme2006.cs.uchicago.edu/13-siek.pdf, Python typing concepts at https://typing.python.org/en/latest/spec/concepts.html, mypy dynamic typing at https://mypy.readthedocs.io/en/stable/dynamic_typing.html, TypeScript narrowing at https://www.typescriptlang.org/docs/handbook/2/narrowing.html, TypeScript any at https://www.typescriptlang.org/docs/handbook/basic-types.html, and Typed Racket at https://docs.racket-lang.org/ts-guide/.',
+        'Study Bidirectional Type Checking: Synthesis and Checking for checker structure, Data-Flow Worklist Analysis for fact propagation, Taint Analysis Source-to-Sink Case Study for boundary tracking, and JavaScript Lexical Environments and Closures for runtime scope mechanics.',
       ],
     },
   ],

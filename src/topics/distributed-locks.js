@@ -167,6 +167,41 @@ export const article = {
       ],
     },
     {
+      heading: `Visualization guide`,
+      paragraphs: [
+        `Read the lock as a lease with failure cases, not as a mutex stretched over the network. The holder can pause, the network can partition, the clock can drift, and the lock service can expire the lease while the old process is still running.`,
+        `The animation's most important object is the fencing token. A downstream resource must reject stale tokens, otherwise an old lock holder can wake up and overwrite work after a newer holder has taken over. Without fencing, a distributed lock is often only a delay.`,
+      ],
+    },
+    {
+      heading: `The obvious approach and the wall`,
+      paragraphs: [
+        `The first attempt is usually a shared key with an expiry. A client writes the key if it is absent, does the work, and deletes the key when finished. The expiry is there so a crashed client does not keep the system blocked forever. That design is attractive because it has one obvious operation, one obvious cleanup rule, and a simple mental model: the key exists, so the lock is held.`,
+        `The wall is that silence is not evidence. A client that stops sending heartbeats may be dead, partitioned, overloaded, frozen by garbage collection, or paused by the host. The lock service cannot tell these cases apart. If it keeps waiting, availability suffers. If it expires the lock, safety can suffer unless the protected resource has another defense. The timeout keeps the system moving, but it also means a running process can become a stale holder.`,
+      ],
+    },
+    {
+      heading: `Core invariant`,
+      paragraphs: [
+        `The useful invariant is not that only one client believes it holds the lock. That is exactly what pauses and partitions can break. The useful invariant is that the protected resource accepts side effects only from the newest valid owner. The lock service can nominate an owner; the resource must still reject stale writes.`,
+        `Fencing tokens implement that invariant. Every successful acquisition receives a monotonically increasing token. The client sends the token with every protected operation. The resource stores the largest token it has accepted and rejects smaller tokens atomically with the write. A paused client may wake and try to write, but its token is old, so the write fails where it matters.`,
+      ],
+    },
+    {
+      heading: `Mechanism`,
+      paragraphs: [
+        `A lease-based lock record usually contains a key, owner id, lease id, expiry time, and sometimes a revision or token. Acquire is an atomic create or compare-and-swap. Renew extends the expiry only if the caller still owns the same lease. Release deletes the record only if the caller still owns it. Waiters poll, watch a predecessor, or subscribe to changes depending on the backing service.`,
+        `A consensus-backed service replicates those ownership decisions through a log. That improves the lock service's own fault tolerance, but it does not make client pauses disappear. The client can still stop after it receives the grant. This is why ZooKeeper, etcd, Redis, and Redlock all need the same extra question for correctness work: what prevents an old holder from writing after a newer holder exists?`,
+      ],
+    },
+    {
+      heading: `Why fencing works`,
+      paragraphs: [
+        `Fencing turns a timing problem into an ordering problem. Time can be confusing in a distributed system: clocks drift, messages arrive late, and processes pause between instructions. A token assigned by the lock service gives the protected resource a simple order of authority. Token 52 is newer than token 51. A write from token 51 must not overwrite a write from token 52.`,
+        `The check has to happen inside the resource operation. If a client asks "is my token still valid?" and then separately writes, the client can pause between the answer and the write. If the resource compares and writes in one atomic step, the stale holder has no gap to exploit. This is the same idea as conditional writes, compare-and-swap, object generation checks, and database transactions.`,
+      ],
+    },
+    {
       heading: `Cost and complexity`,
       paragraphs: [
         `Distributed locks are computationally cheap: a single SET command in Redis or a znode creation in ZooKeeper is nanosecond-scale. The hidden cost is operational: the lock service itself must be available and strongly-consistent (or at least consensus-backed like "Raft Leader Election"). ZooKeeper uses Apache ZAB consensus; etcd uses Raft; Redis trades perfect availability for eventual consistency and hopes the cost of a rare split-brain is tolerable. The complexity of using them correctly is not in the service but in the client: the need to defend correctness-critical operations with not just a lease but also a fencing token at the store, or to re-architect so the lock is not needed at all. An efficiency lock (deduplicating a batch job, warming a cache) is operationally safe with single-instance Redis — the worst case is a wasted compute run. A correctness lock (protecting a ledger mutation, a schema migration, the exclusive leader role) demands deeper thinking: the lock alone never suffices.`,
@@ -176,6 +211,41 @@ export const article = {
       heading: `Real-world uses`,
       paragraphs: [
         `Efficiency locks are everywhere: cron jobs use a lock to prevent two machines from running a backup simultaneously (duplication costs only storage), cache-warming systems grab a lock to ensure one machine does the expensive precompute while others wait, expensive but idempotent batch reports lock to avoid redundant computation. For these, a single Redis SET with NX (set only if not present) and PX (expire in milliseconds) is standard. Correctness locks guard the crown jewels: the exclusive leader in a database replication system uses a lease to maintain split-brain guarantees (paired with "View Changes: Replacing a Failed Leader" awareness), schema migrations lock to prevent concurrent DDL, and distributed transactions use locks to serialize writes to the same key. ZooKeeper's sequential ephemeral znode pattern — where the lowest-numbered waiter holds the lock and each waiter watches only its predecessor — is the canonical high-availability recipe: it delivers fairness (FIFO order), zero thundering herd (one wakeup per release), and leader watches that auto-cleanup when the leader's session dies. etcd's lease-backed locking exposes revision numbers as fencing tokens, making it the most complete recipe when the underlying resource checks those tokens.`,
+      ],
+    },
+    {
+      heading: `Efficiency versus correctness`,
+      paragraphs: [
+        `An efficiency lock prevents waste. Two workers warming the same cache, generating the same report, or running the same cleanup job are annoying but usually not corrupting. In that class, a simple Redis lease can be the most pragmatic answer. The rare duplicate costs money or time, not data integrity.`,
+        `A correctness lock protects an invariant. Two holders can double-charge a customer, corrupt a migration, publish two incompatible versions, or let a stale leader overwrite newer state. In that class, the lock alone is not enough. The design needs fencing, conditional writes, idempotency, a single-writer log, or a queue that serializes the relevant key.`,
+      ],
+    },
+    {
+      heading: `Designing the lock away`,
+      paragraphs: [
+        `Many lock requests should become conditional writes. Instead of acquiring a lease before updating an object, write with an expected version, ETag, generation number, or database predicate. Every client may try; the store accepts exactly one. That removes the stale-holder write because the store is the authority from the start.`,
+        `Queues are another way out. If all operations for a key go through one partition and one consumer, the partition order provides mutual exclusion without a separate lock service. Idempotency keys make retries harmless. Mergeable state, such as CRDT-style counters or sets, can remove the need for mutual exclusion when concurrent updates have a well-defined merge rule.`,
+      ],
+    },
+    {
+      heading: `Implementation guidance`,
+      paragraphs: [
+        `Write down the failure consequence before choosing the lock. If a double-holder wastes compute, document that it is an efficiency lock. If a double-holder corrupts data, require a resource-side guard before shipping. Use unique owner ids and lease ids so a late release cannot delete someone else's lock. Treat any failed renew as loss of ownership.`,
+        `Keep critical sections short and bounded. Do not hold a lease while waiting for a user, calling an unreliable external API, scanning a huge dataset, or doing an unbounded retry loop. Emit metrics for acquisition latency, renewal failures, expiries, holder duration, wait time, duplicate work, and stale-token rejection. Those numbers tell you whether the lock is a coordination aid or a hidden outage source.`,
+      ],
+    },
+    {
+      heading: `Complete case study`,
+      paragraphs: [
+        `A data pipeline has several workers that may compact the same partition. The safe design is not just "lock the partition." Give each compaction attempt an output generation. Publish the compacted file with a conditional write that only succeeds if the partition still points to the expected prior generation. The lock reduces duplicate compaction; the conditional publish protects the manifest.`,
+        `A database leader is more dangerous. The old leader may pause, lose its lease, and later issue storage writes. The storage layer must reject stale epochs, or writes must flow through a consensus log that orders them. If the storage layer accepts any writer that can connect, the leader lease is only a hint and stale writes remain possible.`,
+      ],
+    },
+    {
+      heading: `Where it wins and fails`,
+      paragraphs: [
+        `Distributed locks win for singleton jobs, operational coordination, short exclusive roles, migration gates, leader nomination, and cache-fill deduplication. They are easiest to reason about when the protected work is short, retries are explicit, and the downstream resource has its own version or token checks.`,
+        `They fail when treated as a networked mutex. They fail when long critical sections outlive realistic TTLs. They fail when release is not conditional on ownership. They fail when the protected resource cannot tell a fresh holder from a stale one. The symptom may look like a broken lock service, but the deeper issue is usually an unprotected side effect.`,
       ],
     },
     {

@@ -53,7 +53,7 @@ function* queueKills() {
       markers: [{ id: 'doom', x: 10, y: NOSHED[10].q, label: 'wait crosses the 2s timeout' }],
     }),
     highlight: { removed: ['doom'], active: ['queue'] },
-    explanation: 'The setup every service eventually meets: demand 120/s, capacity 100/s — a mere 20% over. The polite instinct is to accept every request and queue the excess. Watch the live arithmetic: the queue grows by exactly 20 every second, FOREVER — Hot Rows & Append-and-Aggregate\'s unbounded-queue law again, now at the front door. And queue depth IS wait time (Little\'s law: wait = queue ÷ service rate), so by t = 10 every accepted request waits longer than the client\'s 2-second timeout. The server keeps working diligently. It is now a machine for manufacturing answers nobody is still waiting for.',
+    explanation: 'The setup is mild overload: 120 requests per second arrive, 100 can be served. If the server accepts everything, the excess becomes a queue that grows by 20 every second. Queue depth turns directly into wait time, so after a short while accepted requests are already older than the client timeout. The server is busy, but much of that work can no longer produce useful answers.',
     invariant: 'Demand > capacity with an unbounded queue: depth grows linearly, wait grows with it, and every request eventually outlives its caller.',
   };
 
@@ -66,7 +66,7 @@ function* queueKills() {
       ],
     }),
     highlight: { removed: ['bad'], found: ['good'] },
-    explanation: 'The metric that matters is not THROUGHPUT (requests processed) — it is GOODPUT: answers delivered before the caller gave up. Plotted live for both policies: the accept-everything server\'s goodput is a cliff — 100/s until the queue pushes waits past the timeout at t = 10, then ZERO, while its CPU stays pinned at 100% doing funeral work (Circuit Breakers & Deadlines called it doomed work; here the server dooms it personally). The shedding server caps its queue at 50, rejects the overflow instantly, and its goodput holds at 100/s for the entire storm. Same hardware. The only difference is the willingness to say no.',
+    explanation: 'The important metric is goodput: responses delivered before callers give up. The accept-everything policy keeps processing but eventually delivers almost nothing in time. The shedding policy caps the queue, rejects overflow immediately, and keeps useful throughput at capacity. Same hardware, different admission rule. Saying no preserves the meaning of yes.',
     invariant: 'Goodput = served before timeout: past saturation, accepting more work strictly reduces it.',
   };
 
@@ -82,7 +82,7 @@ function* queueKills() {
       format: (v) => ['', 'a 6-second spinner, then an error — 100% of users', 'fast success — 83% of users', 'an INSTANT "busy, retry shortly" — 17%'][v],
     }),
     highlight: { removed: ['noshed:lucky'], found: ['shed:lucky', 'shed:unlucky'] },
-    explanation: 'Translate to humans: without shedding, EVERY user stares at a spinner and then an error — universal failure, delivered slowly. With shedding, 83% get normal fast service and 17% get an immediate, honest "we\'re busy — try again in a moment" (HTTP 503 with a Retry-After header, which a disciplined client from Retries, Backoff & Jitter handles gracefully and a jittered retry usually lands seconds later). The phone network solved this in the 1950s: a BUSY SIGNAL is infinitely better than silence, because it tells you the truth instantly and lets you decide what to do. Load shedding is the busy signal, rediscovered.',
+    explanation: 'From the user side, no shedding means slow universal failure: everyone waits, then errors. With shedding, most users get fast success and the rest get a fast, honest 503 with Retry-After. That rejected user can retry later with jitter instead of wasting seconds on a doomed request. Load shedding is useful because it makes overload explicit and quick.',
   };
 }
 
@@ -101,7 +101,7 @@ function* withTaste() {
       format: (v) => ['', 'load > 80% — nobody notices for hours', 'load > 90% — the page renders without the rail', 'load > 98% — visible but survivable', 'NEVER shed — this is why the site exists'][v],
     }),
     highlight: { removed: ['tier4:when'], found: ['tier1:when'] },
-    explanation: 'Shedding indiscriminately wastes its own genius: a dropped checkout costs real money while a dropped analytics beacon costs literally nothing. So production shedding is TIERED — requests carry a priority (criticality header, endpoint class), and the shedder drops from the bottom: beacons first at 80% load, the recommendations rail at 90% (the page composes without it — Bulkheads & Resource Isolation\'s decorative/critical split, applied at admission), search degrades near the redline, and checkout is never shed while anything else remains. The overloaded system becomes, deliberately, a smaller system that does the important things perfectly.',
+    explanation: 'Shedding should be ordered by value. Dropping an analytics beacon is cheap; dropping checkout is expensive. A production shedder needs request priority, endpoint class, or criticality metadata so it can shed the least valuable work first. Under overload, the system deliberately becomes smaller: it keeps the work that matters most and discards the rest quickly.',
     invariant: 'Shed by priority, lowest first: overload should cost the business the least valuable work it has.',
   };
 
@@ -119,7 +119,7 @@ function* withTaste() {
       format: (v) => (v === 0 ? '~0ms — feature off' : `${v}ms compute`),
     }),
     highlight: { compare: ['full:cost', 'brown2:cost'] },
-    explanation: 'The refined sibling: BROWNOUT — instead of dropping requests, make each one CHEAPER. The recommendations rail normally costs 80ms of model inference; under pressure, serve yesterday\'s cached rail (12ms), then a plain popularity list (3ms), then hide the rail (0ms) — four quality levels, dialed by load, invisible to most users (this is also Circuit Breakers & Deadlines\' fallback ladder, used proactively). Brownout multiplies effective capacity exactly when needed: at level 2 the same hardware serves 26× the recommendation traffic. Netflix and Google both published brownout systems; every "lite mode" you have ever seen is this pattern wearing product clothes.',
+    explanation: 'Brownout keeps the request but reduces its cost. Instead of full recommendations, serve cached recommendations, then a popularity list, then hide the rail. Each level lowers CPU, model, database, or network work per request. This is graceful degradation used proactively: stretch capacity before the queue becomes fatal.',
   };
 
   yield {
@@ -135,7 +135,7 @@ function* withTaste() {
       format: (v) => ['', 'load balancer / gateway — before auth, parsing, DB work', 'queue depth, p99 latency, concurrent in-flight — not CPU alone', 'a 503 must cost microseconds, or shedding itself overloads'][v],
     }),
     highlight: { active: ['where:how'] },
-    explanation: 'Mechanics that decide whether shedding works: reject at the FRONT DOOR (the Load Balancer or gateway), before the request costs anything — a rejection after auth, parsing, and two DB calls has already spent most of the work it was refusing. Trigger on leading indicators — queue depth and in-flight count move seconds before CPU pegs (and p99, per Tail Latency & p99 Thinking, moves before p50 knows anything is wrong). And keep the rejection path microsecond-cheap and allocation-free, or the shedder becomes the bottleneck it was hired to prevent. Production shorthand: admission control — the system asks "can I afford this?" before saying hello.',
+    explanation: 'Placement matters. Shed at the front door, before auth, parsing, database calls, and fan-out make the request expensive. Trigger on leading indicators like queue depth, in-flight count, and p99 latency, not CPU alone. The rejection path must be cheaper than the work it rejects. Admission control asks "can this request still become goodput?" before spending on it.',
     invariant: 'Shed early, trigger on queues not CPU, and make the no cheaper than the hello.',
   };
 
@@ -152,7 +152,7 @@ function* withTaste() {
       format: (v) => ['', 'microseconds', 'survive the spike RIGHT NOW', 'milliseconds', 'stretch capacity without dropping users', 'minutes', 'fix the capacity for real — too slow for the spike itself'][v],
     }),
     highlight: { found: ['shed:speed'], compare: ['scale:speed'] },
-    explanation: 'The complete doctrine, ordered by reaction time: SHEDDING answers in microseconds and buys survival; BROWNOUT answers in milliseconds and stretches what capacity means; AUTOSCALING answers in minutes — essential, and always late for the spike that triggered it (the gap between "alarm fires" and "new instances serve" is exactly the window shedding exists to cover). The closing creed pairs with Retries, Backoff & Jitter\'s: a resilient system is not one that never says no — it is one that says no QUICKLY, HONESTLY, and TO THE RIGHT REQUESTS, so that its yes still means something.',
+    explanation: 'The doctrine is ordered by reaction time. Shedding reacts in microseconds and protects current capacity. Brownout reacts in milliseconds and makes each request cheaper. Autoscaling reacts in minutes and fixes capacity after the spike has already arrived. A reliable system uses all three: survive now, degrade gracefully, and add capacity when it is ready.',
   };
 }
 
@@ -166,42 +166,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Load shedding is the discipline of saying NO on purpose. An overloaded server that accepts every request serves no one — it spends its capacity on doomed work: requests queued so long that callers have already given up and timed out. The honest answer is immediate rejection: "we are busy, try again in a moment" (HTTP 503 with Retry-After). This is the busy signal, rediscovered. Load shedding is not about turning away customers; it is about serving the ones who *can still receive an answer* instead of serving nobody, slowly.`,
+        'Load shedding exists because an overloaded system that accepts every request can serve nobody well. When demand exceeds capacity, the excess becomes queued work. If the queue grows past client deadlines, the server keeps spending CPU, memory, database connections, or GPU time on requests whose callers have already given up.',
+        'The useful metric is goodput: responses delivered before the caller gives up. A system can report high throughput while producing low goodput if most answers arrive too late. Load shedding protects goodput by rejecting some work quickly so accepted work still finishes inside its deadline.',
+        'This is an uncomfortable but central reliability idea. A fast 503 with Retry-After can be better than a slow timeout. Saying no on purpose preserves the meaning of yes.',
+        'That makes shedding a product decision as much as an infrastructure decision. The system has to know which work is expendable, which work is sacred, and which users should see degradation rather than silence.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The visualization shows the live arithmetic: a server with capacity 100 requests/second faces demand of 120 requests/second — a 20 percent overload, mild by real-world standards. Without shedding, the queue grows by 20 requests every second, forever. By Little's law, queue depth equals wait time (wait = queue ÷ service rate), so at second 10 the queue reaches 200 requests and waits have crossed the 2-second client timeout. The server keeps working diligently on funeral work — answers nobody is still waiting for. Goodput (answers delivered before the caller times out) drops to zero, while CPU stays pinned at 100 percent, the final insult.`,
-        `With shedding, the server caps the queue at 50 requests. Any excess is rejected instantly, before consuming auth, parsing, or database time. The rejection costs microseconds, not milliseconds. Now goodput holds steady at 100 requests/second for the entire overload. From the human side: 83 percent of users get fast success, while 17 percent receive an instant, honest "we are busy — retry shortly" with Retry-After guidance. A caller from "Retries, Backoff & Jitter" handles this gracefully, jitters a retry, and usually lands seconds later on an idle server. The phone network solved this in the 1950s: a *busy signal* is infinitely better than silence, because it tells you the truth and lets you decide.`,
-        `Refined shedding adds priority. Not all requests are equal: analytics beacons shed at 80 percent load (nobody notices for hours), recommendation rails shed at 90 percent (the page renders without the rail — a Bulkheads & Resource Isolation pattern), search degrades near the redline, and checkout is *never* shed while anything else remains. The overloaded system becomes deliberately a smaller system that does important work perfectly. Brownout takes it further: instead of dropping requests, make each one cheaper. A recommendations rail normally costs 80ms of inference; under pressure, serve a cached version (12ms), then a popularity list (3ms), then hide the rail (0ms) — four quality levels, invisible to most. The same hardware serves 26 times the traffic at level 2. Netflix and Google both published brownout systems; every "lite mode" you have ever seen is this pattern. Mechanics matter: reject at the *front door* (Load Balancer or gateway), before any work is spent. Trigger on queue depth and p99 latency (Tail Latency & p99 Thinking), not CPU alone — queues and latency move seconds before CPU pegs. And keep the rejection path allocation-free and microsecond-cheap, or the shedder becomes the bottleneck.`,
+        'The obvious approach is to accept everything and let the queue absorb the spike. That feels polite because no request is rejected at the door. Under sustained overload it is usually the least polite behavior: everyone waits, then many or all users time out.',
+        'Another obvious approach is to rely on autoscaling. Autoscaling is useful, but it reacts on the order of seconds to minutes. The first overload wave has already hit by then. Load shedding reacts in microseconds or milliseconds at the admission point.',
+        'A third weak approach is to shed randomly. That may protect capacity, but it ignores business value and user impact. A good shedder rejects lower-priority, lower-value, or more expensive work first while preserving the requests the system exists to serve.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core insight',
       paragraphs: [
-        `Shedding itself is simple: track queue depth or in-flight request count, compare to a threshold, reject excess requests. The rejection path is allocation-free and costs microseconds — a single counter check and a 503 response. No parsing, no auth, no work. Configuration is minimal: set queue caps per priority tier (beacons at 50, recommendations at 100, general at 500) and load thresholds per tier (80 percent, 90 percent, 98 percent). Brownout adds a quality-ladder config: inference → cached → popularity → hidden, each with a load threshold. The entire system fits in hundreds of lines of code. Testing is critical: you must simulate overload, verify that shedding triggers correctly, confirm that rejected requests include Retry-After headers, and measure goodput under sustained overload. The cost of *not* shedding is severe: zero goodput under sustained overload, wasted CPU on funeral work, user frustration, and cascading failures in downstream systems waiting for responses that never come. Shedding costs almost nothing and buys survival.`,
+        'The core insight is deadline-aware admission. Before accepting work, ask whether this request can still become useful output given current queues, in-flight work, and downstream pressure. If the answer is no, reject early and cheaply.',
+        'This changes the objective from "process every request" to "maximize useful completed requests under overload." That is why the animation compares goodput, not raw server busyness. A saturated server doing doomed work is not healthy.',
+        'Graceful degradation adds a second lever. Instead of rejecting a request, the system may make it cheaper: cached recommendations instead of live model inference, simpler ranking, smaller response payloads, disabled noncritical widgets, or read-only mode. Load shedding says no; brownout says yes, but less expensively.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'How it works',
       paragraphs: [
-        `Every major web service that survives overload uses shedding. Google services shed analytics work first (spare the core search and maps queries). Netflix published its brownout system for handling streaming spikes. Twitter sheds requests when the timeline graph database is overloaded. Credit-card processors shed low-priority merchant status checks during fraud-spike storms. Call centers have used priority sheds for decades: dropped calls routed to callback queues (lowest priority) while customer-retention calls stay in the queue. Cloud platforms (AWS, GCP, Azure) use priority-based shedding at the API gateway: internal system calls shed before customer workloads, customer workloads shed before burst traffic. The pattern is universal because the arithmetic is universal: sustained demand above capacity with an unbounded queue is a mathematical guarantee of zero goodput. Shedding is the only response that works.`,
+        'A simple shedder watches leading indicators: queue depth, in-flight requests, p99 latency, worker-pool saturation, connection-pool pressure, GPU queue length, or deadline miss probability. When the signal crosses a threshold, the admission path rejects or downgrades selected work.',
+        'The rejection must happen early. Shedding after authentication, parsing, database fanout, and downstream RPCs wastes the resources it was supposed to protect. The front door, gateway, load balancer, queue consumer, or model-serving admission gate is usually the right place.',
+        'Production shedding should be prioritized. Drop analytics beacons before recommendations, recommendations before search, search before checkout. Return a clear status, often 503 with Retry-After or a domain-specific busy response, and make sure clients retry with jitter rather than rebuilding the storm.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the visual is proving',
       paragraphs: [
-        `The biggest pitfall is shedding too late. Shedding *after* parsing, auth, and database queries is shedding after wasting the work you are trying to save. Admission control — the question "can I afford this?" — must happen at the front door, before the request costs anything. Another misconception: "we can just scale." Autoscaling answers in minutes (from alarm to new instance serving). Shedding answers in microseconds. They are complementary: shedding survives the spike while autoscaling fixes the capacity for real. Do not shed on CPU utilization alone; CPU is a lagging indicator. Queue depth and p99 latency lead by seconds. A server pinned at 100 percent CPU might still be serving in-flight requests within their timeout window; queue depth growing means you are losing the race. Do not confuse rejection rate with failure. A 17 percent rejection rate with fast rejections is a win; 100 percent success rate with 6-second timeouts is a loss. The metric is goodput, not acceptance rate. Finally, do not implement shedding without tuning: thresholds that are too aggressive (rejecting at 50 percent load) waste capacity; thresholds too loose (shedding only at 99 percent load) let the queue grow too deep. Measure, iterate, and validate that goodput improves under your overload profile.`,
+        'The queue view proves the basic arithmetic. Capacity is 100 requests per second and demand is 120. Without shedding, the queue grows by 20 per second. Wait time grows with queue depth, so accepted requests eventually exceed the client timeout. The server is busy, but useful output collapses.',
+        'The goodput view proves why rejection can improve user experience. The shedder caps the queue and rejects overflow quickly. Accepted requests stay within the latency budget. Most users get fast success; the rest get fast, honest rejection instead of a long spinner and failure.',
+        'The taste view proves that shedding is a policy design, not just a threshold. Priority shedding decides which work loses first. Brownout decides how kept work becomes cheaper. The doctrine table explains reaction time: shedding survives the current spike, brownout stretches capacity, and autoscaling fixes capacity later.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Why it works',
       paragraphs: [
-        `LLM Serving Admission-Control Goodput Gate shows the same overload doctrine with token budgets, KV pressure, and prefill/decode deadlines. It is the LLM-serving version of asking whether a request can still become goodput before saying yes.`,
-        `Load shedding is part of the overload doctrine alongside brownout and autoscaling — go to "Circuit Breakers & Deadlines" to see fallback ladders and how to handle errors from rejected requests. "Retries, Backoff & Jitter" teaches the client side: how to retry intelligently after a 503 and respect Retry-After headers. "Tail Latency & p99 Thinking" explains why p99 matters more than average latency for shedding triggers. "Bulkheads & Resource Isolation" shows how to partition requests by criticality — the foundation of priority-based shedding. "Load Balancer" covers the front-door architecture where shedding happens. Finally, "Hot Rows & Append-and-Aggregate" teaches the unbounded-queue law that makes shedding inevitable under sustained overload.`,
+        'It works because queues convert overload into latency, and latency converts accepted work into wasted work once deadlines pass. By bounding queues, the system bounds waiting time. By rejecting early, it avoids spending scarce resources on requests unlikely to complete in time.',
+        'It also works because not all work has equal value. Analytics, personalization, previews, suggestions, background sync, and optional enrichment are often less important than checkout, authentication, payment, or emergency operations. Priority shedding lets overload degrade the least important behavior first.',
+        'Brownout works for the same reason from the cost side. If each request becomes cheaper, the same capacity can serve more useful work. Degradation is not failure when the reduced behavior is planned and understandable.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The mechanism can be simple: counters, thresholds, priority labels, and a cheap rejection path. The hard part is policy. Teams must decide which work is safe to reject, what response clients should receive, whether clients honor Retry-After, and whether goodput improves under load tests.',
+        'Thresholds are risky. Too aggressive wastes capacity and rejects users unnecessarily. Too loose lets the queue grow until goodput collapses. Static thresholds may fail under changing dependency latency, traffic mix, or client behavior. Adaptive policies are better but harder to reason about.',
+        'Brownout adds product complexity because each feature needs cheaper modes that still make sense. Autoscaling adds capacity but reacts too slowly for the first spike. Shedding is the fast guardrail that keeps the system alive while brownout and autoscaling do slower work.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Gateways, load balancers, API platforms, search systems, recommendation systems, payment processors, queue consumers, and LLM serving stacks all use some form of admission control. They reject or defer low-priority requests when queues, token budgets, connection pools, GPU slots, or downstream latency indicate that accepted work would miss its deadline.',
+        'It is especially important in fanout systems. One accepted request may create many downstream calls. Shedding at the edge can prevent a single overload wave from multiplying through databases, caches, model servers, and third-party APIs.',
+        'The pattern is also old outside software: busy signals, call-center callbacks, emergency-room triage, and rate-limited ticket queues all preserve useful service by refusing or deferring lower-priority work during overload.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The biggest mistake is shedding too late, after the system already paid for parsing, auth, fanout, or database work. The second is shedding on CPU alone; queue depth, in-flight count, p99 latency, dependency saturation, and deadline miss risk usually move earlier.',
+        'The third is treating any rejection as failure. A small fast-rejection rate can be the reason the rest of the users succeed. The fourth is creating a retry storm. If clients immediately retry every 503 without jitter or respect for Retry-After, the shedder protects one layer while the client layer rebuilds overload.',
+        'Another failure is shedding the wrong class of work. If low-priority requests keep flowing while high-value operations starve, the policy has protected hardware metrics while harming the product. Load shedding must be tied to service value, not just queue math.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Retries, Backoff & Jitter is the client side of handling 503 and Retry-After. Backpressure & Flow Control is the cooperative version where clients slow down before rejection. Circuit Breakers & Deadlines explains doomed work and fallback design.',
+        'Tail Latency & p99 Thinking explains why p99 and queue depth make better triggers than averages. Bulkheads & Resource Isolation gives the priority boundaries that make tiered shedding possible. LLM Serving Admission-Control Goodput Gate applies the same idea to token budgets, KV pressure, and GPU queues.',
       ],
     },
   ],

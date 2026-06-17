@@ -65,7 +65,7 @@ function* incidentLedger() {
   yield {
     state: incidentGraph('AI incident corrective-action ledger'),
     highlight: { active: ['report', 'triage', 'trace', 'cause', 'e-report-triage', 'e-report-trace', 'e-triage-cause', 'e-trace-cause'], found: ['fix'] },
-    explanation: 'An AI incident ledger turns post-deployment harm or near harm into structured evidence: intake, severity, traces, causal link, reporting clock, corrective action, rerun proof, and audit packet.',
+    explanation: 'The ledger turns a real-world harm or near harm into replayable evidence. Intake, severity, traces, causal link, reporting clock, corrective action, rerun proof, and audit packet all have to stay connected.',
     invariant: 'A postmortem is not enough; corrective action needs replayable evidence.',
   };
 
@@ -92,13 +92,13 @@ function* incidentLedger() {
       ],
     ),
     highlight: { active: ['harm:need', 'sys:need', 'cause:need', 'clock:need'], found: ['who:need'] },
-    explanation: 'The intake record should say who was affected, what harm occurred, which system version was involved, what evidence exists, and whether a reporting clock has started.',
+    explanation: 'The intake matrix captures facts before the story hardens. It records who was affected, what harm occurred, which system version ran, what evidence exists, and whether a reporting clock has started.',
   };
 
   yield {
     state: incidentGraph('Causal link starts response clocks'),
     highlight: { active: ['cause', 'clock', 'reg', 'e-cause-clock', 'e-clock-reg'], compare: ['fix'], found: ['audit'] },
-    explanation: 'Some regimes care when the provider establishes a causal link or reasonable likelihood of one. The ledger should track awareness time, link time, severity, and notification status.',
+    explanation: 'The causal-link node starts time-sensitive decisions. The ledger separates awareness time, link time, severity, and notification status so response clocks are inspectable.',
   };
 
   yield {
@@ -113,7 +113,7 @@ function* incidentLedger() {
       ],
     }),
     highlight: { active: ['ledger', 'due'], compare: ['slow'] },
-    explanation: 'A ledger makes response clocks visible. It keeps corrective actions from drifting while teams debate whether the incident was really caused by the AI system.',
+    explanation: 'The plot shows drift versus control. A ledger keeps response clocks visible so corrective actions do not stall while teams debate causality.',
   };
 }
 
@@ -121,7 +121,7 @@ function* correctiveLoop() {
   yield {
     state: incidentGraph('Corrective action loop'),
     highlight: { active: ['cause', 'fix', 'rerun', 'audit', 'e-cause-fix', 'e-fix-rerun', 'e-rerun-audit'], compare: ['reg'] },
-    explanation: 'Corrective action should point to a root cause and a proof. Examples include guardrail changes, data removal, model rollback, human review, tool permission changes, or eval slice expansion.',
+    explanation: 'Corrective action starts at root cause and ends at proof. Guardrail changes, data removal, rollback, human review, tool permission changes, and eval expansion are not closed until the rerun says so.',
   };
 
   yield {
@@ -148,7 +148,7 @@ function* correctiveLoop() {
       ],
     ),
     highlight: { active: ['guard:act', 'data:act', 'tool:act', 'eval:act'], compare: ['roll:act'], found: ['tool:proof'] },
-    explanation: 'Corrective actions need proof fields. A fix without rerun, trace diff, policy decision, or rollback evidence is not closed.',
+    explanation: 'The table makes closure falsifiable. A fix without rerun, trace diff, policy decision, rollback evidence, or data-change proof remains open.',
   };
 
   yield {
@@ -173,13 +173,13 @@ function* correctiveLoop() {
       ],
     ),
     highlight: { active: ['inc:act', 'root:act', 'fix:act', 'rerun:act'], found: ['rerun:proof'], compare: ['inc:state'] },
-    explanation: 'A tool-using agent takes an unsafe action. The root cause is excessive tool scope plus weak indirect-prompt handling. The fix narrows capability, reruns the incident prompt, and closes only after proof.',
+    explanation: 'The complete case ties action to cause. Excessive tool scope and weak indirect-prompt handling caused the unsafe action; the fix narrows authority and closes only after the incident prompt is rerun.',
   };
 
   yield {
     state: incidentGraph('Incidents expand future eval slices'),
     highlight: { active: ['audit', 'rerun', 'e-rerun-audit'], found: ['fix', 'cause'], compare: ['report'] },
-    explanation: 'Closed incidents should feed future evals. The prompt, trace, policy gap, affected slice, and corrective proof become regression cases in the safety register.',
+    explanation: 'The final edge prevents repeat incidents. The prompt, trace, policy gap, affected slice, and corrective proof become regression cases in the safety register.',
   };
 }
 
@@ -193,45 +193,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An AI incident corrective-action ledger is the post-deployment safety record that tracks harms, near harms, severity, causal evidence, reporting clocks, corrective actions, rerun proof, and audit packet closure.',
-        'AI Audit Evidence Packet Case Study explains the broader governance packet. AI Safety Eval Slice Risk Register Case Study explains pre-release gates. This module closes the loop when real-world failures happen anyway.',
+        'An AI incident corrective-action ledger exists because post-deployment failures need more than a postmortem. A serious incident can involve a user report, trace logs, model version, prompt, retrieved context, tool call, policy decision, severity judgment, reporting deadline, mitigation, rerun evidence, and audit packet. If those pieces live in separate documents, the organization cannot prove what happened or what changed.',
+        'AI systems also change quickly. A fix that worked on Friday may disappear after a model upgrade, prompt edit, tool-policy change, index rebuild, or data refresh. The ledger makes the incident replayable so the same failure can become a regression case instead of a one-time story.',
+        'The purpose is not bureaucracy for its own sake. The ledger protects users and teams by making closure falsifiable. A corrective action is not done because someone wrote that it is done. It is done when the system has evidence that the cause was addressed and the incident case now passes or is otherwise contained.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The ledger stores incident id, reporter, affected users, harm type, severity, system version, feature flag state, trace ids, causal-link status, awareness time, reporting deadline, owner, root cause, corrective action, rerun evidence, and regression case id.',
-        'Corrective actions need proof fields. Closing an incident should require policy decision logs, trace diffs, evaluation reruns, rollout state, data deletion evidence, or human-review records depending on the root cause.',
+        'The obvious approach is a postmortem document plus a ticket. That can be useful for narrative learning, but it often fails as an operational control. The ticket may say "fixed" without linking the trace, model version, policy change, rerun, and future regression test.',
+        'Another shortcut is to close the incident when the immediate harm stops. Containment is important, but containment is not corrective action. Disabling a feature, rolling back a model, or adding human review may reduce risk while the root cause remains unresolved.',
+        'A third shortcut is to argue about causality until all work stalls. The ledger should separate containment, causal confidence, reporting obligations, corrective actions, and proof. Teams can take safe containment steps while the root-cause record is still being completed.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is that incident response is a state machine with evidence requirements. Intake, triage, causal link, reporting clock, containment, corrective action, rerun, notification, and audit closure are different states. Each state has fields that must be filled before the incident can move safely.',
+        'The ledger stores incident id, reporter, affected users, harm type, severity, system version, feature flag state, trace ids, causal-link status, awareness time, reporting deadline, owner, root cause, corrective action, rerun evidence, and regression case id. Those fields keep the operational, legal, and engineering views joined.',
+        'The invariant is closure requires proof. A fix without rerun evidence, trace diff, policy decision, rollback evidence, data-change proof, or owner approval remains open. The ledger makes that visible before memory and urgency fade.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Intake captures a report or monitor alert. Triage labels severity and affected surface. Trace reconstruction finds the system version and path. Root-cause analysis links the AI system to the incident or marks uncertainty. Reporting clocks and corrective actions are then tracked until rerun proof closes the case.',
-        'The ledger should feed the risk register. Every closed incident should either become a regression case, update a policy, expand a slice, change monitoring, or document why no control change was needed.',
+        'Intake captures a report, monitor alert, red-team finding, customer complaint, or internal escalation. Triage labels severity, affected surface, user impact, and whether containment is needed. Trace reconstruction finds the model version, prompt, retrieved context, tool calls, policy decisions, feature flags, and logs.',
+        'Root-cause analysis links the AI system to the incident or records uncertainty. That causal-link state matters because it may start reporting clocks and assign corrective-action ownership. The ledger should distinguish awareness time, evidence time, causal-link time, notification decision, and closure time.',
+        'Corrective action then starts from the cause. Possible actions include rollback, guardrail update, tool-scope reduction, data removal, prompt change, eval-slice expansion, monitoring change, human-review gate, or policy update. Each action needs a proof field: rerun pass, diff, approval, denial trace, or production monitor evidence.',
+        'Finally, the incident feeds future prevention. Every closed case should either become a regression case, update a risk register, expand an evaluation slice, change monitoring, or explicitly document why no control change was needed.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A tool-using agent takes an unsafe action after reading an untrusted document. The incident is triaged as high severity. Traces show the document injection, tool call, and missing scope gate. The corrective action narrows tool authority, adds a source-trust check, reruns the incident trace, and adds the case to the red-team queue.',
-        'The incident closes only when the rerun denies the tool action and the audit packet contains the trace, root cause, mitigation, owner approval, and future regression case.',
+        'The incident graph proves that intake, triage, traces, cause, clocks, fixes, reruns, notifications, and audit packets must stay connected. If the trace is separated from the action, the team cannot prove the right failure was fixed.',
+        'The incident-fields matrix proves that facts should be captured before the story hardens. Who was affected, what harm occurred, which version ran, what evidence exists, and whether a reporting clock started are all different fields.',
+        'The corrective-action table proves that closure has a proof type. A guardrail change needs rerun evidence. A data removal needs a diff. A tool-scope fix needs a denied-call trace. A rollback needs feature-flag or deployment evidence.',
+        'The burn-down plot proves why ledgers matter operationally. Open corrective actions can accumulate while teams debate causality or ownership. A visible ledger keeps response clocks and owners from disappearing into meeting notes.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The ledger works because it converts memory into replayable evidence. Incidents are stressful, cross-functional, and time-sensitive. Without a structured record, important facts vanish or become ambiguous after the system changes.',
+        'It also works because it separates states that teams often collapse. Containment can happen before full root cause. Reporting-clock review can happen while fixes are being built. Rerun proof can close a corrective action even if the postmortem is still being polished.',
+        'Most importantly, it turns incidents into future gates. A real-world failure should strengthen evals, monitoring, policies, runbooks, or guardrails. Otherwise the organization pays the cost of the incident without turning it into prevention.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The cost is operational discipline. Teams must collect traces, preserve model and prompt versions, record owners, update statuses, rerun cases, and keep audit packets current. That can feel heavy during a fast-moving incident.',
+        'There is also a judgment tradeoff. Too little structure produces vague closure. Too much structure slows response and encourages checkbox behavior. The right ledger is strict about evidence fields but practical about urgent containment.',
+        'A third tradeoff is transparency. Incident ledgers may contain sensitive user data, security details, or proprietary model behavior. They need access controls, retention rules, redaction, and clear ownership.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern is strongest for deployed AI systems that use tools, retrieval, automated decisions, moderation, recommendations, code execution, or customer-facing actions. Those systems can produce harms that require traceable corrective action.',
+        'It is useful for safety teams, product teams, legal or compliance review, incident command, model governance, and post-release evaluation. It also connects pre-release risk registers to real-world evidence after launch.',
+        'A complete case: a tool-using agent takes an unsafe action after reading an untrusted document. The incident is triaged as high severity. Traces show document injection, tool call, and missing scope gate. The corrective action narrows tool authority, adds source-trust checks, reruns the incident trace, and adds the case to the red-team queue.',
       ],
     },
     {
       heading: 'Failure modes',
       paragraphs: [
         'Do not close incidents on narrative alone. A well-written postmortem without rerun evidence does not prove the system is safer. Do not let causal uncertainty stall obvious containment; rollback, disable tools, or add human review while evidence is gathered.',
-        'Another failure is not learning from incidents. If the incident does not update eval slices, monitoring, or policy, it can recur under a new label.',
+        'Another failure is not learning from incidents. If the incident does not update eval slices, monitoring, or policy, it can recur under a new label. The ledger costs operational discipline, but it prevents incidents from becoming isolated stories that never harden into controls.',
+        'A third failure is losing version context. If the ledger cannot say which model, prompt, index, policy, and tool configuration ran, it cannot support a reliable rerun. Version capture is not optional in AI incident response.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
-        'Primary sources: AI Incident Database at https://incidentdatabase.ai/, Partnership on AI AI Incident Database at https://partnershiponai.org/workstream/ai-incidents-database/, OECD AI Incidents Monitor at https://oecd.ai/en/incidents, NIST AI RMF Manage playbook at https://airc.nist.gov/airmf-resources/playbook/manage/, and EU AI Act Article 73 service-desk text at https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-73.',
-        'Study next: AI Safety Eval Slice Risk Register Case Study, LLM Red-Team Attack Taxonomy Queue Case Study, AI Audit Evidence Packet Case Study, GenAI Observability Trace Semantics Case Study, LLM Guardrail Policy Engine, and AIOps Incident Response.',
+        'Primary sources: AI Incident Database at https://incidentdatabase.ai/, Partnership on AI AI Incident Database at https://partnershiponai.org/workstream/ai-incidents-database/, OECD AI Incidents Monitor at https://oecd.ai/en/incidents, NIST AI RMF Manage playbook at https://airc.nist.gov/airmf-resources/playbook/manage/, and EU AI Act Article 73 service-desk text at https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-73. Study AI Safety Eval Slice Risk Register Case Study, LLM Red-Team Attack Taxonomy Queue Case Study, AI Audit Evidence Packet Case Study, GenAI Observability Trace Semantics Case Study, LLM Guardrail Policy Engine, and AIOps Incident Response next.',
       ],
     },
   ],

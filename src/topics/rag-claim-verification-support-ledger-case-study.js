@@ -88,7 +88,7 @@ function* claimSplit() {
   yield {
     state: verifyGraph('Verification starts by splitting answer claims'),
     highlight: { active: ['answer', 'split', 'claims', 'e-answer-split', 'e-split-claims'], compare: ['spans'], found: ['ledger'] },
-    explanation: 'A sentence can contain several factual claims. The verifier first turns prose into a ledger of atomic claims or claim-triplets, then checks each one against the citation spans the answer actually used.',
+    explanation: 'The first split lowers the unit of judgment. A fluent sentence can contain supported, contradicted, and overclaimed facts, so the verifier works claim by claim.',
   };
 
   yield {
@@ -177,7 +177,7 @@ function* verifyLedger() {
       ],
     ),
     highlight: { active: ['c1:label', 'c2:label'], compare: ['c3:issue'], removed: ['c4:act'], found: ['c5:act'] },
-    explanation: 'The verification ledger stores one row per claim: span, support label, issue type, action, checker version, threshold, and trace id. It separates supported claims from contradictions, missing evidence, stale citations, and weak warrants.',
+    explanation: 'The ledger row is the operational object. It stores the claim, span, support label, issue type, action, checker path, threshold, and trace id so release decisions are replayable.',
   };
 
   yield {
@@ -268,7 +268,7 @@ function* repairLoop() {
   yield {
     state: verifyGraph('Repair feeds a new answer, not a hidden note'),
     highlight: { active: ['ledger', 'repair', 'gate', 'e-ledger-repair', 'e-ledger-gate'], found: ['audit'], compare: ['answer'] },
-    explanation: 'Repairs should edit the answer text or block release. Do not bury verification failures in logs while shipping the same unsupported sentence to the user.',
+    explanation: 'The repair arrow must change the user-facing answer or block it. A hidden log entry is not a repair if the unsupported sentence still ships.',
   };
 
   yield {
@@ -317,45 +317,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A RAG claim verification support ledger is the layer between citation storage and evaluation scores. It decomposes an answer into checkable claims, binds each claim to source spans, classifies support, records the checker path, and decides whether the answer can ship, must be repaired, or needs human audit.',
-        'This is stricter than showing citations. A citation can be on-topic while failing to support the exact sentence. The ledger makes support granular: supported, contradicted, extrapolatory, under-warranted, stale, missing, or inaccessible.',
+        'RAG systems are often judged by whether they show citations, but citations are only handles. A cited document can be on-topic while failing to support the sentence beside it. A support ledger exists to answer a narrower question: for each claim in the answer, what exact source span supports it, contradicts it, weakly relates to it, is stale for it, or is missing entirely?',
+        'This matters because generated answers mix facts. One paragraph can contain a supported date, an over-broad scope claim, a contradicted number, and a cause statement that no source proves. Response-level scores blur those cases. A claim verification ledger lowers the unit of judgment until each fact can be checked and routed to keep, repair, block, retry, redact, or audit.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach and wall',
       paragraphs: [
-        'The pipeline starts with claim decomposition. FActScore breaks long-form generations into atomic facts and measures the percentage supported by a reliable source: https://arxiv.org/abs/2305.14251. RefChecker uses claim-triplets, then checks those triplets against references: https://arxiv.org/abs/2405.14486. The engineering lesson is the same: response-level and sentence-level judgments are too coarse for mixed factual prose.',
-        'The checker then evaluates each claim against the retrieved source span, not against vague world knowledge. It may use deterministic span existence checks, NLI, an LLM judge, KG triplets, search-augmented fact checking, or human review. SAFE/LongFact shows a search-augmented route for long-form factuality: https://arxiv.org/abs/2403.18802. ClaimVer shows a claim-level attribution pattern with explainable labels and evidence: https://aclanthology.org/2024.findings-emnlp.795/.',
+        'The reasonable first attempt is to retrieve documents, generate an answer, attach the top citations, and trust the reader to inspect them. This works for lightweight exploration because citations give a path back to sources. It fails when the answer must be released automatically, used by a support agent, shown in a regulated workflow, or audited after a dispute.',
+        'The wall is granularity. A citation attached to a paragraph does not say which clause it supports. A semantic similarity score can mark a source as relevant while the answer states a stronger relation than the source warrants. A single LLM judge score can hide the difference between unsupported, contradicted, stale, inaccessible, and over-force claims. The system needs a row for each claim, not a vague confidence label for the whole answer.',
       ],
     },
     {
-      heading: 'Data structure',
+      heading: 'Core insight',
       paragraphs: [
-        'The core record is small but dense: answer id, claim id, normalized claim text, source span id, document version, evidence quote hash, support label, issue axis, checker model, threshold, rationale pointer, action, latency, and trace id. That row can drive UI highlights, evaluator metrics, regression dashboards, and incident review.',
-        'A useful label set includes supported, contradicted, extrapolatory, force gap, stale, inaccessible, and missing evidence. Force gaps are especially important in cited RAG because the evidence can be relevant but too weak. The ForceBench paper frames this as evidence-force calibration across relation, modality, scope, temporal, and numeric axes: https://arxiv.org/abs/2605.28044.',
+        'The core insight is that support is a relation between a claim and a source span under a specific corpus version and access scope. The claim is not checked against general world knowledge unless the product explicitly asks for web fact checking. It is checked against the evidence the answer claims to rely on.',
+        'That relation needs a label and an action. Supported claims can stay. Contradicted claims block or force replacement. Missing claims trigger retrieval or audit. Stale claims refresh. Inaccessible claims redact. Force-gap claims weaken their wording until the source actually warrants them. The ledger is useful because it turns evidence quality into a release decision.',
       ],
     },
     {
-      heading: 'Complete case study: refund policy verifier',
+      heading: 'What the visual proves',
       paragraphs: [
-        'A customer-support assistant answers: "All orders are guaranteed refunds for 30 days, and restocking fees never apply." The retrieved policy span says eligible orders may be refunded within 30 days, and a separate fee table says some opened hardware has a 15 percent restocking fee. A citation-only UI might look convincing because both citations are topically relevant.',
-        'The verification ledger splits the answer into claims. The 30-day date is supported. The guarantee is a modality and scope overclaim. The restocking-fee sentence is contradicted. The repair loop edits the answer to "Eligible orders may be refunded within 30 days; opened hardware may carry a restocking fee." The support ledger stores the before/after claim ids, source spans, issue labels, and release decision.',
+        'The claim-split view shows the first move: the answer is decomposed into small facts with ids, normalized objects, candidate span handles, and risk labels. Missing span handles are not formatting gaps. They mean the system has no evidence for that claim yet.',
+        'The verification view shows why the output is a ledger rather than a score. Each claim receives a support label, issue type, checker path, threshold, trace id, and action. The repair view shows a common cited-RAG failure: relevant evidence that is too weak for the statement. The animation proves that the verifier is not asking whether a citation looks related. It asks what the citation licenses.',
       ],
     },
     {
-      heading: 'Cost and deployment',
+      heading: 'How the system works',
       paragraphs: [
-        'Synchronous verification belongs only where the risk justifies the latency. For ordinary low-risk answers, the product might run fast span checks inline and route uncertain claims to async audit. For policy, medical, legal, finance, security, or enterprise-support workflows, unsupported or contradicted claims should block release or force repair.',
-        'An AWS RAG hallucination detection walkthrough highlights practical detector choices such as LLM prompting, semantic similarity, BERT-style checking, and token similarity while comparing cost and latency tradeoffs: https://aws.amazon.com/blogs/machine-learning/detect-hallucinations-for-rag-based-systems/. The support ledger is the structure that lets those detectors compose instead of replacing one another.',
+        'The pipeline starts with claim decomposition. FActScore breaks long-form generations into atomic facts and measures how many are supported by reliable sources: https://arxiv.org/abs/2305.14251. RefChecker uses claim-triplets, then checks those triplets against references: https://arxiv.org/abs/2405.14486. The engineering lesson is stable across both approaches: response-level and sentence-level judgments are too coarse for mixed factual prose.',
+        'After decomposition, each claim is paired with source spans. The checker should see the exact quote, document id, document version, retrieval query, access scope, freshness metadata, answer context, and risk label. It may use deterministic quote checks, NLI or entailment models, an LLM judge, knowledge-graph triples, search-augmented fact checking, or human review. SAFE and LongFact show a search-augmented route for long-form factuality: https://arxiv.org/abs/2403.18802. ClaimVer shows claim-level attribution with explainable evidence labels: https://aclanthology.org/2024.findings-emnlp.795/.',
+        'The result is a dense row: answer id, claim id, normalized claim text, source span id, document version, quote hash, support label, issue axis, checker model, threshold, rationale pointer, action, latency, and trace id. That same row can drive UI highlights, evaluator metrics, regression dashboards, release gates, and incident review.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Do not let the model invent citation ids. Do not verify against the whole web when the answer claimed support from a specific internal source. Do not collapse "related" and "supported." Do not hide repaired wording from the user-facing answer. Do not tune thresholds only on easy public examples; keep risk-slice holdouts and human-audited failures.',
-        'Study RAG Citation Span Index Case Study, RAG Evaluation: RAGAS, ARES, and the RAG Triad, Claim Graph & Source Ledger, RAG Context Packing Token Budget, RAG Index Lifecycle and Alias Swap, Cross-Encoder Reranker, LLM Evaluation Harnesses, LLM Judge Calibration & Drift Monitor, Benchmark Variance & Model Selection, Prompt Injection Threat Model, and LLM Guardrail Policy Engine next.',
+        'The correctness argument is local. If every shipped claim has a current, accessible source span that warrants exactly that claim, then the final answer is supportable as the conjunction of those checked claims. If a claim lacks that relation, the ledger forces an action before release.',
+        'This does not prove the answer is globally complete or that the retrieved corpus contains every truth. It proves a narrower and more auditable property: the answer did not state more than its cited evidence, access scope, and corpus version allow. That narrow property is exactly what citation-based RAG products usually promise.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost is latency, money, and annotation complexity. Claim splitting can over-split or under-split. Entailment models and LLM judges can disagree. Human review is expensive. Thresholds that are too strict flood the audit queue; thresholds that are too loose let unsupported statements pass. The plot in the animation shows this tradeoff: higher confidence thresholds reduce missed bad claims but increase human-review volume.',
+        'Deployment should follow risk. Low-risk exploratory answers can run fast checks inline and send uncertain rows to async audit. Policy, medical, legal, finance, security, and enterprise-support workflows often need synchronous blocking or forced repair for unsupported and contradicted claims. An AWS hallucination-detection walkthrough surveys practical detector choices such as LLM prompting, semantic similarity, BERT-style checking, and token similarity while comparing cost and latency: https://aws.amazon.com/blogs/machine-learning/detect-hallucinations-for-rag-based-systems/. The ledger lets these detectors compose instead of replacing one another.',
+      ],
+    },
+    {
+      heading: 'Complete case',
+      paragraphs: [
+        'A customer-support assistant answers: "All orders are guaranteed refunds for 30 days, and restocking fees never apply." The retrieved policy span says eligible orders may be refunded within 30 days. A separate fee table says some opened hardware has a 15 percent restocking fee. A citation-only UI can look convincing because both citations are relevant to refunds.',
+        'The ledger splits the answer. The 30-day date is supported. The word guaranteed is a modality overclaim. All orders is a scope overclaim. The restocking-fee sentence is contradicted. The repair loop edits the answer to: "Eligible orders may be refunded within 30 days; opened hardware may carry a restocking fee." The ledger stores before and after claim ids, source spans, issue labels, and the release decision.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins when answers must be traceable to a controlled corpus: customer support, internal policy assistants, legal and compliance research, medical knowledge bases, financial disclosures, enterprise search, and technical documentation. It also helps teams debug retrieval quality because missing or stale claim rows reveal whether the failure came from retrieval, generation, citation attachment, or verification.',
+        'It is useful for evaluation too. Instead of reporting one hallucination score, a team can track supported-claim rate, contradiction rate, force-gap rate, stale-source rate, inaccessible-source rate, repair success, human-review volume, and latency by risk slice. Those numbers explain what changed after a retriever update or model rollout.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Do not let the model invent citation ids. Do not verify against the whole web when the answer claimed support from a specific internal source. Do not collapse related and supported. Do not hide repaired wording in a log while the unsupported answer still ships. Do not tune thresholds only on easy public examples; keep risk-slice holdouts and human-audited failures.',
+        'The ledger can also fail when claim extraction is unstable. If two equivalent answers split into incompatible claim sets, metrics become noisy. If the checker cannot see the exact quote and document version, a pass is hard to replay. If access-control labels are missing, the system can reveal that a claim is true using evidence the user was not allowed to see.',
+      ],
+    },
+    {
+      heading: 'Practical guidance',
+      paragraphs: [
+        'Start with a strict row schema before tuning models. Store claim id, normalized claim text, source span id, document version, quote hash, support label, issue axis, checker path, threshold, action, and trace id. If any of those fields is missing, the team cannot replay why a sentence shipped or why it was blocked.',
+        'Run cheap checks first and reserve expensive judgment for the rows that need it. Exact quote and document-version checks should happen before NLI or LLM judges. Tune thresholds by answer risk, not by one global score. A refund-policy bot, a medical assistant, and an internal code-search helper should not share the same release gate.',
+        'Make repair observable. The user-facing answer must change, or the answer must be blocked. Track supported-claim rate, contradiction rate, force-gap rate, missing-span rate, repair success, audit volume, p95 latency, and cost by product slice. Those counters tell whether retrieval, generation, citation attachment, or verification is failing.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study next by layer. For evidence storage, read RAG Citation Span Index Case Study and Claim Graph and Source Ledger. For retrieval quality, read RAG Context Packing Token Budget, RAG Index Lifecycle and Alias Swap, and Cross-Encoder Reranker. For evaluation, read RAG Evaluation: RAGAS, ARES, and the RAG Triad, LLM Evaluation Harnesses, LLM Judge Calibration and Drift Monitor, and Benchmark Variance and Model Selection. For safety, read Prompt Injection Threat Model and LLM Guardrail Policy Engine.',
       ],
     },
   ],

@@ -341,38 +341,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Problem',
       paragraphs: [
-        'An LLM model rollout shadow-canary ledger is the release control plane for changing a model, prompt template, adapter, cache policy, guardrail policy, or runtime setting without betting the whole product on one deploy.',
-        'The data structures are concrete: stable cohort keys, percentage split rules, model and prompt version ids, cache-key namespaces, shadow-output diffs, slice-level eval scores, live SLO metrics, stop rules, and rollback records.',
+        'An LLM release is a behavioral change, not just a binary deploy. A new model checkpoint can alter answer quality, latency, token cost, refusal behavior, tool-call shape, cache hit rate, and tenant-specific policy compliance at the same time. A prompt template edit can have the same effect even when the weights do not change. A new adapter, decoding configuration, retrieval policy, guardrail, or serving runtime can also change the user-visible system. Treating all of those as ordinary version bumps hides the real risk.',
+        'The production problem is to learn from real traffic without giving the candidate model unlimited blast radius. The rollout system must answer four questions at every step: exactly what changed, who saw the change, whether the change passed the right evidence gates, and how to return to the last known good state. The data structure that makes those questions answerable is a release ledger tied to stable cohort assignment.',
       ],
     },
     {
-      heading: 'Canary and feature-flag anchors',
+      heading: 'Naive rollout',
       paragraphs: [
-        'KServe supports canary rollouts where a new InferenceService revision receives a configured percentage of traffic through `canaryTrafficPercent`; it tracks latest ready, latest rolled-out, previous rolled-out, and rollback behavior: https://kserve.github.io/website/docs/model-serving/predictive-inference/rollout-strategies/canary.',
-        'OpenFeature evaluation context supplies the targeting data used for deterministic percentage rollouts, including the targeting key. OpenFeature tracking connects flag evaluations to KPIs, system performance, and experiments: https://openfeature.dev/docs/reference/concepts/evaluation-context/ and https://openfeature.dev/docs/reference/concepts/tracking/.',
+        'The obvious rollout is simple: deploy model v2, route one percent of requests to it, watch error rate and p99 latency, then ramp to ten percent, twenty-five percent, and one hundred percent if the dashboards look normal. Add a few offline evals and a smoke test, and the process looks responsible.',
+        'That plan is better than a blind deploy, but it is still too weak for LLM systems. Global metrics can stay flat while code-generation requests regress, long-context prompts become slower, tool-using agents start calling the wrong tool, or one enterprise tenant receives outputs that violate its policy pack. Random per-request assignment can also make one user see different model behavior inside one workflow, which corrupts both user experience and measurement.',
       ],
     },
     {
-      heading: 'Shadow evaluation',
+      heading: 'The wall',
       paragraphs: [
-        'Shadow traffic is the safer first gate. Real prompts go to the candidate, but the stable answer is served. The system records output diffs, rubric scores, tool-call divergence, latency, token cost, safety verdicts, and cache behavior by slice.',
-        'OpenTelemetry GenAI semantic conventions provide a standard direction for model and token telemetry around LLM operations: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-events/. The important rollout point is governance: model id, prompt version, cohort id, and cache-key version must be visible in spans so later analysis can separate candidate behavior from stable behavior.',
+        'The wall is that LLM failures are usually conditional. A candidate may be better at short chat and worse at repository-scale code edits. It may reduce average cost while increasing cost for tool agents because it asks for more tool retries. It may pass a general preference eval while failing faithfulness on retrieval-heavy questions. It may be safe under the default policy and unsafe under a tenant override.',
+        'Cache boundaries make the wall steeper. If v2 reuses prompt-cache, response-cache, or KV-cache entries whose keys were designed for v1, the canary is not measuring v2 cleanly. If telemetry records only route name and status code, the team cannot later separate model behavior from prompt version, guardrail version, cache namespace, cohort, retrieval index, or tenant policy. Without versioned evidence, the rollout can pass or fail for reasons nobody can prove.',
       ],
     },
     {
-      heading: 'Complete case study: coding copilot upgrade',
+      heading: 'Core insight',
       paragraphs: [
-        'A coding copilot upgrades from model v1 to v2 with a new system prompt and a stricter tool policy. Offline golden sets pass globally, but shadow traffic finds a regression on long repository prompts and a latency increase for code-edit agents. The team fixes prompt packing, changes the cache-key namespace, and reruns shadow. Only then does it canary to 1 percent of stable cohorts.',
-        'At 10 percent, guardrail denies rise for one enterprise tenant because that tenant has a custom policy pack. The stop rule freezes the rollout, pins that tenant to v1, and keeps v2 canary traffic for nonaffected tenants. Because every span carries model, prompt, policy, cohort, and cache-version fields, the incident is a scoped rollout correction instead of a vague model-quality debate.',
+        'The core insight is to treat rollout as a ledgered state machine. The release packet binds every field that can change behavior: model id, prompt template id, adapter id, decoding policy, retrieval configuration, cache-key namespace, guardrail policy, eval bundle, slice thresholds, rollout percentage, stop rules, and rollback target. The cohort map binds users, tenants, workspaces, or sessions to a release decision in a stable way.',
+        'The invariant is version isolation. Cache, evaluation, telemetry, and routing state must be keyed by the fields that can change outputs. If two releases share a cache namespace by accident, the new model can inherit old behavior and produce misleading evidence. If two releases share an eval label by accident, a gate can approve the wrong artifact. The ledger makes those boundaries explicit.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Mechanics',
       paragraphs: [
-        'Do not use random per-request assignment for LLM canaries; users and agents need stable cohorts. Do not share cache keys across model or prompt versions unless the cache contract proves it safe. Do not trust one global eval score. Do not let shadow logs capture sensitive prompts without redaction policy. Do not start a canary until rollback is one command and observable.',
-        'Study Feature Flag Control Plane, A/B Testing, LLM Evaluation Harness & Golden Sets, LLM Judge Calibration Drift Monitor, LLM Guardrail Policy Engine, Prompt Cache-Key Canonicalization Ledger, LLM Response Cache Safety Ledger, SLO-Aware LLM Request Router, LLM Serving Autoscaling Warm Pool, GenAI Trace Token Cost Ledger, Distributed Tracing, and LLM Unit Economics Ledger Case Study next.',
+        'A safe rollout usually starts with shadow traffic. The stable model still serves the user, but the candidate receives a forked copy of the prompt. The system records the candidate output, latency, token use, tool calls, safety verdict, retrieval citations, cache behavior, and slice labels. Shadow mode costs extra inference, but it lets the candidate fail before users see its answers.',
+        'The next gate is canary traffic. A deterministic targeting key assigns a small cohort to the candidate: for example tenant id, workspace id, account id, or an agent-session id. Stable assignment matters because a user should not bounce between model versions during one task. The canary gate then compares live SLOs, guardrail outcomes, cost, and task-quality slices against thresholds in the release packet.',
+        'The final control is rollback. Rollback is not only setting traffic percentage to zero. It may need to pin the old prompt template, old cache namespace, old guardrail policy, old adapter, and old routing target. A good ledger stores the rollback target before the rollout starts, then records proof that traffic and cache reads stopped hitting the bad revision.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a team is replacing model v1 with v2 for a coding assistant. The release packet says model=v2, prompt=repo-edit-template-17, guardrail=policy-9, cache namespace=code-v2, retrieval index=repo-index-2026-06, rollback target=v1 packet, and promotion gates for chat, code edit, long repository context, tool calls, safety, p99 latency, and dollars per successful task.',
+        'Shadow traffic runs first. Global quality improves, but the long-repository slice shows more failed edits and higher latency. The diff rows reveal that v2 requests larger context windows and creates more tool retries. The team changes prompt packing, reruns shadow, and sees the long-context regression shrink. Only then does the canary start at one percent.',
+        'At ten percent, an enterprise tenant slice fails a policy gate. The rollout state machine does not need a meeting to know the safe action. It pins that tenant cohort to v1, keeps shadow traffic for diagnosis if policy allows, and prevents promotion to twenty-five percent. The incident is bounded because the ledger knows the cohort, packet, stop rule, and rollback target.',
+      ],
+    },
+    {
+      heading: 'What the animation shows',
+      paragraphs: [
+        'The canary-gate view shows the rollout as a governed traffic split. The flag and split nodes are not decoration; they represent the cohort function and percentage schedule. The release-packet matrix shows why a model id alone is insufficient. Prompt, cache, guardrail, and eval fields are part of the release identity because each one can change behavior.',
+        'The shadow-diff view shows why average metrics are weak. The plot can show a global-looking improvement while one slice carries negative quality delta and positive latency delta. The slice ledger turns that into a decision table: RAG faithfulness, code tests, agent tool behavior, tenant policy, and token cost each get their own gate.',
+        'The rollback-audit view shows the release as a reversible operation. A failed gate should route live traffic back to a known good packet and produce proof. The important learning is that rollback keys are data, not tribal knowledge: route, flag, prompt, cache, guardrail, and eval references must all be recoverable.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Shadow mode works because it separates measurement from exposure. The candidate sees realistic prompts and traffic shape, but the user still receives the stable answer. That makes real-distribution evidence available before real-distribution harm.',
+        'Canary mode works because it bounds exposure and preserves attribution. Stable cohorts make repeated behavior comparable inside a workflow. Versioned telemetry turns each span into a joinable row: request attributes connect to release fields, output scores, safety verdicts, cost, latency, and cache decisions. The team can ask which slice failed instead of asking whether the release felt worse.',
+        'Rollback works because the old path remains explicit. A system that cannot name its last known good packet is not doing controlled rollout; it is doing hope with dashboards. A release ledger converts rollback from reconstruction into state transition.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The first cost is duplicate inference. Shadow traffic can double compute for sampled requests, and LLM traffic is expensive enough that this must be budgeted. Teams often shadow only selected slices, sample heavily, or stop shadowing once enough evidence exists.',
+        'The second cost is operational complexity. Release packets, cohort functions, telemetry schemas, eval bundles, cache namespaces, and rollback playbooks all need ownership. A small team may be tempted to skip the ledger and rely on dashboards. That saves setup time but increases incident cost when the release fails in a narrow slice.',
+        'The third cost is slower experimentation. Stable cohorts reduce random mixing, and slice-level gates require enough data per slice. The benefit is that results are interpretable. Fast, noisy rollout decisions are cheap only until they approve the wrong model.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins for model upgrades, prompt rewrites, adapter swaps, decoding-policy changes, guardrail-policy changes, tool-call policy changes, retrieval-index changes, cache namespace migrations, and serving-runtime changes. It is strongest when the product has clear slices: tenants, task types, prompt lengths, languages, tools, policy packs, price tiers, and traffic classes.',
+        'It is also valuable when public trust or contractual obligations matter. If an enterprise customer asks whether its traffic saw a bad model for a two-hour window, a ledgered rollout can answer with cohort and span evidence. If a safety issue appears in one policy slice, the team can block that slice without freezing every unrelated improvement.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The pattern fails when shadow logging violates privacy rules or stores prompts and outputs without a redaction policy. It fails when the candidate can call tools with side effects during shadow mode. Shadow tool calls should usually be blocked, mocked, or isolated so measurement does not mutate production state.',
+        'It fails when the cohort key is unstable. Per-request randomization can split a conversation across models and make differences impossible to interpret. It fails when the canary gate uses only global averages. It fails when cache keys ignore model, prompt, adapter, retrieval, or policy version. It fails when rollback has never been tested and depends on manual dashboard archaeology.',
+        'A subtle failure is evaluator drift. If the same LLM judge or weak rubric approves every release, the rollout system can become ceremony. Gates need calibration, slice ownership, and occasionally human review for high-risk changes.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Feature Flag Control Plane for stable targeting mechanics, A/B Testing for experiment design, SLO-Aware LLM Request Router for release-aware routing, Prompt Cache-Key Canonicalization Ledger for version boundaries, LLM Response Cache Safety Ledger for cache safety, LLM Evaluation Runners and Golden Sets for offline gates, LLM Judge Calibration Drift Monitor for evaluator risk, LLM Guardrail Policy Engine for policy slices, GenAI Trace Token Cost Ledger for cost evidence, Distributed Tracing for span joins, and LLM Unit Economics Ledger Case Study for promotion gates that include dollars per useful task.',
       ],
     },
   ],

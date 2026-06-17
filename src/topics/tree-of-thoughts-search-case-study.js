@@ -205,35 +205,93 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'Tree of Thoughts, or ToT, is a search framework for language-model reasoning. It generalizes chain-of-thought from one left-to-right trace into a tree of coherent intermediate thoughts. Each thought is a state that can be generated, evaluated, selected, expanded, or abandoned.',
-        'The key shift is representational. The system stops treating reasoning as one token stream and starts treating it as a frontier search problem. That makes classic data structures visible: trees, queues, priority frontiers, backtracking, evaluators, and stopping rules.',
+        'Some problems are not hard because each step is mysterious. They are hard because an early choice controls what later choices are possible. A puzzle move, proof direction, plan decomposition, or program repair strategy can quietly turn a solvable problem into a dead end.',
+        'A normal left-to-right language-model answer commits to one path. Even self-consistency, which samples multiple complete paths and votes at the end, usually does not manage a shared frontier of partial solutions. Tree of Thoughts exists to make the intermediate states explicit enough to search, score, prune, and revisit.',
+      ],
+    },
+    {
+      heading: 'Why one chain is brittle',
+      paragraphs: [
+        'Chain-of-thought asks the model to produce one reasoning trace. It can help the model spend more tokens on the problem, but it has no built-in way to say "this partial route is weak, keep the other two alive." The first plausible move often gets narrative momentum.',
+        'Self-consistency improves coverage by sampling several full answers, but it evaluates after complete traces have already spent their budget. If the useful signal appears at depth two or three, voting over finished paths may waste most of the search on branches that could have been pruned earlier.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Treat a thought as a state in a search tree. From a state, generate candidate next thoughts, evaluate the resulting states, keep a frontier, and expand again. A failed branch is not the end of the run; it is one state removed from the frontier.',
+        'This reframes prompting as search engineering. The central objects are no longer just tokens. They are states, branching factor, evaluator quality, selection policy, depth limit, stopping rule, and budget.',
+      ],
+    },
+    {
+      heading: 'What the views show',
+      paragraphs: [
+        'In the generate-evaluate-select view, follow the frontier. The root is the original problem state. Each first move creates a child state. The evaluator labels which children deserve more budget, and the selector decides which states remain alive.',
+        'In the backtracking view, focus on the dead branch. The point is not that the model avoided all mistakes. The point is that a mistake can be isolated, abandoned, and replaced by another partial solution because the search tree still exists.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A ToT loop starts with a problem state. The generator proposes candidate thoughts. The evaluator scores those thoughts, often with value prompts, votes, or task-specific checks. The selector keeps a frontier of promising states. The search repeats until a solution is found, the budget is exhausted, or the frontier dies.',
-        'The official implementation exposes these choices directly: generation can sample or propose thoughts, evaluation can use value or vote prompts, and selection controls how many states stay alive. This is ordinary search engineering wrapped around language-model calls.',
+        'A ToT system needs a state representation. In Game of 24, a state can be the remaining numbers after an arithmetic move. In planning, it might be a partial plan. In writing, it might be an outline plus constraints already satisfied.',
+        'The generator proposes next states. The evaluator scores them using a value prompt, vote prompt, heuristic, verifier, tool execution, or task-specific checker. The selector keeps some states by breadth-first beam, depth-first backtracking, best-first priority, or another policy. The loop stops when a solution passes the answer rule or the budget is exhausted.',
+        'The data structure can be a tree, but implementations often behave like frontier search: keep a queue, heap, or beam of candidate states and store parent links only when the final reasoning path needs to be reconstructed.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works when partial progress is meaningful and evaluable. If the evaluator can recognize that one arithmetic state is closer to 24, one plan avoids a constraint conflict, or one proof branch preserves a useful invariant, search can allocate more budget to better states.',
+        'The gain comes from reversible commitment. A single chain has to live with its earlier choices. A tree can spend a little budget on several choices, gather feedback, and then deepen the most promising ones.',
+      ],
+    },
+    {
+      heading: 'What can go wrong',
+      paragraphs: [
+        'The search can explode. If each state generates b children and the search runs for d levels, the naive tree grows exponentially. Practical systems cap depth, cap width, reuse evaluations, stop early, and prefer task-specific validators over open-ended self-judgment.',
+        'The evaluator can become the failure point. If it rewards fluent nonsense, overconfident shortcuts, or states that look locally promising but break later constraints, ToT will amplify that bias. More branches do not help when the scoring function points in the wrong direction.',
+        'ToT also does not replace missing information or computation. If the task requires a database lookup, code execution, theorem prover, calculator, or external evidence, the right move is to add that tool to the loop rather than branch unsupported guesses.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost is driven by generated thoughts per state, frontier width, depth, and evaluator calls. A modest width can still multiply token usage quickly because every surviving state may need fresh generation and scoring.',
+        'The behavior is also less smooth than ordinary prompting. A narrow frontier is cheap but may prune the winning branch. A wide frontier has better coverage but spends heavily and can keep many mediocre states alive. A deeper search can repair early uncertainty but increases drift and evaluator burden.',
+      ],
+    },
+    {
+      heading: 'Where it fits',
+      paragraphs: [
+        'ToT fits puzzles, planning, search-heavy reasoning, decomposition, program repair candidates, and structured writing when intermediate states have enough shape to score. It is strongest when early choices matter and a cheap evaluator can reject dead ends before they consume the whole budget.',
+        'It is weaker for factual lookup, summarization of known material, low-branch tasks, or cases where the evaluator is no better than the generator. In those settings, retrieval, tool use, direct verification, or a simpler self-consistency pass may give a better cost-quality tradeoff.',
+      ],
+    },
+    {
+      heading: 'Relationship to other methods',
+      paragraphs: [
+        'Compared with beam search, ToT usually uses larger semantic chunks as states instead of individual tokens. Compared with self-consistency, it evaluates before the final answer rather than only voting afterward. Compared with process reward models, it can use weaker evaluators but pays for search control.',
+        'A strong verifier changes the design. If candidate states can be executed or formally checked, the loop starts looking less like prompt engineering and more like classical heuristic search with an LLM proposal function.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'In Game of 24, a thought can be an arithmetic move that reduces the remaining numbers. Starting from 4, 5, 6, 10, the search might try 10 - 4 = 6, 10 / 5 = 2, and 6 - 4 = 2. The evaluator scores the resulting states. A promising branch continues to 5 * 6 = 30 and then 30 - 6 = 24.',
-        'The important point is not that this puzzle is hard. The important point is that the first move shapes all later possibilities. A greedy chain can throw away the winning branch immediately. ToT keeps multiple branches alive and lets evaluation steer the budget.',
+        'In Game of 24, the root state is the multiset 4, 5, 6, 10. Candidate thoughts are arithmetic moves that reduce the multiset: 10 - 4 = 6 leaves 5, 6, 6; 10 / 5 = 2 leaves 2, 4, 6; 6 - 4 = 2 leaves 2, 5, 10. The evaluator estimates which remaining sets are promising.',
+        'The branch 10 - 4 = 6 can continue with 5 * 6 = 30 and then 30 - 6 = 24. A weaker branch can die without killing the run because the frontier still contains other states. The visualization makes that survival of alternatives visible.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Implementation guidance',
       paragraphs: [
-        'The cost is the product of depth, frontier width, generated thoughts per state, and evaluator calls per thought. If width is b and depth is d, a naive tree can grow like b^d. Practical ToT systems prune aggressively, cache evaluations, stop early, and use task-specific validators when possible.',
-        'The evaluator is the weak point. If it rewards plausible but wrong thoughts, the search will amplify the wrong branch. If it is expensive, the search becomes slow. Process Reward Models & Verifier Search is the natural next layer because it makes step scoring more systematic.',
+        'Keep the state format small and explicit. A good state names the partial answer, the constraints already satisfied, the remaining work, and the score evidence. If the state is just a paragraph of free text, the evaluator has to infer too much and the search becomes expensive storytelling.',
+        'Start with narrow beams, shallow depth, and a task-specific checker whenever possible. Log parent links, scores, evaluator reasons, token cost, and the prune decision for every state. Those records make it possible to see whether failures came from weak generation, bad scoring, too little width, or an early stopping rule that cut off the winning branch.',
       ],
     },
     {
-      heading: 'Primary sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Tree of Thoughts: Deliberate Problem Solving with Large Language Models at https://arxiv.org/abs/2305.10601 and the official implementation at https://github.com/princeton-nlp/tree-of-thought-llm.',
         'Study Self-Consistency Reasoning Vote first for the simpler full-path vote, then Beam Search for frontier pruning, A* Search for heuristic search, Tree Traversals for explicit tree mechanics, Process Reward Models & Verifier Search for stronger evaluators, and Monte Carlo Tree Search & UCT Primer for a classical search algorithm with exploration bonuses.',

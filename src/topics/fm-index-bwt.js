@@ -218,44 +218,110 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'The FM-index is a compressed full-text index based on the Burrows-Wheeler transform. It supports substring counting, and with sampling it can locate occurrence positions, while storing space related to the compressibility of the text.',
-        'It can be read as a compressed suffix-array emulator. A normal suffix array stores every suffix position explicitly. The FM-index stores the BWT, a C table, rank/Occ support, and sampled suffix-array positions, then searches by narrowing suffix-array intervals.',
-        'This distinction matters in practice: counting a pattern can be done entirely by interval shrinking, while locating exact positions needs enough sampled suffix-array information to walk back to coordinates. Count is the elegant core; locate is the engineered tradeoff.',
+        `Full-text search over a huge static string has two jobs. Count how many suffixes start with a pattern. Locate the positions of those suffixes when the caller needs coordinates. A suffix array solves both jobs exactly, but it stores one integer position for every suffix.`,
+        `The FM-index exists for the cases where that position array is too expensive: genomes, compressed archives, read aligners, and large static text collections. It keeps the suffix-array search model but stores most of the index through the Burrows-Wheeler transform, rank data, and sparse samples.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious approach`,
       paragraphs: [
-        'The BWT is formed by sorting suffixes or rotations and taking the character that precedes each sorted suffix. This last column clusters similar contexts. The C table says where each character begins in the first column. Occ(c, i) counts how many c characters appear in the BWT prefix before i.',
-        'Backward search scans the pattern right to left. After processing a suffix of the pattern, the algorithm maintains the suffix-array interval containing all suffixes with that prefix. Prepending character c updates the interval with C[c] and Occ(c, left/right).',
+        `The simplest exact method is scanning the text. For each candidate position, compare the pattern against the text. This uses little extra space, but every query can touch the whole string.`,
+        `The next method is a suffix array. Sort all suffixes once, then binary-search the sorted suffixes for the pattern. This is clean and exact. It becomes expensive because the index stores n positions for a text of length n, usually 4 or 8 bytes per suffix before auxiliary structures.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `The wall`,
       paragraphs: [
-        'Counting a pattern of length m takes O(m) rank operations. Locating all positions adds time depending on suffix-array sampling distance and the number of matches. Space depends on the compressed BWT, rank data structure, and samples.',
-        'The important engineering choice is the rank representation. Wavelet trees, bitvectors, and wavelet matrices decide the space/time tradeoff for Occ queries, especially on large alphabets.',
+        `The wall is keeping suffix-array behavior without keeping the whole suffix array in memory. Counting only needs the size of the matching suffix-array interval. Locating needs actual text positions.`,
+        `A compressed full-text index has to split those jobs. It should count by moving intervals inside compressed data, then pay extra only when positions are requested.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `The obvious approach and the wall`,
       paragraphs: [
-        'FM-indexes are central in bioinformatics, compressed text search, read alignment, genome indexing, archival search, and large text collections where storing a full suffix array is expensive. They are the data-structure answer to searching without fully decompressing or storing a large index beside the text.',
-        'A complete case study is DNA read alignment. A reference genome is transformed and indexed. A short read is searched backward to find suffix-array intervals for exact seeds. Candidate positions are then verified or extended by downstream alignment logic.',
+        `The design pressure is the gap between suffix-array clarity and suffix-array space. A suffix array gives exact sorted-suffix intervals, but the raw position array can dominate memory. A scan uses little space, but every query can touch the whole text.`,
+        `The FM-index solves that wall by keeping the interval semantics of a suffix array while replacing most of the raw position table with BWT navigation, rank queries, and sparse samples.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Core insight`,
       paragraphs: [
-        'The FM-index is not just compression and not just a suffix array. It is the interaction of BWT order, rank queries, and sampled locating. Counting can be fast and compact while locating positions may still need extra sampled data and LF-mapping walks.',
+        `The Burrows-Wheeler transform stores the character that appears immediately before each suffix in suffix-array order. The sorted first column F and the BWT last column L contain the same characters, just in different orders.`,
+        `The FM-index adds two pieces of navigation data. C[c] gives the first suffix-array row whose suffix starts with c. Occ(c, i) gives the number of c characters in L before position i. Together they implement LF-mapping, which moves from a row to the row for the suffix with one more preceding character.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `How it works`,
       paragraphs: [
-        'Primary source: Ferragina and Manzini, Opportunistic Data Structures with Applications, at https://people.unipmn.it/manzini/papers/focs00draft.pdf. Study Suffix Array & LCP, Wavelet Tree, KMP Prefix Function, Aho-Corasick Automaton, and Product Quantization next.',
+        `Build the BWT by sorting suffixes of text T plus a unique sentinel, then writing the character before each sorted suffix. Store C and an Occ/rank structure over the BWT. Store some suffix-array samples if locating positions is required.`,
+        `To search pattern P, scan P from right to left. Maintain a half-open suffix-array interval [left, right) for the part already processed. When the next character is c, update left = C[c] + Occ(c, left) and right = C[c] + Occ(c, right). If the interval becomes empty, the pattern is absent.`,
+        `For banana$ and pattern ana, the search starts with a and gets the interval for suffixes beginning with a. Prepending n moves to suffixes beginning with na. Prepending a moves to suffixes beginning with ana. The final interval contains the suffix-array rows for positions 1 and 3.`,
+      ],
+    },
+    {
+      heading: `The interval invariant`,
+      paragraphs: [
+        `After processing P[i..], the interval contains exactly the suffixes that start with P[i..]. That is the invariant backward search preserves.`,
+        `To prepend c, the index selects rows in the current interval whose preceding BWT character is c. Occ counts how many such c characters appear before the interval boundaries. C[c] moves those counts into the block of suffixes that start with c. The new interval therefore contains exactly the suffixes that start with cP[i..].`,
+        `Induction over the pattern gives correctness. The base case is the interval for the last character. Each LF step preserves the invariant for one longer suffix of the pattern. When all characters are processed, interval length is the occurrence count.`,
+      ],
+    },
+    {
+      heading: `Cost and behavior`,
+      paragraphs: [
+        `Counting a pattern of length m takes O(m) rank operations. If rank is constant time for the chosen alphabet representation, the count query is linear in pattern length and independent of text length after the index is built.`,
+        `Locating is slower than counting. The index walks LF steps until it reaches a stored suffix-array sample, then reconstructs the position. Denser samples use more memory and make locate faster. Sparse samples make the index smaller and make locate slower.`,
+        `Space comes from the compressed BWT, the Occ/rank representation, and suffix-array samples. Wavelet trees, wavelet matrices, and succinct bitvectors are common ways to store Occ for larger alphabets. Construction can be the expensive phase; the FM-index is usually best for static or mostly static text.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `FM-indexes win when exact substring search must fit near compressed-text space. Genome indexes use them to find exact seed intervals before alignment. Compressed search tools use them to count and locate matches without expanding the whole corpus. Archives use the same split: count cheaply, locate only when needed.`,
+        `The fit is strongest when the text is large, queries are many, and updates are rare. The index pays a construction cost once, then answers exact pattern counts from compact navigation data.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `The FM-index is awkward for frequent edits because the BWT and rank structures are global. It is also not a magic fast locator: returning millions of positions can dominate query time even when counting is cheap.`,
+        `Approximate matching adds branching, backtracking, or separate verification. Very large alphabets need careful Occ structures. Workloads that need fast random text extraction, frequent mutation, or rich scoring may prefer suffix arrays, suffix automata, inverted indexes, or specialized search engines.`,
+      ],
+    },
+    {
+      heading: `Animation notes`,
+      paragraphs: [
+        `The BWT-table view shows the compression trick: suffix-array order is still present, but the stored column is the character before each suffix. The C and Occ tables are the navigation layer that turns that compressed column back into searchable intervals.`,
+        `The backward-search view is the algorithm in its most compact form. Each pattern character shrinks a suffix-array interval. Count is just interval length; locate adds suffix-array sampling and LF steps.`,
+      ],
+    },
+    {
+      heading: `Implementation guidance`,
+      paragraphs: [
+        `Choose the Occ representation for the alphabet and workload. DNA can use compact bitvectors and small alphabets. General text often needs wavelet trees or wavelet matrices. Dense suffix-array samples speed locate queries but increase memory.`,
+        `Keep construction, count, and locate benchmarks separate. A build pipeline can be slow if the index is static. Count queries should be measured by pattern length and rank cost. Locate queries should report LF steps per occurrence because returning positions can dominate the work.`,
+      ],
+    },
+    {
+      heading: `Complete case study`,
+      paragraphs: [
+        `A read aligner indexes a reference genome and receives millions of short sequencing reads. The first task is not full alignment; it is finding exact seed intervals quickly. The FM-index counts where a seed occurs, then locates candidate positions only for seeds worth extending.`,
+        `This split matters. A repetitive seed can have a huge interval, so locating every position may be wasteful. A rare seed has a small interval and can be extended immediately. The index gives the aligner a compact way to decide which seeds are informative before spending dynamic-programming work.`,
+      ],
+    },
+    {
+      heading: `Limits and failure modes`,
+      paragraphs: [
+        `FM-indexes are excellent for static text, but updates are hard because the BWT is a global permutation. If text changes continuously, a dynamic suffix structure, inverted index, or batch rebuild may be simpler.`,
+        `The sentinel and alphabet order must be consistent. A bad sentinel choice, Unicode normalization mismatch, or inconsistent case-folding rule can make counts look correct on tests and wrong on production text. Index construction should record normalization and alphabet metadata with the index artifact.`,
+      ],
+    },
+    {
+      heading: `Study next`,
+      paragraphs: [
+        `Study Suffix Array & LCP to understand the uncompressed index the FM-index emulates. Study Rank/Select Bitvector and Wavelet Tree to understand Occ. Study KMP Prefix Function and Aho-Corasick Automaton for contrasting pattern-matching models. Then read Ferragina and Manzini, Opportunistic Data Structures with Applications: https://people.unipmn.it/manzini/papers/focs00draft.pdf.`,
       ],
     },
   ],

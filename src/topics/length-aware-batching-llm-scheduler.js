@@ -213,31 +213,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Length-aware batching is the queueing layer that decides which LLM requests are compatible enough to run together. Continuous batching changes batch membership at decode-iteration granularity. Length-aware scheduling decides the waiting order using prompt length, output budget, cache footprint, prefix-cache state, and service class. The point is to reduce wasted padding and memory churn without letting awkward requests starve.',
-        'Orca introduced iteration-level scheduling and selective batching for transformer serving, scheduling at the granularity of one generation iteration rather than one full request: https://www.usenix.org/conference/osdi22/presentation/yu and https://www.usenix.org/system/files/osdi22-yu.pdf. vLLM documents continuous batching, chunked prefill, prefix caching, PagedAttention, and CUDA graph execution as part of the serving engine: https://docs.vllm.ai/. NVIDIA TensorRT-LLM describes in-flight batching, chunked context, KV cache, and request scheduling: https://nvidia.github.io/TensorRT-LLM/.',
+        `Length-aware batching exists because LLM requests do not cost the same amount of GPU time. A 200-token chat prompt, a 60,000-token retrieval prompt, a short classification output, and a long agent trace can all arrive at the same model server. If the scheduler treats them as interchangeable, batching improves average throughput while wasting padding, crowding KV cache, and damaging tail latency.`,
+        `Continuous batching answers when live decode lanes can accept more work. Length-aware batching answers which waiting request should enter next. That choice has to account for prompt length, output budget, prefix-cache hits, service class, and memory footprint. The goal is not perfect sorting. The goal is enough shape awareness to batch compatible work without starving awkward requests.`,
       ],
     },
     {
-      heading: 'Data structure',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'The scheduler keeps multiple queues rather than one FIFO. A request receives a shape key: model id, prompt length bin, output budget bin, decoding mode, prefix-hit state, service class, and sometimes adapter or tool-mode constraints. Each bin can be a FIFO, priority queue, or age-adjusted queue. The admission loop inspects queue heads, live decode lanes, KV-cache capacity, and p99 guardrails before selecting the next request or prefill chunk. Chunked Prefill Token Budget Scheduler drills into that last decision with a visible chunk cursor and max_num_batched_tokens ledger.',
-        'This is a data-structure problem because the scheduler must answer repeated questions quickly: which waiting requests fit the current batch, which ones would waste padding, which ones are about to violate latency targets, and which ones would exceed KV memory. Hash tables map shape keys to queues. Priority queues rank by deadline or service class. Aging counters prevent starvation. The KV block manager provides the memory constraint.',
+        `The obvious baseline is one FIFO queue feeding a continuous-batching loop. FIFO is easy to reason about and fair by arrival order. It works when requests are roughly similar. It breaks when one long prefill monopolizes compute, one long output keeps KV blocks resident, or a stream of easy short prompts keeps jumping through the system while long-context users wait.`,
+        `The opposite mistake is offline sorting: create many fine-grained buckets and wait for perfect matches. Padding falls, but queueing delay rises. Online serving cannot wait forever for a beautiful batch. Users care about time to first token and time per output token, not only aggregate tokens per second.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The Wall',
       paragraphs: [
-        'Imagine three users arrive together: a short customer-support chat, a medium RAG prompt with repeated system instructions, and a long coding-agent trace. A pure FIFO scheduler may batch them together and pay heavy padding. A pure length-bucket scheduler may run the short chat quickly but leave the long coding trace waiting. A production scheduler does better: it uses the prefix hit to skip some RAG prefill, chunks the long prompt, reserves decode lanes for active streams, admits compatible short jobs, and ages the long job so it eventually receives service.',
-        'The result is not maximum theoretical throughput. It is useful throughput under user promises. Time to first token remains bounded, time per output token stays smooth, and cache memory does not deadlock. Tail Latency matters because a serving system that looks efficient on average can still be unusable for the users in the wrong bucket.',
+        `The wall is that LLM serving has two different phases with different shapes. Prefill processes the prompt and is mostly dense parallel work over many input tokens. Decode emits one token at a time for each active sequence and keeps KV cache alive. A good prefill batch is not always a good decode batch.`,
+        `The second wall is memory residency. A request can be a good length match and still be inadmissible if its KV footprint does not fit. Prefix caching can make a long prompt cheap if the prefix hits, while a modest prompt with a long output can occupy memory for many iterations. A scheduler that sees only arrival order misses the real bottleneck.`,
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Core Insight',
       paragraphs: [
-        'Do not confuse length-aware batching with sorting a dataset offline. Online serving has arrivals, cancellations, cache pressure, streaming, and service classes. Do not create too many buckets; queue fragmentation raises wait time. Do not optimize padding while ignoring KV memory. Do not report only aggregate tokens per second. Slice TTFT, TPOT, queue age, prefill chunking, and cache occupancy by bucket.',
-        'Study LLM Continuous Batching, Chunked Prefill Token Budget Scheduler, Prefill/Decode Disaggregation Case Study, LLM Serving: PagedAttention, Prefix Caching & RadixAttention, KV Cache, Tail Latency, Backpressure, Load Balancer, Priority Queue, and LLM Inference Cost Stack next. Local source: Inference Scaling.txt in the provided document corpus.',
+        `The core insight is to turn each waiting request into a coarse shape key before admission. The key is not only batch size. It can include model id, prompt-length bin, output-budget bin, mode, prefix-cache state, adapter or tool constraints, tenant priority, and service-level objective.`,
+        `The invariant is: batch compatible shapes, but do not let shape become a prison. Similar prompt lengths reduce prefill padding. Similar live-cache footprints make decode smoother. Aging, reserved capacity, and deadline boosts keep rare or long requests moving. This is a scheduler data structure, not a static preprocessing pass.`,
+      ],
+    },
+    {
+      heading: 'How It Works',
+      paragraphs: [
+        `On arrival, the router chooses a replica or engine. The local scheduler computes a shape key and places the request into a bucket queue. A bucket can be FIFO inside the shape, priority-ordered, or age-adjusted. The admission loop then inspects queue heads, live decode lanes, KV block availability, prefix-cache state, and p99 guardrails.`,
+        `If decode lanes are under pressure, the scheduler may delay or chunk long prefill work. If KV memory is full, it may reject, preempt, or wait. If a premium service class has a deadline, it may admit a less efficient batch to protect latency. The policy is usually hybrid: length buckets for efficiency, priority for product promises, aging for fairness, and memory checks for safety.`,
+      ],
+    },
+    {
+      heading: 'What the Visual Proves',
+      paragraphs: [
+        `The bucket-queue view proves that admission starts before the GPU kernel. Requests first become comparable shapes: short, mid, long, cacheable, priority, or agent-like. The important edge is the one from raw arrival to shape key, because that is where a flat queue becomes a set of scheduling choices.`,
+        `The latency plot proves the tuning problem. More buckets reduce padding and shape mismatch, but too many buckets fragment the queue. The good operating point is the knee where padding waste has fallen and queue wait is still acceptable. The aging view proves the fairness rule: a shape bucket must never become a waiting room with no exit.`,
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        `Batching helps because GPUs like dense repeated work. Length awareness improves batching by reducing wasted work inside a batch. Similar prompt lengths reduce padded prefill. Similar output budgets reduce surprise residency. Similar KV footprints reduce decode stalls and memory-pressure churn.`,
+        `The fairness mechanisms work by adding time back into the key. A request starts in a shape bucket, but its age, deadline, and service class can raise its admission priority. That keeps the scheduler from optimizing only for easy requests. The policy is correct only relative to explicit goals: protect p99, keep GPUs busy, respect memory limits, and bound starvation.`,
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        `The data-structure cost is modest. A hash map from shape keys to queues gives O(1) expected insertion. Picking the next request can be O(number of active buckets), O(log buckets) with a heap, or policy-specific if the scheduler scores candidates. The real cost is operational: more queues, more metrics, more tuning, and more ways to create unfairness.`,
+        `The hidden cost is delayed admission. A narrow bucket lowers compute waste but may wait longer to fill. A broad bucket fills quickly but wastes padding or KV budget. Length-aware batching is a tradeoff curve, not a free optimization. Every production setting needs knobs for bucket boundaries, max wait, prefill chunk size, priority boosts, and memory reserve.`,
+      ],
+    },
+    {
+      heading: 'Where It Fits',
+      paragraphs: [
+        `Length-aware batching sits between global routing and the local engine loop. A load balancer or request router chooses a model replica. The local scheduler decides which waiting request or prefill chunk consumes the next admission opportunity. The KV block manager supplies a hard constraint, and the continuous-batching loop executes the admitted work one iteration at a time.`,
+        `This pattern lines up with modern serving systems. Orca introduced iteration-level scheduling and selective batching for transformer serving. vLLM documents continuous batching, chunked prefill, prefix caching, PagedAttention, and CUDA graph execution. TensorRT-LLM documents in-flight batching, chunked context, KV cache management, and request scheduling. Length-aware queues are one control layer around those mechanisms.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `It wins on mixed traffic: chat plus RAG, agents plus short classification, shared-prefix workloads plus one-off prompts, and deployments with multiple service classes. It is especially useful when long prompts can be chunked, when prefix-cache hits change prefill cost, or when output budgets vary enough to change KV residency.`,
+        `It also wins when the platform has enough observability to tune policy by bucket. If TTFT, TPOT, queue age, admission rejects, KV blocks, prefix hits, prefill chunking, cancellation rate, and service class are all visible by shape, the scheduler can be adjusted with evidence instead of averages.`,
+      ],
+    },
+    {
+      heading: 'Failure Modes',
+      paragraphs: [
+        `Length-aware batching fails when the shape key omits the real bottleneck. Prompt length alone is not enough if prefix hits, output budget, LoRA adapter, guided-decoding grammar, tool mode, tenant priority, or KV pressure dominates. It also fails when bucket boundaries are copied from a benchmark instead of measured on live traffic.`,
+        `It can starve long or rare shapes. It can improve average throughput while making p99 worse. It can overload memory by admitting requests that look short but decode for a long time. It can hide damage if dashboards aggregate all users into one mean latency. The fix is sliced metrics and explicit starvation guards.`,
+        `Measure time to first token by prompt-length bin, time per output token by live batch size, queue age by bucket, KV blocks reserved and evicted, prefix-cache hit rate, prefill chunk sizes, decode-lane occupancy, admission rejects, preemptions, cancellations, and p95/p99 by service class. A scheduler without sliced metrics is mostly invisible.`,
+        `Test adversarial mixes: many short prompts during one very long prefill, long outputs that exceed their declared budget, shared-prefix floods, cache-miss bursts, priority traffic during memory pressure, and cancellations while chunks are queued. The question is not whether the scheduler is clever. The question is whether every request class has a bounded path to service.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        `Study LLM Continuous Batching first, because it explains the live decode batch this scheduler feeds. Then study Chunked Prefill Token Budget Scheduler, PagedAttention, Prefix Caching and RadixAttention, KV Cache, Tail Latency, Backpressure, Priority Queue, Load Balancer, and LLM Inference Cost Stack.`,
+        `Primary references for the serving layer are Orca at https://www.usenix.org/conference/osdi22/presentation/yu, vLLM documentation at https://docs.vllm.ai/, and TensorRT-LLM documentation at https://nvidia.github.io/TensorRT-LLM/. Use them to separate the engine mechanisms from this topic's scheduling question: which waiting shape should enter next?`,
       ],
     },
   ],

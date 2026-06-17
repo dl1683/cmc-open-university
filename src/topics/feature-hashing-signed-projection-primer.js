@@ -250,44 +250,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Feature hashing, also called the hashing trick, turns symbolic feature names into a fixed-width numeric vector without storing a fitted vocabulary. A feature name such as token=free, merchant=42, or campaign=17 is hashed to a column index. Its value is added to that column, optionally multiplied by a sign hash. The result is usually a sparse matrix row.',
-        'This is a data-structure decision disguised as preprocessing. One-hot encoding keeps an explicit dictionary from feature names to columns. Feature hashing replaces that dictionary with a hash function and accepts collisions as the price of bounded memory, streaming compatibility, and stable schema.',
+        'Many useful features are names, not numbers. A text classifier sees tokens and character n-grams. An ad model sees campaign ids, publisher ids, search terms, geographies, devices, and crossed features such as campaign x device. A fraud model sees merchant ids, email domains, IP prefixes, and behavioral tags. The model needs a numeric vector, but the raw input is an open-ended set of strings.',
+        'The clean textbook answer is one-hot encoding. Give every feature name its own column, put a one in that column when the feature appears, and train a linear model or tree model on the resulting sparse rows. That works when the vocabulary is small, closed, and fitted before training. It breaks when new feature names arrive every minute or when the dictionary itself is too large to coordinate across workers.',
+        'Feature hashing, also called the hashing trick, removes the fitted dictionary. Each feature name is hashed directly into a fixed number of buckets. The vector width is chosen before training, and new names do not change the schema. That turns a high-cardinality vocabulary problem into a collision-budget problem.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'For each feature, compute index = hash(name) mod n_features. If alternate signs are enabled, compute sign(name) as +1 or -1 and add sign * value to that bucket. Multiple features in one sample that land in the same bucket are summed. scikit-learn documents this as a stateless transformer that emits a CSR sparse matrix; its implementation uses MurmurHash3 and recommends power-of-two feature counts for even mapping.',
-        'The signed part matters. Unsigned collisions only add positive mass, which can bias similarities and linear scores. Signed hashing makes collision noise closer to zero-mean and is related to sparse random projection. Some algorithms require nonnegative inputs, so signs are not always allowed. The choice belongs in the model contract.',
+        'The obvious approach is a vocabulary map: `feature name -> column id`. A fitted encoder scans the training data, assigns stable ids, and transforms each row into sparse column updates. This gives excellent debuggability. If model weight 10432 is large, the team can ask the dictionary which feature owns column 10432.',
+        'A dictionary also supports inverse transforms, feature importance reports, schema checks, and explicit handling of rare categories. For small data and regulated explanations, this is often the right answer. The obvious approach is not naive. It is clear, testable, and easy to inspect.',
+        'The cost appears when the feature space is open. A central dictionary must be built, shipped, versioned, and kept consistent between training and serving. Unknown categories need fallback logic. Parallel workers can disagree if they see features in different orders. The dictionary can become larger than the model. In online learning, the model may need to score a feature name before any batch encoder has learned it.',
       ],
     },
     {
-      heading: 'Complete case study: streaming ads',
+      heading: 'The wall',
       paragraphs: [
-        'An ad-ranking system sees millions of feature names: campaign ids, publisher ids, query tokens, device types, geos, creative ids, and crossed namespaces such as campaign x device. A vocabulary build is stale before it finishes. Feature hashing lets every worker map features into the same fixed vector immediately, with no central dictionary and no schema migration when a new campaign appears.',
-        'The production version still needs discipline. Namespaces must be stable, hash width must be sized from collision audits, the hash implementation and seed must be reproducible, and the model registry must record the sign policy. Debugging keeps temporary exact vocabularies on samples so engineers can inspect which feature names collide inside important buckets.',
+        'The wall is coordination and memory. A vocabulary for one million features is manageable. A vocabulary for hundreds of millions of tokens, ids, and crosses becomes a system in its own right. It must be stored in training, loaded in serving, migrated when it changes, and kept aligned with model weights. A simple preprocessing step becomes a distributed schema dependency.',
+        'The wall is also cold start. In ads, search, recommendations, and security, the newest features can be the most important ones. A new campaign, query, exploit string, or merchant id should not be invisible just because the dictionary was fitted yesterday. Unknown buckets help, but they collapse many different new names into one fallback column.',
+        'Feature hashing pays a different tax. It does not store a vocabulary, so it cannot preserve exact identity. Two feature names can hash to the same bucket. Once that happens, their values are summed and the model sees one column. The design question becomes: how many buckets do we need, how harmful are collisions in this domain, and how do we audit them?',
       ],
     },
     {
-      heading: 'Complete case study: text classification',
+      heading: 'The core mechanism',
       paragraphs: [
-        'A spam classifier processes an endless stream of tokens and character n-grams. CountVectorizer can build a vocabulary for a static training corpus, but a streaming classifier cannot stop the world every time a new token appears. HashingVectorizer maps tokens straight into a fixed sparse vector, making partial-fit and parallel training practical.',
-        'The tradeoff is introspection. If bucket 81,377 gets a strong positive model weight, the model cannot invert that bucket back to one token without extra logging. Teams that need explanations often keep a sampled reverse map or compare with a vocabulary-based baseline on smaller data. This is the recurring pattern: hashing buys memory and streaming by weakening identity.',
+        'For each active feature, build a stable string name such as `token=free`, `city=nyc`, or `campaign=17|device=ios`. Compute `index = hash(name) mod n_features`. Add the feature value to that bucket. If signed hashing is enabled, compute a second sign from the name and add either `+value` or `-value`.',
+        'The output is usually sparse. A row with twenty active names should not allocate a dense vector with a million entries. It is stored as index-value pairs or as a CSR sparse row. Multiple feature names that land in the same bucket are summed. If `ad=17` contributes `-1` and `word=free` contributes `+1` to the same bucket, the row contribution can cancel to zero.',
+        'The namespace prefix is part of the data structure. `city=Paris` and `token=Paris` should normally be different names before hashing. Crossed features should also be explicit, such as `campaign=17|device=ios`. If teams hash bare values, unrelated fields collide more often and debugging becomes harder.',
       ],
     },
     {
-      heading: 'Costs and pitfalls',
+      heading: 'Why signed hashing helps',
       paragraphs: [
-        'Runtime per nonzero feature is O(1), and memory is O(n_features) for the model weights plus sparse row storage for active buckets. Collisions increase as active feature count rises relative to bucket count. Some collisions are harmless; others merge unrelated or adversarial features. Since the transformer has no fit state, it cannot compute IDF or inverse transforms by itself.',
-        'Do not use feature hashing when exact feature identity is mandatory for legal explanations, billing, permissions, or user-facing debugging. Do not change hash width or sign policy without retraining. Do not mix namespaces accidentally: city=Paris and token=Paris should usually hash from different prefixed names. And do not treat collisions as always regularizing; measure them.',
+        'Unsigned hashing has one-sided collision noise. If two positive-count features collide, their values add. That can inflate dot products and make unrelated examples look more similar than they should. The model may learn a weight for a bucket that mixes several unrelated signals, and every collision pushes in the same positive direction.',
+        'Signed hashing makes collision noise closer to zero mean. One hash chooses the bucket; another hash chooses `+1` or `-1`. Colliding features still lose identity, but their accidental contribution can cancel instead of always adding. This is why signed feature hashing is often described as a sparse random projection. It approximately preserves inner products in expectation when the hash function behaves well and the bucket count is large enough.',
+        'Signs are not always allowed. Some estimators and similarity measures require nonnegative inputs. Naive Bayes and chi-square feature selection are common examples. In those cases, teams disable alternate signs and accept the one-sided collision cost. The sign policy is not cosmetic. It is part of the model contract and must match the downstream estimator.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a row contains six active features: `user=42`, `ad=17`, `city=ny`, `word=free`, `word=sale`, and `ad=17|city=ny`. With eight buckets, the names might map to buckets 3, 6, 1, 6, 4, and 2. If signs are enabled, `ad=17` might contribute `-1` to bucket 6 while `word=free` contributes `+1` to the same bucket.',
+        'The final sparse row stores the bucket sums. Bucket 1 gets `+1`, bucket 2 gets `+1`, bucket 3 gets `+1`, bucket 4 gets `-1`, and bucket 6 gets zero because the two colliding values canceled. A real system would use far more than eight buckets, but the small example shows the invariant: vector width is fixed, active names become bucket updates, and identity is lost at collisions.',
+        'The same idea scales to a streaming ad-ranking learner. New campaigns and query terms appear continuously. Every worker can hash them into the same fixed vector without waiting for a central vocabulary build. Online learning can update model weights immediately. The audit path keeps sampled exact vocabularies offline so engineers can inspect which important names collide.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Runtime is linear in the number of active features in the row. Each feature requires a hash, a modulo or bit mask, an optional sign hash, and an addition to a sparse accumulator. The model memory is proportional to the number of buckets, not the number of distinct feature names ever seen. That is the main win.',
+        'Collision pressure depends on active names, total distinct names, namespaces, and bucket count. If the number of buckets doubles, model memory roughly doubles and collisions generally fall. If the active feature space doubles while bucket count stays fixed, collisions rise. The right width is a budget decision: enough buckets to keep harmful collisions rare, but not so many that the model becomes too large or slow.',
+        'The hidden constant is debugging. A vocabulary-based model can explain a column directly. A hashed model needs extra instrumentation: sampled reverse maps, collision reports, bucket load histograms, model-weight concentration checks, and comparisons against exact encoders on smaller corpora. Stateless preprocessing shifts cost from serving coordination to observability.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Record the namespace grammar, hash function, seed if any, bucket width, sign policy, and value normalization. These choices must be versioned with the model. Changing bucket width changes every column. Changing the hash implementation or sign policy also changes every column. A model trained under one hashing contract cannot safely serve under another.',
+        'Run collision audits before launch. Keep a temporary exact vocabulary on samples, hash it, and measure bucket load, high-value collisions, namespace collisions, and collisions involving features with large labels or large learned weights. After launch, watch active bucket count, empty rows, p95 transform time, prediction drift, and whether important buckets concentrate too much weight.',
+        'Use separate prefixes for fields and crosses. Decide how to handle missing values. Normalize text before hashing so equivalent strings do not split across buckets. Keep training and serving tokenization identical. If the model uses feature values other than one, document whether values are counts, tf-idf-like weights, continuous numbers, or binary indicators.',
+      ],
+    },
+    {
+      heading: 'Where it wins and where it fails',
+      paragraphs: [
+        'Feature hashing wins in open-vocabulary, high-cardinality, streaming, and parallel settings. Text classification, online advertising, search ranking, recommendations, telemetry models, spam detection, and large categorical linear models are natural fits. The access pattern is sparse and append-only: many names appear, most rows activate only a small subset, and the system values fixed schema over perfect identity.',
+        'It is the wrong tool when exact feature identity is mandatory. Legal explanations, billing logic, permissions, user-facing audit trails, and high-stakes debugging may require a reversible dictionary. It is also risky when adversaries can choose feature names and exploit predictable collisions. A stable public hash can become an attack surface if one bucket carries a valuable learned weight.',
+        'Hashing also does not replace all categorical encoders. One-hot encoding is better for small closed vocabularies. Target encoding can be stronger when category label rates matter, but it must fight leakage. Learned embeddings can capture richer relationships when there is enough data and training budget. Native categorical handling in gradient-boosted trees can be better than external hashing when the library supports it well.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: scikit-learn FeatureHasher docs at https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.FeatureHasher.html, scikit-learn feature extraction docs at https://scikit-learn.org/stable/modules/feature_extraction.html, scikit-learn HashingVectorizer docs at https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.HashingVectorizer.html, Feature Hashing for Large Scale Multitask Learning at https://arxiv.org/abs/0902.2206, and Vowpal Wabbit hashing documentation at https://vowpalwabbit.org/docs/vowpal_wabbit/python/9.6.0/tutorials/cmd_linear_regression.html. Study Hash Table, Count Sketch, Count-Min Sketch, Compressed Sparse Row Graph, Sparse Autoencoder Feature Dictionary Case Study, FTRL-Proximal Online CTR Case Study, Leakage-Safe Target Encoding Case Study, and Tabular Feature-Basis Orientation Primer next.',
+        'Primary sources and useful anchors: scikit-learn FeatureHasher at https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.FeatureHasher.html, scikit-learn HashingVectorizer at https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.HashingVectorizer.html, the scikit-learn feature extraction guide at https://scikit-learn.org/stable/modules/feature_extraction.html, and Feature Hashing for Large Scale Multitask Learning at https://arxiv.org/abs/0902.2206.',
+        'Study Hash Table for the basic indexing primitive, Count Sketch for signed frequency estimation, Count-Min Sketch and Conservative Count-Min Sketch for collision-biased approximate counts, Compressed Sparse Row Graph for sparse row storage, Feature Store for production feature contracts, FTRL-Proximal Online CTR for online linear models, Leakage-Safe Target Encoding for the contrasting label-aware encoder, and Tabular Feature-Basis Orientation Primer for the wider categorical-feature map.',
       ],
     },
   ],

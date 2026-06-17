@@ -194,44 +194,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A link-cut tree is a dynamic-tree data structure. It maintains a forest while edges are linked and cut online, and it answers path queries such as path maximum, path minimum, path sum, connectivity, and root finding in amortized logarithmic time.',
-        'The important shift from a normal tree is that the stored representation is not the same as the logical tree. Users see a represented forest. Internally, the structure keeps preferred paths, and each preferred path is stored as an auxiliary splay tree.',
+        'Many tree algorithms assume the topology is fixed. Preprocess parents, depths, subtree ranges, or heavy paths once, then answer queries quickly. That breaks when edges are linked and cut while path queries keep arriving.',
+        'A link-cut tree maintains a changing forest online. It can link two trees, cut an existing tree edge, find the root of a node, and answer path aggregates such as maximum edge, minimum value, or sum in amortized O(log n) time.',
+        'The price is representation complexity. The tree the user cares about is not stored directly as one ordinary tree. It is represented through preferred paths, and those paths are maintained by auxiliary splay trees.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Baseline And The Wall',
       paragraphs: [
-        'The access operation is the center of the design. access(x) rewires preferred-child choices so the represented root-to-x path becomes one auxiliary splay tree. Because the auxiliary tree is a splay tree, rotations preserve path order while making the recently accessed node easy to touch again.',
-        'Operations are recipes. makeRoot(x) exposes x and flips the path with a lazy reversal flag. link(x, y) makes x a root and attaches it under y. cut(x, y) exposes that edge and deletes a local pointer. query(x, y) makes x the root, accesses y, and reads the aggregate stored at y.',
+        'The reasonable baseline is a DFS or BFS from one endpoint whenever a path query arrives. That is simple and correct, but one query can scan O(n) nodes. If updates and queries interleave, repeated scans dominate the algorithm.',
+        'For static trees, Heavy-Light Decomposition, Euler tours, binary lifting, and segment trees solve many path problems. Their preprocessing depends on stable parent-child relationships. A cut or link can invalidate the numbering or decomposition they rely on.',
+        'The wall is storing a path as something searchable while the path itself keeps changing. Link-cut trees solve this by changing the representation around the most recent accesses rather than rebuilding a global decomposition.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Invariant',
       paragraphs: [
-        'The guarantee is amortized O(log n) per operation, inherited from splay trees. A single operation may rotate a lot, but a sequence of operations is bounded by potential analysis. The implementation is pointer-heavy because each node tracks auxiliary children, represented parent links, path aggregates, and lazy reversal flags.',
-        'The data structure is powerful precisely because it separates topology from path representation. That also makes it hard to debug. Most bugs come from mixing represented-tree parent pointers with auxiliary-tree parent pointers, or from forgetting to push a reversal flag before descending.',
+        'A link-cut tree has two layers. The represented forest is the forest users ask about. The auxiliary forest is an implementation layer made of splay trees.',
+        'Each represented node has at most one preferred child. Preferred edges form vertex-disjoint paths. Each preferred path is stored as one auxiliary splay tree ordered by depth in the represented tree.',
+        'Auxiliary rotations may change parent, left-child, and right-child pointers inside a splay tree. They must not change which represented tree edges exist. This separation is the invariant that keeps the structure understandable.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism',
       paragraphs: [
-        'Link-cut trees appear in dynamic graph algorithms, especially dynamic minimum spanning tree variants, online network connectivity, algorithms that repeatedly reparent trees, and competitive-programming path-query problems where both topology and edge weights change.',
-        'A complete case study is dynamic MST maintenance. When a new weighted edge connects two vertices already in the tree, expose the path between them and find the maximum-weight edge. If the new edge is lighter, cut the heavy edge and link the new one. Without a dynamic-tree structure, that path scan can dominate the algorithm.',
-        'Top Tree Cluster Dynamic Forest solves a similar dynamic-forest family through explicit clusters and user-defined join/split summaries. Link-cut trees expose preferred paths through splay trees; top trees expose a cluster interface for path and whole-tree aggregates such as diameter.',
+        'access(x) is the central operation. It walks upward through auxiliary roots, splays each one, detaches the old preferred child, and makes the path toward x preferred. After access(x), the represented root-to-x path is exposed in the auxiliary tree rooted at x.',
+        'makeRoot(x) exposes x and toggles a lazy reversal flag so x becomes the represented root of its tree. The reversal flag is pushed through the splay tree only when code needs to descend through affected children.',
+        'link(x, y) first makes x the root, then attaches x under y if they are in different represented trees. cut(x, y) makes x the root, exposes y, verifies that the edge is the direct represented edge, and deletes it. query(x, y) makes x the root, accesses y, and reads the aggregate stored on the exposed path ending at y.',
+        'The implementation discipline is to name the layers in code. Functions that rotate auxiliary trees should not decide represented connectivity. Functions that link and cut represented edges should expose and verify the relevant path first. Without that separation, bugs look like random pointer corruption because one operation silently changes both meanings of parent.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why It Works',
       paragraphs: [
-        'A link-cut tree is not the right first choice for static trees. Heavy-Light Decomposition, Euler-tour techniques, or a simple DFS order are easier when topology does not change. It also does not magically make arbitrary graph connectivity trivial; the represented structure is a forest, while fully dynamic general graphs require more machinery.',
+        'Splay rotations preserve the inorder order of an auxiliary tree. Since that inorder order is path order by represented-tree depth, rotations can rebalance and expose nodes without changing the represented path.',
+        'access changes which edges are preferred, but it does not create or delete represented forest edges. Side branches become virtual children. The root-to-x path becomes one auxiliary tree, so a path aggregate can be read from one maintained summary.',
+        'link is correct only with the forest guard: x and y must be in different represented trees. cut is correct only after the target edge is exposed and verified as a direct edge. Those guards keep the represented structure acyclic.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost And Behavior',
       paragraphs: [
-        'Primary source: Sleator and Tarjan, A Data Structure for Dynamic Trees, at https://www.cs.cmu.edu/~sleator/papers/dynamic-trees.pdf. Study Top Tree Cluster Dynamic Forest, Euler Tour Tree, Splay Tree, Tree Traversals, Union-Find, Segment Tree, and Dynamic Programming next.',
+        'Each operation is amortized O(log n). A single access can perform many rotations, but splay-tree potential analysis bounds the average cost over a sequence.',
+        'The memory footprint is high compared with static tree methods. Each node stores auxiliary children, an auxiliary parent, represented-parent information or path-parent links, aggregate values, and lazy reversal state.',
+        'Constant factors matter. Link-cut trees are used when dynamic topology is central enough to pay for complicated pointer code. For a fixed tree, simpler preprocessing usually wins.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'The classic use is dynamic minimum spanning tree maintenance. When a new edge connects two vertices already in the tree, expose the path between them and find the maximum-weight edge. If the new edge is lighter, cut the heavy edge and link the new one.',
+        'The structure also fits online tree path problems: dynamic connectivity for forests, changing rooted trees, network designs restricted to forest topology, and competitive-programming problems with link, cut, and path sum or max operations.',
+        'Top trees solve a similar family with explicit clusters and user-defined join and split summaries. Link-cut trees expose preferred paths through splay trees; top trees expose a cluster interface that can be easier to extend for some whole-tree aggregates.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'A link-cut tree is the wrong first tool for static trees. Heavy-Light Decomposition, Euler Tour Tree techniques, binary lifting, or a segment tree over a DFS order are easier to implement and debug when topology is fixed.',
+        'It also does not solve fully dynamic general graph connectivity by itself. The represented structure is a forest. General graphs need additional machinery to decide which replacement edges preserve connectivity after cuts.',
+        'Most implementation bugs come from mixing the two layers. Auxiliary parent pointers are not the same as represented tree parents. Lazy reversal flags must be pushed before directional decisions. Aggregates for noncommutative operations need a clear left-to-right path order.',
+        'The other failure is using it without a small test oracle. Because the structure is amortized and pointer-heavy, random link, cut, and query sequences should be checked against a slow forest implementation during development. If the simple oracle disagrees, the bug is usually in expose, lazy reversal, or edge verification.',
+      ],
+    },
+    {
+      heading: 'Concrete Example',
+      paragraphs: [
+        'Suppose the represented tree has path r-a-c-d and a side branch r-b-e. A query from r to d needs the values on r, a, c, and d. access(d) changes preferred edges until that path is stored in one auxiliary splay tree, while b and e remain virtual side branches.',
+        'For a dynamic MST step, add an edge between two vertices already connected by the tree. makeRoot(u), access(v), and the aggregate at v can report the heaviest edge on the u-to-v path. If the new edge is lighter, cut that heaviest edge and link the new edge. The forest stays a tree, and the total weight improves.',
+        'For teaching, make students trace one access by hand before showing the full data structure. The path that becomes preferred is the user-visible story. The rotations are the maintenance story. Confusing those two stories is why link-cut trees feel harder than they are.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study Splay Tree first because link-cut trees inherit both rotations and amortized analysis from splaying. Study Tree Traversals, Heavy-Light Decomposition, Segment Tree, and Euler Tour Tree to understand the static and alternate dynamic baselines. Study Top Tree Cluster Dynamic Forest for a cluster-based dynamic-tree model.',
+        'Primary source: Sleator and Tarjan, A Data Structure for Dynamic Trees, https://www.cs.cmu.edu/~sleator/papers/dynamic-trees.pdf.',
       ],
     },
   ],

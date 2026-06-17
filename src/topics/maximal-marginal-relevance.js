@@ -63,7 +63,7 @@ function* greedySelection() {
   yield {
     state: mmrGraph('MMR keeps relevance while reducing duplicates'),
     highlight: { active: ['a', 'b', 'e-a-mmr', 'e-b-mmr'], compare: ['b'], found: ['c', 'd', 'context', 'e-mmr-context'] },
-    explanation: 'Pure similarity often returns near-duplicates. In RAG, that wastes context: four chunks can fit in the prompt, but two of them may say the same thing.',
+    explanation: 'The animation starts with the naive baseline: sort by similarity and you often get repeated chunks. In a prompt budget, repeated evidence crowds out new facts.',
   };
 
   yield {
@@ -87,7 +87,7 @@ function* greedySelection() {
       ],
     ),
     highlight: { found: ['a:selected'], active: ['a:query_sim'], compare: ['b:query_sim'] },
-    explanation: 'MMR starts with the most relevant item. After that, each new item must justify itself against what is already selected.',
+    explanation: 'The selected set is the memory of what you already bought with the context budget. Every remaining candidate is judged against both the query and that selected evidence.',
   };
 
   yield {
@@ -110,7 +110,7 @@ function* greedySelection() {
       ],
     ),
     highlight: { active: ['c:mmr'], compare: ['b:rel', 'b:redundancy'], found: ['c:rel'] },
-    explanation: 'With lambda = 0.7, the MMR score is 0.7 * relevance - 0.3 * max similarity to selected items. Candidate B is highly relevant, but it looks too much like A, so C wins.',
+    explanation: 'Read the formula as value minus repetition. Candidate B is close to the query, but it overlaps the chosen chunk; C wins because it adds a different piece of evidence.',
     invariant: 'MMR greedily maximizes relevance to the query while penalizing redundancy against the selected set.',
   };
 
@@ -221,45 +221,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Maximal Marginal Relevance, or MMR, is a greedy reranking algorithm that selects items that are both relevant to the query and different from items already selected. In retrieval, it is used to reduce redundancy. In summarization, it helps select passages that cover different facts rather than repeating the same point.',
-        'The original Carbonell and Goldstein paper introduces MMR for diversity-based reranking in document retrieval and summarization: https://www.cs.cmu.edu/~jgc/publication/The_Use_MMR_Diversity_Based_LTMIR_1998.pdf. The ACM entry is at https://dl.acm.org/doi/10.1145/290941.291025, and an ACL-hosted related workshop paper on MMR for diversity is at https://aclanthology.org/X98-1025/.',
+        'Search systems often return near-duplicates. A vector search for a refund-policy question may return five chunks from the same policy page. A news search may return ten syndicated copies of the same article. A RAG system may spend its whole prompt budget on one repeated fact and miss the adjacent fact that answers the user.',
+        'Maximal Marginal Relevance exists to make selection diversity-aware. It chooses items that are relevant to the query and not redundant with items already selected. In retrieval, it reduces duplicate evidence. In summarization, it helps cover distinct points. In RAG, it protects scarce context budget.',
+        'The algorithm is simple enough to be practical: start with a candidate pool, choose greedily, and penalize candidates that look too similar to the selected set. The power is not in complex math. It is in making the selected set part of the scoring process.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'Start with a candidate set from a retriever. Pick the most relevant item first. Then repeatedly select the candidate that maximizes a weighted tradeoff: lambda times similarity to the query minus one minus lambda times the maximum similarity to any already selected item. The redundancy term asks, "does this candidate add new evidence, or is it just another version of what we already have?"',
-        'The algorithm is greedy, so it is simple to implement. Maintain a selected set. For each remaining candidate, compute its relevance to the query and its maximum similarity to the selected set. Pick the largest MMR score, add it to selected, and repeat until the context budget is full.',
+        'The obvious approach is top-k similarity: sort candidates by relevance score and take the first k. That is efficient and usually sensible for a first-stage retriever. It fails when the top of the ranking is crowded by copies, chunk overlaps, mirrored documents, or many passages that all explain the same subtopic.',
+        'Another obvious approach is random diversification. That can reduce duplicates, but it may throw away the best evidence. MMR keeps relevance in the formula while adding a redundancy penalty. It is not diversity for its own sake; it is diversity under a query.',
       ],
     },
     {
-      heading: 'Complete case study: RAG context packing',
+      heading: 'The wall',
       paragraphs: [
-        'A RAG system asks, "What recurring causes appear in payment incidents?" Similarity search returns five chunks from the same postmortem because they all mention payment failures. That looks high quality by nearest-neighbor score, but it is bad context packing. The model sees one incident five times and misses the alerting timeline, deployment note, and service ownership record.',
-        'MMR changes the selected set. It keeps the strongest postmortem chunk, then penalizes near-duplicates and admits chunks that cover different parts of the story. The answer generator now has broader evidence. RAG Context Packing Token Budget then decides how those selected chunks fit, compress, and order inside the prompt. This pairs naturally with Reciprocal Rank Fusion, Multi-Index RAG, Cross-Encoder Reranker, and GraphRAG Community Summary Case Study.',
+        'The wall is budget. A search page has limited visible slots. A prompt has limited tokens. A summary has limited sentences. Once you select a duplicate, you spend a slot that could have carried a distinct fact.',
+        'The second wall is that similarity scores are local. Candidate B may be almost as relevant as candidate A, but if B says the same thing as A, selecting both gives little marginal value. The value of an item depends on what has already been selected.',
+        'The third wall is metric quality. MMR can only penalize redundancy that the similarity function can see. If embeddings confuse topics or fail to detect duplicates, the algorithm inherits that weakness.',
       ],
     },
     {
-      heading: 'Cost and tuning',
+      heading: 'The core insight',
       paragraphs: [
-        'MMR usually runs over a small candidate pool, not the whole corpus. If there are n candidates and k final slots, a simple implementation compares remaining candidates against the selected set at each step. The dominant cost is often computing or reading pairwise similarities. In vector search systems, candidate embeddings are already available, so the redundancy term can use cosine similarity cheaply.',
-        'Lambda controls the tradeoff. A lower lambda values diversity more and can drift away from the exact query. A higher lambda behaves closer to pure relevance and may leave duplicates. Qdrant documents MMR as a diversity method for vector search results: https://qdrant.tech/documentation/search/search-relevance/. LangChain vector retrievers expose MMR-style search as a retrieval mode: https://docs.langchain.com/oss/python/langchain/knowledge-base.',
+        'Score each remaining candidate by relevance minus redundancy. Relevance measures similarity to the query. Redundancy measures the maximum similarity to any item already selected. The selected set becomes the memory of what the context budget has already bought.',
+        'A common formula is lambda * Sim(candidate, query) - (1 - lambda) * max Sim(candidate, selected_item). Lambda controls the relevance-diversity tradeoff. High lambda behaves close to pure relevance. Low lambda pushes harder for novelty.',
+        'The algorithm is greedy. Pick the best remaining candidate under this score, add it to the selected set, and repeat until the budget is full. Greedy selection is not globally perfect, but it is simple, fast, and usually good enough over a moderate candidate pool.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the animation teaches',
       paragraphs: [
-        'MMR is not a factuality guarantee. It chooses diverse candidates under the similarity metric you provide. If the embeddings confuse two concepts, the diversity penalty can make poor choices. If the candidate pool lacks the right evidence, MMR cannot recover it. If the task requires exhaustive legal support, diversity should not replace source-specific retrieval and citation checks.',
-        'Another mistake is using MMR after aggressive truncation. If the first-stage retriever returns only five near-duplicates, MMR has little room to diversify. Fetch more candidates than you plan to show, then diversify down to the context budget.',
+        'The greedy-selection view starts with the naive failure: top similarity can return repeated chunks. The first selected item is mostly about relevance. After that, every remaining candidate is judged against both the query and the selected set.',
+        'The score table shows why a slightly less relevant chunk can win. Candidate B may be close to the query, but if it is almost identical to A, its marginal value is low. Candidate C may be a little less relevant but add a new policy, timeline, or exception.',
+        'The RAG context case shows the product consequence. A context window packed with duplicates makes the final answer brittle. A diversified context gives the model broader evidence without increasing token budget.',
+      ],
+    },
+    {
+      heading: 'How the algorithm works',
+      paragraphs: [
+        'Start with candidates from a first-stage retriever. This pool should be larger than the final number of items. If you want five chunks in the prompt, you might retrieve 30 or 100 candidates first. MMR needs choices to diversify among.',
+        'Select the highest-relevance item first, or initialize the selected set another way if your system has a stronger rule. Then for each unselected candidate, compute query similarity and redundancy against the selected set. The redundancy term is usually the maximum similarity to any selected item, because one near-duplicate is enough to make the candidate less useful.',
+        'Pick the candidate with the highest MMR score, add it to selected, and repeat. Stop when slots or token budget are exhausted. In a RAG system, a later stage may still reorder, compress, cite, or rerank the selected items before final prompt construction.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose the query asks, "What recurring causes appear in payment incidents?" Pure similarity returns five chunks from the same postmortem because each chunk mentions payment failure, retry storms, and customer impact. The scores look good, but the set is narrow.',
+        'MMR keeps the best postmortem chunk, then penalizes near-duplicates from the same incident. It can admit an alert timeline, a deployment note, and a billing-service ownership record. The final set covers cause, timing, deployment, and ownership instead of repeating the same postmortem.',
+        'This does not make any chunk true. It only improves coverage under a budget. The answer generator still needs citation discipline, contradiction handling, and enough retrieval recall to include the right evidence in the candidate pool.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'MMR works because the marginal value of information decreases when it repeats what you already have. The first refund-policy chunk may be valuable. The fifth near-identical refund-policy chunk is usually not. The redundancy penalty encodes that diminishing return.',
+        'It also works because many retrieval failures are cluster failures. Embedding search often returns a tight neighborhood around one phrasing or document. MMR forces the selection process to look beyond that first cluster while still requiring query relevance.',
+        'The method is intentionally local and greedy. That makes it easy to add to existing search stacks without retraining the retriever. It can sit between first-stage retrieval and final prompt packing, or between retrieval and a cross-encoder reranker.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'For n candidates and k selected items, a simple implementation scores remaining candidates at each selection step. The expensive part is candidate-to-selected similarity. With embeddings already loaded, cosine similarity is cheap. With cross-encoder similarity, the cost can become too high unless cached or approximated.',
+        'The algorithm should run over a candidate pool, not the whole corpus. First-stage search gets recall. MMR shapes the candidate set into a diverse final subset. Fetching too few candidates before MMR is a common mistake because duplicates leave the algorithm no room to maneuver.',
+        'Lambda is a product setting. Exploratory research may benefit from lower lambda and more diversity. Customer support or legal QA may need higher lambda because irrelevant diversity is dangerous. The right value depends on the cost of missing a distinct source versus the cost of including a weak one.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'MMR wins in RAG context packing, search result diversification, summarization passage selection, document clustering previews, recommendation shelves, and exploratory research tools. It is useful whenever the selected set has a fixed budget and redundancy is costly.',
+        'It is especially useful with chunked corpora. Adjacent chunks from the same document often overlap semantically. MMR can keep the strongest chunk and make room for evidence from other documents or sections.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'MMR fails when the candidate pool lacks the right evidence. It cannot diversify into facts that were never retrieved. Improve recall before expecting MMR to fix context quality.',
+        'It also fails when the similarity metric is wrong. If embeddings think two contradictory chunks are duplicates, or fail to recognize true duplicates, the redundancy term misfires. Domain-specific embeddings, metadata constraints, or rerankers may be needed.',
+        'Finally, too much diversity can hurt. A low lambda can select tangential chunks that broaden the set but weaken the answer. Diversity is useful only when it serves the query.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'MMR is value minus repetition. The selected set is part of the score.',
+        'Use it after retrieving enough candidates and before spending final slots or prompt tokens. Tune lambda according to the product risk, not as a universal constant.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: Carbonell and Goldstein MMR PDF at https://www.cs.cmu.edu/~jgc/publication/The_Use_MMR_Diversity_Based_LTMIR_1998.pdf, ACM DOI at https://dl.acm.org/doi/10.1145/290941.291025, ACL workshop entry at https://aclanthology.org/X98-1025/, Qdrant search relevance docs at https://qdrant.tech/documentation/search/search-relevance/, and LangChain retrieval docs at https://docs.langchain.com/oss/python/langchain/knowledge-base.',
-        'Study Embeddings & Similarity, Reciprocal Rank Fusion, Multi-Index RAG, RAG Context Packing Token Budget, Cross-Encoder Reranker, ColBERT Late-Interaction Retrieval, and LLM Evaluation Harness & Golden Sets next.',
+        'Study Embeddings & Similarity, Reciprocal Rank Fusion, Multi-Index RAG, RAG Context Packing Token Budget, Cross-Encoder Reranker, ColBERT Late-Interaction Retrieval, GraphRAG Community Summary Case Study, and LLM Evaluation Golden Sets next.',
       ],
     },
   ],

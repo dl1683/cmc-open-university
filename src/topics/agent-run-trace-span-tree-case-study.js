@@ -214,49 +214,78 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'An agent run trace span tree is the observability structure for agent workflows. It records the root workflow, agent spans, model generation spans, tool spans, handoff spans, guardrail spans, approval spans, checkpoint links, costs, and final outcomes.',
-        'Distributed Tracing explains span trees for ordinary services. GenAI Trace Token Cost Ledger Case Study adds model and token economics. This module adds agent-specific events: handoffs, guardrails, human review, replay ids, and output-contract decisions.',
+        'A useful agent does not just call a model. It plans, delegates, calls tools, pauses for approval, trips guardrails, resumes from checkpoints, retries, spends tokens, and finally produces an outcome. When that outcome is wrong or expensive, a flat log line is not enough. The team needs to know which decision led to which action.',
+        'An agent run trace span tree gives that workflow a shape. The trace root names the run. Child spans show agent invocations, model generations, tool calls, handoffs, guardrail checks, human approvals, checkpoints, replay links, costs, and final output. It turns an agent run from a story people reconstruct by memory into a structured execution record.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'Every run creates a trace root. Each agent invocation creates a child span. Model generations record model, prompt version, output schema, token counts, and finish status. Tool spans record tool name, parsed args, result summary, idempotency key, and effect. Handoff spans record source, target, filtered history, and reason.',
-        'Guardrail spans record pass, fail, or escalate. Human approval spans record interruption id and decision. Checkpoint spans record state id and resume/fork links. Cost fields allow the trace to answer whether an agent path was merely correct or also economically acceptable.',
+        'The obvious approach is to log every prompt, every tool result, and every final answer. That feels safe at first because nothing is hidden. In practice it creates a pile of sensitive, unindexed text. It can leak secrets, bury the important decision, and still fail to answer why the run paused, retried, or handed off to another agent.',
+        'The wall is causality. Agent failures are usually not single events. A bad prompt can produce a bad tool argument, which can create a guardrail escalation, which can resume from stale state, which can lead to a plausible but wrong final answer. Observability has to preserve the parent-child path, not just the individual messages.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Tracing can leak sensitive data if payloads are dumped blindly. A production span tree should prefer ids, schema names, hashes, redacted args, compact result summaries, and links to secured artifacts. It should also sample low-risk high-volume runs and retain full traces for incidents, approvals, and high-value workflows.',
-        'The trace tree is only useful if developers can filter it by workflow, user cohort, model version, tool, guardrail, approval reason, checkpoint id, and error type. Otherwise observability becomes another pile of logs.',
+        'Treat the run as a tree of obligations. The root promises to complete a workflow. An agent span promises to make progress on a role. A generation span promises a model call happened under a prompt version and schema. A tool span promises a side effect or read occurred. A checkpoint promises the run can resume from a named state.',
+        'That tree is the natural unit of debugging. A span should explain what happened, what input shape was used, what decision was made, what cost was incurred, what state changed, and which child work followed from it. If the agent can act, the trace must explain the action.',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Reading the Views',
       paragraphs: [
-        'OpenAI Agents SDK tracing docs describe built-in tracing with events for LLM generations, tool calls, handoffs, guardrails, and custom events: https://openai.github.io/openai-agents-python/tracing/. OpenAI Agents SDK overview says the SDK path fits when the application owns orchestration, tool execution, approvals, and state: https://developers.openai.com/api/docs/guides/agents.',
-        'Temporal OpenAI Agents integration notes that agent invocations can run through Temporal Activities and integrate with OpenAI tracing: https://temporal.io/blog/announcing-openai-agents-sdk-integration. OpenTelemetry is the broader tracing vocabulary used across distributed systems: https://opentelemetry.io/docs/concepts/signals/traces/.',
+        'In the span tree view, follow the run from the trace root into agent, generation, tool, handoff, guardrail, approval, checkpoint, cost, and output spans. The important detail is not that every box exists. It is that every consequential step has a parent and enough fields to explain its role in the run.',
+        'In the debug loop view, start with the alert and narrow the failure by workflow, model, tool, handoff, approval, checkpoint, or state id. The view shows the ideal incident path: find the suspicious span, connect it to saved state, replay or fork the run, evaluate the fix, then ship only after the traced failure is covered.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How It Works',
       paragraphs: [
-        'A support agent trace can show that a refund tool paused for approval and resumed from a state id. A coding agent trace can show which patch candidate, command, verifier, and repair loop led to the final change. A research agent trace can show which subagent found which source and how the synthesis gate handled contradictions.',
-        'The span tree is also a product-quality surface. It lets teams measure agent latency, token cost, retry count, approval burden, guardrail false positives, tool error rates, and handoff confusion by workflow slice.',
+        'Every run starts with a trace root. The root carries workflow id, user or tenant grouping when allowed, release version, entrypoint, and correlation ids. Each agent invocation becomes a child span with agent name, role, instructions version, available tools, selected model policy, and the reason it was invoked.',
+        'Model generation spans record model, prompt template version, input and output schema names, token counts, latency, finish status, refusal or truncation flags, and compact redacted summaries. Tool spans record tool name, parsed arguments, idempotency key, result summary, error class, retry count, and whether the call read data or caused a side effect.',
+        'Agent-specific spans carry the details ordinary service tracing misses. Handoff spans record source agent, target agent, filtered history, and transfer reason. Guardrail spans record pass, fail, or escalate. Approval spans record interruption id and human decision. Checkpoint spans record state id and resume or fork links. Cost fields let the trace answer whether the path was not only correct, but also worth what it spent.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why It Works',
       paragraphs: [
-        'Do not log raw secrets, personal data, or full proprietary documents just because they passed through an agent. Do not trace only the final answer; most agent bugs happen in intermediate tool calls, handoffs, approvals, and stale state.',
-        'Do not keep traces disconnected from checkpoints. Debugging requires the ability to jump from a bad span to the exact state that produced it, then replay or fork safely.',
+        'The tree preserves causality. A bad final answer can be traced back through the output span, the generation that produced it, the prompt and retrieved context it saw, the tool result it relied on, and the checkpoint state it resumed from. The trace does not prove the agent was right, but it gives investigators a concrete path to test.',
+        'The shared ids matter. A trace without checkpoint links cannot replay the run. A checkpoint without trace links cannot explain why that state exists. A cost ledger without span ids cannot show which tool loop burned the budget. The span tree works because these records point at the same execution, not because any one record is complete by itself.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked Example',
+      paragraphs: [
+        'A customer support agent issues a refund that should have required approval. The alert says refunds above a threshold rose after a deploy. Without a span tree, the team searches logs for account ids, prompt text, and refund calls. With a span tree, they filter to the refund workflow, the new prompt version, and tool spans whose approval child is missing.',
+        'One trace shows the path: the agent generated a tool call with a stale policy label, the guardrail span passed because it read the old label, the refund tool span executed with an idempotency key, and the checkpoint span points to the exact state before the call. The fix is not guessed. The team updates the policy mapping, replays the checkpoint, verifies that the approval span now interrupts the run, and adds an eval case before rollout.',
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        'Tracing has real cost. It adds instrumentation work, storage, indexing, retention policy, UI design, and latency overhead if implemented badly. More detail is not automatically better. Full prompts, raw documents, secrets, customer data, and large tool payloads should not be sprayed into a trace store.',
+        'Production traces should prefer ids, schema names, hashes, redacted arguments, compact summaries, and links to secured artifacts. High-value runs, incidents, approvals, and dangerous tools may need full retention. Low-risk high-volume workflows may need sampling. The target is enough evidence to debug and audit the run without turning observability into a data leak.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Span trees win when agents perform multi-step work: support refunds, coding changes, document review, research synthesis, data cleanup, workflow automation, and any process with tools, approvals, handoffs, or checkpoints. They let teams measure latency, token cost, retry count, approval burden, tool error rate, guardrail false positives, and handoff confusion by workflow slice.',
+        'They are also useful as a product surface. A customer-facing or internal run history can show why an agent paused, what it is waiting for, which tool it used, and where a human can safely resume. That is different from a developer-only debug log; it is operational state.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'A trace can still lie by omission. If tool wrappers do not record parsed arguments, if prompts are unversioned, if checkpoints are not linked, or if handoffs hide filtered context, the tree will look complete while the cause remains outside it. Instrumentation has to cover decisions and side effects, not only latency.',
+        'It also fails when teams treat tracing as a substitute for evaluation. A span tree can show exactly how a bad answer happened. It cannot decide that the answer is acceptable. The improvement loop needs replay, tests, evals, and rollout gates connected back to the trace.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: OpenAI Agents SDK tracing at https://openai.github.io/openai-agents-python/tracing/, OpenAI Agents SDK overview at https://developers.openai.com/api/docs/guides/agents, Temporal OpenAI Agents integration at https://temporal.io/blog/announcing-openai-agents-sdk-integration, and OpenTelemetry traces at https://opentelemetry.io/docs/concepts/signals/traces/. Study Agent Workflow DAG Compiler Case Study, Agent Checkpoint Replay Ledger Case Study, Human Approval Interrupt Queue Case Study, GenAI Trace Token Cost Ledger Case Study, Distributed Tracing, OpenTelemetry Collector Case Study, and AI Audit Evidence Packet Case Study next.',
       ],

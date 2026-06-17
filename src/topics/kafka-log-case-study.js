@@ -210,41 +210,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The real problem',
       paragraphs: [
-        'Kafka is a distributed messaging system built around a durable append-only log. Producers write records to topic partitions. Brokers store those partitions and replicate them. Consumers read by offset and commit their progress. That one idea makes Kafka useful for messaging, log aggregation, stream processing, replay, and materialized state.',
-        'The case study matters because it shows how a simple data structure becomes a platform. The log gives ordering, replay, retention, and recovery. Partitions give scale. Consumer groups give parallelism. Compaction turns keyed streams into reconstructable latest-value state.',
+        'Large systems do not just need messages. They need a durable record of what happened, many independent readers, bounded ordering guarantees, recovery after crashes, and a way to replay history when a downstream service changes its mind. A payment service may emit an order event that is needed by fraud detection, analytics, search indexing, customer email, billing, and an offline feature pipeline. Those readers move at different speeds and fail in different ways.',
+        'A plain in-memory queue solves only the handoff. Once one worker consumes a message, the broker can delete it. That is efficient for a single job queue, but it is the wrong shape when history itself is useful. Kafka is the case study for treating the log as the shared data structure. Producers append records. Brokers retain ordered segments. Consumers own their positions. The result is not just messaging; it is a replayable event backbone.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive baseline',
       paragraphs: [
-        'A topic is split into partitions. Each partition is an ordered sequence of records, and each record has an offset. Producers choose a partition, often by hashing the key. Consumers in the same group divide partitions among themselves, so each partition is processed by one group member at a time.',
-        'Unlike a simple queue, Kafka does not remove a record just because one consumer read it. Retention keeps records for a configured time or size, and consumers track offsets independently. That allows replay, multiple independent consumers, and recovery after a downstream bug.',
+        'The first baseline is a database table with a processed flag. Writers insert events, workers poll for unprocessed rows, and each worker marks a row done. This gives durability, but the database is now doing queue coordination, ordering, fanout, retention, and cleanup through ad hoc queries. Polling creates load, workers fight over locks, and replay is awkward because the table has been mutated to represent consumption.',
+        'The second baseline is a conventional message queue. That is better for work distribution, but it usually treats successful consumption as deletion. If a new analytics service needs six months of events, it cannot ask the queue to replay what older consumers already removed. If a search indexer has a bug and needs to rebuild, the queue has no principled reason to still have the old records. The wall is that consumption and storage have been fused.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The hard parts are partition count, key skew, consumer lag, rebalances, retention, compaction pressure, and exactly-once boundaries. Ordering is only guaranteed within a partition. More partitions increase parallelism but also metadata, file handles, rebalancing work, and operational overhead.',
+        'Kafka separates the record from the reader position. The broker stores an append-only partition log. Each record receives an offset that never changes inside that partition. Consumers do not remove records when they read; they remember offsets. Different consumer groups can therefore read the same topic independently, at different rates, with different retry policies, without stealing records from each other.',
+        'The second insight is that ordering is scoped by partition. A topic can have many partitions so producers and consumers can scale, but only one partition gives a total order. If all events for user-7 must be processed in order, the producer should route that key to the same partition. If a topic has partition 0 and partition 1, offset 12 in partition 0 is not globally before offset 12 in partition 1. Kafka wins by making the ordering boundary explicit instead of pretending there is a free global order.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanics',
       paragraphs: [
-        'Kafka is used for logs, metrics, analytics pipelines, CDC streams, event-driven services, feature pipelines, fraud detection, search indexing, and stream-table materialization. It often sits between operational systems and data platforms, making it a central source of production coupling.',
+        'A producer sends a record to a topic. A partitioner chooses the partition, often by hashing the key. The partition leader appends the record to the end of its log, assigns the next offset, and replicates the append to follower brokers according to the topic configuration. Acknowledgment settings decide whether the producer waits for only the leader or for a stronger replication condition. The log is stored in segments so old data can be deleted, compacted, or moved without rewriting the whole partition.',
+        'A consumer group is a named set of readers that cooperatively process a topic. Kafka assigns each partition to at most one member of the group at a time. If a topic has four partitions and a group has two consumers, each consumer may own two partitions. If the group grows to four consumers, each can own one partition. If it grows to eight consumers, four consumers will be idle for that topic because partition ownership is the parallelism limit.',
+        'Offset commits are the recovery boundary. A consumer polls records, processes them, and commits the highest safe offset for each partition. If it crashes after processing but before committing, it may process those records again. If it commits before the side effect is durable, it may skip work after a crash. This is why Kafka applications are usually designed with idempotent sinks, transactional writes, or explicit deduplication keys.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Retention and compaction',
       paragraphs: [
-        'Kafka is not a magic exactly-once system by itself. End-to-end exactly-once behavior depends on producers, broker transactions, consumer offset commits, and idempotent downstream writes. Another misconception is that adding partitions always helps. If the key distribution is skewed, one partition can still be hot while others idle.',
+        'Retention answers the question: how long should the full event history remain available? A topic can keep records by time, by size, or by other storage policy. Retention makes replay possible, but it is not infinite. A new consumer can replay only the data the cluster still retains. A disaster recovery plan that depends on replay must size retention and storage honestly.',
+        'Compaction answers a different question: what is the latest known value for each key? In a compacted topic, Kafka may discard older records for the same key while keeping the newest value and tombstones for deletion. This turns the log into a changelog for materialized state. A service can rebuild a cache by replaying the compacted topic from the beginning and ending with the latest value for each key, even if intermediate changes have been removed.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary source: "Kafka: a Distributed Messaging System for Log Processing" at https://pages.cs.wisc.edu/~akella/CS744/F17/838-CloudPapers/Kafka.pdf. Study Kafka Request Purgatory Timing Wheel Case Study, Message Queues, Write-Ahead Log (WAL), Sharding & Partitioning, Backpressure & Flow Control, Idempotency & Exactly-Once Delivery, and Feature Store: Offline/Online Consistency next.',
+        'Suppose an ecommerce system publishes `OrderPlaced` events keyed by `orderId` and `UserProfileChanged` events keyed by `userId`. The order topic has six partitions. The fraud group reads every order and commits offsets after writing a fraud decision. The warehouse group reads the same order topic but batches records into a column store. The email group reads only enough fields to send receipts. These groups do not coordinate with each other because each group owns its own offsets.',
+        'Now the warehouse team discovers a transformation bug. With a simple queue, the old events are gone. With Kafka, the warehouse group can reset its offsets to an earlier point and rebuild the affected table, while the fraud and email groups keep their current offsets. If a new recommendation service launches, it can start at offset 0 or at the latest offset depending on whether it needs history. That is the practical power of storing the stream and making consumption position a separate piece of state.',
+      ],
+    },
+    {
+      heading: 'What the animation shows',
+      paragraphs: [
+        'The partitioned-log view highlights producers, brokers, partition leaders, ordered partitions, and consumers. Follow the append path from producer to broker to partition, then follow the poll path from partition to consumer. The important observation is that the record stays in the log after the consumer reads it. The consumer position advances; the log does not become shorter because one group made progress.',
+        'The consumer-group and compaction view shows the operational side. Rebalancing can move partition ownership when members join or leave, which is why lag and pauses matter. Compaction keeps latest values per key, which is why old records for user-7 can disappear while the final user-7 value remains. The frames are meant to teach the boundary: Kafka preserves partition order and replay within retention or compaction policy, not a perfect eternal history of every fact for every reader.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The reliability argument is based on small invariants. Appends are ordered within a partition. Offsets are stable positions in that partition. Consumer groups commit positions independently. Replication keeps partition data available after broker failures when enough replicas survive. Retention and compaction are explicit policies rather than accidental side effects of consumption.',
+        'Those invariants compose into useful system behavior. A slow consumer creates lag instead of blocking every other consumer. A crashed consumer resumes from a committed offset. A new consumer group can replay retained data without asking producers to resend. A compacted changelog can rebuild materialized state after a cache loss. Kafka works because it makes time, ownership, and replay visible.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Partitions are the main design knob and the main trap. More partitions increase parallelism and throughput, but they also increase metadata, file handles, leader election work, rebalancing cost, and operational complexity. Too few partitions bottleneck consumers. Too many partitions make failures and reassignments heavier. Changing partition count can also change key-to-partition routing for new records unless the producer strategy handles it carefully.',
+        'Key choice decides both order and load balance. A hot key can overload one partition while others sit idle. A random key improves balance but destroys per-entity ordering. Retention consumes disk. Compaction consumes I/O and can leave old values visible until the cleaner catches up. Stronger producer acknowledgments improve durability but add latency. Kafka gives direct controls, but those controls force the application to state its priorities.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Kafka wins when multiple systems need the same stream: change data capture, operational logs, metrics, analytics ingestion, fraud pipelines, search indexing, feature pipelines, stream processing, audit trails, and cache rebuilds. It is especially strong when readers need independent progress and when replay is a normal operational tool rather than an emergency exception.',
+        'It also wins at service boundaries where producers should not know every downstream consumer. A checkout service can publish an order event once. New consumers can appear later without adding synchronous calls to checkout. The cost is that the event contract becomes a long-lived API, so schema evolution, compatibility, and dead-letter handling become part of the platform.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Kafka is a poor fit for tiny request-response workflows that need an immediate answer from one worker. It is also not a substitute for a database transaction across arbitrary services. If a consumer writes to an external system and then commits an offset, the end-to-end guarantee depends on that external write, not only on Kafka. Exactly-once behavior requires careful use of producer idempotence, transactions, offset commits, and idempotent sinks.',
+        'It can also fail socially. Teams sometimes publish vague events with unstable schemas, set retention too low for promised replay, ignore lag until incidents, or choose partition keys without understanding skew. A Kafka cluster can centralize coupling as easily as it can decouple services. The log makes history available, but it does not make the history well-modeled.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Common failures include consumer lag growing until retention deletes unread records, poison messages blocking a partition, rebalances pausing work during deployments, transactional producers fencing old instances, compaction tombstones disappearing before all replicas of state have rebuilt, and a single hot partition limiting throughput for the whole topic.',
+        'The defensive patterns are equally concrete: monitor lag by group and partition, make sinks idempotent, include event IDs, use retry and dead-letter topics deliberately, test replay from old offsets, define schema compatibility rules, and size retention against recovery objectives. Kafka is simple at the data-structure level, but production use is mostly about respecting the edge cases created by that simplicity.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary source: "Kafka: a Distributed Messaging System for Log Processing" at https://pages.cs.wisc.edu/~akella/CS744/F17/838-CloudPapers/Kafka.pdf. Study Message Queues for the deletion-on-consume contrast, Write-Ahead Log (WAL) for append durability, Sharding & Partitioning for key-to-partition tradeoffs, Backpressure & Flow Control for lag, Idempotency & Exactly-Once Delivery for sink correctness, and Feature Store: Offline/Online Consistency for replayed state.',
       ],
     },
   ],

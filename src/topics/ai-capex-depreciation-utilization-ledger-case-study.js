@@ -255,51 +255,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this ledger exists',
       paragraphs: [
-        'An AI capex depreciation utilization ledger is a data structure for turning accelerator purchases into per-answer economics. LLM Unit Economics Ledger Case Study starts at the serving layer: tokens, utilization, retries, and accepted answers. This case study moves one layer down to the asset layer: chip orders, power, leases, construction-in-progress, placed-in-service dates, depreciation, utilization, and refresh decisions.',
-        'The core idea is simple: a GPU fleet has at least two clocks. The finance clock starts when assets enter service and depreciate. The product clock starts when workloads produce useful answers. Unit cost only improves when those clocks are synchronized by demand, scheduling, reuse, and route policy.',
+        'AI infrastructure spending is not just a purchase order for GPUs. It is a chain of commitments: accelerator supply, network fabric, power, leases, construction-in-progress, placed-in-service dates, depreciation schedules, workload routing, and eventual refresh. A ledger exists because those commitments land in different systems and on different clocks.',
+        'The question the ledger answers is blunt: how much fixed investment is attached to each accepted answer? Token cost alone does not answer it. A model can be efficient per token while the fleet is still economically heavy because too many reserved GPU hours sit idle, arrive late, or serve low-value work.',
+      ],
+    },
+    {
+      heading: 'The obvious spreadsheet and its wall',
+      paragraphs: [
+        'The obvious approach is to keep a finance spreadsheet with total GPU spend, divide by months of useful life, and then divide again by a rough utilization percentage. That is good enough for a board slide. It is not good enough to operate an AI platform.',
+        'The wall appears when averages hide the real denominator. Interactive chat, RAG, coding agents, batch jobs, fine-tuning, and internal evaluation traffic use the same fleet in very different ways. Some work produces accepted answers. Some work retries, times out, violates policy, or occupies capacity without revenue. A single utilization number cannot say which product, route, or workload is carrying the depreciation burden.',
+      ],
+    },
+    {
+      heading: 'Core insight: two clocks',
+      paragraphs: [
+        'A GPU fleet has a finance clock and a useful-work clock. The finance clock starts when the asset is placed in service and depreciation begins. The useful-work clock advances only when workloads turn reserved capacity into accepted, billable, policy-compliant answers.',
+        'The core insight is that unit economics improve only when those clocks are joined. Buying more capacity does not lower cost by itself. Cost falls when product demand, admission control, batching, prefix reuse, cache policy, and routing keep the depreciating assets doing valuable work.',
+      ],
+    },
+    {
+      heading: 'Reading the two views',
+      paragraphs: [
+        'In the asset ledger view, follow the path from forecast to order, power, construction-in-progress, service start, depreciation, utilization, unit cost, and refresh. The point is not that every company uses these exact row names. The point is that each row has its own failure mode: late power, stranded network capacity, idle depreciation, incompatible hardware, or a refresh that arrives before the old pool has earned its keep.',
+        'In the utilization flywheel view, follow work rather than assets. Product usage creates tokens. Schedulers and cache reuse turn those tokens into high GPU occupancy. Higher useful occupancy lowers per-answer cost, which can support pricing, adoption, or more capex. The flywheel only works if the work is valuable and the SLOs still hold.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The ledger stores an asset row for each deployable pool: accelerator generation, memory size, network fabric, zone, power envelope, service start, expected useful life, lease or purchase terms, and allocation owner. It then joins runtime rows from Distributed Tracing, GenAI Trace Token Cost Ledger Case Study, SLO-Aware LLM Request Router, KV Cache Concurrency Capacity Model, and LLM Serving Admission-Control Goodput Gate.',
-        'The useful calculation is not only dollars per GPU hour. The ledger rolls asset cost into dollars per accepted answer by workload slice. Interactive chat, batch summarization, coding agents, RAG, and training/fine-tuning all consume the same fleet differently. The ledger has to preserve those slices instead of hiding them behind one utilization average.',
+        'Start with an asset row for each deployable pool: accelerator generation, memory size, network fabric, zone, power envelope, lease or purchase terms, construction status, service start, expected useful life, depreciation method, allocation owner, and refresh assumptions. Do not collapse all GPUs into one bucket if they have different memory, power, networking, or model support.',
+        'Then join runtime rows to those asset rows. The runtime side records request class, model, route, batch, cache hit, prefill and decode time, retries, policy outcome, accepted answer count, and SLO result. The useful metric is not dollars per GPU hour in isolation. It is fixed asset charge plus operating cost per accepted answer, preserved by workload slice.',
+        'This is why the ledger connects naturally to distributed tracing, token cost ledgers, SLO-aware routers, cache capacity models, and admission-control gates. The finance row says what the fleet costs. The trace row says what the fleet did. The join says whether that work justified the asset.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Low utilization loads fixed asset cost onto fewer answers. High utilization can also be bad if it creates queueing, p99 latency, failed requests, or quality regressions. That is why this module links to Tail Latency & p99 Thinking, LLM Continuous Batching, Length-Aware Batching for LLM Serving, Prefix Caching & RadixAttention, and LLM Inference Cost Stack Case Study.',
-        'Refresh timing is a second-order problem. If a newer accelerator reduces cost per token but the old fleet still has remaining book value, migration is not automatically wise. A credible decision compares remaining depreciation, power efficiency, networking compatibility, model support, route changes, and how much demand can actually fill the newer pool.',
+        'The ledger works because it keeps the denominator honest. A request that retries three times, misses cache, times out, or fails policy is not equivalent to an accepted answer. A fleet that is 90 percent busy with low-priority batch fill is not equivalent to a fleet that meets interactive p99 and product demand.',
+        'It also works because it separates decisions that are often blurred together. Buying capacity, placing it in service, depreciating it, routing traffic to it, and refreshing it are different decisions. Keeping them as separate rows lets a team ask a better question: which control should change before we buy again?',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Worked example',
       paragraphs: [
-        'NVIDIA fiscal 2026 reporting shows how dominant data-center demand has become in the AI hardware cycle: https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-fourth-quarter-and-fiscal-2026. NVIDIA 10-K accounting language describes property and equipment depreciation and segment depreciation disclosure: https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm.',
-        'CoreWeave disclosures are a useful AI-cloud case study because they discuss capital expenditures, systems moving from construction-in-progress to equipment, and the economics of committed cloud capacity: https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm and https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf.',
+        'Suppose a company places a $30 million inference pool into service and depreciates it straight-line over 36 months. The monthly asset charge is about $833,000 before power, staffing, networking, and software overhead. If the pool produces 20 million accepted answers in a month, depreciation alone is about 4.2 cents per accepted answer. At 80 million accepted answers, it is about 1.0 cent.',
+        'That simple example shows why utilization cannot be decorative. A routing improvement that raises accepted answers without breaking latency can matter more than a small kernel optimization. A cache policy that reduces duplicate prefill can change the denominator. A product launch that fills idle off-peak capacity can turn stranded capex into useful capacity.',
+        'The example also shows the refresh problem. If a newer accelerator cuts energy and token time in half, migration may still be wrong if the old pool has large remaining book value, the new pool cannot run the required model yet, or the workload mix cannot fill both pools.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'A platform team can use this ledger to decide when to admit, shed, route, batch, cache, move to a different accelerator tier, or buy more capacity. A finance team can use it to allocate depreciation and committed capacity to products. A product team can use it to see when an AI feature is growing real demand versus consuming cheap pilot credits.',
-        'The same pattern applies beyond GPUs. TPU pods, inference appliances, private clusters, and on-device model rollout all need a clock for fixed investment and a clock for useful work. On-Device LLM Inference Cost Crossover is the edge version of the same idea.',
+        'The ledger adds bookkeeping pressure. It needs stable asset identifiers, trace joins, allocation rules, cache and route metadata, and agreement between finance and platform teams. If the join keys are weak, the output becomes a false precision machine.',
+        'High utilization is not automatically good. Pushing the fleet too hard can create queueing, p99 spikes, failed requests, poor answer quality, and burned-out batch backlogs. Low utilization is not automatically bad either if it buys launch readiness, resilience, or regulatory isolation. The ledger should make that tradeoff visible instead of pretending one metric decides everything.',
+        'Refresh timing is the hardest tradeoff. A credible comparison includes remaining depreciation, power efficiency, network compatibility, model support, scheduler fit, kernel maturity, migration cost, and actual demand. Raw FLOPs are only one row.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins and fails',
       paragraphs: [
-        'Do not treat utilization as the only truth. A fleet can be busy with low-value retries, low-quality generations, or workloads that break latency promises. Do not treat depreciation as only an accounting artifact. It is a real pressure on product routing when a large fixed asset pool must earn back its place in the architecture.',
-        'Do not compare old and new hardware with raw FLOPs alone. The economic comparison has to include memory capacity, interconnect, software support, kernel maturity, power, scheduler fit, model compatibility, and actual workload mix.',
+        'It wins when a company has enough AI traffic that small routing and utilization changes move real money: shared inference fleets, reserved GPU clouds, private clusters, batch plus interactive mixes, and products with multiple model tiers. It helps platform teams decide when to admit, shed, route, batch, cache, move work, or buy more capacity.',
+        'It fails when the organization wants one tidy number for political reasons. It also fails when request traces do not carry product, model, route, cache, and outcome metadata, or when finance data is too coarse to map assets to deployable pools. In those cases the ledger can still teach the shape of the problem, but it should not be used as a pricing oracle.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: NVIDIA FY2026 results at https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-fourth-quarter-and-fiscal-2026, NVIDIA FY2026 10-K at https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm, CoreWeave S-1 at https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm, CoreWeave FY25 10-K at https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf, and FOCUS at https://focus.finops.org/focus-specification/. Study LLM Unit Economics Ledger Case Study, LLM Inference Cost Stack Case Study, GPU Cloud Capacity Reservation Orderbook Case Study, AI Circular Financing Demand Graph Case Study, Inference ROI Payback Cohort Ledger Case Study, SLO-Aware LLM Request Router, GenAI Trace Token Cost Ledger Case Study, KV Cache Concurrency Capacity Model, LLM Serving Autoscaling Warm Pool, and Tail Latency & p99 Thinking next.',
+        'Public filings and cloud-provider disclosures are useful primary material for this topic because they show how capital expenditures, construction-in-progress, depreciation, leases, committed capacity, and data-center demand appear in real reporting. Useful starting points include NVIDIA results and 10-K disclosures, CoreWeave S-1 and annual disclosures, and the FOCUS FinOps specification: https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-fourth-quarter-and-fiscal-2026, https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm, https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm, https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf, and https://focus.finops.org/focus-specification/.',
+        'Study LLM Unit Economics Ledger Case Study, LLM Inference Cost Stack Case Study, GPU Cloud Capacity Reservation Orderbook Case Study, AI Circular Financing Demand Graph Case Study, Inference ROI Payback Cohort Ledger Case Study, SLO-Aware LLM Request Router, GenAI Trace Token Cost Ledger Case Study, KV Cache Concurrency Capacity Model, LLM Serving Autoscaling Warm Pool, and Tail Latency & p99 Thinking next.',
       ],
     },
   ],

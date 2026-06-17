@@ -45,7 +45,7 @@ function* relativeInserts() {
       ],
     }, { title: 'Concurrent inserts attach to stable element IDs' }),
     highlight: { active: ['X', 'Y'], found: ['order'], compare: ['A', 'B'] },
-    explanation: 'In collaborative text, absolute position is fragile. If Alice and Bob both insert after A, a sequence CRDT records each insertion relative to stable element IDs and resolves the tie deterministically.',
+    explanation: 'Absolute offsets are the wrong coordinate system for collaboration. If Alice and Bob both insert after A, the operation names a stable element ID instead of byte position 1. The CRDT then uses deterministic tie-breaking so every replica renders the same order.',
     invariant: 'Concurrent operations must commute to the same visible sequence.',
   };
 
@@ -70,7 +70,7 @@ function* relativeInserts() {
       ],
     ),
     highlight: { active: ['alice:operation', 'bob:operation'], found: ['merge:visible'] },
-    explanation: 'The exact ordering rule varies by CRDT, but the shape is stable: operations name elements, not raw byte offsets. Replica delivery order should not change the final text.',
+    explanation: 'This table is the core mental model. Alice and Bob each see a different local text, but their operations carry stable IDs. Once both operations arrive, sorting by the CRDT rule produces the same merged sequence regardless of delivery order.',
   };
 
   yield {
@@ -94,7 +94,7 @@ function* relativeInserts() {
       ],
     ),
     highlight: { active: ['mark:why', 'keep:why'], compare: ['gc:cost'] },
-    explanation: 'Many sequence CRDTs keep tombstones or equivalent metadata so later operations still have anchors. Production systems compact, merge, or garbage-collect when causal knowledge says it is safe.',
+    explanation: 'Delete cannot always mean "erase every trace." A later remote insert may still refer to the deleted element as an anchor. Tombstones or equivalent metadata keep those references meaningful until the system can prove compaction is safe.',
   };
 
   yield {
@@ -106,7 +106,7 @@ function* relativeInserts() {
       ],
     }),
     highlight: { active: ['crdt'], compare: ['naive'] },
-    explanation: 'The CRDT pays metadata to avoid coordination. That is the bargain: more structure in every operation, less need for a central editor server to serialize every keystroke.',
+    explanation: 'The plot shows the bargain, not a benchmark: IDs, origins, and delete metadata cost more than a local string buffer, but they avoid a central server having to serialize every keystroke before users can continue typing.',
   };
 }
 
@@ -128,7 +128,7 @@ function* syncAndCompaction() {
       ],
     }, { title: 'Yjs-style systems sync compact binary updates' }),
     highlight: { active: ['update', 'store', 'peer'], found: ['state'] },
-    explanation: 'Libraries such as Yjs distribute compact updates. Peers apply updates in any delivery order allowed by the protocol and converge on the same shared document state.',
+    explanation: 'The sync path is append and apply: local editor operations become compact CRDT updates, updates are stored or relayed, and peers merge them into the same document. Transport can vary; the ordering identity lives in the update.',
     invariant: 'Persistence can be an append log of CRDT updates plus compaction.',
   };
 
@@ -153,7 +153,7 @@ function* syncAndCompaction() {
       ],
     ),
     highlight: { found: ['crdt:does', 'storage:does'], compare: ['awareness:not', 'provider:not'] },
-    explanation: 'A collaborative editor is not only the CRDT. It needs transport, auth, storage, awareness, undo, schema rules, and editor integration. Keep those responsibilities separate.',
+    explanation: 'This layer table keeps the design honest. The CRDT merges text order; it does not authenticate users, store history forever, show cursors, repair undo intent, or validate document schema. Those are neighboring systems.',
   };
 
   yield {
@@ -175,7 +175,7 @@ function* syncAndCompaction() {
       ],
     ),
     highlight: { active: ['crdt:optimizes'], compare: ['piece:optimizes', 'rope:optimizes'] },
-    explanation: 'A local editor may use a Piece Table Text Buffer or Text Rope Data Structure for speed. A CRDT is the replicated ordering layer that lets many peers edit without a central lock.',
+    explanation: 'Do not confuse local editing speed with replicated ordering. Piece tables and ropes make one editor fast. A sequence CRDT makes many editors agree on where each inserted element belongs after sync.',
   };
 
   yield {
@@ -199,7 +199,7 @@ function* syncAndCompaction() {
       ],
     ),
     highlight: { removed: ['magic:wrong', 'intent:wrong'], found: ['magic:better', 'storage:better'] },
-    explanation: 'CRDTs guarantee convergence, not perfect human intent. Rich-text schemas, marks, undo, comments, and permissions add separate constraints above the sequence layer. Peritext Rich-Text CRDT Case Study shows why formatting spans need their own merge model.',
+    explanation: 'The last table lists the usual overclaims. Sequence CRDTs converge the text order, but intent, rich-text marks, comments, permissions, and undo have their own rules. Peritext exists because formatting spans are not solved by character order alone.',
   };
 }
 
@@ -213,41 +213,74 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A sequence CRDT is a replicated list or text structure that lets users insert and delete concurrently while every replica eventually renders the same order. It is the missing bridge between the algebraic CRDTs page and real collaborative editors. Counters and sets merge cleanly because they have simple semilattice structure; text has order, and order is harder.',
-        'The key move is stable identity. Instead of saying "insert at byte offset 12," an operation says "insert this element after element a1" or uses a related position identifier. If two peers insert at the same logical place, their element IDs break the tie deterministically. Delivery order should not change the final visible sequence.',
+        'Collaborative text is difficult because the shared object is not just a bag of characters. Order is the product. Users care whether a letter lands before or after another letter, whether a delete removes the intended word, and whether two people typing into the same gap see a sensible result after sync. A replicated counter can merge by addition. A document must preserve a sequence.',
+        'The hard constraint is latency and disconnection. A local-first editor cannot ask a central server for permission before every keystroke. The user must be able to type while offline, on a slow connection, or while another peer is editing the same sentence. When the peers reconnect, their independently created operations must merge into one visible order.',
+        'A sequence CRDT is the ordering layer for that setting. CRDT means conflict-free replicated data type: replicas can apply operations in different orders and still converge when they have received the same set of operations. A sequence CRDT specializes that idea for text and ordered lists. It gives inserted elements stable identities, defines deterministic order among concurrent inserts, and keeps enough causal metadata for deletes and later sync.',
+      ],
+    },
+    {
+      heading: 'The naive baseline and the wall',
+      paragraphs: [
+        'The naive operation format is offset based: insert X at index 12, delete 3 characters starting at index 7. This is how a single local string often feels. It is also how many editor APIs expose positions. The format is not foolish. Inside one process, against one current buffer, offsets are compact and fast.',
+        'The wall is that offsets are local facts, not replicated facts. If Alice inserts at index 12 while Bob inserts earlier in the document, Alice and Bob no longer agree on what index 12 names. If a delete shifts the buffer before a remote insert arrives, the remote offset may point at the wrong character. A central server can serialize all edits and transform positions, but that makes the server the ordering authority and weakens offline-first editing.',
+        'A second naive approach is last-writer-wins. It is simple for registers, but destructive for text. If two users type different words in the same paragraph, choosing one whole document version loses valid work. Collaborative text needs a merge rule that can preserve independent inserts while still producing a single deterministic sequence.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to stop treating positions as numbers in a changing array. A sequence CRDT gives each inserted element a stable identity. An operation says that a new element belongs after a known element, before another known element, or at a generated position in the identifier order. The identity travels with the operation, so it still means the same thing after other edits arrive.',
+        'Concurrent inserts into the same gap are not resolved by timing guesses. They are resolved by a deterministic ordering rule over identifiers, actor IDs, counters, or position paths, depending on the CRDT design. Every replica uses the same rule. If Alice and Bob both insert after A before either sees the other edit, both inserts survive, and every peer eventually renders them in the same order.',
+        'Deletes add the second insight: visible removal is different from forgetting. A remote operation may still refer to an element that is now hidden locally. Tombstones or equivalent causal metadata keep those references meaningful until the system can prove the deleted anchor is no longer needed. Compaction is therefore a correctness question, not just a cleanup pass.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Different sequence CRDTs choose different identifiers, list structures, blocks, or tree layouts, but the common pattern is relative insertion plus deterministic ordering. Deletes often keep tombstones or equivalent causal metadata so remote operations can still find anchors. Rendering skips deleted elements while synchronization keeps enough structure to merge future updates.',
-        'Libraries such as Yjs and Automerge wrap these structures in practical APIs, binary update formats, sync protocols, and editor integrations. Yjs exposes shared types whose changes are distributed and merged. Automerge documents list/text structures and sync formats for local-first collaboration. The CRDT core handles convergence; the product still needs permissions, schema validation, storage, awareness, and undo semantics.',
+        'A simplified sequence CRDT starts with a known beginning and end, then represents each visible character or run as an element with an ID. When a user types, the replica creates an insert operation containing the new element ID, the value, and the logical context that places it near existing IDs. The local replica applies the operation immediately so typing stays responsive.',
+        'When another replica receives the operation, it does not trust the sender offset. It inserts the element according to the stable context and the CRDT ordering rule. If the referenced neighbor is already present, placement is direct. If dependencies arrive out of order, the implementation can buffer, search the identifier tree, or use encoded position identifiers that make the operation placeable once the missing context is known.',
+        'Deletion marks an element as not visible. Some CRDTs keep a tombstone element. Others encode deletion in ranges, blocks, causal clocks, or struct metadata so they can avoid one permanent object per removed character. Rendering walks the sequence and skips deleted content. Sync sends compact updates rather than entire documents, and storage often becomes an append log of CRDT updates plus snapshots or compaction records.',
+        'Production editors add layers around this core. A local piece table or rope can make editing fast in one browser tab. The CRDT makes replicated order converge across peers. A provider handles transport. Awareness shows cursors and presence. Authorization controls who may write. Rich-text logic attaches marks and spans. Undo tries to preserve user intent. These layers interact, but they are not the same algorithm.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Sequence CRDTs spend metadata to avoid central coordination. Every element may carry IDs, origins, clocks, deletion state, or block metadata. Large documents need compaction and garbage collection. Rich-text marks, nested objects, comments, and undo can be harder than plain characters. Peritext Rich-Text CRDT Case Study covers that formatting layer, while Fractional Indexing & LexoRank Case Study shows the lighter-weight ordered-key approach used when a product needs reorderable items rather than character-level intent preservation. Operational Transformation Collaborative Editing Case Study shows the alternative: keep position-based operations and transform them through a revision protocol. The winning implementation is therefore not only the merge rule; it is the storage format, update batching, and integration with a fast local text buffer.',
+        'The relative-inserts view proves the coordinate-system change. Alice and Bob each create a local document, but their operations do not depend on the same numeric offset. Both name stable element IDs. When the operations meet, the merge step uses the deterministic CRDT rule to produce one shared order. The important fact is not that the result is AXYB in this toy case; it is that every replica can compute the same result from the same operation set.',
+        'The delete view proves why hidden metadata can outlive visible text. A user sees a character disappear, but the system may keep its ID because a late insert still names that character as an anchor. Garbage collection must wait until the system has enough causal knowledge to know that no future operation can need the anchor.',
+        'The sync-and-compaction view proves the boundary between algorithm and product. Compact binary updates can be stored, relayed, and replayed, but the CRDT invariant is narrow: replicas that receive the same insert and delete identities render the same order. It does not, by itself, solve auth, schema, cursor presence, comment threads, or rich-text intention.',
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Yjs is widely used with editors such as ProseMirror, TipTap, Slate, and CodeMirror. Its repository describes shared data types whose changes are automatically distributed and merged without conflicts. Automerge describes documents with maps, lists, counters, and sync, and its documentation notes that ordered collections are represented as lists appropriate for concurrent editing. Research on replicated growable arrays evaluated CRDTs for real-time document editing and highlights the data-structure challenge behind insertion and deletion.',
+        'The correctness argument is convergence. Each operation has a stable identity and a deterministic placement rule. Applying operation X before operation Y or Y before X may create different temporary local states, but once both operations are present, the ordering rule sees the same IDs and produces the same sequence. The operations commute at the level that matters: final rendered order after the same causal set is known.',
+        'For deletes, the invariant is that references remain meaningful until they are no longer needed. A tombstone looks wasteful, but it protects the meaning of concurrent or delayed operations. Safe compaction needs causal evidence, such as version vectors, state vectors, snapshots agreed by peers, or server-side retention policy. Removing anchors too early can make a valid remote operation impossible to place.',
+        'This is also why sequence CRDTs are different from ordinary sorted IDs. A fractional index can place cards between other cards, but it usually assumes a simpler concurrency model and a central or near-central ordering policy. A sequence CRDT treats independent creation, delayed delivery, duplicate delivery, and merge convergence as first-class requirements.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'A CRDT does not mean every human intention is preserved. If two users rewrite the same sentence in incompatible ways, convergence gives one deterministic document, not necessarily the document either user imagined. A CRDT also does not replace local editor data structures. Piece tables and ropes optimize local editing; sequence CRDTs optimize replicated ordering; Peritext-style rich-text CRDTs add formatting-span semantics above that ordering layer. Production systems often need all of these layers.',
+        'The main cost is metadata. A plain string stores characters. A sequence CRDT stores characters plus IDs, origins, actor clocks, deletion state, block boundaries, parent references, or position paths. When the visible text doubles, metadata usually doubles too, and some designs grow faster near heavy concurrent insert hotspots. Good implementations batch runs, encode IDs compactly, and snapshot old history.',
+        'The runtime cost also changes shape. Local typing must update both the editor buffer and the CRDT structure. Sync must encode, transmit, decode, and apply operations. Rendering may need a materialized text view because walking CRDT metadata for every paint would be too slow. Search, syntax highlighting, and editor plugins often operate on the local text buffer, not directly on the CRDT graph.',
+        'The conceptual cost is intent. Convergence does not mean the merged prose is what either user intended. If two people rewrite the same sentence at the same time, a sequence CRDT can interleave or order their inserts deterministically without understanding which rewrite should win. Undo is also hard because "undo my change" is not the same as deleting the current characters at the old offsets after other users have edited nearby.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins and fails',
       paragraphs: [
-        'Primary sources: Yjs repository at https://github.com/yjs/yjs, Automerge document model at https://automerge.org/docs/reference/documents/, Automerge glossary at https://automerge.org/docs/reference/glossary/, and CRDT document-editing evaluation at https://members.loria.fr/CIgnat/files/pdf/AhmedNacerDocEng11.pdf. Study CRDTs: Conflict-Free Replicated Data Types, Logical Clocks, Piece Table Text Buffer, Text Rope Data Structure, Operational Transformation Collaborative Editing Case Study, Peritext Rich-Text CRDT Case Study, Local-First Sync Engine Case Study, Yjs Struct Store & Updates, Automerge Change Graph & Columnar Storage, CRDT Snapshot Compaction & Garbage Collection, Collaborative Awareness Presence CRDT, Collaborative Undo/Redo Intention Stack, Fractional Indexing & LexoRank Case Study, and Cloudflare Durable Objects Case Study next.',
+        'Sequence CRDTs win in collaborative notes, code editors, local-first documents, shared outlines, comments, whiteboards with text boxes, offline mobile editing, and edge-synced apps where users must keep working without round trips. The access pattern is many small ordered edits created independently, then merged later.',
+        'They are the wrong tool when a single authoritative server can serialize all edits and the product accepts that dependency. Operational Transformation may fit a centrally mediated editor. A database row with a version number may fit form editing. Fractional Indexing or LexoRank may fit drag-and-drop card order. A CRDT is worth its metadata when independent replicas must accept ordered edits before coordination.',
+        'They also fail when teams mistake the text CRDT for the whole editor. Rich text spans can conflict in ways plain character order does not solve. Permissions must reject invalid operations. Schema validation must prevent impossible documents. Presence should not become document truth. Storage needs compaction. Production quality comes from composing these layers without pretending one merge structure handles all semantics.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Yjs repository at https://github.com/yjs/yjs, Automerge document model at https://automerge.org/docs/reference/documents/, Automerge glossary at https://automerge.org/docs/reference/glossary/, and CRDT document-editing evaluation at https://members.loria.fr/CIgnat/files/pdf/AhmedNacerDocEng11.pdf. Study CRDTs: Conflict-Free Replicated Data Types and Logical Clocks first. Then study Piece Table Text Buffer and Text Rope Data Structure for local editing speed, Operational Transformation for the centralized contrast, Peritext for rich text, Yjs Struct Store & Updates and Automerge Change Graph & Columnar Storage for production encodings, and CRDT Snapshot Compaction & Garbage Collection before designing storage retention.',
       ],
     },
   ],

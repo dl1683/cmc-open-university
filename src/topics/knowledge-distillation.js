@@ -102,50 +102,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Knowledge distillation trains a smaller student model to imitate a stronger teacher model. Hinton, Vinyals, and Dean popularized the recipe in the 2015 paper "Distilling the Knowledge in a Neural Network": the teacher's full probability distribution contains more information than a one-hot label. A label says "cat." A teacher might say 0.78 cat, 0.13 dog, 0.06 fox, and near zero for truck. Those near-misses are useful structure.`,
-        `The goal is compression without merely deleting weights. The student has fewer layers, narrower hidden states, or a simpler architecture, but it learns the teacher's behavior. This can make inference cheaper, reduce latency, and fit models onto phones, browsers, or high-throughput servers. Unlike Quantization, which changes number precision, or Structured Pruning and N:M Sparsity, which changes the weight mask and packed layout, distillation changes the model being trained.`,
+        'Large models are expensive to serve. They may have the accuracy, calibration, or reasoning behavior a team wants, but their latency, memory use, and cost can make them unsuitable for mobile devices, browsers, embedded systems, or high-throughput production endpoints.',
+        'Knowledge distillation exists to transfer some of a large teacher model into a smaller student model. The student is not just trained on the original answer key. It is trained to imitate the teacher behavior that made the larger model useful.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach and wall',
       paragraphs: [
-        `First train or choose a teacher. Then run training examples through the teacher and capture logits or probabilities. Softmax & Temperature is the key trick: a temperature T greater than 1 softens the distribution so non-winning classes carry visible signal. The student is trained with a mixture of losses: match the teacher's softened outputs and, often, match the original hard labels. Gradient Descent updates only the student.`,
-        `Distillation can happen at several levels. Logit distillation matches final predictions. Feature distillation matches hidden representations. Sequence-level distillation for language models trains on teacher-generated answers. TinyBERT and MiniLM distill transformer internals; DistilBERT removes layers and trains on language-modeling plus distillation objectives. The common theme is that the teacher provides a richer target than the dataset alone.`,
+        'The obvious compression tools are pruning, quantization, and smaller architectures. Those can help a lot, but they mostly ask how to make the same model cheaper or how to train a small model from the same dataset.',
+        'The wall is that the dataset often contains only hard labels or final answers. A hard label says "cat" and says nothing about why dog is a more reasonable mistake than tree. A smaller model trained only on hard labels has to rediscover that structure from examples it may not have enough capacity or data to absorb.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The core insight',
       paragraphs: [
-        `The student is cheaper at inference, but training has an extra bill: teacher generation. If the teacher is large, producing logits or synthetic answers can dominate the cost. DistilBERT is the clean reference point: compared with BERT-base's 110M parameters, it uses about 66M parameters, is roughly 40% smaller and 60% faster, and reports about 97% of BERT's GLUE performance. Those numbers are impressive, but not universal; compression ratio depends on task difficulty, student capacity, data volume, and how closely the student architecture matches the teacher.`,
+        'The teacher probability distribution contains information that the one-hot label discards. If the correct class is cat, a strong teacher may assign some probability to dog and fox, and almost none to car or tree. That pattern tells the student which alternatives are semantically close.',
+        'Hinton, Vinyals, and Dean called this dark knowledge: the useful structure in the non-winning probabilities. Distillation turns that structure into a training target for the student.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        `Distillation is common when a frontier or ensemble model is too expensive to serve directly. Search ranking stacks distill large rankers into fast production models. Vision systems distill ensembles into single CNNs or transformers. Speech and on-device NLP models use distilled students to meet battery and latency budgets. Modern LLM pipelines often use strong models to generate instruction data, critiques, or reasoning traces for smaller open models, though the exact recipe is usually proprietary and must be evaluated rather than assumed.`,
-        `It also pairs well with LoRA Fine-Tuning: a teacher can produce higher-quality task data, then a smaller or adapted student learns from it. Quantization can be applied afterward for another memory cut, while Structured Pruning and N:M Sparsity can remove or pack connections when the target kernels support the mask pattern.`,
+        'The first row is the teacher distribution for one cat image. Do not read only the largest cell. The smaller dog and fox probabilities are the lesson: they show which wrong answers the teacher considers plausible.',
+        'Use the control to compare soft labels with hard labels. In the soft-label path, the student learns a shaped distribution: cat high, dog next, fox next, unrelated classes near zero. In the hard-label path, the student is pushed toward a spike. It learns the answer but loses the teacher ranking among mistakes.',
+        'The epoch rows are not meant to be a full optimizer. They show the direction of training. With soft targets the student moves toward the teacher worldview; with hard labels it moves toward certainty without the teacher nuance.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'How it works',
       paragraphs: [
-        `Distillation does not create knowledge from nothing. A biased or hallucinating teacher trains a biased or hallucinating student. A weak student may mimic easy cases while losing rare skills, calibration, or safety behavior. Temperature is another sharp edge: T = 1 can hide useful dark knowledge; too high makes targets nearly uniform. Many implementations multiply the soft-target loss by T squared so gradient magnitudes stay comparable as temperature changes.`,
-        `Do not judge a distilled model only by average accuracy. Check tail cases, calibration, latency, memory, and robustness. Dropout and Regularization: L1 & L2 may still be needed because the student can overfit the teacher's artifacts, especially on small synthetic datasets.`,
+        'First choose or train a teacher. Then run training examples through the teacher and capture logits, probabilities, generated answers, hidden states, attention relations, or other signals depending on the distillation recipe. The student is trained with gradient descent to match those teacher signals.',
+        'For classification, the classic loss matches softened teacher probabilities. Softmax temperature matters: a temperature greater than 1 spreads probability mass so non-winning classes carry visible signal. Many implementations combine the distillation loss with the original hard-label loss so the student learns both the teacher distribution and the ground-truth class.',
+        'Distillation is not limited to final logits. Feature distillation matches hidden representations. TinyBERT and MiniLM distill transformer internals. Sequence-level distillation trains a language model on teacher-generated outputs. Reasoning distillation can train smaller models on traces or final answers produced by a stronger teacher, but those traces still need filtering and evaluation.',
       ],
     },
     {
-      heading: `Sources and concrete systems`,
+      heading: 'Why it works',
       paragraphs: [
-        `The canonical source is Hinton, Vinyals, and Dean, Distilling the Knowledge in a Neural Network: https://arxiv.org/abs/1503.02531. DistilBERT is the clean NLP reference for shrinking BERT while preserving most benchmark quality: https://arxiv.org/abs/1910.01108. TinyBERT extends distillation across transformer layers and attention structures: https://arxiv.org/abs/1909.10351.`,
-        `MiniLM focuses on distilling self-attention relation knowledge for smaller language models: https://arxiv.org/abs/2002.10957. DeepSeek-R1 makes the modern reasoning-model version visible by distilling samples from a stronger reasoning teacher into smaller Qwen and Llama based models: https://github.com/deepseek-ai/DeepSeek-R1.`,
+        'A hard label has one bit of semantic shape: the winner. A teacher distribution has a neighborhood. It can say that a tabby cat is closer to dog and fox than to car, or that two possible translations are both plausible while a third is ungrammatical. The student sees more information per example.',
+        'The student also benefits from the teacher smoothing away some dataset noise. If the original label is brittle or underspecified, the teacher distribution can be a better target than a rigid one-hot answer. That is not magic. It works only when the teacher is actually better calibrated or more knowledgeable for the task.',
+        'Capacity still matters. A tiny student cannot inherit every skill from a huge teacher. Distillation is a compression method, not a proof that the smaller model can represent the whole teacher.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Worked example',
       paragraphs: [
-        `Read Softmax & Temperature for softened targets, Neural Network Forward Pass for logits and hidden states, and Gradient Descent for the student update. Quantization, Structured Pruning and N:M Sparsity, LoRA Fine-Tuning, Speculative Decoding, and Early-Exit Transformer Layer Skipping show complementary efficiency tools, while Dropout and Regularization: L1 & L2 explain why a smaller student or shallow exit still needs generalization pressure.`,
+        'In the animation, the teacher sees a cat and predicts 78 percent cat, 13 percent dog, 6 percent fox, 2 percent car, and 1 percent tree. The hard label is simply 100 percent cat. Both targets agree on the winner, but they teach different lessons.',
+        'A student trained on the hard label is rewarded for moving all probability mass to cat. A student trained on the teacher distribution is rewarded for learning the ranking cat > dog > fox > car > tree. That ranking can improve generalization on ambiguous images because the student has learned a local map of the class space, not just the answer for one example.',
+        'The same pattern appears in language models. A teacher answer, critique, preference ranking, or reasoning trace can expose structure that the original dataset did not contain. The student may become cheaper to serve while preserving enough of the teacher behavior to be useful.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The student is cheaper at inference, but distillation adds training cost. Generating teacher logits, hidden states, synthetic answers, or reasoning traces can be expensive, especially when the teacher is a frontier-scale model or an ensemble.',
+        'Storage can also matter. Full probability distributions over large vocabularies are expensive to save, so systems may store logits for selected tokens, generate data on the fly, or distill from sampled outputs instead of full distributions.',
+        'The biggest tradeoff is fidelity versus efficiency. A smaller student may preserve average benchmark score while losing calibration, tail behavior, rare skills, refusal boundaries, or robustness under distribution shift. Compression should be measured on the deployment workload, not only on a headline benchmark.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'Distillation wins when the teacher is strong, the student has enough capacity, the training data covers the deployment distribution, and the target behavior is smooth enough to imitate. It is common in search ranking, vision ensembles, speech models, on-device NLP, and LLM instruction pipelines.',
+        'It fails when the teacher is wrong, biased, hallucinated, miscalibrated, or strong only on examples unlike the deployment workload. It can also fail quietly: the student may look good on easy cases while losing the rare behavior that justified the teacher in the first place.',
+        'It pairs well with other efficiency tools. Quantization changes numeric precision. Structured Pruning and N:M Sparsity change weight layout. LoRA Fine-Tuning adapts a model cheaply. Speculative Decoding uses a small model to draft tokens for a larger one. Distillation is different: it trains a cheaper model to imitate a more expensive source of behavior.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'The canonical source is Hinton, Vinyals, and Dean, Distilling the Knowledge in a Neural Network: https://arxiv.org/abs/1503.02531. DistilBERT is the clean NLP reference for shrinking BERT while preserving most benchmark quality: https://arxiv.org/abs/1910.01108. TinyBERT extends distillation across transformer layers and attention structures: https://arxiv.org/abs/1909.10351.',
+        'MiniLM focuses on distilling self-attention relation knowledge for smaller language models: https://arxiv.org/abs/2002.10957. DeepSeek-R1 makes a modern reasoning-model version visible by distilling samples from a stronger reasoning teacher into smaller Qwen and Llama based models: https://github.com/deepseek-ai/DeepSeek-R1.',
+        'Study Softmax & Temperature for softened targets, Neural Network Forward Pass for logits and hidden states, and Gradient Descent for the student update. Then compare Quantization, Structured Pruning and N:M Sparsity, LoRA Fine-Tuning, Speculative Decoding, and Early-Exit Transformer Layer Skipping as complementary efficiency tools.',
       ],
     },
   ],

@@ -223,29 +223,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The ABA problem happens when a compare-and-swap operation observes value A, another thread changes the value to B and then back to A, and the first thread incorrectly assumes nothing changed. In pointer-based lock-free structures, A is often an address that has been removed, freed, and reused.',
-        'Treiber-style stacks are the canonical teaching example. The stack top is manipulated by CAS. If top cycles back to the same address while a paused thread still holds an old snapshot, a CAS can succeed with a stale next pointer.',
+        'Compare-and-swap is the basic hardware primitive behind many lock-free stacks, queues, free lists, and handle tables. It asks whether a memory location still equals an expected value and, if so, replaces it. The dangerous shortcut is to treat equal bits as equal state.',
+        'ABA is the counterexample. A location can hold A, change to B, and later hold A again while a paused thread still has an old plan based on the first A. The CAS comparison sees the same value, but the history that made the plan valid has disappeared.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The failure in a Treiber stack',
       paragraphs: [
-        'T1 reads top = A and A.next = B, planning to pop A by CAS(top, A, B). T1 pauses. T2 pops A, pops B, and pushes A again. Now top is A, but B is no longer the correct next node. T1 resumes and CAS sees A, so it can install B as top and corrupt the stack.',
-        'The typical repair is to compare a stronger identity: pointer plus version tag. T1 reads A:v7. T2 operations advance the tag to A:v10. T1 CAS expects A:v7 and fails. Safe memory reclamation also matters because delaying address reuse prevents stale pointers from becoming valid-looking new objects.',
+        'A Treiber stack pop reads top = A and A.next = B, then plans CAS(top, A, B). That plan is valid only while A is still the current head and B is still the successor of A. If the stack changes, the plan must be recomputed.',
+        'Now pause that thread. Another thread pops A, pops B, and pushes A again. The top pointer is A again, so the paused CAS can succeed and install B as the new top even though B has already been removed. Depending on memory reuse, the result can be a lost node, a resurrected node, or a pointer into freed memory.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The bug is stale identity. In a pointer stack, A is an address. An address can be removed, freed, reused, and published again. Equal address bits do not prove equal abstract node identity or equal list structure.',
+        'The repair is two-part. Compare stronger identity, and control memory lifetime. A tagged pointer compares address plus version. Hazard pointers, epochs, reference counting, RCU-style grace periods, or garbage collection keep removed nodes from being recycled while old readers may still dereference them.',
+      ],
+    },
+    {
+      heading: 'Mechanics',
+      paragraphs: [
+        'A tagged stack stores top as a pair such as pointer A and version 7. Every successful push or pop that changes top increments the version. A CAS compares the whole pair, not just the address. If another thread cycles the address back to A, the pair becomes A with a later version, so the stale CAS fails.',
+        'The tag does not by itself make dereferencing safe. A paused thread may still hold a pointer to a node that another thread removed. Safe reclamation prevents that node from being freed or reused until no thread can still hold the old reference. Tagged identity and reclamation solve different halves of the same failure class.',
+      ],
+    },
+    {
+      heading: 'Invariants and proof shape',
+      paragraphs: [
+        'The intended stack invariant is that top names the first node of a well-formed linked list and each successful pop linearizes at the CAS that moves top from the observed node to its observed successor. ABA breaks that proof because the CAS may succeed against a head value that is numerically equal but no longer represents the observed list.',
+        'With a sufficiently wide tag, the linearization proof has a stronger comparison: top must still be the same pointer-version pair that the thread observed. If the pair changed, the operation retries. Reclamation adds the lifetime invariant: no node can be recycled while a concurrent operation may still read it through an old pointer.',
+      ],
+    },
+    {
+      heading: 'Costs and platform constraints',
+      paragraphs: [
+        'A pointer-version pair must be updated atomically. Some platforms provide a double-width CAS. Some designs use spare alignment bits or architecture-specific pointer tagging. Some avoid the pattern and choose primitives such as load-linked/store-conditional where available. The implementation is constrained by the hardware memory model and atomic width.',
+        'Reclamation has its own costs. Hazard pointers require publishing protected pointers and scanning them before freeing retired nodes. Epoch reclamation is often cheaper per operation but can delay memory recovery if a thread stalls inside an old epoch. Garbage-collected runtimes reduce reuse hazards but still need the stack algorithm to be linearizable.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'A narrow tag can wrap. If the pointer and tag pair repeats while an old operation is still live, ABA can return. That makes tag width a correctness parameter, not an aesthetic one. High-contention structures, small tags, and long-paused threads are a dangerous combination.',
+        'A tag also does not fix memory ordering, missing reclamation, or an incorrect stack algorithm. Loads of next pointers need the right acquire and release relationships around publication. A node that has been removed cannot be freed merely because top no longer points at it; another thread may still have the old snapshot.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Tagged identity works well for Treiber stacks, freelists, generation-indexed arenas, slot maps, and handle tables. In all of those structures, a location can be reused for a different abstract object, and a generation or version number helps stale users notice that reuse.',
+        'The idea is also useful pedagogically. It connects low-level atomics to linearizability: the successful CAS is only a valid linearization point if it proves that the operation is acting on the state it observed.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'A tagged pointer is not a complete lock-free design. If the platform cannot atomically compare the full pair, or if the tag space is too small for the reuse rate, the design may need a different primitive or a different structure. If memory reclamation is the main risk, hazard pointers or epochs are not optional add-ons.',
+        'It is also the wrong abstraction when blocking locks are acceptable and simpler. A mutex can be the better engineering choice when contention is low, the critical section is short, and the team does not need nonblocking progress guarantees.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the ABA-failure view, follow T1 rather than T2. T1 reads top A and successor B, then pauses. T2 changes the stack while T1 is not looking. The important frame is not that A returns to the top; it is that A returns without restoring the old A -> B -> C history that made T1 plan valid.',
+        'In the tagged-pointer view, compare A:v7 with A:v10. The address is the same, but the identity pair is different, so the stale CAS fails. Read the fix menu as a separation of concerns: tags detect logical cycles, while hazard pointers and epochs delay unsafe address reuse.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'A lock-free free-list allocator reuses nodes aggressively. Under load, one thread pauses after reading a head node and its successor. Another thread removes both nodes, recycles the first address for a different object, and pushes it back. The paused thread resumes and links the old successor into the list. A tagged head pointer catches the intervening modifications; hazard pointers or epochs prevent the old address from being reused while it is still hazardous.',
+        'A memory allocator uses a lock-free freelist to recycle fixed-size nodes. Under load, one thread reads the head and pauses. Other threads pop and return nodes quickly enough that the same address appears at the head again. A raw pointer CAS can accept the stale head and corrupt the freelist.',
+        'The repaired design stores head as pointer plus generation, increments the generation on every successful head update, and retires removed nodes through an epoch or hazard-pointer scheme. The CAS now proves that the head has not changed since the reader snapshot, and reclamation prevents stale readers from dereferencing freed memory.',
+      ],
+    },
+    {
+      heading: 'Broader pattern',
+      paragraphs: [
+        'ABA is not only a stack problem. Lock-free queues, freelists, work-stealing structures, RCU-published pointers, handle tables, and slot maps can all confuse reused storage with unchanged identity. The surface syntax changes, but the bug class is stale identity plus unsafe reuse.',
+        'Generation numbers in slot maps are the friendly version of the same idea. A handle is not just an index; it is an index plus generation. If the slot is freed and reused, the old handle no longer matches the new occupant. Tagged pointers bring that discipline to concurrent pointer updates.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Sources: Treiber stack is referenced in Rochester synchronization pseudocode at https://www.cs.rochester.edu/research/synchronization/pseudocode/duals.html and in the elimination-backoff stack paper at https://www.inf.ufsc.br/~dovicchi/pos-ed/pos/artigos/p206-hendler.pdf. Michael and Scott discuss pointer_t with count fields in their non-blocking queue paper: https://www.cs.rochester.edu/~scott/papers/1996_PODC_queues.pdf. Study Linearizability History Checker, Hazard Pointers & Epoch Reclamation, Generational Arena Slot Map, Lock-Free Queue, SharedArrayBuffer & Atomics, and Nonblocking Progress Guarantees next.',
+        'Sources: Treiber stack is referenced in Rochester synchronization pseudocode at https://www.cs.rochester.edu/research/synchronization/pseudocode/duals.html and in the elimination-backoff stack paper at https://www.inf.ufsc.br/~dovicchi/pos-ed/pos/artigos/p206-hendler.pdf. Michael and Scott discuss pointer_t with count fields in their non-blocking queue paper at https://www.cs.rochester.edu/~scott/papers/1996_PODC_queues.pdf.',
+        'Study Linearizability History Checker, Hazard Pointers and Epoch Reclamation, Generational Arena Slot Map, Lock-Free Queue, SharedArrayBuffer and Atomics, Nonblocking Progress Guarantees, and memory-order acquire/release rules next.',
       ],
     },
   ],

@@ -93,13 +93,13 @@ function* indexAndStorage() {
   yield {
     state: indexGraph('LightRAG indexes text as graph plus vectors'),
     highlight: { active: ['docs', 'chunks', 'extract', 'e-docs-chunks', 'e-docs-extract'], compare: ['vectors', 'graph'] },
-    explanation: 'LightRAG starts with ordinary documents, but it does not stop at chunk embeddings. It also extracts entities and relationships, then stores both vector-search artifacts and graph artifacts.',
+    explanation: 'LightRAG keeps two retrieval levels alive. It indexes ordinary chunks for semantic lookup, then extracts graph records so entity neighborhoods and relationship context can be retrieved too.',
   };
 
   yield {
     state: indexGraph('Entities and relationships become searchable objects'),
     highlight: { active: ['extract', 'entities', 'relations', 'graph', 'vectors', 'e-extract-entities', 'e-extract-relations', 'e-entities-graph', 'e-relations-graph', 'e-entities-vectors', 'e-relations-vectors'], found: ['chunks'] },
-    explanation: 'The graph is not just metadata attached to chunks. Entity records and relationship records can be embedded and retrieved, which gives the query path both semantic search and structural expansion.',
+    explanation: 'The graph records are searchable evidence objects, not decorative metadata. Entity and relationship records can be embedded, ranked, expanded, and traced back to source chunks.',
     invariant: 'Graph records must trace back to source chunks; otherwise graph RAG becomes unsupported synthesis.',
   };
 
@@ -124,7 +124,7 @@ function* indexAndStorage() {
       ],
     ),
     highlight: { active: ['kv:keeps', 'vector:keeps', 'graph:keeps', 'status:keeps'], removed: ['status:risk'] },
-    explanation: 'The official implementation separates storage concerns: key-value artifacts, vector indexes, graph storage, and document status. That split is a useful systems lesson even if a production team swaps backend technologies.',
+    explanation: 'The reference design separates storage concerns: key-value artifacts, vector indexes, graph storage, and document status. That split keeps provenance, retrieval, graph expansion, and freshness from becoming one hidden blob.',
   };
 
   yield {
@@ -144,7 +144,7 @@ function* queryModes() {
   yield {
     state: queryGraph('LightRAG exposes several retrieval modes'),
     highlight: { active: ['query', 'local', 'global', 'naive', 'e-query-local', 'e-query-global', 'e-query-naive'], compare: ['merge'] },
-    explanation: 'The query path can choose local graph retrieval, global graph retrieval, naive vector chunk retrieval, or a mixed mode that merges graph and chunk evidence.',
+    explanation: 'The query path chooses a retrieval contract before ranking context. Local mode starts near named entities, global mode searches for broader relation patterns, naive mode keeps flat chunk retrieval, and mixed mode reconciles graph and text evidence.',
   };
 
   yield {
@@ -170,7 +170,7 @@ function* queryModes() {
       ],
     ),
     highlight: { active: ['local:best for', 'global:best for', 'mix:best for'], compare: ['naive:watch'] },
-    explanation: 'Mode names matter because they expose retrieval intent. Local is for precise entity neighborhoods; global is for broader relationship context; mix keeps ordinary chunks in the loop.',
+    explanation: 'The mode labels describe what can fail. Local mode depends on entity extraction, global mode depends on relationship summaries, naive mode can miss structure, and mixed mode pays extra ranking and dedupe cost.',
   };
 
   yield {
@@ -214,44 +214,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'LightRAG is a graph-enhanced retrieval-augmented generation architecture. The central idea is to avoid the flat-chunk weakness of ordinary RAG without making every query depend on a heavyweight global summarization pipeline. It builds a knowledge graph from documents, keeps vector representations for chunks, entities, and relationships, and supports query modes that retrieve low-level and high-level knowledge.',
-        'The LightRAG paper describes the motivation as contextual fragmentation in existing RAG systems and proposes graph structures inside text indexing and retrieval. Its dual-level retrieval system is designed to recover both low-level entity detail and high-level relationship context: https://arxiv.org/abs/2410.05779. The arXiv HTML version is useful for reading the method flow: https://arxiv.org/html/2410.05779v1.',
+        'LightRAG exists because flat chunk-vector RAG is often too weak for relationship questions. A corpus is not only a pile of similar paragraphs. It contains people, products, clauses, drugs, bugs, events, claims, and links between them. A nearest-neighbor chunk search may find relevant words while missing the relation that makes those chunks belong together.',
+        'The problem is not that vector search is useless. It is useful and should stay in the system. The problem is that one representation has to answer too many questions: exact wording, entity lookup, relationship discovery, global themes, and source grounding. LightRAG adds a graph layer so retrieval can ask for local entity context, wider relationship context, flat chunks, or a mixed evidence set.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Obvious approach and wall',
       paragraphs: [
-        'Indexing starts with document parsing and chunking, then an LLM extracts entities and relationships. LightRAG stores text chunks, entity records, relationship records, vectors, graph structure, and document status. Query-time retrieval can use local graph neighborhoods, global relationship context, naive chunk retrieval, or a mixed mode that merges graph and chunk evidence. That makes the system a concrete Multi-Index RAG design, not just a vector database wrapper.',
-        'The open-source implementation describes LightRAG as a dual-level architecture that manages knowledge graphs and vector embeddings simultaneously: https://github.com/HKUDS/LightRAG. Its README documents storage roles for key-value artifacts, vector storage, graph storage, and document status storage, and describes local, global, hybrid, naive, and mix query modes: https://raw.githubusercontent.com/HKUDS/LightRAG/main/README.md.',
+        'The obvious approach is standard RAG: split documents into chunks, embed each chunk, retrieve the nearest vectors, and pass those chunks to the model. That baseline is simple, cheap to explain, and strong for many direct questions. It is also easy to debug because every retrieved item is a source passage.',
+        'The wall appears when the answer is distributed. A question may refer to an entity by alias, ask for a cross-document pattern, or depend on a relationship that no single chunk states cleanly. The retriever can return five good snippets while still failing to show how the snippets connect. More chunks can make the prompt longer without making the relation clearer.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'LightRAG reduces some query-time fragmentation by adding structure at index time. The cost is extraction, entity resolution, relationship construction, vector indexing, graph storage, document-status tracking, and incremental maintenance. The paper emphasizes incremental updates because a graph/vector index that cannot absorb new documents becomes stale quickly in legal, finance, healthcare, and enterprise-document settings.',
-        'The project page frames LightRAG as a simple and fast RAG framework that integrates graph structures with vector representations: https://lightrag.github.io/. The Findings/EMNLP-hosted PDF also states the open-source availability and summarizes the incremental update goal: https://aclanthology.org/2025.findings-emnlp.568.pdf.',
+        'The core insight is that graph records and vector records should be peers. The graph records capture extracted entities and relationships. The vector records preserve semantic lookup over chunks, entities, and relationships. A query can begin in one layer, expand through the other, and merge the results into a grounded context pack.',
+        'The invariant is provenance. Every entity, relationship, embedding, and graph edge must trace back to source chunks. The graph layer is derived evidence, not truth by itself. If that trace is missing, graph retrieval can turn an extraction mistake into a confident answer.',
       ],
     },
     {
-      heading: 'Complete case study: contract intelligence assistant',
+      heading: 'Indexing mechanism',
       paragraphs: [
-        'A contract assistant has to answer both exact and relational questions. "What is the termination notice period in the Acme MSA?" is a local query anchored on one agreement and one clause. "Which vendors have termination rights tied to data-processing violations?" is a global relationship query across vendors, clauses, obligations, and breach events. Flat chunk retrieval may find isolated snippets but miss the relationship pattern.',
-        'A LightRAG-style design indexes contract chunks, extracts entities such as vendor, contract, obligation, clause, event, and jurisdiction, extracts relationships such as has_obligation, governed_by, terminates_on, and supersedes, embeds both text and graph artifacts, and uses mixed retrieval for final answers. Cross-Encoder Reranker can rerank the final evidence. Zanzibar Authorization Case Study is required because contract visibility is permissioned. RAG Evaluation should score local factuality, global relationship recall, citation support, and freshness separately.',
+        'Indexing starts with documents and keeps exact chunks available. The system then extracts entities and relationships from those chunks. Entities become graph nodes. Relationships become graph edges. Chunks, entities, and relationships can all receive vector representations so they can be ranked by semantic similarity as well as reached by graph traversal.',
+        'The storage layout usually separates concerns. Key-value storage keeps chunks and extracted artifacts. Vector storage indexes embeddings. Graph storage keeps nodes and edges. Document-status storage records ingest progress, failures, and freshness. That separation matters because retrieval, provenance, graph expansion, and incremental update state have different access patterns.',
+        'Incremental update is part of the mechanism, not a side feature. A changing corpus needs to know which chunks are new, which extracted records changed, which vectors are stale, which graph edges should be retired, and which document version a query is allowed to cite.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Query mechanism',
       paragraphs: [
-        'Do not treat extracted graph records as ground truth. They are model-produced index artifacts and need source links, confidence, and audit trails. Do not let graph expansion bypass authorization filters. Do not assume graph retrieval always beats flat retrieval; exact identifiers, code symbols, and short factual lookups may still prefer lexical or chunk-vector search. Do not hide query mode choice from evaluation because local, global, naive, hybrid, and mix modes fail differently.',
-        'LightRAG is also not the same as GraphRAG or RAPTOR. GraphRAG emphasizes community summaries for local-to-global query-focused summarization. RAPTOR builds a recursive summary tree. LightRAG emphasizes graph/vector dual-level retrieval and incremental update mechanics. In practice, a mature RAG platform may borrow ideas from all three, but it must preserve provenance and evaluate each layer.',
+        'Query time begins by choosing a retrieval mode. Local mode is for questions anchored on specific entities. Global mode is for broader questions about themes or relationships across the corpus. Naive mode keeps direct chunk-vector search. Hybrid or mixed modes combine graph context with raw text chunks.',
+        'The merge step is where the design becomes a system. Graph retrieval can surface a relationship path, but raw chunks still carry exact wording and citations. Vector search can find a semantically close passage, but graph expansion can reveal the neighboring entity that the passage implies. The answer path has to deduplicate, rank, trim, and cite context from both layers.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: LightRAG paper at https://arxiv.org/abs/2410.05779, arXiv HTML at https://arxiv.org/html/2410.05779v1, official repository at https://github.com/HKUDS/LightRAG, raw README at https://raw.githubusercontent.com/HKUDS/LightRAG/main/README.md, project page at https://lightrag.github.io/, ACL-hosted PDF at https://aclanthology.org/2025.findings-emnlp.568.pdf, and OpenReview PDF at https://openreview.net/pdf?id=bbVH40jy7f. Study RAG Pipeline, Query Expansion: HyDE and RAG-Fusion, Multi-Index RAG, GraphRAG Community Summary Case Study, RAPTOR Hierarchical Retrieval Case Study, Embeddings & Similarity, HNSW, Reciprocal Rank Fusion, Cross-Encoder Reranker, RAG Evaluation, and Zanzibar Authorization Case Study next.',
+        'LightRAG works when the graph supplies a better search surface than chunks alone. Entity extraction can join scattered mentions under one node. Relationship extraction can expose a link that was spread across several passages. Vector retrieval still catches semantic matches when extraction is incomplete or when the query is really about wording.',
+        'The correctness argument is a grounding argument. The system is not proving that the extracted graph is correct. It is making retrieval safer by keeping derived records tied to source chunks, then using the original text as answer evidence. A graph edge can suggest where to look; the cited source has to support the final claim.',
+        'Mixed retrieval also reduces single-index blind spots. If vector search misses the right paragraph, graph expansion may reach it through an entity. If graph extraction misses a relationship, chunk search can still retrieve exact text. The system is stronger when failure in one layer does not silently decide the whole answer.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The cost starts at indexing. Entity extraction, relationship extraction, alias resolution, graph writes, vector writes, freshness tracking, and provenance storage all add work before the first query improves. The system is slower to build than flat RAG and has more ways to drift out of sync.',
+        'Query latency can rise too. Graph expansion may pull too much context. Mixed retrieval needs deduplication and reranking. Authorization filters must apply before expansion and again before answer assembly, because a hidden document should not leak through an entity neighborhood.',
+        'Evaluation is also harder. Local entity recall, global relationship recall, citation precision, answer faithfulness, freshness, and latency can move in different directions. A single average answer score can hide the fact that one retrieval mode improved while another got worse.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'LightRAG-style retrieval wins in corpora where relationships matter: legal contracts, policy manuals, biomedical papers, security reports, research archives, enterprise wikis, and product documentation. It helps when users ask both local factual questions and broad pattern questions over the same material.',
+        'A contract assistant is a concrete case study. What is the termination notice period in one agreement is a local question. Which vendors have termination rights tied to data-processing violations is a relationship question. A graph-plus-vector design can index clauses as chunks, vendors and obligations as entities, rights and dependencies as relationships, and cited text as final evidence.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'The biggest failure mode is treating extracted graph records as facts. They are model-produced index artifacts and can be wrong. They need source links, confidence, versioning, and audit trails. A graph without provenance is a hallucination amplifier.',
+        'A second limit is corpus shape. Exact identifiers, code symbols, short facts, and direct quotes may prefer lexical search or ordinary chunk retrieval. A small stable corpus may not justify graph extraction at all. A noisy corpus with weak entity resolution can create duplicate nodes and misleading edges.',
+        'A third failure mode is hidden staleness. If updated documents do not retire old chunks, vectors, and graph edges together, retrieval can mix incompatible versions. That is worse than a simple miss because the answer can look well supported while citing stale context.',
+      ],
+    },
+    {
+      heading: 'Practical guidance',
+      paragraphs: [
+        'Start with a strong flat RAG baseline and add graph retrieval only for questions that the baseline cannot answer well. Write separate eval sets for entity-local questions, relationship questions, direct quote questions, and freshness-sensitive questions. Do not let a graph demo replace mode-specific measurement.',
+        'Keep the source chain visible in the data model. Store document id, chunk id, extraction prompt or parser version, extracted record id, edge id, embedding version, and ingest status. When a cited answer is wrong, operators need to find whether the failure came from extraction, retrieval, merging, ranking, or generation.',
+        'Treat permissions as part of retrieval. Filter candidate chunks, entities, and relationships by the caller before graph expansion can cross into protected material. Post-filtering only the final chunks is too late if the graph path already revealed a hidden fact.',
+      ],
+    },
+    {
+      heading: 'What the visual shows',
+      paragraphs: [
+        'The indexing view shows the artifact pipeline. Documents split into chunks. Extraction creates entity and relationship records. Those records and chunks become searchable through both graph and vector stores. The document-status record is the guard against querying partial or stale artifacts.',
+        'The query-mode view shows why mode choice matters. Local graph retrieval helps entity questions. Global graph retrieval helps relationship questions. Naive chunk retrieval preserves exact source wording. Mixed retrieval is often the practical route because useful answers need both structure and text evidence.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: LightRAG paper at https://arxiv.org/abs/2410.05779, arXiv HTML at https://arxiv.org/html/2410.05779v1, official repository at https://github.com/HKUDS/LightRAG, project page at https://lightrag.github.io/, ACL PDF at https://aclanthology.org/2025.findings-emnlp.568.pdf, and OpenReview PDF at https://openreview.net/pdf?id=bbVH40jy7f.',
+        'Study RAG Pipeline for the flat baseline, Query Expansion with HyDE and RAG-Fusion for retrieval repair, GraphRAG Community Summary Case Study and RAPTOR Hierarchical Retrieval Case Study for neighboring graph and hierarchy designs, Embeddings and Similarity plus HNSW for vector search, Reciprocal Rank Fusion and Cross-Encoder Reranker for merging, RAG Evaluation for measurement, and Zanzibar Authorization Case Study for permission-aware retrieval.',
       ],
     },
   ],

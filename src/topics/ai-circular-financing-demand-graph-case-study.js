@@ -240,51 +240,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An AI circular financing demand graph is a way to analyze market structure without collapsing everything into a single label. The local corpus frames the controversy well: vendor financing, committed compute, customer concentration, and synthetic-looking demand can resemble a bubble, but the infrastructure may still be durable if real workloads and payback emerge.',
-        'The graph separates chip supply, AI cloud capacity, lab commitments, application adoption, end-customer ROI, revenue recognition, remaining obligations, financing, and lock-in. Each edge is evidence to verify, not a vibe to accept.',
+        'AI infrastructure markets are full of loops. A chip vendor sells accelerators to a cloud. The cloud sells reserved capacity to a model lab. The lab sells API access to applications. The applications sell AI features to end users. Cash, contracts, vendor credit, and equity financing then flow back toward the next hardware order.',
+        'That loop can be a healthy industrial buildout, a fragile capital cycle, or a mixture of both. A circular financing demand graph exists to keep those cases separate. It turns a vague debate about bubbles into a set of edges that can be checked: who paid, who borrowed, who committed, who consumed capacity, and who got real value from the workload.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The graph starts with a chip vendor and a cloud capacity buyer. It then follows reserved GPU capacity into labs and applications, then follows user demand and cash back through contracts and financing. Claim Graph Source Ledger provides the evidence discipline: every major edge should point to a filing, contract disclosure, usage metric, customer cohort, or financial statement.',
-        'AI Capex Depreciation Utilization Ledger explains the asset pressure inside a participant. GPU Cloud Capacity Reservation Orderbook explains the reservation and take-or-pay layer. Inference ROI Payback Cohort Ledger explains the product proof layer. Together they keep the capital story connected to actual workloads.',
+        'The obvious approach is to read headline revenue, backlog, and capex as if they were one signal. Revenue goes up, so demand must be real. Backlog grows, so future revenue must be safe. Capex rises, so management must see demand. That is too coarse for a looped market.',
+        'The wall is timing. Hardware revenue can be recognized before the buyer has end-user ROI. Remaining performance obligations can be large while cancellation, concentration, or refinancing risk remains. A signed capacity contract can be rational for one party and still depend on future product adoption by another party. One metric cannot carry the whole story.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Circularity is not automatically fraud. Industrial buildouts often use capital loops, long-term commitments, vendor financing, and standard-setting before demand fully matures. The risk is timing and concentration: if capital commitments outrun useful demand, the graph has to contract through idle capacity, price pressure, refinancing, consolidation, or write-downs.',
-        'The model is also path-dependent. A tight loop can make a hardware and software stack the default before alternatives mature. That can create real productivity and ecosystem benefits. It can also create brittle dependence if the loop is financed by a few counterparties and weak end-customer ROI.',
+        'The core insight is to model demand as a directed evidence graph instead of a moral verdict. A loop is not automatically fake. Vendor financing is not automatically bad. Long-term capacity commitments are not automatically proof of durable demand. Each edge needs its own proof object.',
+        'The graph separates four questions that often get blended together: Is the asset real? Is the contract enforceable? Is the capacity being used? Is the end user earning enough value to fund the next cycle without fresh subsidy?',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'How the graph works',
       paragraphs: [
-        'NVIDIA fiscal 2026 reporting provides the hardware-side scale signal, including record revenue and record data-center revenue: https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-fourth-quarter-and-fiscal-2026. NVIDIA 10-K risk and accounting disclosures are useful for grounding depreciation, supply, demand, and segment context: https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm.',
-        'CoreWeave filings provide the AI-cloud capacity side: committed contracts, take-or-pay capacity reservations, capital expenditure requirements, debt, and customer concentration risks. See the S-1 at https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm and the FY25 10-K at https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf.',
+        'Start with the capital loop. Chips become cloud capacity. Cloud capacity becomes model training or inference commitments. Model access becomes application features. Application features either create customer ROI or they do not. Customer cash then supports revenue recognition, debt service, new reservations, and new hardware orders.',
+        'Then cut the loop into evidence rows. For the chip vendor, look for shipment volume, customer concentration, payment terms, receivables, and supply commitments. For the cloud, look for reserved capacity, utilization, debt service, customer mix, and depreciation. For the model lab, look for compute burn, gross margin, API usage, and contract duration. For the application, look for retention, workflow savings, paid seats, and churn.',
+        'The ledger node in the animation is not decorative. It is the discipline that prevents a single press release from becoming the whole analysis. Every edge should be tied to a filing, contract term, invoice, usage cohort, capacity metric, or product outcome.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'An investor can use this graph to separate revenue, backlog, utilization, and ROI instead of treating them as one number. A platform leader can use it to ask whether a capacity reservation is matched by product demand. A product leader can use it to identify which AI features are generating payback rather than only consuming reserved compute.',
-        'A researcher can also use the graph to study standardization. Capital loops can make an ecosystem stronger when they finance common tooling, model serving practices, developer adoption, and performance learning curves. The same loops become risky when all demand evidence points back to the same financing circle.',
+        'It works because circular financing risk is a graph property. A loop is healthy when many independent end users pull useful work through the chain, cash conversion improves, and replacement demand appears without relying on the same financing circle. It is fragile when the same few counterparties create the revenue, provide the financing, absorb the capacity, and justify the next order.',
+        'The graph also exposes timing mismatches. The chip shipment happens now. The cloud depreciation runs for years. The lab commitment may be take-or-pay. The application ROI may appear slowly, unevenly, or not at all. A good analysis follows those clocks instead of treating all dollars as equivalent.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Do not call every circular deal fake demand. Do not call every signed contract proof of end-user ROI. Do not compare a chip vendor, an AI cloud, a model lab, and an enterprise app with one metric. Each layer has different timing, risk, and proof.',
-        'Do not ignore survivorship of infrastructure. Even if valuations reset, the physical and software infrastructure can keep producing value if workloads remain. The question is not only whether prices correct. It is which graph edges survive a correction.',
+        'In the capital-loop view, read each edge as a separate claim. GPU shipments are not the same thing as cloud utilization. Cloud reservations are not the same thing as profitable model usage. Model API calls are not the same thing as end-customer ROI. The important question after each frame is which proof object would make that edge believable.',
+        'In the risk-cuts view, the animation changes from a loop to a checklist. Revenue, RPO, capex, usage, ROI, debt, and lock-in can each tell a different story. The strongest case has many green edges from independent evidence. The weakest case has impressive top-line numbers but thin or circular proof at the user, cash, and refinancing edges.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked example: a capacity loop under stress',
       paragraphs: [
-        'Primary sources: NVIDIA FY2026 results at https://nvidianews.nvidia.com/news/nvidia-announces-financial-results-for-fourth-quarter-and-fiscal-2026, NVIDIA FY2026 10-K at https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm, CoreWeave S-1 at https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm, CoreWeave FY25 10-K at https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf, AWS capacity reservations at https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-reservations.html, and Azure capacity reservations at https://learn.microsoft.com/en-us/azure/virtual-machines/capacity-reservation-overview. Study Claim Graph Source Ledger, AI Capex Depreciation Utilization Ledger, GPU Cloud Capacity Reservation Orderbook Case Study, Inference ROI Payback Cohort Ledger Case Study, LLM Unit Economics Ledger Case Study, Software Supply Chain Provenance Graph, and Evidence Freshness Refresh Scheduler Case Study next.',
+        'Suppose ChipCo extends favorable payment terms to CloudCo on a large accelerator order. CloudCo signs a three-year capacity reservation with LabCo. LabCo uses the cluster to train a model and sell inference to AppCo. AppCo launches support automation for enterprises.',
+        'The loop looks strong if you stop at contracted dollars. The graph asks harder questions. How much of CloudCo capacity is actually allocated to paying workloads? How much LabCo API revenue comes from independent customers rather than promotional credits? Does AppCo reduce support cost enough to renew at full price? Can CloudCo service debt if spot GPU prices fall or LabCo slows usage?',
+        'Now stress the loop. If AppCo customers renew and expand, end-user ROI pulls cash through the chain and the circular financing becomes a bridge to real demand. If AppCo churns, LabCo usage softens, CloudCo utilization falls, and ChipCo has to support another financing round to preserve the order book, the same graph turns into a fragility map.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The graph is more work than a headline multiple. It needs entity resolution, contract reading, source quality checks, and repeated updates as new filings and usage data arrive. Some edges will stay uncertain because private contracts and customer cohorts are not fully disclosed.',
+        'The tradeoff is worth it when capital intensity is high. A small mistake about utilization, customer concentration, or refinancing can dominate the entire thesis. The graph makes uncertainty visible instead of hiding it inside one bullish or bearish label.',
+        'The output should carry confidence by edge. A shipped accelerator with payment terms from a filing is stronger evidence than a management quote about future utilization. Mixing those evidence grades without labels is how circular stories become either hype or cynicism.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins for market reviews, board risk memos, infrastructure investment diligence, vendor concentration analysis, and product ROI checks. It is especially useful when the same companies appear as suppliers, customers, investors, lenders, and strategic partners.',
+        'It also helps operators. A cloud team can use the graph to decide whether to reserve more GPUs. A product team can use it to decide whether an AI feature pays for its inference cost. A finance team can use it to separate durable demand from capital-cycle pressure.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The graph fails when the evidence is stale, private, or too aggregated. It can show that an edge needs proof, but it cannot invent proof. It also cannot predict model quality, regulatory shocks, hardware supply, or user adoption from structure alone.',
+        'It also fails if it becomes a slogan in the other direction. Calling a loop circular is not the same as proving it is unsound. The output should be a watchlist of fragile edges, not a shortcut around evidence.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Claim Graph Source Ledger for source discipline, AI Capex Depreciation Utilization Ledger for asset pressure, GPU Cloud Capacity Reservation Orderbook Case Study for reserved capacity, LLM Unit Economics Ledger Case Study for workload cost, Evidence Freshness Refresh Scheduler Case Study for keeping claims current, and Software Supply Chain Provenance Graph for proof chains in another domain.',
       ],
     },
   ],

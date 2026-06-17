@@ -357,52 +357,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Early-exit transformer inference is adaptive computation for language models. Instead of forcing every generated token through every layer, the model exposes intermediate predictions and a confidence gate decides whether the token can commit early. Easy continuations skip later layers; hard or risky continuations keep going.',
-        'This connects four ideas already in the graph: Transformer Inference Roofline explains why decode is expensive, Calibration Curves explain why confidence must be tested, Knowledge Distillation explains how shallow exits can be trained to imitate deeper predictions, and Speculative Decoding explains why a draft can be verified instead of blindly trusted.',
+        'Transformer decoding normally spends the full stack of layers on every generated token. That is simple, but it treats a comma, a stock phrase, a code identifier, and a disputed factual answer as equally hard. Early-exit inference asks whether some tokens can stop after a shallower layer without paying for the rest of the model.',
+        'There are two deployment shapes. In confidence-gated early exit, an intermediate prediction is accepted when a calibrated gate says the risk is low enough. In self-speculative decoding, early layers draft tokens and later layers verify or repair them, so the shortcut is protected by the same model path that would have generated the full-depth answer.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The runtime needs an exit table keyed by layer, position, model route, and risk class; a confidence buffer holding intermediate logits, entropy, margin, or hidden-state stability; reusable KV state so deeper layers can resume; and a telemetry ledger with exit rates, accepted-token rates, fallback rates, p99, and quality slices.',
-        'The gate is a policy object, not a single if statement. It can require higher thresholds for the first tokens in a sequence, disable exits for high-risk routes, decay thresholds as a generation becomes stable, or force a full pass when drift detectors or canary slices fail.',
+        'The obvious speedup is to use a smaller model, truncate the model at a fixed layer, or add a separate draft model. Each works for some workloads. Each gives up a different property. A smaller or truncated model changes all tokens, including the hard ones. A separate draft model adds memory, scheduling, and consistency work.',
+        'The wall is uneven token difficulty. A global shortcut wastes quality on hard tokens and wastes compute on easy ones. The runtime needs a per-token decision, and that decision must either be calibrated well enough to trust or verified by a deeper pass.',
       ],
     },
     {
-      heading: 'Case study: CALM',
+      heading: 'Core idea',
       paragraphs: [
-        'Confident Adaptive Language Modeling (CALM) frames early exit as a calibrated sequence-level decision. Google Research describes the key move: local per-token exits are allowed only when calibrated thresholds satisfy user-chosen consistency constraints over the whole generated text. That matters because a local token mismatch can be harmless in one sentence and damaging in another.',
-        'CALM explores confidence measures such as maximum softmax probability, state propagation, and a small exit classifier, then calibrates thresholds so the accelerated model preserves global quality with high probability. The paper reports potential speedups up to 3x, and the Google Research post describes using only a third or half of decoder layers on average while maintaining quality on evaluated tasks.',
+        'The core move is to turn depth into a conditional resource. Intermediate layers produce enough signal for some tokens. A gate reads that signal, usually from logits, entropy, margin, hidden-state stability, or an exit classifier, and decides whether the token should stop or continue.',
+        'The invariant depends on the mode. In pure early exit, a token exits only when the confidence policy says the expected quality loss is inside budget for that route and slice. In self-speculation, accepted tokens must match the verifier, and rejected tokens fall back to deeper computation. The first mode is a calibrated risk tradeoff. The second mode is a draft-and-check protocol.',
       ],
     },
     {
-      heading: 'Case study: DeeBERT and FastBERT',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'DeeBERT is an older but useful classifier-style template: add exits to intermediate BERT layers and use entropy thresholds so easy examples stop early. The authors report up to about 40 percent inference-time savings with minimal quality loss on evaluated downstream tasks.',
-        'FastBERT adds self-distillation and tunable adaptive inference. It trains intermediate classifiers to mimic the final classifier, then lets deployment choose a speed-quality threshold. ACL Anthology summarizes the result as speed-tunable BERT with reported speedups from 1x to 12x depending on the threshold. The lesson is still relevant: shallow exits need training pressure, not just a confidence check bolted onto an ordinary model.',
+        'In the exit-gates view, the first matrix is a routing table. Rows such as punctuation, stock phrases, facts, code, and ambiguity are not labels for a classifier; they are reminders that traffic slices carry different risk. A high-margin row can exit early. A low-margin or uncertain row must keep its depth.',
+        'The confidence plot shows why the threshold matters. The easy-token curve crosses the gate near the shallow layer, so later layers would mostly repeat the same decision. The hard-token curve stays below the gate until much later, so stopping early would be a guess. The gate graph then shows the runtime boundary: layers produce logits, the gate commits or refuses, and telemetry records why.',
+        'In the self-verify view, follow the draft path first and the verification path second. The early layers are not trusted blindly. They propose a short run of tokens; the later layers accept the longest matching prefix and repair at the first mismatch. The scheduler frames matter because this shortcut can help average latency while still hurting p99 if draft and verify batches fragment.',
       ],
     },
     {
-      heading: 'Case study: LayerSkip',
+      heading: 'How it works',
       paragraphs: [
-        'LayerSkip modernizes early exit for decoder-only LLM serving. The training recipe combines progressive layer dropout with early-exit loss so intermediate layers become usable for token prediction. At inference time, early layers draft tokens and later layers verify or correct them, reusing the same model instead of loading a separate draft model.',
-        'The ACL 2024 paper reports speedups up to 2.16x on CNN/DM summarization, 1.82x on coding, and 2.0x on TOPv2 semantic parsing. The official repository and Hugging Face integration show the production shape: one model, an early-exit layer, shared weights, shared KV cache, and a verification path that protects exactness when the draft diverges.',
+        'Training usually adds pressure for intermediate layers to become predictive. Older classifier systems such as DeeBERT add off-ramps after BERT layers. FastBERT uses self-distillation so intermediate classifiers learn from the final classifier. LayerSkip trains decoder-only models with layer dropout and an early-exit loss while sharing the same exit head across layers.',
+        'Serving keeps several small data structures around the model. An exit table stores which layers may exit and what threshold applies. A confidence buffer stores intermediate scores. KV state lets deeper layers continue without discarding the prefix work. A policy object can disable early exits for risky routes, raise thresholds for first tokens, or force full-depth inference during drift.',
+        'Self-speculative decoding adds an accept map. Early layers draft one or more tokens. The verifier runs deeper layers over that draft and compares predicted tokens. If the verifier agrees for three tokens, the stream advances by three. If it disagrees at token two, token one may be accepted, token two is repaired, and the runtime resumes from the verified prefix.',
       ],
     },
     {
-      heading: 'Production pitfalls',
+      heading: 'Why it works',
       paragraphs: [
-        'The largest mistake is treating confidence as truth. Intermediate logits are often miscalibrated, and a threshold that works on a clean benchmark can fail on rare domains, code, adversarial prompts, or long-tail languages. Use Calibration Curves, Threshold Optimization, and Uncertainty Quantification before allowing a shortcut to affect user-visible text.',
-        'The second mistake is optimizing average latency while damaging the serving stack. Early-exit paths can fragment continuous batches, churn KV blocks, reduce prefix-cache reuse, or create fallback bursts that worsen p99. The correct metric is accepted tokens per expensive pass at the target quality and tail-latency budget, not simply the fraction of tokens that exited early.',
+        'Early exit works only when intermediate predictions are informative and the gate respects uncertainty. CALM is useful because it connects local token exits to sequence-level constraints: the runtime is not allowed to treat a confident-looking local score as enough when the whole generation can drift.',
+        'Self-speculation works for a different reason. It does not claim the draft is always right. It amortizes verification by checking several proposed tokens in a deeper pass, then accepting only the prefix that the verifier supports. The speedup comes from accepted draft tokens per expensive verification pass, not from pretending the shallow layer is the full model.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose the prefix is "The HTTP status code was". A shallow layer may assign a large margin to "200" in a normal web-monitoring summary. If the route is low risk and the calibration slice has held up, the gate can emit after layer 8 instead of layer 32.',
+        'Now change the prefix to "The failing line in the exploit was". The same shallow score is less trustworthy because the next token may be code, a quote, or a security-sensitive detail. A conservative policy sends that token deeper. In self-speculation, the early layer might draft "caused by", but the verifier can reject it and force the full path to continue.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The best case saves a fraction of layer compute on many decode tokens. If half the tokens exit halfway through the model, the layer work drops roughly by a quarter before overheads. Real speed depends on batch shape, memory bandwidth, KV-cache layout, exit-head cost, verification acceptance rate, and how the serving engine schedules mixed-depth requests.',
+        'Higher thresholds improve quality but reduce exits. Lower thresholds improve average speed but increase quality risk and fallback churn. In self-speculation, very early exits are cheap but inaccurate; late exits are accurate but save little. The useful point is usually a measured knee, not the largest possible exit rate.',
+        'Reported speedups are workload-specific. CALM reports potential generation speedups around 3x under its evaluated settings. LayerSkip reports up to 2.16x on CNN/DailyMail summarization, 1.82x on coding, and 2.0x on TOPv2 semantic parsing. Those numbers are evidence that the idea can work, not a promise for an arbitrary model or traffic mix.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Early exit fits high-volume generation with many easy local decisions: summarization boilerplate, autocomplete, templated support text, low-risk assistant chatter, or domains where a trained model has strong intermediate-layer agreement. It also fits systems that can route by risk, such as fast mode for drafts and full-depth mode for final answers.',
+        'Self-speculation is attractive when carrying a separate draft model is operationally expensive. One model can draft and verify, share weights, reuse cache state, and avoid loading a second set of parameters. That matters when memory, deployment complexity, and model-version skew dominate the serving budget.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The main failure mode is miscalibration. A threshold that works on a clean benchmark can fail on code, math, rare languages, adversarial prompts, new product names, long contexts, or safety-sensitive routes. Confidence is a measurement, not a guarantee.',
+        'The second failure mode is serving-stack damage. Mixed exit depths can split continuous batches, churn paged KV blocks, reduce prefix-cache reuse, or create fallback bursts that worsen tail latency. The right metric is accepted tokens per expensive pass at the required quality and p99 budget.',
+        'Do not use unverified early exit when exact full-model behavior is required. Use self-speculative verification, full-depth fallback, or no shortcut. For high-stakes answers, the product contract should decide the shortcut policy, not the model score alone.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: LayerSkip at https://aclanthology.org/2024.acl-long.681/, the official LayerSkip code at https://github.com/facebookresearch/LayerSkip, Hugging Face self-speculative decoding notes at https://huggingface.co/blog/layerskip, CALM at https://arxiv.org/abs/2207.07061 and https://research.google/blog/accelerating-text-generation-with-confident-adaptive-language-modeling-calm/, DeeBERT at https://arxiv.org/abs/2004.12993, and FastBERT at https://aclanthology.org/2020.acl-main.537/.',
-        'Study Adaptive Computation Time Halting, Transformer Inference Roofline, KV Cache, Speculative Decoding, Multi-Token Decoding, Mixture-of-Depths Token Routing, Knowledge Distillation, Calibration Curves, Threshold Optimization, Uncertainty Quantification, LLM Continuous Batching, LLM Serving: PagedAttention, Prefix Caching with RadixAttention, and LLM Inference Scaling Playbook next.',
+        'Primary sources: LayerSkip ACL 2024 at https://aclanthology.org/2024.acl-long.681/, the official LayerSkip repository at https://github.com/facebookresearch/LayerSkip, Hugging Face self-speculative decoding notes at https://huggingface.co/blog/layerskip, CALM at https://arxiv.org/abs/2207.07061 and https://research.google/blog/accelerating-text-generation-with-confident-adaptive-language-modeling-calm/, DeeBERT at https://arxiv.org/abs/2004.12993, and FastBERT at https://aclanthology.org/2020.acl-main.537/.',
+        'Study Transformer Inference Roofline for why decode is expensive, KV Cache for the state that makes continuation possible, Speculative Decoding for draft-and-verify mechanics, Calibration Curves and Threshold Optimization for gate safety, Knowledge Distillation for shallow-head training, and LLM Continuous Batching plus PagedAttention for the serving interactions.',
       ],
     },
   ],

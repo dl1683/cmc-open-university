@@ -76,13 +76,13 @@ function* routeTree() {
       ['pager', 'dup'],
     ]),
     highlight: { active: ['root:key', 'sev:key', 'team:key', 'recv:key'], compare: ['svc:risk'] },
-    explanation: 'Routing is tree matching over labels. A root route catches everything, child routes match labels such as severity, service, team, region, or environment, and receivers define where notifications go.',
+    explanation: 'Routing is tree matching over labels. The root route provides a safe default, and child routes specialize by severity, service, team, region, or environment so one label set maps to the right receiver without per-alert code.',
     invariant: 'Alert labels are the routing keyspace; bad labels create bad pages.',
   };
   yield {
     state: alertGraph('Grouping keys collapse related alerts into one notification', { group: 'svc+alert', recv: 'team', notify: 'batch' }),
     highlight: { active: ['alert', 'group', 'recv', 'notify', 'e-alert-group', 'e-group-recv', 'e-recv-notify'], found: ['route'] },
-    explanation: 'Grouping prevents a failing service from sending a separate page for every instance, pod, or shard. The group key should keep one incident together without hiding distinct incidents.',
+    explanation: 'Grouping makes an equivalence class over alerts. A good group key keeps one incident together, such as one service outage, without merging unrelated failures that need different responders.',
   };
   yield {
     state: labelMatrix('Case', [
@@ -131,7 +131,7 @@ function* noiseControl() {
   yield {
     state: alertGraph('Inhibition suppresses downstream symptoms while root cause is active', { inhibit: 'root', recv: 'less noise', notify: 'root page' }),
     highlight: { active: ['alert', 'inhibit', 'recv', 'notify', 'e-inhibit-recv', 'e-recv-notify'], found: ['group'] },
-    explanation: 'Inhibition rules mute target alerts when a source alert is firing and equal labels match. This is useful when one root-cause alert explains many symptom alerts.',
+    explanation: 'Inhibition rules mute target alerts only while a source alert is firing and the required equal labels match. The equal-label check is the guard that stops a root-cause rule from muting unrelated incidents.',
   };
   yield {
     state: labelMatrix('Timer', [
@@ -162,23 +162,59 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'Alertmanager handles alerts sent by Prometheus and other clients. It deduplicates, groups, routes, silences, inhibits, and sends notifications to receivers such as PagerDuty, email, Slack, or webhooks. The data-structure lesson is label routing: alert labels are keys, route trees decide receivers, grouping keys batch alerts, and inhibition rules suppress symptoms.',
+    { heading: 'Why this exists', paragraphs: [
+      'Prometheus decides that an alert expression is active. Alertmanager decides what humans should hear about it. That second step exists because a real outage can create hundreds of related alert instances, repeated notifications, and symptoms from systems that are only downstream of the first failure.',
+      'The data-structure lesson is label routing. Alert labels are keys, the route tree is a matcher hierarchy, grouping keys batch equivalent alerts, silences are time-bounded predicates, and inhibition rules encode dependency edges between source and target alerts.',
       'Primary sources: Alertmanager overview at https://prometheus.io/docs/alerting/latest/alertmanager/ and configuration reference at https://prometheus.io/docs/alerting/latest/configuration/.',
     ] },
-    { heading: 'Route tree', paragraphs: [
-      'An alert is mostly a label set. Alertmanager routes by matching labels against a route tree. The root route catches everything; children can match severity, service, team, region, environment, or ownership. Receivers define where notifications go.',
-      'This connects directly to Metric Label Cardinality Control. Labels have two jobs: they identify time series and they route operational work. High-cardinality labels can break storage; low-quality labels can page the wrong team.',
+    { heading: 'The obvious approach', paragraphs: [
+      'The simple design is to send every firing Prometheus alert directly to the team named in the rule. That works for a small service: one rule fires, one receiver gets one page, and the person on call knows where to look.',
+      'The approach is reasonable because alert rules already contain labels and annotations. It is tempting to treat each alert as a complete notification instead of routing it through another data structure.',
     ] },
-    { heading: 'Grouping, silence, inhibition', paragraphs: [
-      'Grouping batches related alerts. Silences mute matching alerts for a time window. Inhibition suppresses target alerts when a source alert is firing and equal-label constraints match. Deduplication prevents repeated notifications for the same alert fingerprint.',
-      'These controls reduce alert floods, but each can hide incidents if configured too broadly. Silences should be narrow and time bounded. Inhibition should encode true dependency relationships, not guesses.',
+    { heading: 'Where that fails', paragraphs: [
+      'A large outage breaks the direct-page model. One database failure can trigger storage, replica lag, API latency, checkout errors, and host alerts. Sending each instance as its own page turns evidence into noise and slows the responder down.',
+      'The failure is not only volume. The system also needs maintenance mutes, repeated-notification control, receiver ownership, and dependency suppression. A flat list of alerts has no place to express those policies safely.',
     ] },
-    { heading: 'Complete case study: database root cause', paragraphs: [
-      'A database cluster outage triggers storage, replica lag, API latency, and checkout error alerts. Alertmanager groups database alerts by cluster, routes them to DBA on-call, and inhibits downstream service symptom alerts while the database-root-cause alert is firing. Service teams see context without every dependent page becoming its own incident.',
+    { heading: 'Core insight', paragraphs: [
+      'Treat alert handling as operations over label sets. A route tree maps labels to receivers. A grouping key defines which alert instances belong in the same notification. A silence is a matcher plus a time window. An inhibition rule says that one active source alert can suppress target alerts when selected labels are equal.',
+      'That turns alert noise control into a small rule engine. The correctness of the outcome depends less on clever code than on whether labels describe ownership, service boundaries, severity, and dependency scope accurately.',
     ] },
-    { heading: 'Pitfalls and misconceptions', paragraphs: [
-      'Alertmanager does not decide whether an expression is true; Prometheus alerting rules do that. Alertmanager decides how firing alerts become notifications. The common mistakes are bad labels, overbroad silences, inhibition without true root-cause equality labels, and group intervals that either delay urgent pages or spam responders.',
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the route-tree view, read each matcher as a branch predicate over the alert's label set. The important question is not which box lights up first; it is which receiver becomes responsible after the alert has passed through defaults, child routes, grouping keys, and continue rules.",
+        "In the noise-control view, follow the alert through three different filters. A silence removes alerts by an explicit human-created matcher. Deduplication recognizes an alert fingerprint that has already notified. Inhibition suppresses a target only when an active source alert proves the same scoped incident is already being handled.",
+        "The marks in the animation are policy decisions. A routed alert has an owner. A grouped alert has been batched with related evidence. A silenced alert is intentionally hidden for a bounded time. An inhibited alert is not gone; it is withheld because a higher-level alert explains it.",
+      ],
+    },
+    { heading: 'How it works', paragraphs: [
+      'An incoming alert is first identified by its label set. Alertmanager matches it through the route tree to find a receiver, computes a grouping key such as cluster plus alertname, checks active silences, checks inhibition rules, deduplicates repeated notifications, and applies group timing before sending or suppressing a message.',
+      'The timing knobs are part of the mechanism. Group wait gives related alerts time to arrive before the first notification. Group interval controls updates for an existing group. Repeat interval controls reminders when the incident stays active. Resolved notifications tell receivers when the group has cleared.',
+    ] },
+    { heading: 'Worked example', paragraphs: [
+      'Suppose `DatabaseDown` fires for cluster `prod-us-east-1`, and a minute later `APILatencyHigh`, `CheckoutErrorsHigh`, and `ReplicaLagHigh` fire with the same cluster label. A direct paging system would send four separate messages to three or four teams. Alertmanager can route the database alert to the database receiver, group related database alerts by cluster, and inhibit downstream service alerts when the source and target share the same cluster.',
+      'That outcome is useful only if the labels are precise. If the downstream alerts do not carry the same cluster label, inhibition cannot prove they belong to the same incident. If an inhibition rule matches only on `severity`, it may hide unrelated symptoms. The worked example shows the real invariant: suppression is a claim about shared scope, not a claim that a string matched.',
+    ] },
+    { heading: 'Why it works', paragraphs: [
+      'The useful invariant is that two alerts with the same grouping key are treated as one notification group until their labels or lifecycle diverge. Deduplication keeps the same alert fingerprint from becoming repeated new work. Inhibition is safe only when the source and target share the labels that prove they refer to the same scope, such as the same cluster.',
+      'This is why label discipline matters. Good labels make routing deterministic and inhibition narrow. Bad labels make the tree look correct while it pages the wrong team or hides the wrong symptom.',
+    ] },
+    { heading: 'Costs and tradeoffs', paragraphs: [
+      'The work grows with active alerts, route matchers, silence matchers, inhibition rules, and notification groups. The bigger cost is operational: every new label convention, route branch, and inhibition rule becomes part of the incident-response contract.',
+      'Grouping can delay the first page. Silences can hide a real incident. Inhibition can suppress useful symptoms. A route tree can become hard to audit when teams encode ownership in slightly different label names.',
+    ] },
+    { heading: 'Design guidance', paragraphs: [
+      'Build routes around labels that are stable under incident pressure: service, team, environment, cluster, region, severity, and customer tier when that tier really changes response. Avoid routing on labels that are generated, high-cardinality, or ambiguous. A route tree should explain ownership, not mirror every metric dimension.',
+      'Treat silences as temporary operational exceptions and inhibition rules as source-target contracts. A silence should have a clear reason and expiration. An inhibition rule should be narrow enough that an engineer can explain which source alert makes which target alert redundant. If the explanation depends on tribal knowledge, the rule is probably too broad.',
+      'The best configurations are boring to debug. Given one alert payload, an on-call engineer should be able to predict the route, group key, silence result, inhibition result, and notification timing without reading the whole monitoring stack.',
+    ] },
+    { heading: 'Where it wins', paragraphs: [
+      'Alertmanager wins when many alert instances describe one incident, when ownership can be derived from labels, and when dependency relationships are stable enough to encode. Cluster outages, service-level pages, maintenance windows, and multi-team receiver policies are the natural fit.',
+    ] },
+    { heading: 'Where it fails', paragraphs: [
+      'It is the wrong tool for deciding whether a metric expression should fire; that belongs in Prometheus rules. It also cannot infer root cause from weak labels. If dependency labels are missing, stale, or too broad, inhibition becomes guesswork and should stay out of the paging path.',
+      'It also fails as a substitute for incident review. If a responder says, "I never saw the alert," the answer is not to add another route immediately. First trace the alert through the route tree, group key, silence table, inhibition rules, deduplication state, and notification timing. The right fix may be a label convention, a receiver ownership rule, or a runbook link rather than more paging volume.',
+      'A useful production practice is to keep examples of real alert payloads next to routing changes. For each example, record the expected receiver, group key, and suppression result. That makes route changes reviewable as data-structure behavior instead of as folklore inside a YAML file.',
     ] },
     { heading: 'Study next', paragraphs: [
       'Study Prometheus Rule Evaluation Alert State Machine, SLO Error Budget Burn Rate Alert, Metric Label Cardinality Control, Prometheus TSDB Case Study, AIOps Incident Response, Distributed Tracing, and Flagger Progressive Delivery Canary next.',

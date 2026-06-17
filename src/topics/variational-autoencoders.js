@@ -210,43 +210,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why This Exists`,
       paragraphs: [
-        'A variational autoencoder is a generative model that combines an encoder, a decoder, and a probabilistic latent space. The encoder maps each input to a distribution over latent variables. The decoder maps a sampled latent variable back to an output. The training objective rewards reconstruction and regularizes the latent distribution toward a simple prior.',
-        'This makes VAEs a useful bridge between Autoencoder-style compression, Diffusion Models, Normalizing Flows, and representation learning. They explain why a smooth latent space matters, not just a low reconstruction loss.',
+        `A variational autoencoder is a neural generative model built from three ideas: an encoder, a decoder, and a probability distribution over latent variables. The encoder receives an input such as an image, sequence, molecule, or feature vector and does not output one fixed code. It outputs the parameters of a distribution, usually a mean vector and a scale or log-variance vector. A latent sample is drawn from that distribution. The decoder receives the sampled latent variable and predicts the original input or a distribution over possible outputs.`,
+        `The word variational points to the training objective. The model cannot directly compute the true posterior distribution over latent causes for each input, so it learns an approximate posterior. Training rewards reconstructions that explain the data while penalizing latent distributions that drift too far from a simple prior such as a standard normal Gaussian. The result is not only a compressor. It is a model that tries to make its compressed space continuous, regular, and sampleable.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The Obvious Approach And The Wall`,
       paragraphs: [
-        'The encoder outputs mu and sigma for q(z|x). Sampling naively would break ordinary backpropagation because the sample is random. The reparameterization trick writes z = mu + sigma * epsilon, where epsilon is independent random noise. Gradients can then flow through mu and sigma while preserving stochastic sampling.',
-        'The VAE objective is the evidence lower bound. The reconstruction term asks the decoder to reproduce the input. The KL term asks the encoder distribution to stay close to the prior. If the KL term is too weak, random sampling lands in holes. If it is too strong, the decoder may ignore z and posterior collapse can occur.',
+        `The obvious approach is a plain autoencoder. Train an encoder to compress each input into a vector, train a decoder to reconstruct the input from that vector, and hope the middle vector becomes a useful representation. This works well for compression and denoising, but it has a generative wall. The latent codes may become isolated islands. Known examples reconstruct nicely, while random points between or around those islands decode into nonsense because the decoder never learned what to do there.`,
+        `Another wall is sampling. A generator should let you draw a random latent vector and decode it into a plausible new example. A plain autoencoder gives no reason for random vectors to land in meaningful territory. It can build a lookup-like internal coordinate system that is efficient for reconstruction but hostile to generation. A VAE changes the contract. The encoder must describe a local probability cloud around each input, and those clouds are kept near a shared prior so the decoder sees a filled-in latent space rather than disconnected addresses.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `The Core Insight`,
       paragraphs: [
-        'VAEs are usually easier to train than GANs because they optimize a single differentiable objective. The tradeoff is sample sharpness and objective design. A simple pixel reconstruction loss can produce blurry outputs because averaging plausible futures is rewarded. Better decoders, perceptual losses, hierarchical latents, and latent diffusion can improve quality.',
-        'Another cost is choosing the information bottleneck. A large latent code can reconstruct well while behaving less like a useful prior. A tiny latent code can regularize well while throwing away details. The KL schedule, decoder strength, and latent dimensionality all decide whether the model learns a meaningful representation or merely an expensive compression trick.',
+        `The core insight is to train reconstruction and latent regularity at the same time. For each input x, the encoder learns q(z given x), an approximate posterior over latent variables. The decoder learns p(x given z), a likelihood model that says what outputs are probable for a latent sample. The prior p(z), often a unit Gaussian, is the simple distribution we want to sample from later. The encoder is pushed to keep q(z given x) close enough to p(z) that prior samples remain decodable.`,
+        `This creates an information bottleneck with a purpose. The latent variable must carry enough information to reconstruct the input, but it must not become an arbitrary private address. The KL penalty charges the model for using a posterior that is too specific or too far from the prior. The reconstruction term charges the model for throwing away too much information. Useful VAE behavior lives in the balance between those two pressures.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: `Mechanism And Data Structures`,
       paragraphs: [
-        'VAEs are used for representation learning, anomaly detection, compression, molecule generation, recommender systems, controllable generation, and as the autoencoding substrate behind latent diffusion systems. They are especially useful when you want a structured latent code that can be sampled, interpolated, or audited.',
-        'In practice, a VAE is often valuable even when it is not the final image generator. The encoder can compress inputs into a smaller manifold, the decoder can reconstruct normal behavior, and the latent coordinates can become features for downstream classifiers, retrieval, clustering, or simulation.',
+        `A practical VAE stores a batch of inputs, an encoder network, two latent-parameter tensors, a noise tensor, a sampled latent tensor, a decoder network, and loss terms. For a batch of B examples and a latent width L, the encoder produces mu with shape B by L and logvar with shape B by L. Log variance is common because it is numerically stable and can represent positive variance after exponentiation. A noise tensor epsilon is sampled from a standard normal distribution with the same shape.`,
+        `The reparameterization trick is the key dataflow move. Instead of sampling z directly from a distribution whose parameters are learned, the model computes z = mu + sigma * epsilon, where sigma is derived from logvar and epsilon is independent noise. Randomness remains in the forward pass, but the path from loss back to mu and sigma is differentiable. Backpropagation can now adjust the encoder because z is a deterministic function of learned parameters plus external noise.`,
+        `The decoder turns z into output parameters. For images, it might predict Bernoulli probabilities or Gaussian means for pixels. For continuous features, it may predict a Gaussian likelihood. For text or discrete tokens, the decoder architecture and likelihood need more care. Training then combines a reconstruction loss with a KL divergence between q(z given x) and the prior. The common Gaussian KL term can be computed per latent dimension and summed across the batch, which makes the objective efficient and easy to monitor.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Why It Works`,
       paragraphs: [
-        'A VAE is not just an autoencoder with noise. The KL term is what makes the latent space sampleable. Another misconception is that the decoder must always reconstruct perfectly. A perfect reconstruction model with a broken latent prior is not a useful generator. The model needs both local fidelity and global latent coverage.',
+        `VAEs work because they turn latent geometry into part of the loss. Reconstruction alone teaches the decoder to use codes near training examples. KL regularization teaches the encoder to place those codes in a region that resembles the prior. When the balance is good, nearby latent points decode to related outputs, interpolations become meaningful, and random samples from the prior have a chance of landing on the learned data manifold.`,
+        `The method is also attractive because it trains with one differentiable objective rather than an adversarial game. GANs can produce sharper samples, but their training dynamics can be unstable and their latent coverage can be hard to diagnose. Normalizing flows provide exact likelihoods but require invertible architectures. Diffusion models often produce higher quality samples but spend many denoising steps. VAEs occupy a useful middle ground: tractable training, explicit latent variables, approximate likelihood, and a representation that downstream systems can inspect or reuse.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Evaluation And Operational Signals`,
       paragraphs: [
-        'Primary sources: Auto-Encoding Variational Bayes at https://arxiv.org/abs/1312.6114 and beta-VAE at https://openreview.net/forum?id=Sy2fzU9gl. Study Neural Network Forward Pass, Backpropagation, Embeddings & Similarity, Diffusion Models, Normalizing Flows, Sparse Autoencoder Feature Dictionary Case Study, and Gradient Descent next.',
+        `A VAE should be monitored through several signals, not one loss curve. Track reconstruction loss to see whether the decoder can explain inputs. Track KL divergence to see whether the latent code is being used and how strongly it is being regularized. Track the evidence lower bound as the combined objective, but remember that better ELBO does not always mean better perceptual sample quality. Inspect reconstructions, unconditional samples from the prior, latent interpolations, and class or attribute structure when labels are available.`,
+        `Posterior collapse is the failure signal to watch in powerful decoders. The KL term falls near zero because the encoder distribution matches the prior for every input, and the decoder learns to ignore z. Reconstructions may still look acceptable if the decoder can model local patterns from its own autoregressive context. KL annealing, free bits, weaker decoders, skip constraints, hierarchical latents, or capacity schedules are common responses. Another signal is holes in latent space: training reconstructions look good, but random prior samples are poor. That usually means the latent posterior family or KL weight is not producing enough coverage.`,
+      ],
+    },
+    {
+      heading: `Where VAEs Are Useful`,
+      paragraphs: [
+        `VAEs are useful when the latent representation matters as much as the final sample. They are used for anomaly detection, where unusual inputs may reconstruct poorly or receive low approximate likelihood. They are used for compression, denoising, missing-data imputation, molecule and protein design, recommender systems, semi-supervised learning, representation learning, and simulation. In image generation, a VAE-like autoencoder can compress pixels into a latent space where a diffusion model works more cheaply than it would at full resolution.`,
+        `The model is also useful as a conceptual foundation. It teaches how a neural network can represent uncertainty, how sampling can be made differentiable, and how an objective can trade fidelity against structure. Even when a production system uses a diffusion model, flow, transformer, or custom latent model instead, the VAE vocabulary of encoder, decoder, prior, posterior, likelihood, and latent variable remains important.`,
+      ],
+    },
+    {
+      heading: `Where They Fail`,
+      paragraphs: [
+        `VAEs can produce blurry outputs when the likelihood rewards averaging. If many sharp images are plausible, a simple squared-error or Gaussian pixel loss may favor a soft average rather than a crisp sample. They can also learn entangled latent variables where dimensions do not correspond to clean human concepts. Beta-VAE variants increase the KL pressure to encourage disentanglement, but this often trades away reconstruction detail and is not guaranteed to discover the factors a person cares about.`,
+        `A VAE can also be misused as an anomaly detector if reconstruction error is trusted blindly. Some anomalies reconstruct well because they are simple. Some normal examples reconstruct badly because they are rare. Likelihood can also be unintuitive in high-dimensional data. For operational use, VAE scores need calibration against labeled anomalies, slice analysis, and comparison with simpler baselines. A generative model is not automatically a reliable detector just because it learned a latent space.`,
+      ],
+    },
+    {
+      heading: `What To Study Next`,
+      paragraphs: [
+        `Study the neural network forward pass and backpropagation first, because VAEs rely on ordinary differentiable computation plus one sampling trick. Study probability distributions, KL divergence, maximum likelihood, and the evidence lower bound to understand the objective. Then compare VAEs with GANs, normalizing flows, diffusion models, and sparse autoencoders. For practical systems, study latent diffusion, calibration, anomaly detection metrics, and representation learning so the latent space is judged by usefulness rather than by attractive reconstructions alone.`,
       ],
     },
   ],

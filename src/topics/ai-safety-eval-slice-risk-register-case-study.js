@@ -65,7 +65,7 @@ function* riskRegister() {
   yield {
     state: riskGraph('Safety eval slice risk register'),
     highlight: { active: ['risk', 'slice', 'eval', 'human', 'judge', 'e-risk-slice', 'e-risk-eval', 'e-slice-human', 'e-eval-judge'], found: ['thresh'] },
-    explanation: 'A safety eval program needs a risk register that maps each risk to traffic slices, evaluation cases, human labels, judge scores, thresholds, owners, and release decisions.',
+    explanation: 'The graph turns a safety score into a release-control path. Each risk must connect to a traffic slice, eval cases, human anchors, judge scores, thresholds, owners, and a decision.',
     invariant: 'A safety score without a slice and risk owner is not a control.',
   };
 
@@ -93,13 +93,13 @@ function* riskRegister() {
       ],
     ),
     highlight: { active: ['inj:thr', 'priv:thr', 'auto:thr'], compare: ['bias:thr'], found: ['inj:owner', 'priv:owner'] },
-    explanation: 'Thresholds vary by risk and slice. A tool-injection failure may have zero tolerance, while a low-severity chat policy miss may route to monitoring and human review.',
+    explanation: 'The threshold column is slice-specific. A tool-injection failure may have zero tolerance, while a low-severity chat miss can route to monitoring or human review.',
   };
 
   yield {
     state: riskGraph('Human anchors calibrate judge gates'),
     highlight: { active: ['human', 'judge', 'thresh', 'e-human-thresh', 'e-judge-thresh'], compare: ['eval'], found: ['ship'] },
-    explanation: 'LLM judges are useful only when calibrated against human anchors. The register should store judge version, human agreement, slice-specific thresholds, and drift checks.',
+    explanation: 'The human and judge nodes meet at the gate. LLM judges are useful only when the register stores human agreement, judge version, slice thresholds, and drift checks.',
   };
 
   yield {
@@ -114,7 +114,7 @@ function* riskRegister() {
       ],
     }),
     highlight: { active: ['owned', 'gate'], compare: ['raw'] },
-    explanation: 'The register turns failures into owned work. Without ownership, high-risk gaps accumulate while aggregate scores hide them.',
+    explanation: 'The plot shows the cost of missing ownership. Aggregate scores can look stable while high-risk gaps accumulate; owned rows turn failures into scheduled work.',
   };
 }
 
@@ -143,13 +143,13 @@ function* sliceGates() {
       ],
     ),
     highlight: { active: ['chat:gate', 'rag:gate'], removed: ['tool:gate', 'admin:gate', 'minor:gate'], compare: ['minor:eval'] },
-    explanation: 'A release should be blocked by critical slice failures even when the average score is high. Admin, minor-user, and tool-use slices often need special gates.',
+    explanation: 'The gate matrix blocks by critical slice, not average score. Admin, minor-user, and tool-use slices can hold a release even when broad chat tests pass.',
   };
 
   yield {
     state: riskGraph('Mitigation owners close slice gaps'),
     highlight: { active: ['thresh', 'mit', 'audit', 'e-thresh-mit', 'e-mit-audit'], compare: ['ship'], found: ['risk', 'slice'] },
-    explanation: 'When a slice gate fails, the register assigns an owner and mitigation: policy change, prompt boundary, tool scope, retrieval trust, labeling refresh, or rollout rollback.',
+    explanation: 'A failed gate moves to mitigation instead of becoming a footnote. The row names an owner and a concrete move: policy change, prompt boundary, tool scope, retrieval trust, labeling refresh, or rollback.',
   };
 
   yield {
@@ -174,13 +174,13 @@ function* sliceGates() {
       ],
     ),
     highlight: { removed: ['base:act', 'slice:act'], active: ['fix:act', 'rerun:act'], found: ['rerun:score'] },
-    explanation: 'A hiring assistant passes general quality tests but fails a disability-related slice. The register blocks release, assigns mitigation, reruns the slice, and stores the evidence packet.',
+    explanation: 'The hiring case shows why averages are unsafe. General quality passes, but the disability-related slice fails, so the register blocks release, assigns mitigation, reruns that slice, and stores the proof.',
   };
 
   yield {
     state: riskGraph('Release decisions feed the audit packet'),
     highlight: { active: ['ship', 'audit', 'e-ship-audit'], found: ['thresh', 'mit'], compare: ['judge'] },
-    explanation: 'The audit packet should show why a release shipped, what slices were tested, what thresholds applied, which failures were fixed, and what residual risks were accepted.',
+    explanation: 'The release edge writes into the audit packet. A reviewer should see why the release shipped, which slices were tested, which thresholds applied, which failures were fixed, and which residual risks were accepted.',
   };
 }
 
@@ -194,45 +194,64 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'An AI safety eval slice risk register is the table that connects risk governance to runnable evaluation. It maps risk classes to deployment slices, test cases, thresholds, human labels, judge calibration, owners, mitigation status, and release decisions.',
-        'LLM Evaluation Harnesses covers cases and judges. Human Evaluation Labeling Queue covers labeling. AI Audit Evidence Packet covers governance evidence. This module shows the linking structure that keeps those pieces aligned.',
+        'An AI safety eval slice risk register exists because model risk is not evenly distributed across a product. A model can look acceptable on broad helpfulness tests while failing on tool use, medical advice, hiring, minors, privacy-sensitive retrieval, prompt injection, multilingual abuse, or administrative actions. One blended score hides the exact places where deployment can hurt users or create operational risk. The register is the data structure that connects risk governance to runnable evaluation. Each row names a risk, the deployment slice where it matters, the eval cases that measure it, the human labels that anchor judgment, the automated judge or metric version, the threshold, the mitigation owner, the release decision, and the evidence packet that explains the decision later. It turns safety from a slogan into a control surface.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The Naive Approach',
       paragraphs: [
-        'A register row includes risk id, taxonomy source, product surface, user group, traffic slice, eval suite, human anchor set, judge version, threshold, owner, mitigation, status, residual risk, and audit packet id.',
-        'Slices matter because average scores hide harm. A model can pass broad chat tests while failing on tool access, minors, medical use, hiring, finance, disability-related prompts, or multilingual traffic.',
+        'The reasonable first attempt is to run a standard eval suite and report an average pass rate. That is not foolish. A single score is easy to compare across model versions, easy to chart, and useful for catching obvious regressions. The wall appears when the product has uneven stakes. A 98 percent pass rate can still include every prompt injection case for an agent with payment access. A hiring assistant can pass general answer quality while failing prompts about disability accommodation. A customer-support model can pass English safety tests while failing a smaller language slice. The average is not a release control because it does not say which failure is allowed, who owns it, what threshold applies, or whether the failed slice can block launch.',
+      ],
+    },
+    {
+      heading: 'Core Insight',
+      paragraphs: [
+        'The core insight is that safety evaluation needs slice-level gates, not only model-level scores. A slice is a product-relevant subset of traffic or use: a user group, language, tool surface, domain, capability level, data source, or deployment mode. A gate is a rule that decides whether that slice can ship. The invariant is simple: no high-risk slice is green without an explicit threshold, evidence, owner, and residual-risk rationale. The register row is the unit of accountability. It links the abstract risk name to the concrete eval cases and the concrete deployment decision. That link is what governance frameworks need in practice. Without it, teams can have risk taxonomies, red-team reports, and dashboards while still lacking a release mechanism.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Define risk classes, map them to product slices, attach eval cases, calibrate automated judges with human labels, set thresholds, run gates before release, assign owners to failed slices, and store rerun evidence after mitigation.',
-        'The register is not a spreadsheet for show. It is a release-control data structure. Feature flags, canaries, guardrails, eval harnesses, and audit packets should all point back to it.',
+        'Start with a risk taxonomy that is specific enough to act on: prompt injection, harmful advice, privacy leakage, discrimination, unauthorized tool action, sycophancy, jailbreak success, child-safety failure, or domain-specific legal and medical overreach. Map each risk to product slices where it can occur. Attach eval cases that exercise the failure mode, and label a representative set with humans so automated judges have a calibration target. Store the judge prompt, judge model, metric version, label agreement, threshold, and date because judges drift and labels change as policy changes. Run the gate before release. If a row fails, assign a mitigation owner and an action: policy edit, retrieval filter, tool permission change, refusal rubric change, training data fix, UX guardrail, or rollback.',
+        'The register should connect to the rest of the release system. Feature flags should know which slices are blocked. Canary monitoring should report back into the same risk rows. Incident review should reference the row that failed or the missing row that should have existed. Audit packets should record the model version, eval version, slice definition, threshold, failure examples, mitigation, rerun result, and residual risk accepted by the release owner. The register can live in a database, spreadsheet, YAML file, or governance tool, but it must behave like structured state. Free-form notes are not enough because the release process needs stable fields for blocking, reporting, ownership, and review.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why It Works',
       paragraphs: [
-        'A hiring assistant passes average helpfulness tests but fails a disability accommodation slice. The register marks bias and discrimination risk, blocks release for the hiring slice, assigns an owner, updates the rubric and policy, reruns human-anchored tests, and stores the pass evidence.',
-        'The release decision now has an explanation: the general score was not enough; the high-risk slice needed a separate gate. That is exactly why the register exists.',
+        'The correctness argument is not mathematical correctness in the way binary search has a sorted-array proof. It is control correctness. The register works when every deployment decision can be traced backward from ship or hold to slice result, threshold, evidence, owner, and accepted residual risk. That trace prevents the two common governance failures: unlabeled gaps and ownerless failures. If a slice has no cases, the row cannot be green. If a judge score has no human anchor, the confidence is limited. If a failure has no owner, it cannot silently age into accepted risk. If an owner accepts residual risk, that decision is visible. The register does not guarantee a safe model. It guarantees that the release process cannot honestly claim ignorance about known measured gaps.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'What the Visual Proves',
       paragraphs: [
-        'Common failures are stale slices, unclear owners, judge drift, thresholds copied from low-risk surfaces to high-risk surfaces, and residual risks accepted without written rationale. Another failure is treating missing data as a pass.',
-        'The register should mark gaps explicitly. Unknown risk is not green; it is work to be scheduled, scoped, or escalated.',
+        'The graph view shows the path from a risk row to a release decision. Risk names alone do not control anything; they become operational only after they connect to slices, eval cases, human anchors, judge scores, thresholds, mitigation owners, and audit evidence. The matrix view shows why the gate is slice-specific. Broad chat may pass while tool-use, admin, minor-user, or hiring slices hold the release. The plot shows the failure mode of score-only governance: open high-risk gaps can accumulate while a blended score looks stable. The hiring example makes the lesson concrete. General quality passes, but the disability-related slice fails, so the register blocks release, assigns a mitigation, reruns that slice, and stores the proof.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Costs and Tradeoffs',
       paragraphs: [
-        'Primary sources: NIST AI RMF Playbook at https://airc.nist.gov/airmf-resources/playbook/, NIST AI RMF at https://www.nist.gov/itl/ai-risk-management-framework, OpenAI Preparedness Framework at https://cdn.openai.com/pdf/18a02b5d-6b67-4cec-ab64-68cdfbddebcd/preparedness-framework-v2.pdf, Anthropic Responsible Scaling Policy at https://www.anthropic.com/responsible-scaling-policy, and Google SAIF at https://saif.google/.',
-        'Study next: LLM Red-Team Attack Taxonomy Queue Case Study, Jailbreak Mutation Search Graph Case Study, AI Incident Corrective Action Ledger Case Study, LLM Judge Calibration & Drift Monitor, Human Evaluation Labeling Queue Case Study, and AI Audit Evidence Packet Case Study.',
+        'The cost is maintenance. Slices multiply quickly, and each slice needs enough cases to mean something. Human labels are expensive. Judge calibration has to be rerun when the judge model, rubric, product, or user population changes. Thresholds require judgment because zero tolerance is right for some risks and wasteful or impossible for others. A register can also create false precision. A green row means the defined tests passed under the defined threshold; it does not mean the risk is gone. The practical design is to keep the register small enough to operate and explicit enough to block real failures. High-stakes slices need tight gates. Lower-risk slices may use monitoring, canaries, or human review instead of hard launch blocks.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'This structure fits products where model behavior changes release risk by context. AI agents with tools need slices for permissions, state-changing actions, prompt injection, and authorization boundaries. Retrieval systems need slices for sensitive documents, stale sources, private data, and citation support. Hiring, lending, education, healthcare, and child-facing products need user-group and domain slices because harms are concentrated. Frontier-model labs need capability categories, thresholds, safeguards, and escalation rules. Enterprise teams need the audit trail because customers, regulators, and internal review boards ask why a release shipped. The access pattern is repeated decision-making under changing model versions. A register lets the team compare version A and version B by risk row instead of arguing over one aggregate score.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'The register fails when it becomes theater. Stale slices, vague owners, inherited thresholds, missing label quality, unversioned judge prompts, and residual-risk approvals without rationale all weaken the control. It also fails when teams treat missing data as a pass. Unknown means unknown; the row should say gap, not green. Another failure is overfitting to the eval set. A model can learn the known cases while still failing the real product. The register must be paired with red-team discovery, incident intake, production monitoring, and periodic slice refresh. It is also the wrong tool for deciding product values by itself. It can record the threshold and owner, but humans still choose what risk appetite is acceptable.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary references are the NIST AI Risk Management Framework at https://www.nist.gov/itl/ai-risk-management-framework, OpenAI Preparedness Framework version 2 at https://cdn.openai.com/pdf/18a02b5d-6b67-4cec-ab64-68cdfbddebcd/preparedness-framework-v2.pdf, Anthropic Responsible Scaling Policy updates at https://www.anthropic.com/responsible-scaling-policy, and Google SAIF at https://saif.google/ with risks and controls at https://saif.google/secure-ai-framework/risks and https://saif.google/secure-ai-framework/controls. Study LLM judge calibration, human evaluation labeling queues, red-team attack taxonomies, jailbreak mutation search, incident corrective-action ledgers, AI audit evidence packets, prompt injection threat models, and release engineering with feature flags next. The most useful mental model is that evaluation cases measure behavior, slices localize risk, and the register decides what the organization is allowed to ship.',
       ],
     },
   ],

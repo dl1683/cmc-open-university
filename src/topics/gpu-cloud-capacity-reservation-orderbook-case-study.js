@@ -241,51 +241,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A GPU cloud capacity reservation orderbook treats scarce accelerator availability as a matching data structure. Instead of saying "we reserved GPUs," it stores exactly what was reserved: SKU, zone, memory size, network topology, start time, duration, tenancy, policy, owner, price basis, and release rule.',
-        'This module builds on AI Capex Depreciation Utilization Ledger and LLM Unit Economics Ledger Case Study. The capex ledger explains the fixed-asset pressure. The orderbook explains how that capacity is sliced, matched, leaked, and billed.',
+        'GPU reservations exist because accelerator supply is scarce, expensive, and not fully fungible. A company can have a large contract and still fail a launch if the reserved capacity is in the wrong zone, on the wrong GPU generation, behind the wrong network topology, bound to a different tenant, outside the launch window, or blocked by quota.',
+        'The orderbook makes those facts explicit. It treats reserved capacity as typed state that must be matched, held, metered, used, and released. This is not only a finance topic. It connects procurement, platform scheduling, customer commitments, inference routing, training windows, and idle-capacity leakage into one operational control problem.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Baseline Wall',
       paragraphs: [
-        'The orderbook has bucketed keys for the attributes that make capacity usable. A request for one GPU generation in one zone cannot automatically consume another generation in a different zone. The matching layer uses priority queues for urgency, bins for SKU and placement, policy filters for tenant eligibility, and trace rows for explainability.',
-        'The data structure resembles a scheduler, but the economic consequences are stronger. A missed match can delay a launch, force an expensive on-demand fallback, strand reserved capacity, or push a model to a slower topology that changes latency and cost.',
+        'The naive baseline is a spreadsheet that says one team owns 200 H100s, another owns 100 A100s, and finance tracks the contract dates. That breaks down as soon as a workload needs 64 GPUs in one availability zone with a specific interconnect and placement policy. The spreadsheet can say capacity exists while the scheduler has no legal slot to place the job.',
+        'A single utilization percentage is also misleading. Ninety percent utilization can coexist with a failed launch if the remaining ten percent is in the wrong place. Ten percent utilization can be rational if the pool is a disaster-recovery floor or a customer guarantee. The wall is fungibility: capacity becomes useful only when its attributes match the workload.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight',
       paragraphs: [
-        'Reserved capacity trades flexibility for assurance. It can protect a critical launch, disaster-recovery path, training run, or inference floor. It can also create idle leakage if demand slips, the wrong SKU was reserved, quota is misaligned, or the product cannot route enough useful work into the slot.',
-        'The matching engine needs links to SLO-Aware LLM Request Router, LLM Serving Autoscaling Warm Pool, Kubernetes Scheduler PriorityQueue + Preemption, Feature Flag Control Plane, and GenAI Trace Token Cost Ledger Case Study. Capacity reservations are useful only when the runtime can consume them intentionally.',
+        'Model scarce GPU capacity as a typed orderbook. The key is not just GPU. It is SKU, accelerator generation, memory size, zone, region, network topology, placement group, tenancy, start time, duration, owner, quota scope, priority, and release policy. Matching then becomes scheduling with money attached.',
+        'The invariant is simple: a reserved slot can be consumed only by a request whose attributes satisfy the reservation key, and every held slot must have a meter, owner, and release decision. If a slot is idle, that is still a billable state. It should be visible, charged, and explained.',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'How the Visual Model Teaches It',
       paragraphs: [
-        'AWS EC2 Capacity Reservations reserve compute capacity in a specific Availability Zone and distinguish immediate and future-dated reservations: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-reservations.html. Microsoft Azure on-demand capacity reservation similarly reserves VM capacity by size, location, and quantity and distinguishes capacity guarantee from Reserved Instance discounts: https://learn.microsoft.com/en-us/azure/virtual-machines/capacity-reservation-overview.',
-        'CoreWeave disclosures show the AI-cloud version of this pattern. Its S-1 describes committed contracts where customers reserve capacity over contract length on a take-or-pay basis: https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm. Its FY25 10-K describes committed cloud capacity contracts and revenue recognition over contract periods: https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf.',
+        'The reservation-book view teaches that an ask is not matched against a single pool called GPUs. The request is keyed by type, checked against quota, compared with booked slots, priced, matched, then moved into run or idle state. The capacity plot separates reserved supply from actually used supply so the leakage becomes visible.',
+        'The matching-engine view teaches that capacity placement is typed scheduling. The heap carries urgency. The bins carry SKU, zone, and topology availability. The fit node scores usable matches. The trace and audit nodes record why the system held a slot, spilled to fallback capacity, waited, or rejected the request.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanics',
       paragraphs: [
-        'A platform team can use this orderbook to plan a model launch, reserve scarce GPUs before a traffic event, bind a customer contract to capacity, or decide whether idle slots should be released, repurposed, or filled with batch work. A finance team can use it to separate capacity assurance from discount commitments.',
-        'The orderbook also helps engineering avoid false conclusions. If an incident says "capacity unavailable," the next question is unavailable where, for which SKU, under what tenant policy, and with what quota?',
+        'A reservation row stores the capacity attributes, quantity, time interval, contract basis, owner, allowed consumers, and release rule. The book indexes rows by attributes that determine usability. A launch request is normalized into the same key space, then filtered by quota, policy, time, topology, tenant eligibility, and placement constraints.',
+        'The matching layer usually combines two structures. A priority queue orders urgent launches, renewals, incidents, customer guarantees, and batch work. Bucketed books hold capacity by SKU, zone, and topology so the system can find candidates without scanning every contract. The output is a hold, fallback, wait, or reject decision plus an audit row.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Correctness',
       paragraphs: [
-        'Do not treat a reservation as generic capacity. Wrong zone, wrong instance type, wrong topology, missing quota, or a tenant policy deny can make reserved capacity unusable for the workload that needs it. Do not treat a Reserved Instance discount as a capacity guarantee. The cloud docs explicitly separate discount instruments from capacity reservation instruments.',
-        'Do not hide idle reserved hours. A good ledger charges them somewhere and records why they were held. Otherwise every product looks cheap while the platform absorbs the waste.',
+        'Correctness means the orderbook never spends the same capacity twice, never assigns a slot outside its time window, never violates tenant or quota policy, and never hides why a request missed. Quantity accounting must be interval-aware because a reservation for Monday morning does not help a Tuesday launch.',
+        'The audit row should include requested attributes, matched attributes, policy filters, quota result, priority score, fallback path, idle leakage, and cost owner. That evidence lets finance, platform, and product teams distinguish a real supply shortage from a routing error, quota mistake, topology mismatch, or planning failure.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and Tradeoffs',
       paragraphs: [
-        'Primary sources: AWS EC2 Capacity Reservations at https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-reservations.html, Azure on-demand capacity reservation at https://learn.microsoft.com/en-us/azure/virtual-machines/capacity-reservation-overview, CoreWeave S-1 at https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm, and CoreWeave FY25 10-K at https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf. Study Queue, Binary Heap, Kubernetes Scheduler PriorityQueue + Preemption, SLO-Aware LLM Request Router, LLM Serving Autoscaling Warm Pool, AI Capex Depreciation Utilization Ledger, AI Circular Financing Demand Graph Case Study, Inference ROI Payback Cohort Ledger Case Study, and Tail Latency & p99 Thinking next.',
+        'Reservations trade flexibility for assurance. They are valuable for launch floors, customer commitments, regulated workloads, disaster recovery, long training jobs, and inference fleets that cannot tolerate interruption. The cost is idle leakage, planning overhead, and the risk of buying the wrong shape of capacity.',
+        'The tradeoff improves when runtime systems can steer work. SLO-Aware LLM Request Router, LLM Serving Autoscaling Warm Pool, Kubernetes Scheduler PriorityQueue + Preemption, Feature Flag Control Plane, and GenAI Trace Token Cost Ledger Case Study are operational partners of the orderbook. Without routing and measurement, a reservation is an expensive guess.',
+      ],
+    },
+    {
+      heading: 'Reservation Instruments',
+      paragraphs: [
+        'Capacity reservations, reserved instances, committed-use discounts, take-or-pay contracts, and spot capacity are different instruments. A discount does not always guarantee capacity. A capacity hold does not always lower price. A take-or-pay commitment can bill even when the slot is idle. A spot pool can be cheap but interruptible.',
+        'The orderbook should preserve those distinctions. Mixing every instrument into one reserved column hides the operational question: can this workload use this slot at this time under this policy? It also hides the economic question: who pays if the slot sits idle or spills to on-demand supply?',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'Suppose a model launch needs 64 H100 GPUs with high-bandwidth interconnect in zone A for a four-hour launch window. The book has 80 H100s reserved, but 32 are in zone B, 16 are bound to another tenant, and 8 are outside the launch window. The matching engine can honestly report that only 24 slots fit, even though the spreadsheet says 80 are reserved.',
+        'The system can then choose among concrete options: move launch traffic to zone B, reduce the launch batch size, spill part of the workload to on-demand capacity, delay batch jobs, or renegotiate a future reservation. The orderbook turns the vague claim that capacity exists into a small set of safe, auditable decisions.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'This pattern wins when GPU scarcity is real, workloads are expensive to delay, and the organization needs to separate capacity assurance from discount accounting. It is especially useful for AI clouds, internal platform teams, customer-dedicated capacity, launch planning, disaster-recovery floors, and high-priority inference fleets.',
+        'It also wins when several teams compete for the same scarce pool. The orderbook gives platform teams a shared language for customer commitments, quota exceptions, incident priority, idle leakage, and future procurement. It turns capacity fights into traceable matching decisions instead of calendar arguments.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'It fails when the workload is truly fungible, the organization will not maintain accurate attributes, or the scheduler cannot consume the book. A perfect reservation ledger does not help if launch tooling ignores it and humans still place work by chat message.',
+        'It can also become overfit bureaucracy for small teams. If capacity is abundant, workloads are flexible, and on-demand spend is acceptable, a simple quota plus budget alert may be enough. The orderbook earns its complexity only when wrong matches are expensive.',
+      ],
+    },
+    {
+      heading: 'Pitfalls',
+      paragraphs: [
+        'Do not treat a reservation as generic capacity. Wrong zone, wrong instance type, wrong topology, missing quota, or a tenant policy deny can make reserved capacity unusable for the workload that needs it. Do not treat a Reserved Instance discount as a capacity guarantee. Cloud documentation separates discount instruments from capacity reservation instruments for a reason.',
+        'Do not hide idle reserved hours. A good ledger charges them somewhere and records why they were held. Otherwise every product looks cheap while the platform absorbs the waste. Also avoid silent spillover: if a reserved job falls back to on-demand supply, that event should be visible to both runtime owners and finance.',
+      ],
+    },
+    {
+      heading: 'Operational Guidance',
+      paragraphs: [
+        'Keep the key space boring and explicit. Normalize SKU names, zones, topology labels, tenant policy, time windows, and quota scopes before matching. Store both requested and matched attributes. Record when a slot is held for assurance rather than immediate use, because that distinction explains idle cost.',
+        'Measure reservation fit rate, spill rate, idle reserved hours, failed launches with reserved supply present, cost per used reserved hour, cost per idle reserved hour, and time-to-match for critical jobs. Those metrics tell whether the organization has a true supply problem, a bad forecasting problem, or a scheduler that cannot consume what finance bought.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary sources: AWS EC2 Capacity Reservations at https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-capacity-reservations.html, Azure on-demand capacity reservation at https://learn.microsoft.com/en-us/azure/virtual-machines/capacity-reservation-overview, CoreWeave S-1 at https://www.sec.gov/Archives/edgar/data/1769628/000119312525044231/d899798ds1.htm, and CoreWeave FY25 10-K at https://s205.q4cdn.com/133937190/files/doc_financials/2025/q4/CoreWeave-Inc-FY25-10-K-7.pdf.',
+        'Study Queue, Binary Heap, Interval Scheduling, Kubernetes Scheduler PriorityQueue + Preemption, SLO-Aware LLM Request Router, LLM Serving Autoscaling Warm Pool, AI Capex Depreciation Utilization Ledger, AI Circular Financing Demand Graph Case Study, Inference ROI Payback Cohort Ledger Case Study, and Tail Latency & p99 Thinking next.',
       ],
     },
   ],

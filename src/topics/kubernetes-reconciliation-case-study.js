@@ -212,44 +212,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Kubernetes reconciliation is the control-loop pattern at the heart of Kubernetes. Users write desired state to the API. Controllers watch objects, enqueue work, read current state, and keep trying to make reality match the declared spec.',
-        'This is a production case study in level-triggered control. Events wake the controller, but state drives the decision. That is why the same reconcile function can run repeatedly and still be correct.',
-        'The pattern is a distributed-systems answer to missed messages. A controller may miss a watch event, restart halfway through a cloud API call, or see a stale cache. The design still works because the next reconcile pass reads the object key again and derives action from durable desired state plus observed reality.',
+        "Kubernetes exists to run desired state, not to run one command and hope the cluster stays that way. A user says there should be three replicas, a service endpoint, a certificate, a volume, or a namespace policy. The cluster then has to keep that intent true while nodes fail, containers crash, networks partition, and operators change objects at the same time.",
+        "Reconciliation is the control-loop pattern that makes this possible. Desired state is stored in the API server and etcd. Controllers observe that state, compare it with actual state, and make small repairs. If reality already matches the spec, the controller does nothing. If reality has drifted, the controller issues another create, update, delete, or status write.",
+        "The important shift is that Kubernetes treats failure as normal. A controller can miss a watch event, crash after creating a child object, see a stale cache, or lose a race with another writer. The system still has a path back to correctness because the next reconcile pass reads durable state again and computes the gap from scratch."
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'A user submits a Deployment. The API server validates and persists it in etcd. A controller observes the change, enqueues the object key, reads the latest spec and status, compares desired replicas with actual Pods, and creates or deletes objects to close the gap. Node agents then make local reality match assigned Pods.',
-        'The status field records observed state. The spec field records desired state. Controllers should update status, not secretly rewrite user intent. Reconcile loops are idempotent, retryable, and protected by backoff.',
-        'Ownership is explicit. Owner references connect children to parents, finalizers delay deletion until cleanup has completed, and resourceVersion conflicts force controllers to refetch before writing. These details prevent independent actors from overwriting each other while still allowing many controllers to cooperate through the API server.',
+        "The naive approach is an event handler. When the user creates a Deployment, run code that creates three Pods. When the user updates the replica count, run code that adds or removes Pods. When a Pod dies, run code that replaces it. This sounds natural because most application code is written around events.",
+        "It breaks because distributed systems do not deliver a clean single story. Events can be duplicated, delayed, coalesced, or missed during reconnects. The handler may crash after making a side effect but before recording that it did so. The object may have changed by the time the handler runs. A second controller may write a related object. If the handler trusts the event payload as truth, it can repair the wrong world.",
+        "Another naive approach is a command runner. Submit a script that creates the resources and exits. That works for initial setup, but it has no answer for day two. If a node disappears, if an external load balancer loses configuration, or if a human deletes a child object, the command is gone. The cluster needs a loop, not a receipt."
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The pattern creates eventual convergence, not instantaneous success. Controllers need caches, watches, work queues, rate limits, conflict retries, finalizers, status conditions, and careful ownership rules. Kubernetes Informer DeltaFIFO & Workqueue Case Study breaks down that cache/watch/queue layer. A bad controller can overload the API server or create duplicate external resources.',
+        "The core insight is level-triggered control. The controller should care about the current level of the world, not the edge that woke it up. An event says something might have changed. It is only a hint to enqueue work. The reconcile function should then read the current object, read or list the related objects it owns, compare desired and observed state, and decide the next safe action.",
+        "This is why idempotency is not optional. A reconcile function may run many times for the same object while nothing changes. It may also run again after only half of its previous work succeeded. Creating a child object should be safe when the object already exists. Updating status should reflect observed facts, not advance a hidden local state machine. Retrying should move the system toward the same target instead of multiplying side effects."
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'The mechanism',
       paragraphs: [
-        'Kubernetes controllers manage Deployments, ReplicaSets, Jobs, Services, endpoints, nodes, certificates, storage volumes, and custom operators. The same pattern applies to cloud control planes, infrastructure-as-code systems, data pipelines, and any service that can declare desired state and converge safely.',
-        'A useful complete case study is a certificate operator. The desired object says a certificate should exist for a domain. The controller creates an external order, records progress in status, waits for validation, stores the secret, renews before expiry, and uses finalizers to clean external state on deletion. Every step must survive retries.',
+        "A typical controller is built from a watch, a cache, a work queue, and a reconcile function. The watch notices changes to relevant objects. The cache keeps local copies so the controller does not hammer the API server for every observation. The work queue stores object keys, often namespace and name, and applies deduplication and rate limiting. The reconcile function receives a key and reads fresh enough state before acting.",
+        "For a Deployment, the desired state is the replica count and pod template. The observed state is the set of owned Pods and their readiness. If the spec wants three replicas and only one ready Pod exists, the controller creates more child objects. If too many exist, it deletes or scales down. The kubelet then runs the assigned Pods on nodes, and other controllers update endpoints, service routing, or status conditions.",
+        "Kubernetes separates spec from status because users and controllers have different jobs. Spec is intent and should usually be written by a user, higher-level controller, or API client. Status is observation and should be written by the controller responsible for the resource. Generation numbers, observedGeneration, resourceVersion, owner references, and finalizers are part of the same contract: cooperate through shared state without pretending there is only one writer."
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A reconcile loop is not an event handler. It should not assume it saw every event or that the event payload is fresh. It must read current state and make safe progress. Side effects need idempotency keys, finalizers, and explicit status because retries are normal.',
+        "The first visual proves that Kubernetes is not a direct path from user to Pod. The user writes intent to the API server. etcd stores it. A watch stream wakes controllers. A queue holds work. The controller writes more API objects or updates status. The kubelet makes local node reality match assigned work. The Pod is the end of a loop, not the immediate result of a command.",
+        "The matrix view proves the delta calculation. Desired replicas equal three. Observed ready Pods equal one. The missing two replicas become the next action. That action is not a special case for this event; it is the result of comparing two pieces of state. Run the loop again before the Pods appear and the decision is still safe. Run it after the Pods appear and the delta becomes zero.",
+        "The failure view proves why the work queue matters. Conflicts cause refetch and retry. External API failures cause backoff. Controller crashes are survivable because the desired object remains in the API and the key can be requeued. A stale cache is not fatal if the controller reads before writing and treats optimistic concurrency conflicts as ordinary."
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why the method works',
       paragraphs: [
-        'Primary sources: Kubernetes Controllers documentation at https://kubernetes.io/docs/concepts/architecture/controller/ and Kubebuilder good practices at https://book.kubebuilder.io/reference/good-practices.html. Study Kubernetes Informer DeltaFIFO & Workqueue Case Study, Kubernetes Scheduler Priority Queue & Preemption Case Study, Borg Cluster Scheduler Case Study, Idempotency Keys, Backpressure, Leader Replacement, Kubernetes Admission Policy Gate, OPA Rego Policy Decision Graph, and Distributed Tracing next.',
+        "Reconciliation works because it stores the target outside the worker that is trying to reach it. If the controller process dies, the spec remains. If a watch disconnects, a relist can rebuild the cache. If two writers race, resourceVersion detects the conflict. If a child object is deleted, the parent still expresses the need for it. The target is durable, and the loop can be restarted.",
+        "The invariant is simple: each successful reconcile step should either reduce the difference between desired and observed state, record a truthful status about why it cannot do so yet, or decide that no action is needed. The loop does not need to remember every prior event. It only needs enough state to make the next operation safe.",
+        "This is also why status conditions are useful. They turn invisible waiting into visible system state. A controller can say that a certificate is waiting for DNS validation, a volume is waiting for provisioning, or a Deployment is progressing but not available. Status is not decoration. It is how a long-running convergence process becomes inspectable."
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        "The cost is latency and machinery. Reconciliation gives eventual convergence, not instant success. A user can apply a YAML file and then wait while controllers notice, enqueue, read, write, and wait for lower-level agents. The system becomes robust, but the path from intent to reality is indirect.",
+        "Controllers also put load on the API server. Bad watches, hot loops, broad relists, and status updates on every tiny observation can overload the control plane. Work queues, rate limits, exponential backoff, caches, and careful predicates are not optional performance tweaks. They are the difference between convergence and a controller storm.",
+        "External side effects are the hardest tax. Creating a cloud database, sending an email, charging a card, or ordering a certificate cannot be treated like creating a Kubernetes object. The controller needs idempotency keys, durable external IDs, finalizers, and status checkpoints. Otherwise a retry can create duplicate resources or lose track of cleanup."
+      ],
+    },
+    {
+      heading: 'Real use cases',
+      paragraphs: [
+        "Built-in Kubernetes controllers use this pattern for Deployments, ReplicaSets, Jobs, Services, endpoints, nodes, persistent volumes, garbage collection, and namespace cleanup. Custom operators use the same shape for databases, queues, certificates, machine learning jobs, backups, and application rollouts.",
+        "A certificate operator is a clean example. The spec says a certificate should exist for a domain. The controller creates or reuses an external order, records the order ID in status, waits for validation, writes a Secret when the certificate is ready, renews before expiry, and uses a finalizer to clean external state when the object is deleted. Every step can be retried after a crash.",
+        "The same design appears outside Kubernetes. Cloud control planes, infrastructure-as-code systems, data pipelines, device management platforms, and workflow engines all benefit when users can declare a target and workers continuously repair drift."
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        "The most common mistake is writing an event handler and calling it a controller. If the code assumes it saw every event, trusts the event payload, or stores progress only in memory, it will fail under ordinary restart and reconnect behavior.",
+        "The second mistake is non-idempotent side effects. A reconcile loop that always creates a new external resource, always sends a notification, or always mutates a child object without checking current state will multiply work. The retry model turns small bugs into expensive incidents.",
+        "The third mistake is spec and status confusion. A controller that rewrites user intent can fight the user. A user that writes status can hide reality from other controllers. A good API makes ownership obvious and keeps observed facts separate from desired configuration."
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        "Study Kubernetes controllers, informers, DeltaFIFO, work queues, owner references, finalizers, conditions, and optimistic concurrency next. The nearby data-structure topics are Backpressure, Idempotency Keys, Leader Replacement, Distributed Tracing, OPA Rego Policy Decision Graph, Kubernetes Admission Policy Gate, Kubernetes Scheduler Priority Queue and Preemption Case Study, and Borg Cluster Scheduler Case Study.",
+        "The transfer lesson is bigger than Kubernetes. When a system must survive missed messages, crashes, and concurrent writers, store desired state durably, make workers stateless enough to restart, make actions retryable, and report observed state honestly."
       ],
     },
   ],

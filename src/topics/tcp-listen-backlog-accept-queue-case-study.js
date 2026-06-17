@@ -88,7 +88,7 @@ function* synQueueToAcceptQueue() {
   yield {
     state: listenGraph('accept() drains the established queue', { synq: 'done', acceptq: 'ready fds', accept: 'pop head', worker: 'serve' }),
     highlight: { active: ['acceptq', 'accept', 'worker', 'e-acceptq-accept', 'e-accept-worker'], found: ['listen'] },
-    explanation: 'accept() removes one established connection from the accept queue and returns a new file descriptor. Event loops usually wake on the listening fd, then call accept until the queue is drained.',
+    explanation: 'accept() removes one established connection from the accept queue and returns a new file descriptor. The listening descriptor remains the admission point, so event loops wake on it and drain ready connections.',
   };
 
   yield {
@@ -147,7 +147,7 @@ function* overflowAndTuning() {
       ],
     ),
     highlight: { active: ['backlog:controls', 'somax:controls', 'synmax:controls'], compare: ['abort:risk'] },
-    explanation: 'There is no single magic backlog number. The application backlog, somaxconn cap, incomplete-handshake limit, and overflow behavior all answer different questions.',
+    explanation: 'There is no single magic backlog number. The application backlog, somaxconn cap, incomplete-handshake limit, and overflow behavior each protect a different queue or failure mode.',
   };
 
   yield {
@@ -199,34 +199,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A TCP server has more than one queue before application code sees a connection. A new SYN creates incomplete handshake state. After the final ACK arrives, the kernel creates or promotes a full connected socket and places it on the accept queue. The application calls accept() to remove one connected socket and get a new file descriptor.',
-        'This distinction matters because Linux listen backlog now refers to completely established sockets waiting to be accepted, while incomplete connection requests are governed separately. A slow accept loop and a SYN flood are different failures even if users report the same symptom: connections are slow or refused.',
+        'A TCP server must admit new connections before application code can read or write them. That admission path has to handle incomplete handshakes, completed sockets waiting for user space, bursts of reconnecting clients, and abuse such as SYN floods.',
+        'The important point is that a listening socket is not a connected socket. A SYN creates incomplete handshake state. After the final ACK arrives, a full connected socket waits in the accept queue. accept() removes one connected socket and returns a new file descriptor.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The simple mental model is one backlog in front of the server. Clients connect, the kernel stores them somewhere, and the application calls accept() whenever it is ready.',
+        'That model is useful for explaining the API, but it hides the protocol state. A half-open handshake and a fully established socket do not have the same memory cost, timeout behavior, or fix when overloaded.',
+      ],
+    },
+    {
+      heading: 'Where that fails',
+      paragraphs: [
+        'A slow accept loop and a SYN flood can both look like connection pain from the client side, but they pressure different queues. If user space is not draining established sockets, tcp_max_syn_backlog is the wrong knob. If incomplete requests are flooding the server, a larger application backlog is not the real fix.',
+        'The wall is diagnostic ambiguity. Without the two-queue model, backlog tuning becomes folklore and the operator may enlarge the queue that is not full.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'A listening TCP socket is a small admission pipeline with two different queues. The incomplete side tracks handshakes that have not finished. The accept queue holds established sockets waiting for the application. Linux listen backlog limits established sockets waiting for accept, while incomplete requests are governed separately.',
+        'That split makes the right question visible: are clients stuck before the handshake completes, or are completed connections waiting because user space is slow to accept them?',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        "In the SYN-queue view, separate incomplete handshakes from accepted connections. A SYN creates request state and waits for the handshake to finish. It is not yet a socket that user space can read from.",
+        "In the accept-queue view, watch the final ACK move a connection into established state. From that point, the application must call accept() to drain the queue and receive a connected descriptor. A full accept queue is usually an application-drain problem, not merely a network-handshake problem.",
+        "In the overflow view, read each rejected or delayed connection as evidence about which queue is saturated. Tuning only helps when it matches the pressure point: incomplete handshake pressure, established-socket backlog, or downstream worker saturation.",
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A web server listens with a backlog of 128. During a deploy, thousands of clients reconnect. If the application event loop keeps accepting quickly and hands sockets to workers, the accept queue stays healthy even under a burst. If the application performs TLS setup, logging, or database work before returning to accept, established sockets pile up and new clients may time out even though the network is fine.',
+        'Now compare that with a SYN flood. Incomplete handshakes accumulate before the final ACK. The accept loop may be perfectly fast, but user space never sees many of these attempts because they have not become established sockets. SYN cookies, SYN backlog sizing, retransmission behavior, and upstream filtering matter more than increasing worker count.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The listening socket is passive. It owns the local address and port and has readiness semantics: when established sockets wait in the accept queue, event loops can wake and call accept(). The returned descriptor is a different connected socket with its own send and receive state. The listening descriptor remains open to admit more connections.',
-        'Incomplete requests sit in the SYN side of the handshake. Completed handshakes sit in the accept queue. If the accept queue fills because user space is not draining it, raising tcp_max_syn_backlog does not fix the root cause. If incomplete requests flood the server, raising only the application backlog does not fix that root cause either.',
+        'The listening socket owns the local address and port. When a SYN arrives, the kernel records request state and sends SYN-ACK. When the final ACK arrives, the connection becomes established and moves to the accept queue as a full socket. When the application calls accept(), the kernel pops one established socket and returns a connected descriptor.',
+        'The returned descriptor has its own send and receive state. The listening descriptor remains open and continues admitting more connections. Event loops usually wake on the listening descriptor, then call accept until the established queue is drained.',
       ],
     },
     {
-      heading: 'Complete case study: a burst at deploy time',
+      heading: 'Why it works',
       paragraphs: [
-        'A service restarts and 20,000 clients reconnect. The kernel receives SYNs, stores request state, and sends SYN-ACK. As final ACKs arrive, established sockets enter the accept queue. If the application runs one slow accept loop and immediately performs expensive setup on each connection, the accept queue fills. Clients see delayed connects or retries even though the machine has spare CPU elsewhere.',
-        'The fix is not only a larger backlog. The server should drain accept quickly, hand connected sockets to bounded worker capacity, tune somaxconn and the application backlog for expected bursts, and monitor ListenOverflows or equivalent counters so the queueing layer is visible.',
+        'The invariant is that accept() only returns completed connections. Incomplete handshakes stay outside user-space connection handling, where the kernel can apply retransmission timers, SYN backlog limits, and protections such as SYN cookies.',
+        'Separating the queues also gives the operator a useful proof of cause. Pressure in the incomplete queue points to handshake flood, packet loss, or early admission pressure. Pressure in the accept queue points to an application or worker pipeline that is not draining established sockets quickly enough.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'The data structures are queues, but the semantics are protocol state. The incomplete side has retransmission timers and anti-abuse behavior. The accept side holds full sockets that consume more memory. Too-small queues drop legitimate bursts. Too-large queues can hide overload and make clients wait longer before failure. Backlog tuning is useful only when paired with application throughput and load shedding.',
+        'The incomplete side stores lighter request state but needs timers and anti-abuse behavior. The accept side stores full sockets, so it costs more memory per entry. Too-small queues reject legitimate bursts. Too-large queues can hide overload and make clients wait longer before failure.',
+        'Backlog tuning is useful only with application throughput. A server that accepts slowly because it performs expensive setup in the accept loop should drain first and hand work to bounded workers. A server under abusive SYN pressure needs handshake-layer defenses, not just a bigger accept backlog.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Operational diagnosis',
+      paragraphs: [
+        'Start with the symptom location. Connection timeouts before establishment point toward handshake, routing, firewall, SYN backlog, or packet-loss problems. Successful connections that stall before the application handles them point toward accept queue, worker pool, TLS, or request-processing pressure. Established connections failing later are beyond the listen backlog and belong to application backpressure.',
+        'Good servers keep accept loops boring. They accept as many ready sockets as practical, set nonblocking mode, hand work to bounded queues, and apply load shedding before memory exhaustion. Backlog is a burst absorber, not a throughput engine.',
+      ],
+    },
+    {
+      heading: 'Tuning without folklore',
+      paragraphs: [
+        'A larger backlog can help absorb short bursts when the application can catch up. It does not create CPU, worker capacity, TLS capacity, or downstream database capacity. If the server is continuously slower than the arrival rate, a larger queue mostly increases waiting time and memory pressure before failure.',
+        'Useful tuning starts with measurements: handshake failures, SYN retransmits, accept rate, established queue pressure, worker queue depth, TLS handshake time, request latency, and load balancer retry behavior. The right fix might be a faster accept loop, more workers, admission control, SYN-flood mitigation, upstream connection reuse, or lower keep-alive churn. The backlog number is only one control in that chain.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This model wins when debugging reconnect storms, deployment restarts, load balancer fan-in, and high-traffic services where connection setup is a visible part of latency. It lets operators distinguish kernel admission pressure from downstream worker saturation.',
+        'It is also useful for teaching event-driven servers. The listening descriptor is a queue-draining source, not a worker. accept() should create connected descriptors quickly, then the rest of the server pipeline should apply its own backpressure and limits.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The listen backlog is not a total live-connection limit, a worker-pool size, or a cure for slow application setup. It also does not protect the service after accept() succeeds. Once a connected descriptor is handed to user space, worker queues, TLS handshakes, request parsing, and application backpressure become the next bottlenecks.',
+        'It also fails as a portable one-number explanation because operating systems differ. Linux backlog semantics, SYN cookies, queue limits, and sysctls have specific behavior. Other kernels and frameworks may expose different knobs. Treat the two-queue model as the diagnostic foundation, then verify the exact platform semantics before changing production limits.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Linux listen(2) manual page at https://man7.org/linux/man-pages/man2/listen.2.html and Linux tcp(7) manual page at https://man7.org/linux/man-pages/man7/tcp.7.html. Study TCP: Handshake & Congestion Control, Queue, Ring Buffer, Backpressure & Flow Control, epoll Interest & Ready List, File Descriptor Table & Open File Description, and Load Shedding & Graceful Degradation next.',
       ],

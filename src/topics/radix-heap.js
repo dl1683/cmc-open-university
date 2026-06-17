@@ -208,45 +208,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A radix heap is a priority queue for monotone integer keys. It assumes every key inserted is at least the last extracted key. Under that condition, it buckets keys by bit distance from the last extracted key and supports efficient extract-min for shortest-path workloads.',
-        'The structure is not a general replacement for Binary Heap. It is specialized for integer priorities and nondecreasing extract order, which is why Dijkstra with nonnegative edge weights is the canonical use case.',
-        'The main idea is to spend comparisons only when a bucket becomes relevant. Until then, keys sit in coarse buckets determined by the most significant bit where they differ from the current lower bound.',
+        'A comparison priority queue treats priorities as opaque values. That is the right default when keys can arrive in any order. Some workloads reveal more structure: every extracted key is at least the previous extracted key, and every new key is an integer no smaller than that last extracted key.',
+        'Dijkstra with nonnegative integer edge weights has exactly this shape. Once the algorithm settles distance 8, no later unsettled distance can be below 8. The queue can use that monotone lower bound instead of comparing every key through a binary heap.',
+        'A radix heap exists for this narrow case. It trades generality for buckets based on bits, then spends scanning work only when a bucket becomes the next possible source of the minimum.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Baseline And The Wall',
       paragraphs: [
-        'Maintain last, the most recently extracted key. Bucket 0 stores keys equal to last. Higher buckets store ranges grouped by the most significant bit of key xor last. Insertion computes that bucket and appends the item.',
-        'If bucket 0 is empty, find the first nonempty bucket, scan it to find the smallest key, set last to that key, and redistribute every item in that bucket according to the new last. Then bucket 0 contains at least one extractable minimum.',
+        'The reasonable baseline is a binary heap. It works for any comparable priority and gives O(log n) insert and extract-min. For shortest paths, that means every edge relaxation pays comparison-heap overhead even though distances only move forward.',
+        'A second baseline is a bucket queue with one bucket per possible distance. That can be fast when distances are small. It becomes wasteful when the key range is large, sparse, or unknown, because the structure may need to scan empty distance buckets.',
+        'The wall is using either too little information or too much space. A radix heap keeps a small number of bit-range buckets and relies on the last extracted key to make those ranges meaningful.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Layout',
       paragraphs: [
-        'The cost depends on the machine word size or key range. Items may be redistributed several times, but each redistribution moves them to a lower, more precise bucket relative to the new last. This gives strong bounds for integer shortest-path variants.',
-        'The engineering tradeoff is specialization. You need integer keys, monotone inserts relative to extract-min, and careful handling of overflow or large key ranges. For arbitrary priorities, a binary, pairing, or Fibonacci heap is safer.',
-        'A useful implementation habit is to assert the monotone precondition at insertion time during testing. If a caller ever inserts a key below last, the bucket invariant is broken and future extract-min results can be wrong.',
+        'The structure stores last, the most recently extracted key. Every item in the heap must have key >= last. Bucket 0 stores keys equal to last.',
+        'For every other key, compute key xor last and find the most significant set bit. That bit chooses the bucket. Keys that differ from last only in low bits go into low buckets. Keys that differ in a higher bit go into coarser higher buckets.',
+        'The buckets are relative to last, not absolute distances. When last changes, one opened bucket is redistributed because the bit distances from the new lower bound have changed.',
+        'This relative layout is the point most people miss. The heap is not building a calendar of every possible distance. It keeps rough ranges around the only distance that matters now: the last one proved minimal. As that proof boundary moves forward, one rough range is refined just enough to reveal the next exact minimum.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanics',
       paragraphs: [
-        'Radix heaps are used in algorithm engineering for shortest paths, routing, timetable search, graph preprocessing, and systems where priorities are bounded nonnegative counters or distances.',
-        'A complete case study is road-network routing with integer travel times. Dijkstra pops settled distances in nondecreasing order. Relaxed distances are never below the settled distance, so the radix heap condition holds.',
+        'insert checks the precondition key >= last, computes the bucket from the highest differing bit, and appends the item. The queue does not compare the new key against every other queued key.',
+        'extract-min first removes an item from bucket 0 if one exists. If bucket 0 is empty, the heap finds the first nonempty bucket, scans that bucket to find its minimum key, sets last to that minimum, and redistributes every item from that bucket under the new last.',
+        'After redistribution, the minimum item from the opened bucket lands in bucket 0. The heap can now return it. Other items from the bucket usually move to lower buckets because last is closer to them than the old lower bound was.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why It Works',
       paragraphs: [
-        'A radix heap is not the same as a bucket queue with one bucket per distance. It uses bit ranges and redistribution to handle large key spaces compactly. It is also not valid if later insertions can have keys below last.',
+        'The monotone invariant is the proof. Since no stored key is below last, bucket 0 contains exactly the keys that are equal to the current lower bound. Those keys are safe to extract immediately.',
+        'If bucket 0 is empty, the first nonempty bucket contains the smallest possible bit range above last. Any key in a higher bucket differs from last at a more significant bit, so it cannot be smaller than the minimum key found in the first nonempty bucket.',
+        'Redistribution restores the invariant for the new last. No key moves below last, and each key is placed according to its new highest differing bit. The heap has not sorted the bucket; it has made the next exact minimum visible.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost And Behavior',
       paragraphs: [
-        'References: Ahuja, Mehlhorn, Orlin, and Tarjan, Faster Algorithms for the Shortest Path Problem, at https://ise.ncsu.edu/wp-content/uploads/sites/9/2016/02/ShortestPath.pdf, and Mehlhorn priority queue notes at https://people.mpi-inf.mpg.de/~mehlhorn/ftp/Toolbox/PriorityQueues.pdf. Study Dijkstra, Binary Heap, Pairing Heap, Fibonacci Heap, and van Emde Boas Tree next.',
+        'With W-bit unsigned keys, the heap has W + 1 buckets. insert is O(1) word work after the monotone check. extract-min may scan a bucket, but an item can only be redistributed a limited number of times as its highest differing bit drops.',
+        'A useful way to remember the cost is total movement, not one unlucky operation. One extract can scan a large bucket. Across a sequence, each item pays for a bounded number of bucket moves tied to key word length or key range.',
+        'For shortest paths with fixed-width integer distances, this can beat a comparison heap by avoiding O(log n) comparisons per queue operation. If priorities are arbitrary objects, floating-point values, or can move backward, the radix heap model no longer applies.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Radix heaps fit shortest-path engines with nonnegative integer weights: road routing, timetable search after integer time discretization, graph preprocessing, and workloads where priorities are bounded counters.',
+        'They also fit event or simulation queues when time only moves forward and timestamps are integer ticks. The structure is most attractive when the key range is too large for one bucket per value but the monotone property is guaranteed by the algorithm.',
+        'They are especially worth considering when profiling shows comparison-heap work dominating a monotone workload. The gain is not mystical; it comes from replacing repeated comparisons with word operations, append-only buckets, and occasional bucket scans whose total movement is bounded.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'The main failure mode is violating key >= last. A negative edge in Dijkstra, an event scheduled in the past, or an overflowed distance can put a key into a bucket that no longer represents the true order.',
+        'Duplicate entries need a policy. Many shortest-path implementations avoid decrease-key by inserting a new distance and skipping stale entries when popped. That works only if stale detection is explicit.',
+        'Large integer ranges and arbitrary-precision keys increase the bucket count or the cost of finding the most significant differing bit. A binary heap is safer when the word-size assumption is false or the monotone proof is not local to the caller.',
+      ],
+    },
+    {
+      heading: 'Concrete Example',
+      paragraphs: [
+        'Let last = 8. Key 8 goes to bucket 0 because key xor last is 0. Key 9 differs in the lowest bit, so it goes to bucket 1. Keys 10 and 11 go to bucket 2. Keys 12 through 15 go to bucket 3.',
+        'If bucket 0 is empty and bucket 1 contains 9, extraction sets last to 9 and returns 9. If bucket 1 were empty and bucket 2 contained 10 and 11, the heap would scan bucket 2, choose 10 as the new last, redistribute 10 and 11, then pop 10 from bucket 0.',
+        'In Dijkstra, this means a relaxed vertex with distance 14 can sit in a coarse bucket while distance 9 is still pending. The queue does not need to know exactly how 14 compares with every other future key yet. It only needs to preserve enough order to expose the next settled distance when the lower buckets empty.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study Dijkstra first because it supplies the monotone-distance proof. Study Binary Heap to understand the general comparison baseline. Study Pairing Heap and Fibonacci Heap for priority queues that support general keys and decrease-key. Study van Emde Boas Tree for another integer-key structure with a different space and universe-size tradeoff.',
+        'References: Ahuja, Mehlhorn, Orlin, and Tarjan, Faster Algorithms for the Shortest Path Problem, https://ise.ncsu.edu/wp-content/uploads/sites/9/2016/02/ShortestPath.pdf, and Mehlhorn priority queue notes, https://people.mpi-inf.mpg.de/~mehlhorn/ftp/Toolbox/PriorityQueues.pdf.',
       ],
     },
   ],

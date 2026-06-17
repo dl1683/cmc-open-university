@@ -92,43 +92,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Gradient descent is the workhorse update rule behind modern machine learning: define a loss, measure how each weight changes that loss, then nudge the weights downhill. The one-line rule is w = w - learning_rate * gradient. Backpropagation supplies the gradient efficiently; gradient descent chooses the step. That distinction matters. Backprop is bookkeeping through the computation graph, while the optimizer decides how aggressively to change the model.`,
-        `The demo uses a friendly parabola, but real training lives on a high-dimensional surface with ridges, saddles, flat basins, and noisy minibatches. Neural networks rarely train with full-batch descent over the entire dataset. They use stochastic or minibatch gradient descent, so each step is a cheap, noisy estimate of the true slope. That noise is not merely tolerated; it often helps the optimizer escape sharp traps and settle into flatter regions that generalize better.`,
+        'Gradient descent exists because most useful models have too many parameters to tune by hand and no closed-form solution for the best setting. A neural network may have billions of weights. A recommendation model, logistic regressor, or differentiable simulator may have enough parameters that trial-and-error search is hopeless.',
+        'The way out is to define a loss: one number that says how wrong the model is on the current data. If changing a parameter slightly would raise the loss, move the parameter the other way. Repeat that simple local move many times, and the model gradually becomes less wrong.',
+        'This is why gradient descent sits underneath so much modern machine learning. Backpropagation supplies the gradient efficiently. The optimizer decides how to use it. The animation shows one weight and one curve because the real idea is easier to see in one dimension before it becomes a billion-dimensional training run.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `A training step has three phases. First, the Neural Network Forward Pass turns inputs into predictions and a scalar loss. Second, reverse-mode autodiff applies the chain rule from the loss back to every parameter. Third, the optimizer updates the parameters. Plain SGD uses the raw gradient. Momentum, RMSProp & Adam adds memory: momentum averages velocity, RMSProp tracks squared gradients, and Adam combines both with bias correction.`,
-        `The learning rate is the dangerous dial. Too low wastes compute; too high overshoots and can make loss explode. Learning-Rate Schedules & Warmup solves this by starting cautiously, rising to a useful step size, then decaying so training can settle. Early Stopping & Patience adds a validation signal: stop when held-out loss stops improving, even if training loss keeps falling.`,
+        'The obvious approach is random search: try many settings, keep the best one, and hope. That collapses as dimensions grow. Ten choices for each of a billion weights is not a search space; it is a refusal to train.',
+        'A second approach is manual tuning. That can work for a two-parameter toy model, but it cannot coordinate millions of interacting weights. A weight that helps one example may hurt another, and a hidden-layer weight only matters through everything downstream of it.',
+        'A third shortcut is to solve for the optimum directly. Some convex models allow this, but deep networks, large recommenders, policy models, and differentiable pipelines usually do not. Gradient descent trades a perfect one-shot answer for a cheap local step that can be repeated at scale.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core insight',
       paragraphs: [
-        `Each step costs roughly one forward pass plus one backward pass; the backward pass is often about 2x the forward compute because it must propagate gradients and save or recompute activations. A useful language-model rule of thumb is about 6 * parameters * training tokens floating-point operations. That puts GPT-3's 175B-parameter, 300B-token training run near 3e23 FLOPs, not because the update rule is complex but because the loop is repeated over enormous data. Memory also matters: optimizer state for Adam stores two extra moment tensors per parameter, which is why large training jobs fight memory as much as arithmetic.`,
+        'The core insight is that the gradient is a local instruction. It tells how the loss would change if the parameter moved a little. A positive gradient means increasing the parameter raises loss, so the update moves left. A negative gradient means increasing the parameter lowers loss, so the update moves right.',
+        'The update is w = w - learning_rate * gradient. The minus sign is the whole idea: move opposite the slope. The learning rate decides how much to trust that local slope before measuring again.',
+        'In many dimensions, the gradient is a vector with one component per parameter. It points in the direction of steepest local increase in loss, so the negative gradient points downhill. Training is not magic; it is repeated measurement and correction.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'How it works',
       paragraphs: [
-        `Every production neural model is trained by some descendant of this loop: ResNet image classifiers, BERT encoders, GPT-style language models, speech recognizers, diffusion models, recommenders, and CLIP-like contrastive systems. The details vary. Computer vision often uses SGD with momentum and weight decay. Transformers commonly use AdamW with warmup and cosine or linear decay. Reinforcement-learning systems may optimize policy-gradient losses, while retrieval models optimize contrastive losses over learned embedding spaces.`,
-        `The same idea also appears outside deep nets: logistic regression, matrix factorization, and differentiable physics all choose parameters by descending a loss. The Loss Landscape, in 3D is the right mental model once the demo parabola feels too clean.`,
+        'A training step has three phases. First, the forward pass turns inputs into predictions and a scalar loss. Second, reverse-mode autodiff applies the chain rule from the loss back to every parameter. Third, the optimizer updates the parameters using those gradients.',
+        'Full-batch gradient descent measures the gradient over the entire dataset before each update. That is often too expensive. Stochastic or minibatch gradient descent estimates the gradient from a sample of examples, making each step cheaper and noisier.',
+        'Practical optimizers add memory and control. Momentum averages recent directions. RMSProp and Adam track gradient scale. AdamW separates weight decay from the gradient update. Learning-rate schedules and warmup change step size over time so training can move quickly early and settle later.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the visual is proving',
       paragraphs: [
-        `The biggest misconception is that the algorithm guarantees the global optimum. It does for some convex losses under careful step-size conditions; deep networks are non-convex, so there is no such general promise. Another error is expecting loss to decrease every minibatch. With stochastic gradients, short-term loss can rise while the long-term trend improves. That is normal; watch validation curves and moving averages.`,
-        `A second trap is blaming the optimizer for data or model problems. If features leak labels, if targets are noisy, or if the architecture cannot represent the task, more steps only polish the wrong objective. Regularization: L1 & L2, dropout, and better data splits often matter more than changing optimizers.`,
+        'The dot is the current parameter value, the curve is the loss, and the arrow is the update. When the dot is left of the minimum, the slope points uphill to the left, so the update moves right. When the dot is right of the minimum, the update moves left.',
+        'The large learning-rate setting proves that the formula can be correct and still fail. If the step is too large for the curvature of the loss surface, the update overshoots the valley, lands higher, and may diverge. Learning rate is not decoration; it is the control knob that decides whether the local slope is useful.',
+        'The shrinking steps near the bottom prove another important fact. The gradient gets smaller on flatter terrain, so plain gradient descent naturally takes smaller steps as it approaches a smooth minimum. Real training adds schedules because noisy, high-dimensional loss surfaces need more control than this toy parabola.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Why it works',
       paragraphs: [
-        `Read Backpropagation for the gradient engine, then Momentum, RMSProp & Adam for practical optimizer variants. Learning-Rate Schedules & Warmup and Early Stopping & Patience explain the control loop around training. Activations as 3D Origami shows why nonlinear layers reshape the surface, while The Loss Landscape, in 3D shows the terrain these updates actually cross.`,
+        'Gradient descent works when the loss is differentiable enough that local slope contains useful information about nearby points. The algorithm does not need to understand the whole surface. It only needs the current loss, the current gradient, and a step size small enough that the local approximation remains useful.',
+        'Backpropagation makes the method practical for deep networks. The chain rule reuses intermediate derivatives so the cost of computing all parameter gradients is roughly a small multiple of the forward pass, rather than one separate experiment per weight.',
+        'Minibatch noise can help rather than merely hurt. A noisy gradient is less exact, but it is much cheaper, and the noise can keep training from settling too early in sharp or brittle regions. This is one reason training curves are judged by trends and validation behavior, not by every individual step.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Each step costs roughly one forward pass plus one backward pass. The backward pass is often about twice the forward compute because it must propagate gradients and store or recompute activations. Large models repeat that loop over enormous datasets, so a simple update rule becomes an expensive training job.',
+        'The main tradeoff is step quality versus step cost. Larger batches estimate the true gradient better but cost more memory and compute per update. Smaller batches are cheaper and noisier. Adam-style optimizers can reduce tuning pain but store extra moment tensors for every parameter, increasing memory pressure.',
+        'The learning rate is the dangerous dial. Too low wastes compute; too high overshoots and can make loss explode. Schedules, warmup, gradient clipping, weight decay, early stopping, and validation checks are the control system around the basic update.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Gradient descent wins whenever the objective is differentiable and parameters are too numerous for direct search. It trains image classifiers, language models, speech recognizers, diffusion models, retrieval embeddings, matrix factorization systems, recommender rankers, and logistic regression models.',
+        'It also appears outside ordinary supervised learning. Reinforcement-learning systems descend policy-gradient losses. Differentiable physics and graphics tune parameters through simulation. Representation-learning systems optimize contrastive losses so related items move closer in embedding space.',
+        'The method is most powerful when paired with a good loss, clean data, and a model class that can represent the task. Gradient descent is an optimizer, not a guarantee that the objective is worth optimizing.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The biggest misconception is that gradient descent guarantees the global optimum. It can under some convex losses with careful step sizes. Deep networks are non-convex, so the practical promise is weaker: find a useful low-loss region, not prove the best possible parameters.',
+        'Another mistake is expecting loss to fall on every minibatch. Stochastic gradients are noisy. Short-term loss can rise while the long-term trend improves. Watch validation curves, moving averages, and downstream metrics rather than overreacting to one update.',
+        'A deeper failure is optimizing the wrong thing. If labels leak, targets are noisy, the data distribution is wrong, or the loss rewards the wrong behavior, more training only improves the wrong objective. Many training failures are specification and data failures wearing optimizer clothing.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Read Backpropagation for the gradient engine, then Momentum, RMSProp & Adam for practical optimizer variants. Learning-Rate Schedules & Warmup and Early Stopping & Patience explain the control loop around training. Activations as 3D Origami shows why nonlinear layers reshape the surface, while The Loss Landscape, in 3D shows the terrain these updates actually cross. Then study Regularization: L1 & L2, Dropout, Logistic Regression, and Neural Network Forward Pass.',
       ],
     },
   ],

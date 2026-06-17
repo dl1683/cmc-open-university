@@ -310,12 +310,13 @@ export function* run(input) {
   else throw new InputError('Pick an X-fast/Y-fast view.');
 }
 
-export const article = {
+const legacyArticle = {
   sections: [
     {
       heading: 'What it is',
       paragraphs: [
         'X-fast and Y-fast tries are predecessor-search structures for bounded integer keys. They answer questions such as "what is the largest stored key at or below x?" and "what is the smallest stored key at or above x?" faster than ordinary comparison trees when the key universe U is fixed.',
+        'The naive move is a balanced search tree: compare whole keys and walk O(log n) levels. The wall is that integer keys have bit prefixes that comparisons treat as opaque. X-fast tries index those prefixes directly. Y-fast tries keep the prefix index sparse enough that the space bill stops dominating the idea.',
         'An X-fast trie starts with a binary trie over the bits of each key, then stores every trie level in hash tables so a query can binary-search prefix lengths. A Y-fast trie uses the X-fast idea only on sampled representatives, while the real keys live in small balanced buckets. The result preserves O(log log U) expected operations while reducing space to linear.',
       ],
     },
@@ -324,6 +325,7 @@ export const article = {
       paragraphs: [
         'In a bitwise trie, the path for key 1010 contains prefixes "", 1, 10, 101, and 1010. X-fast tries hash the existing prefixes at every depth. To search for a predecessor, probe prefix tables by binary search to find the deepest prefix shared with the query. That lowest existing ancestor identifies the missing branch where the query would have continued.',
         'Each missing child has a descendant pointer to the nearest leaf on the populated side, and leaves are linked in sorted order. After the prefix search finds the boundary, predecessor or successor can be returned with only a constant amount of extra navigation. The price is space: every stored key contributes O(log U) prefixes.',
+        'Why it works: prefixes are ordered commitments. If the query shares a prefix down to one level and then the next branch is missing, the answer must lie next to that missing branch in the sorted leaf list. Descendant pointers are the bridge from trie geometry back to predecessor order.',
       ],
     },
     {
@@ -341,16 +343,113 @@ export const article = {
       ],
     },
     {
+      heading: 'Legacy visual note',
+      paragraphs: [
+        'In the X-fast view, follow prefix length rather than whole-key comparison. The structure asks which bit prefixes of the query already exist, then uses the deepest shared prefix to find the boundary where the predecessor or successor must live.',
+        'In the Y-fast view, read the top trie as a guide over representatives and the bucket as the local finish. The reusable insight is indirection: a smaller fast index gets you close, then a simpler structure completes the exact search. That is the core pattern to carry into B-trees, skip lists, learned indexes, and storage indexes.',
+      ],
+    },
+    {
       heading: 'Pitfalls and misconceptions',
       paragraphs: [
         'The most common mistake is treating X-fast/Y-fast tries as general sorted maps. They are integer-universe structures, not arbitrary comparator structures. A string key must first be mapped into an order-preserving integer universe, and hashing that destroys order is not acceptable for predecessor search.',
         'Another mistake is reading O(log log U) as automatically faster in production. Hash tables, pointer chasing, bucket trees, allocator behavior, and cache misses can erase the asymptotic advantage. For many practical ordered maps, B-Trees, Adaptive Radix Trees, Skip Lists, or ordinary balanced trees are easier and faster.',
+        'Updates are another tax. X-fast updates touch every prefix level for an inserted key. Y-fast reduces the top-level work, but bucket splits and representative changes still make the implementation harder than the asymptotic line suggests.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary source: Dan Willard, "Log-Logarithmic Worst-Case Range Queries are Possible in Space O(N)", PDF mirror at https://khoury.northeastern.edu/home/pandey/courses/cs7800/spring26/papers/yfast.pdf. Clear lecture reference: Stanford CS166 X-Fast and Y-Fast Tries at https://web.stanford.edu/class/archive/cs/cs166/cs166.1166/lectures/15/Small15.pdf. Open Data Structures covers integer data structures at http://opendatastructures.org/versions/edition-0.1c/ods-java/node64.html. Study van Emde Boas Tree, Fusion Tree Word-RAM Predecessor, PATRICIA Trie, Hash Table, Skip List, Binary Search Tree, and Data Structure Design Patterns Primer next.',
+      ],
+    },
+  ],
+};
+
+export const article = {
+  sections: [
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'X-fast and Y-fast tries exist for predecessor search over bounded integer keys. The query is simple: given x, find the largest stored key less than or equal to x, or the smallest stored key greater than or equal to x.',
+        'Balanced search trees solve this in O(log n) comparisons, which is excellent for arbitrary ordered keys. But fixed-width integers have more structure. Their bits define prefixes, and those prefixes can be hashed. X-fast and Y-fast tries exploit that word-RAM structure to get O(log log U) expected predecessor queries, where U is the integer universe size.',
+        'These structures matter because predecessor search appears in timestamp indexes, routing tables, memory allocators, range indexes, event logs, and ordered maps. They are also a good lesson in when asymptotic wins are bought with strong assumptions.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is a balanced binary search tree. It works for any comparable key, gives predictable O(log n) operations, and is usually the right engineering default.',
+        'The wall appears when predecessor latency dominates, keys are fixed-width integers, and the universe bound is real. A comparison tree treats a 64-bit integer as an opaque comparable object. X-fast tries treat the same integer as a path of prefixes that can be searched by hash.',
+        'A second shortcut is a full binary trie. That can answer predecessor by walking bits, but it takes O(w) time for w-bit keys. X-fast tries reduce that by binary-searching prefix length rather than scanning every bit.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The X-fast insight is to store every trie level in a hash table. For a query key, check which prefixes of the query exist. Binary search over prefix length finds the deepest existing prefix in O(log w), which is O(log log U).',
+        'The Y-fast insight is indirection. X-fast is fast but bulky because every key contributes many prefixes. Y-fast stores only sampled representatives in the X-fast top index, then stores actual keys in small balanced buckets. The top index gets you close; the bucket gives the exact answer.',
+        'Together, the structures show a recurring data-structure pattern: use a small fast guide over representatives, then finish locally in a compact structure.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'An X-fast trie is based on a binary trie over fixed-width keys. Each stored key has prefixes at every depth. The structure stores those prefixes in level hash tables and keeps leaves in sorted linked order.',
+        'To query predecessor or successor, binary-search the prefix levels to find the deepest query prefix that exists. The next bit tells which child branch is missing. Descendant pointers from missing branches and the sorted leaf list then identify the predecessor or successor boundary.',
+        'The cost is O(log log U) expected query time with hashing, but O(n log U) space because every key contributes O(log U) prefixes. Updates also touch many prefix tables.',
+        'A Y-fast trie fixes space by storing one representative per bucket in the X-fast structure. Each bucket holds O(log U) consecutive keys in a balanced tree. Query the top structure for the nearby representative, inspect the relevant bucket or neighbor bucket, and finish with O(log log U) local search. Splits and merges keep buckets near target size.',
+        'The representative can be chosen randomly or by bucket policy, depending on the variant. What matters for the teaching model is that the top structure indexes bucket boundaries, not every key.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The X-fast level-search view proves that the algorithm searches prefix length, not key order by comparison. It asks how much of the query path already exists in the trie.',
+        'The descendant-pointer view proves how a missing branch becomes an answer. Once the query path falls off the trie, the nearest leaves around that gap are the predecessor and successor candidates.',
+        'The Y-fast view proves indirection. A sparse top index over representatives narrows the search to one or two small buckets. The exact answer comes from the local bucket tree.',
+        'The comparison table proves the engineering tradeoff: X-fast and Y-fast exploit integer universes; balanced trees and skip lists work for arbitrary comparable keys.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because integer prefixes are ordered evidence. If a query shares a prefix with existing keys down to some depth and then the next branch is absent, no key on that absent path exists. The answer must be adjacent to that gap in leaf order.',
+        'Binary search over prefix depth works because prefix existence is monotone along a query path. If a long prefix exists, all shorter prefixes on that path exist. If a prefix is missing, longer prefixes below it are missing too.',
+        'Y-fast works because bucket size is controlled. Searching inside a bucket of O(log U) keys costs O(log log U), and the top representative index has only enough samples to keep total space linear.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The cost is implementation complexity, hashing assumptions, pointer-heavy memory layout, and update bookkeeping. The asymptotic bound can be undermined by cache misses and allocator behavior.',
+        'X-fast space is too large for many practical uses: O(n log U) prefixes. Y-fast brings expected linear space but adds bucket split and merge discipline, representative maintenance, and randomized analysis.',
+        'The key tradeoff is generality versus exploiting word structure. Balanced trees are simple and universal. X-fast and Y-fast are specialized tools for bounded integer universes where predecessor latency is worth the complexity.',
+        'There is also an operational tradeoff around iteration. A linked leaf order can support neighbor walks, but range scans over many keys may still prefer cache-friendly blocks or B-tree pages over pointer-rich theoretical structures.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'These structures are most relevant for theory, word-RAM algorithms, and specialized in-memory indexes where keys are fixed-width integers and predecessor is hot.',
+        'A timestamp index is a useful case. Events are keyed by integer microsecond time. Queries ask for the last event before t, then scan forward. A Y-fast trie can find the predecessor boundary quickly if the universe and workload justify the machinery.',
+        'The pattern also teaches practical index design. Sampling representatives plus local buckets appears in skip-list towers, B-tree pages, storage indexes, and learned-index layouts.',
+        'They are also useful as a benchmark for thinking: if a simpler tree wins in production, you should be able to explain which assumption, constant, or locality issue erased the theoretical advantage.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Do not treat X-fast or Y-fast tries as general-purpose sorted maps. They require bounded integer keys. If your keys are strings, objects, or arbitrary comparators, the assumptions are gone unless you can map them into an order-preserving integer universe.',
+        'Do not ignore constants. Hash tables at many levels, pointer chasing, bucket trees, and split logic can lose to simpler B-trees or balanced trees on real hardware.',
+        'Do not use them when the workload mostly needs range scans, bulk loading, persistence, or disk locality. A B-tree or LSM-style index may be a better match even with a weaker predecessor bound.',
+        'Another failure is confusing the universe bound U with the current number of keys n. The log-log guarantee depends on fixed key width; it does not mean performance improves automatically when the set is sparse.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary source: Dan Willard, "Log-Logarithmic Worst-Case Range Queries are Possible in Space O(N)", PDF mirror at https://khoury.northeastern.edu/home/pandey/courses/cs7800/spring26/papers/yfast.pdf. Clear lecture reference: Stanford CS166 X-Fast and Y-Fast Tries at https://web.stanford.edu/class/archive/cs/cs166/cs166.1166/lectures/15/Small15.pdf. Study van Emde Boas Tree, Fusion Tree Word-RAM Predecessor, PATRICIA Trie, Hash Table, Skip List, B-Tree, Binary Search Tree, and Data Structure Design Patterns Primer next.',
       ],
     },
   ],

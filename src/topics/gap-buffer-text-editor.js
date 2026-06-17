@@ -210,44 +210,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A gap buffer is a text-editor data structure built from one contiguous array. The visible text is split into a left span and a right span, with unused capacity called the gap between them. The cursor sits at the gap, so insertion writes into empty slots instead of shifting the whole suffix on every keystroke.',
-        'GNU Emacs documents this exact idea: insertion fills part of the gap, deletion adds to it, and the gap is moved only when an editing command needs it at a different place: https://www.gnu.org/software/emacs/manual/html_node/elisp/Buffer-Gap.html. Charles Crowley classifies it as the "gap method" in the broader design space of text sequence data structures: https://www.cs.unm.edu/~crowley/papers/sds/sds.html.',
+        'A text editor spends most of its life changing text near the cursor. If the document is stored as one flat string or array, inserting one character in the middle shifts the entire suffix. Ordinary typing becomes repeated copying of text the user is not touching.',
+        'A gap buffer fixes that specific pain. It keeps unused capacity at the cursor so local insertion writes into empty slots and local deletion grows the empty region. The structure is simple, cache-friendly, and old enough to be boring in the best sense: it is a practical editor buffer, not just a classroom trick.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The implementation stores two indices, gap_start and gap_end. Characters before gap_start are the prefix. Characters after gap_end are the suffix. Text inside [gap_start, gap_end) is ignored. To insert k characters, copy them into the gap and advance gap_start. To delete before the cursor, move gap_start backward. To delete after the cursor, move gap_end forward.',
-        'Moving the cursor for display does not have to move bytes immediately. The expensive step happens before a later insert or delete at a new location: characters are copied across the gap until the gap sits at the edit point. Moving the gap right copies suffix characters into the prefix; moving it left copies prefix characters into the suffix.',
+        'The obvious approach is a single contiguous string. It is easy to save, render, and reason about. The wall appears when edits happen in the middle: insertion shifts the suffix, deletion shifts it back, and a burst of typing repeats that work over and over.',
+        'A linked list avoids shifting, but it destroys locality and makes rendering, line lookup, and cache behavior worse. The gap buffer keeps the contiguous-array advantages while making the current edit point cheap.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'Local insertion and deletion cost O(k), where k is the number of changed characters, while the gap has capacity. Moving the gap costs O(distance), because characters between the old cursor and the new edit point are copied. Growing the buffer costs O(n) when the gap is exhausted, just like growing a dynamic array.',
-        'That asymmetry is acceptable when edits cluster around the cursor. Humans often type bursts, backspace nearby, and make small local fixes. It becomes painful for workloads with many distant edits, many cursors, background transformations, or very large files where a single gap move can copy megabytes.',
+        'The buffer is one contiguous array split into three logical regions: the left span, the gap, and the right span. The visible document is left span plus right span. Bytes or characters inside the gap are ignored because they represent capacity, not text.',
+        'Implementations usually store two indices: gap_start and gap_end. Text before gap_start is before the cursor. Text after gap_end is after the cursor. The cursor sits at gap_start, so the next insertion can write directly into the gap.',
+        'The core insight is to move empty space, not text, to the place where the user is editing. After the gap has moved, a whole burst of local edits avoids touching the far suffix.',
       ],
     },
     {
-      heading: 'Complete case study: terminal editor buffer',
+      heading: 'Core operations',
       paragraphs: [
-        'A small terminal editor opens a file into a gap buffer with extra capacity near the cursor. The user types a function name; each keystroke fills one slot. Backspace grows the gap. The viewport renders the prefix and suffix while ignoring unused bytes. Undo stores inverse operations such as "delete the inserted range" or "restore the deleted slice." For a single-cursor editor, this gives a compact and predictable core.',
-        'The same editor still needs supporting indexes. Jumping to a line requires line metadata, not just the gap. Unicode-aware movement needs grapheme boundaries, not raw byte offsets. Syntax highlighting and search should avoid re-scanning the entire buffer after every local edit. The gap buffer solves local text mutation; it does not solve the whole editor.',
+        'Insertion copies the new characters into the gap and advances gap_start. Backspace moves gap_start left, which makes the deleted character part of the ignored gap. Delete moves gap_end right. Rendering concatenates the left and right spans while skipping the gap.',
+        'Moving the cursor for display can be just an index change, but editing at a different location requires moving the gap. To move the gap right, copy characters from the right span into the left side of the gap. To move it left, copy characters from the left span into the right side. If the gap runs out, allocate a larger array and create a new gap.',
       ],
     },
     {
-      heading: 'Pitfalls and neighboring structures',
+      heading: 'Worked example',
       paragraphs: [
-        'A gap buffer is not automatically worse than a rope or piece table. It has excellent cache locality, low metadata overhead, and simple code. It is weaker when edit locality is poor. Piece Table Text Buffer preserves original and added buffers, making undo and file edits elegant. Text Rope Data Structure handles large split and concatenation workloads with tree nodes. Sequence CRDTs and Operational Transformation Collaborative Editing Case Study handle replicated collaborative order, usually on top of a local buffer.',
-        'VS Code moved toward a piece-tree design for large-file and line-lookup reasons, and its engineering post explains how piece tables gain line metadata and a red-black tree to avoid linear lookup: https://code.visualstudio.com/blogs/2018/03/23/text-buffer-reimplementation. That is not a universal rejection of gap buffers; it is a workload-specific design choice.',
+        'Start with the rendered text "hello world" and place a five-character gap after "hello ". Internally it can look like "hello [_____]world". Typing "brave " fills most of the gap: "hello brave [_]world". Rendering ignores the remaining empty slot and shows "hello brave world". The suffix "world" did not move for each keystroke.',
+        'Now jump to the beginning and type "say ". The buffer first moves the gap from after "brave " to the start by copying the intervening characters across the gap. That cursor jump edit costs distance. Once the gap is at the new edit point, typing is cheap again.',
+        'This example captures the economics of the structure. The first local burst is nearly ideal. The jump pays a copying bill once. A second local burst is cheap again. Gap buffers are good when editing naturally arrives in bursts around the current cursor.',
+      ],
+    },
+    {
+      heading: 'Animation notes',
+      paragraphs: [
+        'In the move-the-gap view, read the graph as the physical layout of one array. The left span and right span are real text. The gap is ignored capacity. The cursor points at the start of the gap. The insert frame shows why typing is cheap; the distant-edit frame shows the hidden cost of moving the gap before a new local burst.',
+        'In the editor-tradeoffs view, compare cost against cursor distance. The gap buffer wins near the current edit point because it has almost no metadata and excellent locality. Rope and piece-table designs have steadier costs for scattered edits because they avoid moving one large contiguous gap across the document.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The data structure works because it matches the locality of human editing. People usually type bursts, backspace nearby, select a nearby word, or make a small local correction. For that workload, the buffer pays O(k) for k inserted or deleted characters and avoids shifting the whole suffix after every keystroke.',
+        'It also works because it keeps representation overhead low. There are no tree nodes, piece descriptors, tombstones, or per-character identifiers in the core buffer. The CPU sees contiguous memory, rendering can scan two spans, and many operations are simple index movement plus copying.',
+      ],
+    },
+    {
+      heading: 'Tradeoffs',
+      paragraphs: [
+        'The central tradeoff is locality versus worst-case movement. Local edits are cheap. Distant edits copy the distance between the old gap and the new edit point. Growing the underlying array is O(n), like growing a dynamic array. In a small or medium single-cursor editor, this is often acceptable. In a huge file with scattered machine edits, it can become visible.',
+        'A gap buffer is not automatically worse than a rope or piece table. It has better cache locality and much less metadata. It is weaker for many cursors, collaborative editing, large split and concatenate operations, persistent snapshots, and workloads where background tools rewrite distant ranges while the user is editing elsewhere.',
+      ],
+    },
+    {
+      heading: 'Failure modes and limits',
+      paragraphs: [
+        'A real editor needs more than the storage layer. Jumping to a line needs line metadata. Unicode-aware movement needs grapheme and normalization rules, not raw byte offsets. Undo needs inverse operations or a separate history. Syntax highlighting, search, and parsing need incremental indexes or caches. The gap buffer mutates text; it does not solve navigation, semantics, rendering, or collaboration.',
+        'Common bugs come from treating bytes as characters, exposing the gap during save or render, forgetting to update line indexes after edits, moving the gap with overlapping copies incorrectly, and letting one global gap thrash under multi-cursor edits. When edits are distributed, consider multiple gaps, chunked buffers, a piece table, or a rope.',
+      ],
+    },
+    {
+      heading: 'Practical use',
+      paragraphs: [
+        'Use a gap buffer when the editor is mostly single-cursor, files are moderate, implementation simplicity matters, and local typing latency is the priority. It is a strong fit for terminal editors, embedded editors, educational editors, command lines, and text widgets with one active edit point.',
+        'Prefer a piece table or piece tree when preserving original file buffers, undo history, fast line lookup, and large-file behavior dominate. Prefer a rope when split, concatenate, and large range operations dominate. Prefer CRDT or operational transformation layers when independent replicas must merge concurrent edits.',
+        'Hybrid designs are common. An editor can use a gap buffer inside chunks, a tree over chunks for large-file navigation, and separate indexes for lines and syntax. The storage layer should match the edit workload, while surrounding indexes match search, rendering, and navigation.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Keep gap movement and gap growth in small, well-tested helpers. Use memmove-like semantics when source and destination ranges overlap. After every edit, assert that rendered text equals left span plus right span and that gap_start <= gap_end.',
+        'Do not let UI cursor units leak into storage units. A cursor may move by grapheme cluster, code point, UTF-16 code unit, or byte depending on the platform. The gap buffer can store any of those, but the editor must translate deliberately.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary and high-quality sources: GNU Emacs buffer gap documentation at https://www.gnu.org/software/emacs/manual/html_node/elisp/Buffer-Gap.html, Crowley Data Structures for Text Sequences at https://www.cs.unm.edu/~crowley/papers/sds/sds.html, Crowley PDF at https://www.cs.unm.edu/~crowley/papers/sds.pdf, and VS Code Text Buffer Reimplementation at https://code.visualstudio.com/blogs/2018/03/23/text-buffer-reimplementation. Study Piece Table Text Buffer, Text Rope Data Structure, Sequence CRDTs, Operational Transformation Collaborative Editing Case Study, Peritext Rich-Text CRDT Case Study, Ring Buffer, Dynamic Array concepts, and Web Workers next.',
+        'Primary and high-quality sources: GNU Emacs buffer gap documentation at https://www.gnu.org/software/emacs/manual/html_node/elisp/Buffer-Gap.html, Crowley Data Structures for Text Sequences at https://www.cs.unm.edu/~crowley/papers/sds/sds.html, Crowley PDF at https://www.cs.unm.edu/~crowley/papers/sds.pdf, and VS Code Text Buffer Reimplementation at https://code.visualstudio.com/blogs/2018/03/23/text-buffer-reimplementation.',
+        'Study Piece Table Text Buffer, Text Rope Data Structure, Sequence CRDTs, Operational Transformation Collaborative Editing Case Study, Peritext Rich-Text CRDT Case Study, Ring Buffer, dynamic array growth, and Web Workers next.',
       ],
     },
   ],

@@ -101,43 +101,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why This Exists',
       paragraphs: [
-        `Value iteration is dynamic programming for a Markov decision process: if you know the states, actions, rewards, transition probabilities, and discount factor, compute how good each state is under optimal play. Bellman's 1957 recurrence says a state's value equals the best immediate reward plus discounted future value. Run that recurrence repeatedly and the values converge.`,
-        `In the grid demo, the goal is positive, the pit is negative, and every move has a small living cost. The agent is not copying a demonstrated path. It is backing up consequences from terminal states until every square contains a number summarizing the future. Once those numbers are accurate, the policy is simple: choose the action leading to the highest expected value.`,
+        `Value iteration exists for decisions where an action matters because of the future state it creates. A shortest path algorithm can choose a route when every edge cost is known. Supervised learning can copy labeled examples. Reinforcement learning problems are different: an agent acts, the world changes, rewards arrive later, and a good choice may look bad for a few steps before it pays off.`,
+        `The grid in the demo is a small Markov decision process. Each square is a state, each move is an action, the goal and pit are terminal rewards, and each step has a living cost. The question is not where the agent has walked. The question is how good it is to stand in each square if the agent will act optimally from there.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The Obvious Approach',
       paragraphs: [
-        `Initialize V(s), often to zero except for terminal states. Then sweep over states. For each state, compute every action's expected return: immediate reward plus gamma times the value of possible next states, weighted by transition probability. Replace V(s) with the maximum action return. Gamma between 0 and 1 discounts distant rewards and makes the Bellman operator a contraction, which is the mathematical reason repeated sweeps converge.`,
-        `The deterministic grid is the easiest case because each action leads to one next square. In stochastic worlds, moving north might go north 80% of the time and slip sideways 20%, so the update must average over outcomes. This is where Markov Chains & Steady States becomes useful background: future state distributions matter. PageRank is another fixed-point iteration, though it ranks graph nodes instead of choosing reward-maximizing actions.`,
+        `The obvious approach is to be greedy over immediate rewards. Move toward the goal, avoid the pit, and treat every other square as neutral. That works in a tiny open grid when the goal is visible and nothing surprising happens. It fails as soon as a short route passes near danger, a long route earns more reward, or actions are stochastic.`,
+        `Another reasonable attempt is breadth-first search. BFS is correct when each step has the same cost and there are no delayed rewards beyond reaching a target. Value iteration handles a richer problem. A state can be good because it leads to future reward, bad because it leads to future loss, or ambiguous because the best action depends on transition probabilities and the discount factor.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The Wall',
       paragraphs: [
-        `For a sparse MDP, one sweep costs O(number of transition edges), often written O(S * A * next) for S states, A actions, and a small number of next states per action. A dense transition table can cost O(S * S * A) per sweep. Convergence to epsilon accuracy scales roughly with log(1/epsilon) / (1 - gamma), so gamma close to 1 makes planning slower. Space is O(S) for values, or O(S * A) if you store action-values. This is excellent for small grids and impossible for raw Atari frames or open-ended robotics without approximation.`,
+        `The wall is delayed consequence. A square beside the goal is valuable even before the agent receives the reward. A square beside the pit is dangerous even if the immediate step has not failed yet. A table of immediate rewards cannot represent that. The reward must flow backward from the future into earlier states.`,
+        `The second wall is repeated choice. The value of a state assumes the agent will keep choosing well afterward. That makes the definition recursive: the best move from here depends on the values of the next states, and those values depend on their next states. Value iteration solves that recursion by repeated approximation until the table stops changing.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Core Insight',
       paragraphs: [
-        `Exact value iteration is used in small planning domains, inventory models, queueing examples, grid navigation, and teaching reinforcement learning. Larger systems preserve the Bellman idea while replacing tables with samples or function approximators. Q-learning learns action values from experience. DQN used a Neural Network Forward Pass to approximate Q-values from Atari pixels in 2013. AlphaGo and later systems combine learned value functions with search, while robotics planners often use approximate dynamic programming when the state space is too large to enumerate.`,
-        `The same explore-versus-exploit question appears in Multi-Armed Bandits, but bandits remove state transitions. Value iteration handles sequential consequences: today's action changes tomorrow's state.`,
+        `The core insight is the Bellman optimality equation. The value of a state is the best expected return from one action plus the discounted value of whatever state comes next. Written plainly: a state is worth the reward you can get now, plus the future you can buy by choosing the best action.`,
+        `Value iteration turns that equation into an algorithm. Start with rough values, often zero for nonterminal states. Sweep over the state space. Replace each value with the best one-step lookahead using the previous values. Repeat. Each sweep pushes reward information one layer farther through the world until every state agrees with its own best future.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'How It Works',
       paragraphs: [
-        `The algorithm is only as correct as the model. If rewards are wrong, transition probabilities are wrong, or important state variables are missing, value iteration converges confidently to the wrong policy. It also assumes full knowledge of the environment. Reinforcement learning in the wild often starts without that model and must explore to learn it. Greedy action selection is optimal only after the values are accurate; using greed too early can block discovery.`,
-        `Gamma is not a harmless constant. Low gamma makes the agent short-sighted; gamma near 1 values long-term reward but slows convergence and can make reward design mistakes severe. Also, do not confuse value backup with Gradient Descent. Value iteration repeatedly applies a Bellman max operator; neural RL may train value networks with gradients, but the table algorithm itself is not following a differentiable loss surface.`,
+        `For each nonterminal state s, consider every action a. For each possible next state s2, multiply the transition probability by the quantity reward(s, a, s2) + gamma * V(s2). Sum those terms to get the expected return for that action. The new value V(s) is the maximum expected return over actions.`,
+        `In the deterministic grid, each action has one next square, so the update is easy: step cost plus gamma times the neighbor value. In a stochastic grid, moving up might go up with probability 0.8 and slip sideways with probability 0.1 each. The same update works, but it averages all possible outcomes before choosing the best action.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'What the Visual Proves',
       paragraphs: [
-        `Read Memoization (Dynamic Programming) for the reuse pattern, Markov Chains & Steady States for transition dynamics, and PageRank for another fixed-point iteration. A* Search gives a graph-planning contrast with heuristic costs. Neural Network Forward Pass explains function approximation for deep RL, Multi-Armed Bandits isolates exploration without the complication of changing states, and RL Experiment Reproducibility Ledger shows what must be recorded once RL leaves the toy grid.`,
+        `The grid is a value table. The highlighted cells are not visited cells; they are cells whose estimated future changed during that sweep. In the first sweep, only states next to the goal or pit learn anything. Later sweeps carry reward and danger farther away. This shows why planning is a propagation problem, not a path-drawing problem.`,
+        `The final highlighted route is the greedy policy after convergence. The agent can simply step to the neighbor with the highest value because those values already include future consequences. The pit is avoided without a hand-written rule because nearby states inherited negative future value from the terminal loss.`,
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        `The proof idea is a fixed point. The Bellman update defines an operator on the value table. With a discount factor gamma below 1, applying that operator pulls value estimates closer together instead of letting errors grow. Repeated sweeps converge to the unique value table that satisfies the Bellman optimality equation.`,
+        `Once the value table is correct, the greedy policy is optimal. If a state value equals the best expected one-step return plus discounted future value, then choosing the action that achieved that maximum cannot be improved by another first action. The rest of the plan is already included in the next state's value.`,
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        `One sweep costs the work needed to evaluate every action in every state. For a sparse MDP this is often O(S * A * K), where S is states, A is actions, and K is possible next states per action. A dense transition table can cost O(S * S * A) per sweep. Space is O(S) for the value table, or O(S * A) if action values are stored too.`,
+        `The number of sweeps depends on the discount factor and accuracy target. Gamma close to 1 makes far future reward matter, which is often desirable, but it also slows convergence. Doubling the number of states roughly doubles each sweep. Increasing branching or stochastic outcomes multiplies the cost of each action evaluation.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `Exact value iteration wins when the model is known and the state space is small enough to enumerate. It is useful for grid worlds, simple robot planning, inventory control, queueing models, maintenance policies, small games, and teaching because every assumption is visible in the table.`,
+        `It also wins as a conceptual foundation. Q-learning keeps the Bellman backup but learns from sampled experience instead of a complete transition model. Dynamic programming planners, approximate value methods, and many deep reinforcement learning systems still rely on the idea that future reward can be backed up into earlier states.`,
+      ],
+    },
+    {
+      heading: 'Failure Modes',
+      paragraphs: [
+        `Value iteration converges to the wrong answer if the MDP is wrong. Bad rewards, missing state variables, inaccurate transition probabilities, or hidden constraints all produce a policy that is optimal for the model and bad for the world. Reward design mistakes are especially dangerous because the algorithm will exploit whatever objective it is given.`,
+        `The table also explodes. Raw images, continuous robot joints, user histories, and open-ended software tasks cannot be enumerated directly. Function approximation helps, but then the clean convergence guarantee changes. Greedy action selection is another trap: greed is justified after values have converged, not while the table is still mostly guesses.`,
+      ],
+    },
+    {
+      heading: 'Implementation Notes',
+      paragraphs: [
+        `Use two value arrays when teaching or debugging: read from the old table and write into the new table. In-place updates can converge faster in some cases, but they make the sweep order part of the behavior. Keep terminal states fixed, and keep walls or invalid states out of the action set.`,
+        `Track the largest value change in a sweep. Stop when that delta is below a threshold tied to the reward scale. For stochastic transitions, make sure probabilities for each action sum to 1. For episodic tasks, be explicit about whether terminal rewards are stored as state values or delivered on entering the terminal state.`,
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        `Study Dynamic Programming and Memoization for the reuse pattern behind repeated backups. Study Markov Chains for transition dynamics, PageRank for another fixed-point iteration, and A* Search for a graph-planning contrast where a heuristic guides search instead of sweeping every state.`,
+        `Then study Multi-Armed Bandits to isolate exploration without state transitions, Q-Learning for model-free Bellman backups, Neural Network Forward Pass for value-function approximation, and RL Experiment Reproducibility Ledger for the records needed once rewards, seeds, environments, and policies become experimental artifacts.`,
       ],
     },
   ],

@@ -129,41 +129,79 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `Multiple testing is what happens when one p-value becomes a dashboard. A single test at alpha = 0.05 has a 5% false-alarm rate when no effect exists. Run twenty such tests on pure noise and the chance of at least one fake "significant" result becomes 1 - 0.95^20 = 64.2%. Run one hundred and it becomes 99.4%. The visualization computes those numbers before showing why a lone p = 0.04 in a twenty-metric dashboard is not a discovery.`,
-        `A/B Testing & p-values gives the single-test contract. Multiple Testing & False Discoveries explains how that contract breaks when you test metrics, cohorts, time windows, model variants, and peeks without accounting for the family.`,
+        `Multiple testing exists because the single p-value contract is easy to break accidentally. A test at alpha = 0.05 says this: if there is no real effect, this procedure will still call something significant about 5% of the time. That is tolerable when the question was chosen before the data and tested once. It becomes misleading when a dashboard, notebook, or experiment platform quietly asks many questions and reports the luckiest one.`,
+        `The practical setting is familiar. A product team ships a button change and watches conversion, revenue, retention, session length, mobile users, desktop users, Tuesday signups, new users, returning users, and a dozen guardrail metrics. A data scientist screens thousands of genes. An ML engineer compares many feature slices after looking at validation errors. Each question may be individually honest. The family of questions is not honest unless the analysis accounts for how many chances noise had to win.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The naive approach`,
       paragraphs: [
-        `The first view plots family-wise error rate, the probability that any test in the family is falsely positive. Bonferroni controls it by testing each p-value against alpha/k, so twenty tests require p < 0.0025. Holm improves the same guarantee by checking sorted p-values against gradually looser thresholds. Both preserve the "almost no false positives" promise, but Statistical Power & Sample Size shows the cost: stricter thresholds demand more data.`,
-        `Benjamini-Hochberg changes the promise. It sorts p-values, draws the rising line (i/k)q, and accepts up to the last p-value under the line. In the demo's ten p-values, BH accepts four discoveries while Bonferroni accepts two. The trade is explicit: control the expected false discovery rate rather than the chance of any false positive.`,
+        `The naive approach is to run every comparison at p < 0.05 and celebrate the smallest p-value. This is not foolish at first. The rule is simple, common, and connected to a real false-alarm guarantee for one pre-declared test. If the team only had one primary metric and one launch decision, the usual test would be the right starting point.`,
+        `The wall appears when the analyst scans for any significant result. With k independent null tests at alpha = 0.05, the chance of at least one false positive is 1 - 0.95^k. Five tests give about a 22.6% chance. Twenty give about 64.2%. One hundred give about 99.4%. The dashboard is not discovering more truth. It is giving randomness more doors to enter through.`,
+        `The hidden version is worse because the count of tests is often not written down. Trying a metric, then a subgroup, then a time window, then excluding an outlier, then checking one more cohort is still a sequence of tests. The data suggested the fork, and the analyst followed it. That choice must be counted because it was another chance to turn noise into a story.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The core insight`,
       paragraphs: [
-        `The algorithms are cheap: division or sorting. The real cost is power and governance. Every endpoint, subgroup, feature idea, and interim look must be counted. Hyperparameter Search has the same pathology in ML: try enough settings on the same validation signal and one will look lucky. Cross-Validation & Honest Evaluation and Data Leakage & Contamination are defenses against wearing out evaluation data.`,
+        `The core insight is that the unit of error control is the decision family, not the individual p-value. A family can be the set of metrics judged for one product launch, the set of genes screened in one experiment, or the set of model slices used to claim a performance improvement. Once the family is named, the question becomes precise: do we need to keep the chance of any false positive small, or do we need a bounded fraction of false discoveries among the results we accept?`,
+        `Family-wise error rate, or FWER, controls the chance that the family contains even one false positive. Bonferroni does this by dividing the alpha budget across the family: with 20 tests and alpha = 0.05, each p-value must be below 0.0025. Holm keeps the same family-wise guarantee but uses the sorted p-values and step-down thresholds, so it is usually less wasteful than plain Bonferroni.`,
+        `False discovery rate, or FDR, answers a different question. Benjamini-Hochberg sorts p-values, compares the ith p-value with (i/k) times q, and accepts through the largest rank that passes. It does not promise that every accepted result is clean. It promises that the expected fraction of false discoveries among accepted discoveries is bounded by q under its assumptions. That is often the right bargain when screening many candidates and follow-up is possible.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `How the methods work`,
       paragraphs: [
-        `Drug trials pre-register one primary endpoint and treat the rest as exploratory. Experimentation platforms lock a primary metric before launch. Genomics uses false discovery rate because millions of variants make family-wise control too severe. Causal Graphs, Confounding & Simpson's Paradox helps decide which subgroup analyses were planned causal questions and which are fishing. Instrumental Variables & Natural Experiments often reports multiple robustness checks, which need the same accounting discipline.`,
+        `Bonferroni is the simplest mechanism. Count k tests, divide alpha by k, and require each individual p-value to clear that smaller threshold. Its proof is the union bound: the chance that any false null slips through is no more than the sum of the per-test error budgets. The tests do not need to be independent for the bound to hold. That is why Bonferroni is blunt but dependable.`,
+        `Holm starts the same way by sorting p-values from smallest to largest. It checks the smallest against alpha/k, then the next against alpha/(k - 1), then the next against alpha/(k - 2), stopping when one fails. All later hypotheses are kept. The early tests face the strictest bars because they are the most tempting discoveries. Later bars loosen because fewer possible false positives remain in the unresolved family. Holm dominates plain Bonferroni for the same family-wise target.`,
+        `Benjamini-Hochberg also sorts p-values, but its threshold rises with rank. If the fourth p-value among ten is 0.020 and q is 0.05, then it sits exactly at (4/10) * 0.05. The method accepts ranks one through four if rank four is the last passing point. The earlier ranks are accepted as a block because they are even smaller than the selected cutoff. The mechanism is simple; the important part is that the guarantee changed from any false positive to the expected impurity of the accepted set.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `What the visual is proving`,
       paragraphs: [
-        `Do not correct everything with Bonferroni by reflex. If any false positive is catastrophic, use Holm or Bonferroni. If discovery volume matters and follow-up is cheap, use Benjamini-Hochberg. If there is one pre-registered ship/no-ship metric, test it once at full alpha and label the rest exploratory. Confidence Intervals & the Bootstrap do not magically remove multiplicity; simultaneous intervals also need adjusted coverage when many are interpreted together.`,
+        `The first view proves that the one-test promise does not survive repeated use. The k = 1 row is the familiar 5% false-alarm rate. The k = 20 and k = 100 rows show the family-level risk created by asking many null questions. The curve has the same shape as fan-out risk in tail latency: many individually rare events become likely when the system gives them many independent chances.`,
+        `The corrections view proves that the shape of the threshold expresses the policy. Bonferroni is a flat low bar because every test receives the same small slice of alpha. Holm is a step-down family-wise procedure that spends the same budget more carefully. Benjamini-Hochberg is a rising line because later ranks are allowed to pass only if enough stronger evidence appeared before them. The visual is not just drawing formulas. It is showing which error promise each formula is willing to make.`,
+      ],
+    },
+    {
+      heading: `Why the methods work`,
+      paragraphs: [
+        `Bonferroni works because it refuses to spend more total false-positive budget than the family can afford. If each of 20 null tests can falsely pass with probability at most 0.0025, then even in the worst overlap case the chance that at least one passes is at most 0.05. The guarantee is conservative because the bound can overcount overlapping events, but conservatism is the point when any false positive is expensive.`,
+        `Holm works by using the same family-wise logic after each successful rejection. Once the smallest p-value passes the strictest test, the procedure has handled the hardest possible first false-positive event. The remaining family is smaller, so the next threshold can be less severe without exceeding the original family-wise budget. The step-down stop rule protects the later decisions from being interpreted after a weak earlier result.`,
+        `Benjamini-Hochberg works because a high-ranked p-value is more convincing when many smaller p-values appear before it. Real signal clusters can pull the cutoff upward. A pile of null p-values usually cannot justify many discoveries.`,
+      ],
+    },
+    {
+      heading: `Cost and tradeoffs`,
+      paragraphs: [
+        `The arithmetic is cheap. Bonferroni needs a count and a division. Holm and Benjamini-Hochberg need sorting, so they cost O(k log k) for k tests, which is trivial compared with collecting the data. The real cost is statistical power. A stricter threshold means a true effect needs more data to become detectable. With fixed sample size, stronger error control converts some real effects into non-discoveries.`,
+        `Governance is the harder cost. Someone must define the family before looking, record the primary metric, separate confirmatory analysis from exploratory analysis, and decide which correction matches the decision. A vague notebook full of after-the-fact choices cannot be repaired perfectly by a formula. The formula needs an honest count of the chances the analyst gave luck.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Use family-wise control when one false positive can cause a bad decision. Drug approval, safety claims, security alerts that page a human, and ship/no-ship product metrics often belong here. If the decision is binary and costly, Holm is usually the better default than plain Bonferroni because it keeps the same guarantee with more power.`,
+        `Use false discovery rate when discovery volume matters and follow-up exists. Genomics, feature screening, anomaly triage, search relevance experiments, and model-slice investigations often need a useful list rather than a single pristine claim. A small controlled impurity is acceptable if later validation, replication, or human review catches the misses.`,
+        `Use pre-registration when the real question is known in advance. One primary metric tested once at full alpha has more power than a corrected family of retrospective stories. Secondary metrics can still be useful, but they should be labeled exploratory and used to design the next experiment rather than to justify the current claim.`,
+      ],
+    },
+    {
+      heading: `Where it fails`,
+      paragraphs: [
+        `Multiple-testing correction can be too severe when applied without judgment. If one primary endpoint was honestly chosen before the experiment, correcting it together with every diagnostic chart wastes power. If a hundred exploratory charts were inspected after the fact, pretending that only one test happened is worse. The boundary between confirmatory and exploratory work must be part of the design, not a story added after results appear.`,
+        `Corrections also do not fix biased data. Confounding, leakage, bad randomization, p-hacking, optional stopping, and broken measurement can produce small p-values that are not meaningful under any multiplicity rule. Confidence intervals have the same issue when many intervals are interpreted together: simultaneous coverage needs adjustment, and a single unadjusted interval pulled from a large search is not a clean claim.`,
+        `The method can also be mismatched to dependence. Bonferroni and Holm are conservative under broad conditions. Benjamini-Hochberg is more powerful, but its standard guarantee relies on assumptions about the p-values. Correlated metrics, repeated users, overlapping cohorts, and adaptive analysis plans deserve more care than simply pasting a BH line over the output.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Read A/B Testing & p-values for the single comparison, Statistical Power & Sample Size for the power price of stricter alpha, and Data Leakage & Contamination for the ML version of repeated peeking. Cross-Validation & Honest Evaluation and Hyperparameter Search show how the same false-discovery logic appears outside classical statistics.`,
+        `Study A/B Testing & p-values first for the single-test contract, then Statistical Power & Sample Size for the price of stricter thresholds. Confidence Intervals & the Bootstrap explains why interval interpretation also needs a family when many intervals are reported. Causal Graphs, Confounding & Simpson's Paradox helps separate planned causal questions from subgroup fishing.`,
+        `For the ML version, study Cross-Validation & Honest Evaluation, Hyperparameter Search, and Data Leakage & Contamination. They teach the same law in a different language: every time the evaluation signal influences a choice, the signal is being spent. Multiple testing is the statistics name for that spending becoming visible.`,
       ],
     },
   ],

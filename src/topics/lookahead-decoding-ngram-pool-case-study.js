@@ -193,45 +193,98 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Lookahead decoding is a draft-model-free method for reducing autoregressive decode steps. It generates candidate n-grams in parallel, stores useful continuations in a pool, and verifies candidate prefixes against the target model before emitting tokens.',
-        'Multi-Token Decoding introduces Lookahead at a high level. This module focuses on the actual data structures: lanes, n-gram pool entries, prefix matching, verifier branches, accepted-length metrics, and eviction policy.',
+        'Lookahead decoding exists because autoregressive generation wastes wall-clock time on an awkward dependency. The target model can only emit token t + 1 after token t is known, so decoding often becomes a long serial loop. Even when the GPU has spare parallel compute, the next-token dependency keeps the serving path waiting on one small step after another.',
+        'Speculative decoding attacks the same bottleneck with a draft model. A smaller model proposes future tokens, and the target model verifies them. Lookahead decoding is different: it tries to get some of the benefit without a separate draft model. It uses parallel lanes to generate candidate n-grams, stores reusable continuations in a pool, and verifies those continuations against the target model before any token becomes output.',
+        'The important point is that Lookahead is not a new language model and not a shortcut around correctness. It is a runtime strategy for finding safe parallel work around a serial process. The target model still owns the emitted text. The pool only offers guesses that might let one verification step accept several tokens.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious serving approach is plain greedy or sampling decode: run the target model, choose one token, append it, update the KV cache, and repeat. This is simple and exact. It also leaves performance on the table when outputs contain predictable local structure. Code, JSON, tool calls, markdown tables, boilerplate refusals, and repeated templates often contain short continuations that can be guessed safely if the target verifies them.',
+        'A second obvious approach is to always run a draft model. That can work, but it adds another model to load, tune, batch, and keep aligned with the target. Draft-model quality strongly affects acceptance. A weak draft wastes verification bandwidth; a strong draft may cost enough memory and compute to complicate serving. Lookahead asks whether some traffic can be accelerated with candidates produced and recycled inside the target-model runtime itself.',
+        'The failure of both simple stories is that there is no universal free speedup. Plain decoding is exact but serial. Drafting can be fast but operationally heavier. Lookahead is only useful when candidate work is cheap, hits are common, and accepted prefixes are long enough to beat the overhead.',
+      ],
+    },
+    {
+      heading: 'Core invariant',
+      paragraphs: [
+        'The invariant is exactness under target verification. A proposed n-gram is not output. It is a candidate. The verifier asks the target model how many proposed tokens match the ordinary autoregressive path under the chosen decoding rule. Only the accepted prefix is emitted. At the first mismatch, the runtime falls back to the target token and continues normally.',
+        'This invariant is what lets Lookahead be an acceleration method rather than a quality-changing approximation. The pool can be noisy. Lanes can guess badly. Eviction can be imperfect. None of those mistakes should change the final distribution if verification is implemented correctly for the chosen decoding mode.',
+        'The invariant also defines the useful metric. Proposal length is not success. Pool size is not success. Hit rate alone is not success. The metric that matters is accepted target-equivalent tokens per unit of extra work. A large pool that proposes long continuations but has low acceptance is just a latency tax.',
       ],
     },
     {
       heading: 'Data structures',
       paragraphs: [
-        'A Lookahead runtime keeps a lane table, n-gram pool, prefix index, verifier result table, accepted-token ledger, and pool-eviction policy. Each pool entry carries a key prefix, candidate continuation, hit count, acceptance rate, age, and traffic segment.',
-        'The n-gram pool is the practical memory of the method. If it fills with rare or stale candidates, the verifier does extra work for little gain. If it captures repetitive code, tool-call, or templated text, it can reduce serial target passes.',
+        'A Lookahead runtime keeps several small data structures. The lane table tracks parallel candidate streams. The n-gram pool stores candidate continuations. A prefix index maps the current suffix or prefix key to pool entries that might apply. The verifier result table records how many tokens were accepted. The accepted-token ledger aggregates performance by request type, model, route, sampling policy, and batch shape.',
+        'A pool entry should include a key, a candidate continuation, token ids, hit count, accepted length history, rejection count, age, traffic segment, and memory cost. This is a cache entry, not a belief. It earns its place by reducing future serial decode steps. If it stops doing that, it should age out.',
+        'Segmentation is not optional in a serious runtime. A continuation useful for Python code may be harmful for legal prose. A JSON tool-call fragment may be valuable for an agent route and irrelevant for chat. Mixing all traffic into one pool can make average metrics look acceptable while hurting important slices.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Parallel lanes generate candidate n-grams from the current state. The runtime inserts promising n-grams into a pool. Later, when the current prefix matches a pool key, the target model verifies the continuation and accepts the longest valid prefix.',
-        'The method trades extra parallel computation for fewer serial steps. It works best when the accelerator has spare parallel compute, the traffic contains repeated continuations, and verification is integrated with batching rather than bolted on afterward.',
+        'The runtime begins with the current target-model state and runs lookahead lanes that propose short future sequences. Those sequences are turned into n-grams and inserted into the pool if they look reusable. Later, when decoding reaches a matching prefix, the runtime retrieves candidate continuations and sends them through a verification path.',
+        'Verification can accept zero, one, or many proposed tokens. If the first proposed token does not match the target decision, the candidate earns no output and ordinary decoding supplies the next token. If several proposed tokens match, the runtime appends them, updates bookkeeping, and skips serial target passes that would otherwise have produced the same tokens one by one.',
+        'The mechanism is easiest to compare with branch prediction. A CPU predictor does not abolish control dependencies; it guesses around them and pays a penalty when wrong. Lookahead does not abolish autoregressive dependency; it guesses local continuations and relies on target verification to keep the output exact.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A coding agent emits many structured tool calls. The pool learns repeated fragments such as `tool call {` and JSON key patterns. When a new generation reaches the same prefix, Lookahead proposes the fragment, verifies it, emits multiple accepted tokens, and logs the pool hit.',
-        'If the traffic shifts to creative prose, pool hits and accepted length fall. The runtime controller reduces n-gram length or disables Lookahead for that segment. The ledger makes that decision visible rather than ideological.',
+        'Lookahead works when local text is predictable enough that reusable n-grams appear again and again. Structured outputs have this property. Code contains syntax, indentation, imports, braces, and common idioms. Tool calls contain fixed keys and schemas. Logs and reports contain repeated boilerplate. In those regions, one accepted candidate can replace several target-model loop iterations.',
+        'It also works because modern accelerators often prefer larger, better-shaped work to many tiny serial steps. If verification can be batched with active requests, the runtime may use available parallelism to check candidates while reducing the number of decode iterations. The gain is wall-clock, not theoretical asymptotics. The serial dependency remains; Lookahead just makes some future steps safe to consume early.',
+        'The method fails gracefully only if exact fallback is cheap. A rejected candidate should not corrupt the KV cache, block unrelated requests, or force a slow rebuild of state. The implementation must treat rejection as a normal path, because good candidate systems are still wrong often.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Worked example',
       paragraphs: [
-        'Lookahead can be slower than plain decoding when the pool hit rate is low, when generated n-grams are stale, when verification creates tail latency, or when the implementation fights continuous batching. A healthy rollout reports speedup by traffic segment, not one average.',
-        'Do not confuse proposed n-grams with accepted output. The target verification path must own final text. The pool is a cache of guesses, not an authority.',
+        'Imagine an agent service that repeatedly emits tool-call JSON. Many completions include fragments such as an opening object, quoted property names, commas, arrays, and closing delimiters. The n-gram pool learns that after a prefix like `"arguments": {`, continuations such as `"query":` or `"path":` often appear. When a later request reaches the same prefix, the pool retrieves those candidates.',
+        'The verifier then checks the candidate against the current target-model state. If the target would have emitted the same token sequence under the active decoding rule, the runtime accepts several tokens and advances. If the request is asking a different tool or a different schema, acceptance drops and ordinary decoding resumes after the first mismatch.',
+        'Now change the route to open-ended analysis. The surface text becomes less repetitive and more dependent on retrieved evidence. The same pool policy may produce many plausible but wrong continuations. A good runtime notices that accepted length fell, decreases candidate length, switches to a segment-specific pool, or disables Lookahead for that route.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Keep candidate state separate from committed decode state. Do not mutate the authoritative KV cache as if a candidate were accepted until verification says so. If the implementation uses temporary branches, make branch lifetime explicit and cheap to discard. Candidate cleanup bugs are a common way for speculative systems to become slow or wrong.',
+        'Make the pool bounded by both memory and usefulness. A simple policy can combine recency, hit rate, accepted length, and segment. Pinning common structural n-grams is reasonable, but pins should be auditable. A permanently pinned bad candidate is worse than an ordinary stale cache entry because it keeps taxing the verifier.',
+        'Integrate with batching from the beginning. A verifier that creates odd-shaped microbatches, waits behind prefill work, or blocks continuous batching can erase the speedup. The correct comparison is not candidate decode in isolation. It is end-to-end tokens per second, p50 and p99 latency, GPU utilization, and cost per accepted token under real traffic.',
+        'Treat sampling carefully. Greedy verification is easier to reason about than stochastic sampling. If the product uses temperature, top-p, or other sampling rules, verification must preserve the intended distribution rather than quietly turning the route into greedy decode. The exact acceptance rule belongs in tests, not only in a paper summary.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track pool hit rate, accepted tokens per verification, rejection position, verifier overhead, stale-entry rate, pool memory, batch interference, fallback rate, and latency by route. These metrics answer the real question: is Lookahead reducing serial target passes, or is it adding proposal work that mostly gets rejected?',
+        'Measure by traffic segment. A route that emits tool calls may show strong speedup while creative writing slows down. A single blended average can hide that. Segment-level reporting lets the controller enable Lookahead where it earns its keep and disable it where plain decoding is better.',
+        'Use cost per accepted token as a rollout gate. If proposals are cheap and accepted often, Lookahead can improve serving. If candidates are expensive, mostly rejected, or harmful to tail latency, the simpler baseline wins. An adaptive controller should be allowed to say no.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Lookahead wins on repetitive, locally structured outputs: code completion, schema-constrained JSON, tool-call arguments, logs, templated customer-support replies, repeated report sections, and narrow domain formats. It is especially attractive when the serving stack already has spare parallelism during decode and can verify candidates without disrupting active batches.',
+        'It also wins as a draft-model-free deployment step. Teams that cannot afford another model, cannot tune a draft model for every target, or need a simpler operational footprint may still be able to exploit n-gram repetition. The pool is easier to update than a model checkpoint, and its behavior can be inspected with cache-style metrics.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Lookahead fails when the workload has little reusable local structure. Highly contextual reasoning, long evidence-dependent prose, novel creative writing, and routes with diverse schemas may produce low hit rates and short accepted prefixes. In those cases the verifier spends effort rejecting guesses that ordinary decoding would never have made.',
+        'It can also fail inside a serving engine. Candidate generation can fight continuous batching, increase memory pressure, create tail latency, or add branch-management complexity. A method that looks fast in an isolated benchmark may lose when mixed with prefill-heavy traffic, long contexts, many concurrent users, or strict latency objectives.',
+        'The correctness failure is more serious than the performance failure. If candidates can leak into output without exact target verification, Lookahead is no longer a safe acceleration method. Tests should compare output equivalence under controlled seeds and decoding settings, including mismatch at the first token, partial acceptance, and repeated fallback.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Lookahead Decoding at https://arxiv.org/abs/2402.02057 and https://github.com/hao-ai-lab/LookaheadDecoding, speculative decoding at https://arxiv.org/abs/2211.17192, vLLM speculative decoding at https://docs.vllm.ai/en/stable/features/speculative_decoding/, and vLLM suffix decoding at https://docs.vllm.ai/en/latest/features/speculative_decoding/suffix/.',
-        'Study next: Medusa Tree Attention Candidate Mask Case Study, EAGLE Feature Draft Tree Case Study, Speculative Decoding Runtime Controller Case Study, Speculative Decoding Acceptance Ledger, Prefix Caching RadixAttention, and LLM Continuous Batching.',
+        'Primary sources: Lookahead Decoding at https://arxiv.org/abs/2402.02057 and https://github.com/hao-ai-lab/LookaheadDecoding. For the broader family, study speculative decoding, suffix decoding, Medusa-style candidate trees, and EAGLE-style feature drafting. The recurring pattern is always the same: propose ahead, verify with the target, and measure accepted work.',
+        'Study next: Multi-Token Decoding, Medusa Tree Attention Candidate Mask Case Study, EAGLE Feature Draft Tree Case Study, Speculative Decoding Runtime Controller Case Study, Speculative Decoding Acceptance Ledger, Prefix Caching RadixAttention, LLM Continuous Batching, KV Cache, and SLO-Aware LLM Request Router Case Study.',
       ],
     },
   ],

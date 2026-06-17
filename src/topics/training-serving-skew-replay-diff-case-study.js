@@ -225,44 +225,61 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A training-serving skew replay diff compares online feature vectors consumed in production with offline recomputation of the same requests. It turns a vague production ML complaint into a diffable artifact: which feature, which version, which value, which timestamp, which owner, and which model were affected.',
-        'Feature stores aim to prevent skew by sharing definitions, but prevention is not proof. Replay diffs are the measurement layer that catches code drift, materialization lag, default bursts, timestamp bugs, and deployment mismatches.',
+        'Training-serving skew exists when a model sees one feature reality during training and a different feature reality during production serving. The model may be mathematically unchanged, the code may deploy cleanly, and offline metrics may look strong, but live predictions degrade because the input vector is different. Fraud counts default to zero online while training rows had real counts. A category is lowercased in one path and not in the other. A timestamp join leaks future data offline but production only has past data. These are systems failures that appear as model failures.',
+        'A replay diff turns that vague failure into evidence. For a sampled production prediction, the serving path logs the exact online feature vector and metadata. Later, a replay job recomputes the same features from offline definitions using the same entity keys and prediction timestamp. The diff compares online and offline values, records tolerances, and stores the result in a ledger. The goal is not to admire disagreement after metrics have fallen. The goal is to catch skew early enough to block releases, page the right owner, and make the incident debuggable.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting wrong answer',
       paragraphs: [
-        'The serving layer logs sampled request ids, entity keys, prediction timestamps, feature values, feature timestamps, defaults, versions, and model ids. A replay queue later feeds those requests into the offline feature definitions with point-in-time joins. The diff step compares online and offline values under a tolerance policy and writes a skew ledger.',
-        'The ledger is queryable by feature, model, owner, source, version, tenant, and time window. Release gates can block a new model or feature definition if replay diff rates exceed a threshold, and incident response can use the ledger to isolate whether a regression came from data lag, feature version drift, serving defaults, or model behavior.',
+        'The naive answer is to watch model scores and business metrics. If fraud loss rises or click-through drops, investigate. That is necessary, but it is late and ambiguous. Aggregate metrics cannot tell whether the model is bad, labels shifted, a feature pipeline lagged, a default value spiked, a version mismatch landed, or the experiment population changed. By the time aggregate metrics move, users have already seen the broken behavior.',
+        'Another naive answer is to rerun feature code against the latest warehouse tables. That can be worse than doing nothing because it creates a false sense of correctness. Offline data changes after the prediction time. Late events arrive. Backfills repair missing values. Labels and features can leak future knowledge if point-in-time joins are wrong. A replay diff must reconstruct what should have been known at the original prediction timestamp, not what the warehouse knows today.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core idea',
       paragraphs: [
-        'The main cost is logging volume and replay compute. Teams usually sample requests, prioritize high-value models, and replay only features that changed or look suspicious. Privacy and access control matter because feature logs can contain sensitive user or business data.',
-        'The implementation must handle tolerances. Exact categorical values should match exactly. Floating aggregates may differ slightly because of window boundaries or numerical precision. Counts need threshold policies. Embeddings need vector-distance thresholds. The diff system should avoid both false panic and silent drift.',
+        'The core idea is to make every served feature vector replayable. The online path logs enough information to identify the request, entity keys, model id, feature names, feature versions, online values, feature event timestamps, freshness, default flags, and lookup source. It should also log the prediction timestamp and any context that changes feature selection, such as tenant, region, experiment arm, or model bundle. Without this metadata, a diff system can only say that values differ. It cannot explain why.',
+        'A replay worker consumes those sampled records and runs the offline feature definitions with point-in-time rules. It then compares the online vector with the offline vector under a feature-specific policy. Categorical features usually require exact equality. Floats may allow a small epsilon. Counts may need absolute and relative thresholds. Embeddings may need distance metrics. The output is a skew ledger: a queryable table of differences grouped by feature, model, version, owner, source, time window, and suspected root cause.',
       ],
     },
     {
-      heading: 'Complete case study: fraud model production gap',
+      heading: 'How the system works',
       paragraphs: [
-        'A fraud model reports strong offline AUC but misses live fraud after launch. Product metrics show a gap, but the model code did not change. Replay diff finds the cause: online chargebacks_1h often defaults to zero during queue lag, while offline recomputation finds valid chargeback counts for the same prediction timestamps.',
-        'The fix is not a larger model. The team tightens freshness SLOs, adds fallback logging, blocks releases when default bursts exceed threshold, and reruns the offline evaluation with production-like defaults. The replay ledger becomes evidence for the incident review and a gate for the next release.',
+        'The serving service first performs its normal online lookup and prediction. In parallel, it writes a compact evidence record. That record should avoid unnecessary payload, but it must preserve enough detail to reproduce the feature calculation. Many systems sample because logging every prediction can be expensive. Sampling should be deliberate: always include new model versions, high-value tenants, rare error paths, fresh feature definitions, and incidents under investigation. Random samples are useful for baseline rates, but targeted samples catch release risk faster.',
+        'The replay pipeline reads those records from a log or table, hydrates the offline context, and recomputes features as of the original prediction time. This means point-in-time joins, watermark rules, late-event policy, entity key mapping, and feature version resolution must match the contract used during training. The diff stage normalizes values, applies tolerance, writes one row per feature comparison, and attaches labels such as lag, missing default, schema mismatch, stale materialization, clock skew, or version drift.',
+        'The ledger then feeds two loops. The first is release control. A model, feature, or serving change can be blocked if skew exceeds thresholds for important features. The second is incident response. When online quality drops, the team can ask which features changed, which versions are affected, which tenants are exposed, and whether the problem is in serving, offline computation, source freshness, or the model itself.',
+        'A strong implementation also records lineage. Each diff row should connect back to a feature definition commit, a materialization job, a source table or stream, and a serving store version when those identifiers exist. Lineage turns the ledger from a metric into a repair tool. It lets the team move from "chargebacks_1h is skewed" to "the online materialization for v8 in us-east stopped consuming partition 14 after 10:05."',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Do not log only model scores. You need feature values and metadata to debug skew. Do not compare online latest values against offline latest values; replay must use the original prediction timestamp. Do not ignore defaults, because default paths are often the entire skew bug.',
-        'Replay diffs do not prove the model is good. They prove the model saw consistent feature semantics. You still need validation, calibration, online experiments, delayed-label audits, and monitoring for data distribution shift.',
+        'The shadow-replay view proves that the production feature vector is the artifact to preserve. A prediction score is not enough. A label that arrives days later is not enough. The online feature values, their versions, and their freshness metadata are the evidence needed to determine whether serving matched training. The offline job is useful only because the online path left a replayable trail.',
+        'The diff-ledger view proves that skew must become an operational table, not a collection of notebook screenshots. Rows need stable keys, owner fields, tolerances, and root-cause buckets. That structure lets a team count skew by feature version, alert on a default burst, tie a problem to a freshness SLO, and block a release before aggregate model metrics have enough time to move.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Sources: Uber Michelangelo at https://www.uber.com/us/en/blog/michelangelo-machine-learning-platform/, Uber Palette at https://www.uber.com/us/en/blog/palette-meta-store-journey/, Feast feature retrieval at https://docs.feast.dev/getting-started/concepts/feature-retrieval, and Operationalizing Machine Learning at https://arxiv.org/abs/2209.09125. Study Feature Store, Point-in-Time Feature Join Index, Feature Freshness SLO Monitor, Distributed Tracing, Data Leakage, and MLOps next.',
+        'The main cost is evidence volume. Feature vectors can be wide, frequent, and sensitive. The system needs sampling, retention limits, encryption, access control, redaction, and clear rules for personally identifiable data. Logging must not slow the prediction path. Replay compute also costs money because offline definitions may require joins over large tables. A practical design starts with high-value models and high-risk features, then expands coverage as incidents justify it.',
+        'There is also comparison cost. Some differences are expected. A floating aggregate may differ because of rounding. A count may differ because a late event arrived. An embedding may move slightly after an upstream model refresh. The tolerance policy has to encode product risk. Too strict, and the ledger pages teams for harmless noise. Too loose, and real skew hides under thresholds. Good systems let each feature declare type, tolerance, owner, freshness SLO, and release criticality.',
+        'Replay timing is another tradeoff. Near-real-time replay catches bad releases quickly, but it costs more and may compare before late data has settled. Batch replay is cheaper and steadier, but it may discover a production feature problem hours later. Many teams use both: fast replay for release gates and slower replay for broad coverage.',
+      ],
+    },
+    {
+      heading: 'Real uses and failure modes',
+      paragraphs: [
+        'Replay diffs are useful in fraud, ads, recommendations, ranking, credit risk, marketplace matching, pricing, ETA, and trust systems. A typical fraud case looks like this: offline training used a chargebacks_1h count computed from settled events, but online serving reads a streaming materialization that sometimes lags. During lag, the online path defaults the count to zero. Offline evaluation looks strong because historical rows have the real count. Production misses risky activity because the live model sees a safer customer than the offline model saw.',
+        'The fix is a systems fix. Add freshness SLOs, expose default rates, log fallback reasons, gate releases on replay diff rates, backfill online stores before rollout, and evaluate the model with production-like defaults. A bigger model will not repair a broken feature path. The failure modes are also clear. The diff system can miss skew if the online log omits key metadata. It can create false alarms if point-in-time replay is wrong. It can leak data if logs are too rich. It can become unused if root-cause buckets do not map to owning teams.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Feature Store, Point-in-Time Feature Join Index, Feature Freshness SLO Monitor, Data Leakage, Distributed Tracing, Online Experimentation, and MLOps. External references worth reading include Uber Michelangelo, Uber Palette, Feast feature retrieval concepts, and papers or engineering reports on operational machine learning. The broader lesson is that model quality depends on data-path correctness. A replay diff is a control system for that data path.',
       ],
     },
   ],

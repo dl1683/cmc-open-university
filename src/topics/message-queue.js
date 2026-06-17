@@ -1,6 +1,5 @@
-// Message queues: put a durable buffer between services that produce work
-// and services that do it. Bursts get absorbed, crashes get survived —
-// and one new question appears: what if a message arrives twice?
+// Message queues: durable handoff between producers and consumers, with
+// backpressure, retries, redelivery, idempotency, and dead-letter handling.
 
 import { sequenceState, InputError } from '../core/state.js';
 
@@ -8,19 +7,20 @@ export const topic = {
   id: 'message-queue',
   title: 'Message Queues',
   category: 'Systems',
-  summary: 'Producers rush, consumers plod, the queue absorbs the difference — plus the at-least-once catch.',
+  summary: 'A durable buffer that lets producers and consumers run at different speeds while forcing the system to handle retries, duplicates, lag, and poison messages.',
   controls: [
     { id: 'scenario', label: 'Scenario', type: 'select', options: ['steady consumer', 'consumer crashes mid-job'], defaultValue: 'consumer crashes mid-job' },
   ],
   run,
 };
 
-// orders arriving per tick from the checkout service (the producer)
+// Orders arriving per tick from the checkout service, acting as the producer.
 const ARRIVALS = [2, 3, 0, 2, 1];
 
 export function* run(input) {
-  const crashy = String(input.scenario) === 'consumer crashes mid-job';
-  if (!['steady consumer', 'consumer crashes mid-job'].includes(String(input.scenario))) {
+  const scenario = String(input.scenario);
+  const crashy = scenario === 'consumer crashes mid-job';
+  if (!['steady consumer', 'consumer crashes mid-job'].includes(scenario)) {
     throw new InputError('Pick a scenario.');
   }
 
@@ -32,7 +32,7 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: 'A checkout service takes orders in milliseconds; the email/invoice service behind it takes a full second per order. Wire them DIRECTLY and the slow one sets everyone\'s pace — checkout blocks, customers wait, a crash in emails fails the purchase. The fix is architectural: put a durable QUEUE between them, and let the two services stop knowing each other exists.',
+    explanation: 'The checkout service accepts orders quickly. The email or invoice worker may take much longer. If checkout calls the worker directly, the slow worker sets the pace and its outage can break the purchase flow. The queue changes the contract: checkout records work durably, returns to the customer, and lets consumers drain the work later.',
   };
 
   let crashed = false;
@@ -47,18 +47,17 @@ export function* run(input) {
       yield {
         state: snapshot(),
         highlight: { active: queue.slice(-arriving).map((m) => m.id) },
-        explanation: `Tick ${tick}: checkout enqueues ${arriving} order${arriving === 1 ? '' : 's'} and IMMEDIATELY returns success to the customer${tick === 2 ? ' — a burst of 3 at once, absorbed without anyone slowing down. The queue is the shock absorber' : ''}. The message is written durably first (a Write-Ahead Log (WAL) under the hood), so "enqueued" means "will not be lost".`,
-        invariant: 'Producer speed and consumer speed are fully decoupled; the queue depth absorbs the difference.',
+        explanation: `Tick ${tick}: checkout enqueues ${arriving} order${arriving === 1 ? '' : 's'} and returns after the broker accepts the messages. The queue absorbs the speed mismatch. A burst grows queue depth instead of forcing checkout to wait for every downstream side effect.`,
+        invariant: 'Producer speed and consumer speed are decoupled; queue depth records the difference.',
       };
     }
 
-    // consumer side
     if (crashy && tick === 3 && !crashed) {
       crashed = true;
       yield {
         state: snapshot(),
         highlight: { swap: [queue[0].id] },
-        explanation: `Tick ${tick}: the email service pulls ${queue[0].value}, starts working… and ⚡ CRASHES before sending its ACK. Watch what does NOT happen: the message is not lost. Unacknowledged messages stay owned by the queue — after a visibility timeout, ${queue[0].value} becomes deliverable again. The customer's order survived a consumer dying mid-job.`,
+        explanation: `Tick ${tick}: the worker receives ${queue[0].value} and crashes before acknowledging it. The message is not deleted because the broker has not seen a successful ACK. After the visibility timeout or lease expires, that same message can be delivered again.`,
       };
       continue;
     }
@@ -66,7 +65,7 @@ export function* run(input) {
       yield {
         state: snapshot(),
         highlight: {},
-        explanation: `Tick ${tick}: the consumer is still down; orders keep arriving and the queue simply deepens (${queue.length} waiting). Nothing fails, nothing blocks — this isolation is why an outage in one microservice doesn't cascade. (If the consumer stayed down for hours, BACKPRESSURE policies kick in: bound the queue, alert, shed load.)`,
+        explanation: `Tick ${tick}: the consumer is still down. Producers can keep enqueuing, so the queue deepens to ${queue.length} waiting messages. This protects the checkout path, but only within capacity. Real systems alert on lag, cap backlog, shed low-priority work, or slow producers before the queue becomes unbounded debt.`,
       };
       continue;
     }
@@ -78,8 +77,8 @@ export function* run(input) {
         state: snapshot(),
         highlight: { removed: [msg.id] },
         explanation: isRedelivery
-          ? `Tick ${tick}: the consumer restarts and the queue REDELIVERS ${msg.value} — but the crashed worker might have already sent that email before dying! This is AT-LEAST-ONCE delivery: the queue guarantees "never lost", not "never duplicated". The consumer must be IDEMPOTENT — check an idempotency key ("did I already process m3?") before acting, the same discipline the Saga Pattern demands. ("Exactly-once" in practice = at-least-once + idempotent consumers.)`
-          : `Tick ${tick}: the consumer pulls ${msg.value}, does its slow work, sends the ACK — only then is the message truly gone. ${queue.length - 1} left in the buffer.`,
+          ? `Tick ${tick}: the worker restarts and receives ${msg.value} again. That is at-least-once delivery: the broker is protecting against loss, not promising that side effects run once. The consumer must use an idempotency key, processed-message table, unique constraint, or transactional outbox pattern before sending email, charging a card, or mutating state.`
+          : `Tick ${tick}: the worker processes ${msg.value} and sends an ACK. Only after the ACK can the broker remove the message from the work queue. ${queue.length - 1} message${queue.length - 1 === 1 ? '' : 's'} remain buffered.`,
       };
       queue.shift();
       processed += 1;
@@ -90,56 +89,100 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: `Drained: ${processed} orders processed, zero lost${crashy ? ', one delivered twice — and handled, because the consumer checked before acting' : ''}. The shape to remember: a Queue made durable (Write-Ahead Log (WAL)) with delivery rules on top. Kafka IS this — an append-only log where consumers track their own offsets; RabbitMQ and SQS are the broker flavors. Queues are how Uber matches rides, how Stripe processes webhooks, and the backbone of the Saga Pattern's choreography — the data structure you met in week one, run as planetary infrastructure.`,
+    explanation: `Drained: ${processed} orders processed and zero lost${crashy ? ', with one redelivery handled by consumer idempotency' : ''}. The shape to remember is not just FIFO. A production queue is durable storage plus delivery leases, acknowledgments, retry policy, idempotent consumers, lag monitoring, and dead-letter handling.`,
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why message queues exist',
       paragraphs: [
-        `A message queue is a durable handoff between producers and consumers. The producer records work, receives an acknowledgment that the broker has accepted it, and moves on. The consumer pulls or receives the message later, does the work, and acknowledges completion. That decoupling is the point: checkout should not wait for email, thumbnail rendering, fraud scoring, and warehouse sync to all finish inside one HTTP request.`,
-        `The structure resembles a Queue, but production brokers add persistence, retries, ordering rules, visibility timeouts, dead-letter handling, and fan-out. SQS, RabbitMQ, Google Pub/Sub, NATS JetStream, and Kafka all solve versions of this problem. Some are task queues where a message disappears after acknowledgment; Kafka is closer to an append-only log where consumers track offsets and can replay history.`,
+        'A message queue is a durable handoff between a service that produces work and a service that performs it later. The producer writes a message, receives confirmation that the broker accepted it, and moves on. The consumer receives the message, does the work, and acknowledges completion.',
+        'The purpose is decoupling. Checkout should not wait for email, invoice generation, fraud scoring, search indexing, warehouse sync, and analytics delivery to finish inside the customer request. Those jobs have different latency profiles, failure modes, and scaling needs.',
+        'The queue turns direct coordination into stored work. That is powerful, but it creates new questions: how durable is the write, how many consumers may receive the same message, how ordering is defined, how lag is handled, and what happens to messages that fail forever.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        `A basic broker writes the message to durable storage, often through a Write-Ahead Log (WAL), before acknowledging the producer. A consumer receives the message and either ACKs success or lets the lease expire. In SQS the default visibility timeout is 30 seconds; if the consumer dies before ACK, the message becomes visible again. RabbitMQ uses acknowledgments and redelivery. Kafka stores records in partitions, and a consumer group commits offsets to mark progress.`,
-        `Most queues default to at-least-once delivery: no lost messages if the broker is configured durably, but duplicates are possible. Consumers therefore need idempotency keys, transaction IDs, or unique constraints. A payment worker should record event_id before charging so a retry does not double charge. Ordering is also scoped. Kafka preserves order within one partition, not across every topic; SQS FIFO queues preserve order within a message group; higher throughput often means weaker global ordering.`,
-        `Backpressure is explicit. If consumers lag, queue depth grows and end-to-end latency rises. Systems alert on lag, scale consumer groups, route through a Load Balancer, slow producers, or shed low-priority work. Poison messages that fail repeatedly go to dead-letter queues for inspection instead of blocking the hot path forever.`,
+        'The obvious approach is a direct function call or HTTP request from producer to consumer. It is simple until the consumer slows down, crashes, deploys, rate-limits, or has to process a burst. Then the producer inherits every downstream problem.',
+        'A second naive approach is to store work in a database table and poll it. That can be good enough for small systems, but it quickly needs leases, retry counts, indexes, cleanup, concurrency control, dead-letter handling, and visibility rules. At that point the system is rebuilding a broker.',
+        'The wall is that asynchronous work is not just a queue data structure from a textbook. Production messaging is FIFO plus durability, acknowledgement, redelivery, backpressure, monitoring, and idempotency.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        `Enqueue and dequeue are usually O(1), but durability, replication, and network hops add milliseconds. Kafka scales by appending sequentially to partitions and letting consumers read in batches; RabbitMQ excels at flexible routing; SQS trades direct control for managed operations. The real cost is operational: monitor depth, lag, retry rate, dead-letter count, disk use, and Tail Latency & p99 Thinking for the user-visible workflow that depends on queued work.`,
+        'In the steady-consumer scenario, watch queue depth. New messages enter faster than the worker can sometimes drain them, so the queue becomes a buffer between producer speed and consumer speed. That is the main architectural benefit.',
+        'In the crash scenario, focus on the ACK. Receiving a message is not the same as completing it. The message should disappear only after the consumer acknowledges success. If the worker dies first, the broker can make the message visible again.',
+        'The redelivery frame is the key teaching moment. A queue can protect against loss while still delivering duplicates. The correct response is not to hope duplicates never happen; it is to design consumers so duplicate delivery is safe.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'How it works',
       paragraphs: [
-        `Stripe-style webhooks, email delivery, video transcoding, search indexing, telemetry ingestion, and order fulfillment all use queues. A Saga Pattern often rides on events: reserve inventory, request payment, arrange shipment, compensate if a later step fails. Distributed Tracing becomes essential because one user action may cross five asynchronous workers over minutes. Cache Invalidation & Versioning frequently uses queues too: publish product_changed, let many cache holders invalidate or refresh independently.`,
+        'A producer sends a message to a broker. A durable broker writes the message before confirming acceptance. Depending on the system, that write may land in a log, replicated segment, or managed storage layer.',
+        'A consumer receives a message under some delivery contract. In a task queue, the broker may hide the message for a visibility timeout while the consumer works. If the consumer acknowledges success, the broker removes it. If the consumer crashes or the timeout expires, the broker can deliver it again.',
+        'Kafka has a different shape: records are appended to partitions, and consumers track offsets. The record is not removed for one consumer. Consumer groups coordinate which members read which partitions, and committed offsets describe progress.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Delivery guarantees',
       paragraphs: [
-        `The phrase exactly once is easy to overread. Kafka transactions can give exactly-once processing inside Kafka topics, but an email sent, card charged, or file written outside the broker still needs idempotency. A short visibility timeout creates duplicate work; a long one slows recovery. A queue is also not a database cache. If you need current state, store state in a database and use events to notify readers. Finally, retries need Rate Limiter (Token Bucket) behavior; otherwise a recovering dependency gets hit by every delayed retry at once.`,
+        'At-most-once delivery means a message may be lost, but it should not be delivered twice. That is rarely acceptable for important business work.',
+        'At-least-once delivery means the broker tries not to lose accepted messages, but duplicates can happen. This is the common default because it is usually better to repeat work than to lose it.',
+        'Exactly-once is often narrower than it sounds. Kafka transactions can provide exactly-once processing within Kafka under specific conditions, but an external side effect like sending email, charging a card, or writing to a third-party API still needs idempotency. In practical service design, exactly-once behavior usually means at-least-once delivery plus idempotent side effects.',
       ],
     },
     {
-      heading: `Sources and broker details`,
+      heading: 'Ordering and scaling',
       paragraphs: [
-        `Kafka's documentation describes topics as partitioned logs and guarantees that consumers of a given topic-partition read events in the same order they were written: https://kafka.apache.org/documentation/. Kafka's implementation notes also describe consumer offsets as the mechanism that lets a consumer resume from a committed position after restart: https://kafka.apache.org/22/implementation/distribution/.`,
-        `Amazon SQS documents visibility timeout as the interval during which a received message is hidden from other consumers; if it is not deleted before the timeout expires, it can be received again: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html. SQS also documents standard queues as at-least-once delivery: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues-at-least-once-delivery.html. RabbitMQ's acknowledgements and publisher confirms guide covers the broker-side durability handshake between publishing, delivery, processing, and acknowledgement: https://www.rabbitmq.com/docs/confirms.`,
+        'Queues make ordering a scoped promise. A single FIFO queue can preserve order but limits parallelism. Kafka preserves order within a partition, not across a whole topic. SQS FIFO queues preserve order within a message group. RabbitMQ ordering can be affected by acknowledgments, redelivery, and multiple consumers.',
+        'Scaling consumers often means weakening global order. If ten workers process one queue, faster jobs may finish before older slower jobs. If strict order matters, partition by a key such as account_id or order_id so all related messages go through the same ordered lane.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Worked example',
       paragraphs: [
-        `Start with Queue for FIFO intuition and Write-Ahead Log (WAL) for durable appends. Exchange Operator Parallel Query shows the same producer-consumer shape inside a database executor, where bounded queues and credits keep parallel scans from outrunning joins. Narwhal Bullshark DAG Mempool Case Study shows what a Byzantine, certificate-backed mempool looks like when a queue becomes a replicated DAG. Then connect Saga Pattern, Distributed Tracing, and Cache Invalidation & Versioning to see how asynchronous systems stay understandable. Load Balancer and Rate Limiter (Token Bucket) explain how consumers scale and how retries avoid overwhelming dependencies.`,
+        'An order service enqueues order_created. An email worker sends a receipt. A fulfillment worker reserves inventory. A search worker updates an index. The producer does not wait for all of them; it only needs to know that the event or command was accepted durably.',
+        'Now the email worker crashes after sending the email but before acknowledging the message. The broker redelivers it. Without idempotency, the customer gets two receipts. With an idempotency table keyed by message_id or order_id plus side_effect_type, the worker sees the email was already sent and ACKs without repeating the side effect.',
+      ],
+    },
+    {
+      heading: 'Backpressure and failure modes',
+      paragraphs: [
+        'A queue can absorb bursts, but it does not erase work. If consumers stay slower than producers, queue depth grows and latency rises. Eventually the system must scale consumers, slow producers, reject low-priority work, or accept stale processing.',
+        'Poison messages are messages that fail every time. Without a policy, one bad message can burn retries forever or block an ordered lane. Dead-letter queues exist so repeated failures can be isolated, inspected, and repaired without stopping the whole stream.',
+        'Retry storms are another failure mode. When a dependency recovers, thousands of delayed retries can arrive at once. Good systems use exponential backoff, jitter, rate limits, and circuit breakers rather than retrying everything immediately.',
+      ],
+    },
+    {
+      heading: 'Where queues win',
+      paragraphs: [
+        'Queues win when work can happen later, when producers and consumers scale independently, when bursts are normal, when downstream dependencies fail independently, or when a workflow needs replayable steps.',
+        'Common uses include email delivery, webhooks, thumbnail generation, video transcoding, fraud scoring, search indexing, telemetry ingestion, order fulfillment, cache invalidation, and saga choreography across services.',
+      ],
+    },
+    {
+      heading: 'Where queues are the wrong tool',
+      paragraphs: [
+        'A queue is not a substitute for a database when readers need current state. Store state in a database, then publish events to notify other systems. Do not ask a queue to answer "what is true right now?"',
+        'A queue is also a poor fit when the caller genuinely needs the result before it can continue. In that case asynchronous messaging may only hide latency while making error handling harder.',
+        'Finally, queues add operational surface: broker availability, disk, retention, partitioning, consumer lag, replay policy, schema compatibility, dead-letter handling, and tracing. Use them when decoupling is worth that surface.',
+      ],
+    },
+    {
+      heading: 'Sources and broker details',
+      paragraphs: [
+        'Kafka documentation describes topics as partitioned logs and explains that consumers of a topic-partition read events in the order written: https://kafka.apache.org/documentation/. Kafka implementation notes describe consumer offsets as the mechanism that lets a consumer resume from a committed position after restart: https://kafka.apache.org/22/implementation/distribution/.',
+        'Amazon SQS documents visibility timeout as the interval during which a received message is hidden from other consumers; if it is not deleted before the timeout expires, it can be received again: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html. SQS also documents standard queues as at-least-once delivery: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues-at-least-once-delivery.html. RabbitMQ acknowledgements and publisher confirms cover the broker-side handshake between publishing, delivery, processing, and acknowledgement: https://www.rabbitmq.com/docs/confirms.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Start with Queue for FIFO intuition and Write-Ahead Log for durable appends. Then study Transactional Outbox, Saga Pattern, Distributed Tracing, Cache Invalidation & Versioning, Load Balancer, Rate Limiter, Kafka Log Compaction, and Dead Letter Queue patterns. Together they explain how asynchronous systems stay reliable instead of merely delayed.',
       ],
     },
   ],

@@ -157,41 +157,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A lock-free queue is a concurrent FIFO queue where operations coordinate with atomic compare-and-swap rather than a single mutex. The classic Michael-Scott queue uses a linked list, a dummy head node, and head/tail pointers.',
-        'It matters because queues are the connective tissue of runtimes, schedulers, actors, work pools, and message-passing systems. At high contention, the difference between one global lock and helping-based CAS can shape latency and throughput.',
+        'Concurrent queues are the handoff points inside schedulers, actor runtimes, work pools, networking stacks, telemetry pipelines, and producer-consumer systems. One set of threads produces work. Another set consumes it. The queue has to preserve FIFO order while many participants touch the same head and tail state.',
+        'A normal mutex-protected queue is often the right answer. It is small, readable, and easy to test. The Michael-Scott lock-free queue exists for the harder case where a paused lock holder, a slow critical section, or heavy contention should not freeze the entire handoff path. It trades a simple ownership rule for atomic pointer updates and a proof that the shared structure can recover when any one thread stalls.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive Baseline and Wall',
       paragraphs: [
-        'Enqueue allocates a new node, reads tail, and tries CAS on tail.next from null to the new node. That successful link is the enqueue linearization point. Tail may lag; later threads can help advance it.',
-        'Dequeue reads head and head.next. If the queue is nonempty, it tries CAS on head to move it to next. The returned value is the node after the old dummy. This preserves the dummy-node invariant and keeps empty/nonempty cases manageable.',
+        'The baseline queue is a linked list or circular buffer protected by one mutex. Enqueue locks, appends, unlocks. Dequeue locks, removes, unlocks. The proof is clear because one thread owns the whole structure during the mutation. This design also pairs naturally with condition variables when consumers should sleep while the queue is empty.',
+        'The wall is the lock owner. If the owner is descheduled inside the critical section, every other thread waits even if the remaining operation is one pointer write. Under high contention, the mutex cache line can bounce across cores. If a lock convoy forms, queue latency starts reflecting scheduler timing more than useful work.',
+        'Removing the mutex does not remove coordination. It moves coordination into compare-and-swap loops and data-structure invariants. The queue must be readable while an operation is half-finished, and the evidence left behind by that half-finished operation must be enough for another thread to complete the repair.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core Insight and Invariant',
       paragraphs: [
-        'Successful operations are O(1), but contention can cause retries. The hard engineering problems are ABA avoidance, memory reclamation, and language memory ordering. In garbage-collected languages, safe node reclamation is much easier; in manual-memory languages it requires epochs, hazard pointers, reference counting, or related schemes.',
+        'The core insight is to make one small pointer change the public truth of each operation. Enqueue publishes a node by changing the observed last node next pointer from null to the new node. Dequeue claims an item by changing head from the old dummy node to the first real node. Those compare-and-swap operations are the moments that make the abstract queue change.',
+        'The main invariant is reachability through next pointers. Starting at head and following next links gives the queue contents. Tail is allowed to lag behind the true last node because tail is a performance hint, not the source of truth. If a thread sees a stale tail, it can help advance it and then retry its own operation.',
+        'The dummy node keeps the shape stable. Head points to a dummy, and the first real item is at head.next. After a successful dequeue, the returned node becomes the new dummy. That sounds odd at first, but it removes the need to special-case a queue with one item because dequeue is always a head-advance operation.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How the Visual Model Teaches It',
       paragraphs: [
-        'Lock-free queues and close relatives appear in Java concurrent collections, actor runtimes, task schedulers, networking paths, telemetry pipelines, and high-throughput producer/consumer systems. Many production designs still shard queues or use bounded ring buffers because allocation and cache traffic can dominate.',
+        'The enqueue race view separates the real publication step from the cleanup step. The edge from B to C is the important event: after the successful CAS on B.next, C is reachable from head and is part of the FIFO order. The tail label may still sit on B for a short time, and that is fine because tail is only a shortcut to the append end.',
+        'The helping step shows why the structure remains live after a stalled thread. If one producer links C and pauses before moving tail, another producer can notice that B.next is no longer null and move tail forward. The second producer is not stealing work; it is finishing shared maintenance so the next append has a good starting point.',
+        'The dequeue and memory view shows the other half of the lesson. The dummy node is not decoration. It makes the item to return live at head.next while head itself remains a stable pointer for the CAS. The memory table is also part of the model: a lock-free algorithm is not complete until reclamation, ABA defense, and memory ordering are handled.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'Lock-free does not mean wait-free, starvation-free, allocation-free, or faster in every workload. A simple lock can beat a lock-free structure at low contention. The algorithmic proof also assumes the memory model and reclamation strategy are correct.',
+        'Enqueue allocates a node with next set to null. It reads tail and then reads tail.next. If tail.next is null, the thread tries CAS(tail.next, null, node). Success means the item has been inserted. The thread may then try to swing tail to the new node, but the enqueue has already taken effect.',
+        'If tail.next is not null, the observed tail is stale. Another enqueue linked a node but did not finish moving the tail pointer. The current thread tries to advance tail, then loops. This is the helping rule. Every thread that finds shared maintenance left behind has permission to perform it.',
+        'Dequeue reads head, tail, and head.next. If head.next is null, there is no real node after the dummy, so the queue is empty. Otherwise the consumer reads the value from next and tries CAS(head, oldHead, next). If it succeeds, it returns that value and the next node becomes the new dummy.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Correctness',
       paragraphs: [
-        'Primary sources: Michael and Scott paper PDF at https://www.cs.rochester.edu/~scott/papers/1996_PODC_queues.pdf and ACM DOI at https://dl.acm.org/doi/10.1145/248052.248106. Study Linearizability History Checker, ABA Tagged Pointer Stack, Nonblocking Progress Guarantees, Hazard Pointers & Epoch Reclamation, Futex Wait Queue, MCS Queue Lock, and Backpressure & Flow Control next.',
+        'The proof is a linearizability proof. Each operation must appear to take effect at one instant between call and return. For enqueue, that instant is the successful CAS that links the new node into the next chain. For dequeue, it is the successful CAS that advances head from the old dummy to the node being returned.',
+        'FIFO order follows from the next chain. Producers can only link a new node at an observed last node whose next is null. Once a node is linked, later nodes appear after it. Consumers remove by advancing head to the first real node, so two consumers cannot return the same item because only one CAS from the same old head can win.',
+        'The dummy node avoids a two-pointer commit. Without it, an operation on a one-item queue might need to update both head and tail in one indivisible action. With a dummy, the contents are represented by the nodes after head, and tail lag is harmless as long as the next chain remains correct.',
+      ],
+    },
+    {
+      heading: 'Progress Guarantee',
+      paragraphs: [
+        'Lock-free is a progress claim about the system, not a promise that every individual thread finishes quickly. If many threads keep colliding on the same CAS, one unlucky thread can retry many times. Still, failed attempts usually mean some other thread changed the structure, so the system as a whole is moving.',
+        'This is weaker than wait-free progress, where every operation completes within a bounded number of its own steps. It is stronger than a blocking lock, where one paused owner can stop everyone. The Michael-Scott queue sits in the middle: harder to implement than a locked queue, easier than a wait-free queue, and strong enough for many shared work queues.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'Start with dummy -> A -> B, with head at dummy and tail at B. Producer P wants to enqueue C. It reads tail = B and tail.next = null, then succeeds at CAS(B.next, null, C). At that instant, C is in the queue even if tail still points at B.',
+        'Producer Q arrives before P moves tail. Q reads tail = B and sees B.next = C. That tells Q the previous enqueue already published a node and left only tail cleanup behind. Q tries CAS(tail, B, C). If it wins, the shortcut is repaired. If it loses, some other thread repaired it first.',
+        'A consumer then reads head = dummy and next = A. It reads A.value, then tries CAS(head, dummy, A). If that CAS succeeds, the consumer returns A and A becomes the new dummy for future dequeues. If the CAS fails, another consumer got A first, so this consumer rereads the new head and tries again.',
+      ],
+    },
+    {
+      heading: 'Memory Management and Ordering',
+      paragraphs: [
+        'The algorithm on paper is not the whole implementation. Removed nodes cannot be freed while another thread might still hold a pointer read earlier. In garbage-collected runtimes, the collector provides much of that safety. In C and C++, the queue needs a reclamation discipline such as hazard pointers, epochs, reference counting, or another scheme that delays reuse until readers are done.',
+        'ABA is a related hazard. A pointer can hold value X, change to Y, and later hold X again after memory reuse. A CAS that checks only the pointer value might think nothing changed. Tagged pointers, version counters, hazard discipline, or allocation rules can prevent that mistake.',
+        'Memory ordering is also part of correctness. A consumer must not see a node link before the node value is safely published. Producers and consumers need acquire and release rules, or equivalent runtime guarantees, so pointer visibility and value visibility match the logical operation order.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'A lock-free queue wins when many threads need a shared FIFO and a paused participant should not hold the whole data structure hostage. It fits thread pools, actor mailboxes, runtime schedulers, concurrent collections, packet paths, telemetry ingestion, and handoff points where work must keep flowing under contention.',
+        'It is most attractive when operations are short, queue operations are frequent, memory management is under control, and system-wide progress matters more than single-operation fairness. It also helps in environments where blocking inside a runtime or signal-sensitive path is expensive.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'Lock-free is not a synonym for faster. At low contention, a mutex can win because it does less bookkeeping. A bounded ring buffer can beat a linked queue when capacity is known and cache locality matters. A blocking queue is better when consumers should sleep instead of retrying or polling.',
+        'The design also fails when the surrounding engineering is wrong. ABA, premature free, weak memory ordering, publishing a link before publishing a value, or an incorrect empty-queue check can break the proof even if the code uses CAS. The algorithm gives a structure for correctness; it does not forgive unsafe memory management.',
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        'Start with a locked queue unless the workload has a measured contention or progress problem. If a lock-free queue is justified, use a proven implementation before writing one. If you do write one, keep the linearization points explicit in comments and tests: enqueue links a node, dequeue advances head.',
+        'Test with stress, randomized scheduling, and a linearizability checker rather than only unit examples. Include cancellation, thread pauses, empty transitions, one-item transitions, high contention, and memory-pressure scenarios. For native code, test with sanitizers and the same memory reclamation strategy used in production.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study Linearizability History Checker for the proof method, ABA Tagged Pointer Stack for pointer reuse hazards, Nonblocking Progress Guarantees for lock-free versus wait-free, Hazard Pointers & Epoch Reclamation for memory safety, Futex Wait Queue for blocking contrast, MCS Queue Lock for scalable spinning with mutual exclusion, and Backpressure & Flow Control for systems built around queues.',
       ],
     },
   ],

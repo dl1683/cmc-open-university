@@ -203,24 +203,96 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'PATRICIA, short for Practical Algorithm To Retrieve Information Coded in Alphanumeric, is a compressed trie. In its binary form, it does not branch at every bit position. It stores only the bit positions where keys actually differ, so long one-child paths disappear.',
-      'That makes it useful when keys have shared prefixes: IP routes, binary identifiers, compact dictionaries, and peer-to-peer lookup structures. A normal trie spends memory representing every prefix character or bit. A PATRICIA trie preserves the decision points that matter.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'Each internal node stores a bit index to test. Lookup follows left or right according to that bit and eventually reaches a candidate leaf. Because path compression skips information, the leaf must store the full key or prefix so the lookup can verify that the compressed path really matches.',
-      'Insertion first searches for the closest existing key. It then finds the first bit where the existing key and new key differ, inserts one branch node at that bit, and attaches the old and new leaves below it. Deletion removes a leaf and may merge away a now-useless branch.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'The height is bounded by the number of relevant branch bits, not by the number of inserted keys alone. Lookup often behaves like O(length of key in branch decisions), but with far fewer nodes than an uncompressed binary trie. The same bit-prefix lens reappears in X-Fast & Y-Fast Tries, where prefixes are hashed by level for predecessor search. The tradeoff is implementation care: bit numbering, terminal-prefix handling, and full-key verification must all be precise.',
-      'Compared with Adaptive Radix Tree, PATRICIA is more bit-oriented and conceptually leaner. ART is engineered for byte-key indexing in main memory; PATRICIA is the classic compressed trie idea that makes binary prefix search compact.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'A router performing longest-prefix match can store route prefixes in a PATRICIA-like trie. During lookup, it walks the destination bits and remembers the deepest terminal prefix seen so far. If the next branch is absent, the router returns the remembered prefix rather than failing the lookup. This separates path traversal from answer selection.',
-      'That case study also shows why compressed data structures need explicit correctness checks. A compressed branch may skip several bits, but route matching still depends on exact prefix semantics. The data structure is fast only because the omitted shape is redundant, not because the semantics are relaxed.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: Donald R. Morrison, "PATRICIA--Practical Algorithm To Retrieve Information Coded in Alphanumeric", https://oneofus.la/have-emacs-will-hack/files/PatriciaTrie-JACM1968.pdf, and "Hashed Patricia Trie: Efficient Longest Prefix Matching in Peer-to-Peer Systems", https://groups.uni-paderborn.de/fg-qi/courses/UPB_FUNDAMENTAL_ALGS/W2018/notes/KS_hashedPatricia.pdf. Study IP FIB Longest-Prefix Match Case Study, eBPF LPM Trie CIDR Policy Case Study, Trie, Hierarchical Heavy Hitters: Prefix Sketch, Adaptive Radix Tree, X-Fast & Y-Fast Tries, Suffix Tree, and Database Indexing next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        `A trie is a natural structure for prefix search, but a plain binary trie can spend most of its memory on decisions that are not decisions. If stored keys share long prefixes, the tree contains long chains where every internal node has exactly one child. Lookup still walks those nodes, and the structure still stores pointers for them, even though no key choice happens there.`,
+        `PATRICIA, short for Practical Algorithm To Retrieve Information Coded in Alphanumeric, compresses that waste. In its binary form, it stores only the bit positions where keys actually differ. Internal nodes are not "next bit" nodes. They are "test this distinguishing bit" nodes. Everything between distinguishing bits is shared context and can be verified against the full key or prefix stored at a leaf.`,
+        `That makes PATRICIA useful for binary keys and prefix-heavy domains: IP routing prefixes, CIDR policy tables, compact dictionaries, peer identifiers, sparse bitstring sets, and other places where prefix lookup matters but a full binary trie is too large. It preserves trie semantics while refusing to materialize one-child paths.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        `The obvious prefix structure is a plain trie. For a binary trie, each level consumes one bit. A lookup reads the next bit, chooses the zero child or one child, and repeats until it reaches a key or discovers the path is missing. The invariant is simple: the path from the root spells the prefix shared by every key below that node.`,
+        `This is a good starting point. It makes exact lookup, prefix lookup, insertion, and deletion easy to explain. It also avoids the comparison logic of balanced trees. If key length is short and the trie is dense, a plain trie may be fine.`,
+        `The wall is sparse branching. Suppose the stored keys are 101000, 101011, and 101111. A plain binary trie walks through 1, then 0, then 1 before the keys even start to differ. Those first three levels carry no choice among the remaining keys. In a large table, these non-branching paths create memory overhead, pointer chasing, cache misses, and update work without adding information.`,
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        `A trie does not need to store every bit position as a node. It only needs to store the bit positions where the current candidate set splits. If all remaining keys share bits 3 through 15, the structure can skip directly to bit 16 and test the first bit that separates them.`,
+        `That compression is safe only because the original key or prefix is still available for verification. The compressed path says "this candidate is plausible." The final comparison says "the skipped bits actually matched." Without that guardrail, a compressed trie could accept a key that merely took the same branch decisions.`,
+        `PATRICIA is therefore a layout idea and a correctness contract at the same time: branch only at distinguishing bits, but keep enough original information to verify the candidate reached by those branches.`,
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        `Each internal node stores a bit index. Lookup tests that bit in the search key and follows the zero or one child. The bit indexes along a path increase, so lookup keeps moving deeper into more specific distinctions. A leaf stores the full key, value, or prefix entry. When lookup reaches a leaf, it compares the stored key or prefix with the search key to confirm the result.`,
+        `Insertion starts with an ordinary lookup to find the closest existing leaf under the current branch decisions. The new key is compared with that leaf's full key. The first bit where they differ becomes the new branch bit. The algorithm inserts one internal node at the correct position in the increasing bit-index order and attaches the old leaf and new leaf on opposite sides.`,
+        `Deletion removes a leaf and then cleans up any internal node that no longer represents a real choice. If a branch node has only one useful child after deletion, it can be merged away. That cleanup is what keeps the structure compressed over time.`,
+        `Prefix entries add one more detail. A node or leaf may correspond to a terminal prefix, not only a full key. Longest-prefix lookup therefore tracks the best terminal prefix seen while traversing. Search can end at a missing branch, but the correct answer may be the deepest remembered prefix.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The main invariant is that every internal branch bit separates at least two stored keys or prefixes in that subtree. If no stored item differs at a bit position, storing that bit as a node cannot affect which item lookup should choose. Removing it changes shape, not meaning.`,
+        `Lookup is correct because each branch decision eliminates keys whose distinguishing bit disagrees with the query. Skipped bits are shared by the candidate set represented under the branch. The final full-key or prefix check closes the proof: if the candidate's skipped bits do not match the query, lookup rejects or falls back to the best prefix instead of accepting the path blindly.`,
+        `Insertion is correct because the first differing bit between the new key and its found candidate is exactly the earliest position where the two keys need separate branches. Inserting a branch there preserves all earlier shared prefix information and separates the old and new keys at the first point where they can be distinguished.`,
+        `Deletion is correct when cleanup removes only non-branching structure. A branch with one child no longer represents a choice. Merging it preserves the represented set as long as terminal prefix markers and leaf verification are kept.`,
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        `Store the keys 000101, 001100, 101000, and 101111. A plain binary trie can spend several nodes walking through shared prefixes. PATRICIA records the bit positions that actually split the set. One branch may separate keys beginning with 0 from keys beginning with 1. A later branch inside the 10 or 101 region separates only the keys that still share the earlier prefix.`,
+        `Now insert 101011. Lookup follows the current branch decisions and may land on the existing key 101111. Comparing the full keys shows the first mismatch at bit 4. PATRICIA inserts a branch node for bit 4, then places 101011 and 101111 on different sides. No nodes are added for bits that both keys share.`,
+        `For a routing example, store prefixes 1*, 10*, and 101*. A destination beginning 101101 should return 101* because it is the most specific matching prefix. The lookup walks destination bits and updates best_so_far whenever it passes a terminal prefix. If a later branch is missing, it returns best_so_far instead of treating the lookup as a miss.`,
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        `Lookup cost is proportional to the number of branch nodes visited plus the final verification, bounded by key length in bits. Compared with an uncompressed binary trie, the number of visited internal nodes can be much smaller when keys share long prefixes or differ at only a few positions.`,
+        `Space is the main win. PATRICIA removes one-child internal nodes, so it stores real decisions rather than every prefix position. It still stores leaves, values, branch metadata, and enough key or prefix material for verification. Compression saves structure; it does not remove the need to know what key was actually stored.`,
+        `Insertion and deletion are more delicate than in a plain trie. Insertion must find the first differing bit and place the new branch in the correct order. Deletion must preserve terminal prefixes and remove only branches that no longer distinguish anything. These operations are local, but off-by-one bit numbering and mistaken merges can corrupt many lookups.`,
+        `The practical cost is pointer chasing and bit manipulation. PATRICIA is compact, but it is not automatically cache-optimal. Adaptive Radix Tree and other engineered tries use byte-oriented node layouts to improve main-memory behavior. Hash tables can beat PATRICIA for exact lookup when prefix order is irrelevant.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Define bit numbering once and test it hard. Network-prefix code must be explicit about big-endian bit order. Binary identifiers must decide whether bit 0 means the most significant or least significant bit. Mixed conventions create bugs that look like random lookup failures.`,
+        `Store full keys or canonical prefixes at leaves. Path compression makes verification mandatory. If the structure stores only branch decisions, it cannot distinguish a true match from a key that happens to agree on tested bits and disagree on skipped bits.`,
+        `Keep terminal prefix state separate from child existence. In longest-prefix match, an internal node can be both a routing entry and a branching point. Deleting one route should not delete child routes that are more specific. Similarly, merging a one-child branch must not lose a terminal marker that represents a valid prefix.`,
+        `Use property tests with random keys, inserts, deletes, and comparisons against a slow reference implementation. PATRICIA bugs often survive hand-picked examples because the tree looks plausible. A slow sorted-list or plain-trie reference is cheap insurance.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `PATRICIA wins when keys are binary or can be treated as binary, prefixes matter, and shared prefixes are common enough that compression removes real work. IP route lookup is the classic example. The router needs the longest matching prefix, not just exact equality, and many prefixes share high-order bits.`,
+        `It also fits compact dictionaries, access-control prefix tables, peer-to-peer routing structures, and sparse bitstring indexes. In these settings, a hash table loses prefix structure and a plain trie wastes nodes on non-branching paths.`,
+        `The structure is also educational because it exposes a recurring data-structure move: remove redundant shape, but keep a verification step. The same idea appears in radix trees, compressed suffix structures, Merkle Patricia tries, and path-compressed indexes.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `PATRICIA is not the default answer for all strings. If the workload is exact lookup only, a hash table is simpler. If keys are short and dense, a plain trie may be simpler with little overhead. If range scans over byte strings dominate in a database, an Adaptive Radix Tree or B+ tree may have better cache and concurrency behavior.`,
+        `It is also awkward when prefix semantics are not raw-bit semantics. Human text may require Unicode normalization, locale collation, case folding, or grapheme awareness. Those rules should be handled before keys enter the trie, or the bitwise order will not match user expectations.`,
+        `Update-heavy systems need care. Split and merge code is easy to get subtly wrong, especially with terminal prefixes. Concurrent updates add another layer: readers must not observe a partially inserted branch or a removed leaf without the verification data they need.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Sources: Donald R. Morrison, "PATRICIA--Practical Algorithm To Retrieve Information Coded in Alphanumeric", https://oneofus.la/have-emacs-will-hack/files/PatriciaTrie-JACM1968.pdf, and "Hashed Patricia Trie: Efficient Longest Prefix Matching in Peer-to-Peer Systems", https://groups.uni-paderborn.de/fg-qi/courses/UPB_FUNDAMENTAL_ALGS/W2018/notes/KS_hashedPatricia.pdf.`,
+        `Study Trie for the base prefix invariant, Adaptive Radix Tree for cache-aware byte-indexed compression, X-Fast and Y-Fast Tries for bit-prefix predecessor search, Verkle Trees and Sparse Merkle Trees for authenticated trie variants, Suffix Tree for compressed path ideas in string algorithms, and IP longest-prefix matching or eBPF LPM maps for operational routing and policy use cases.`,
+      ],
+    },
   ],
 };

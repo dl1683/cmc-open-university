@@ -221,43 +221,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why This Exists`,
       paragraphs: [
-        'LOUDS, the level-order unary degree sequence, is a succinct way to store tree topology. Instead of giving every trie node pointers to children, LOUDS visits nodes in breadth-first order and writes one 1 bit per child followed by a 0. With rank/select support, those bits become a navigable tree.',
-        'A LOUDS succinct trie adds labels beside the topology bits. The topology tells the index which child slots exist; the label array tells which byte or character each child edge represents. This is why LOUDS is useful for compact dictionaries, autocomplete, static string maps, and range-filter structures such as SuRF.',
+        `A trie is a natural structure for strings because every lookup follows the key one symbol at a time. The problem is representation cost. At large scale, a normal pointer trie can spend more memory on node objects, child maps, empty child slots, and pointers than on the characters being indexed.`,
+        `LOUDS, the level-order unary degree sequence, exists for static or snapshot-built tries where memory locality matters. It keeps the trie idea but replaces pointer topology with a bitvector that rank/select can navigate.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `Naive Baseline`,
       paragraphs: [
-        'For every node, encode its degree in unary. A node with three children contributes 1110; a leaf contributes 0. Concatenate the codes in level order. The resulting bitvector is close to two bits per node plus auxiliary rank/select samples. A separate label array stores edge labels in the same order as child entries.',
-        'Lookup still behaves like a trie. At a node, compute the contiguous child range from the LOUDS bitvector, search the labels in that range, and move to the matching child. Terminal bits or value arrays mark completed keys. Prefix queries use the same walk and then enumerate descendants.',
+        `The baseline is an ordinary Trie. Each node stores a map from outgoing character to child node, plus a terminal marker and maybe a payload. This is easy to implement, easy to mutate, and easy to explain.`,
+        `The cost appears when the dictionary is large. Many nodes have only one or two children, but each still carries object overhead. If children are stored in arrays, sparse alphabets waste slots. If children are stored in maps, each lookup pays hash or tree overhead inside every trie level.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `The Wall`,
       paragraphs: [
-        'The practical win is eliminating pointer-heavy node objects. The cost is that navigation becomes arithmetic over bitvectors, rank/select directories, and compact arrays. It is often excellent for static or immutable indexes because the structure can be built once and queried many times. Frequent updates are harder because inserting a node can shift later topology bits and labels.',
-        'Performance is dominated by cache layout. A theoretically constant-time rank/select operation can still touch several cache lines. Fast Succinct Trie designs split hot upper levels from dense lower levels because almost every lookup traverses the top but only one path reaches the bottom.',
+        `The wall is navigation. Compressing the tree shape into bits is not enough; lookup still needs to find a node's first child, scan or search that node's labels, move to the selected child, and know whether the path is terminal.`,
+        `A compact trie must therefore answer pointer-like questions without pointers. The representation has to recover child ranges, parents, siblings, degrees, and terminal status from arrays, and it must do that fast enough that the memory savings are not lost to arithmetic overhead.`,
       ],
     },
     {
-      heading: 'Real-world case study',
+      heading: `Core Insight`,
       paragraphs: [
-        'SuRF uses Fast Succinct Tries built from LOUDS-style encodings to support point and range filters over sorted keys. The Tx-trie project uses LOUDS for compact exact and common-prefix matching and reports large memory reductions against prior trie implementations. These examples show the central trade: spend static preprocessing to turn pointer-rich tree navigation into compact sequential arrays.',
+        `Visit nodes in breadth-first order. For each node, write one 1 bit for each child and then write a 0 to end that node's run. A node with two children contributes 110. A leaf contributes 0. Concatenating those runs gives the LOUDS bitvector.`,
+        `The invariant is alignment. The 1 bits correspond to child entries in level order, and the label array is stored in the same child-entry order. Rank counts how many structural entries came before a position; select jumps to the boundary for a node. Together they recover the child range that a pointer trie would store explicitly.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'LOUDS is not compression by itself; it is a navigable representation. The structure becomes useful because rank/select makes the compressed topology queryable. Also do not use it blindly for mutable workloads. If keys change constantly, the rebuilding or dynamic-bitvector complexity may erase the memory win.',
-        'It is also not a hash table replacement. Hash tables are excellent for exact membership. LOUDS tries preserve prefix and lexicographic structure, which matters for autocomplete, range filters, ordered scans, and static dictionaries.',
+        `In the "encode topology" view, follow the pipeline from trie nodes to level order, degrees, LOUDS bits, and rank/select support. The unary degree table is the key frame: root with two children becomes 110, a one-child node becomes 10, and a leaf becomes 0.`,
+        `In the "navigate labels" view, read lookup as two synchronized operations. The LOUDS bits produce the current child range; the label array decides which child edge matches the next key symbol. The "Lookup cat" frame is the concrete path: root finds c, c finds a, a finds t, and the terminal bit confirms the key.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Mechanics`,
       paragraphs: [
-        'Primary sources: Memoria LOUDS tree overview at https://memoria-framework.dev/docs/data-zoo/louds-tree/, SuRF paper PDF at https://db.cs.cmu.edu/papers/2018/mod601-zhangA-hm.pdf, CACM Succinct Range Filters article at https://cacm.acm.org/research/succinct-range-filters/, Tx-trie repository at https://github.com/logogin/tx-trie, and fast_succinct_trie implementation notes at https://github.com/kampersanda/fast_succinct_trie. Study Rank/Select Bitvector, Trie, SuRF Range Filter, Wavelet Tree, FM-Index, and Elias-Fano Encoding next.',
+        `A LOUDS trie usually stores several parallel arrays. The LOUDS bitvector stores topology. The label array stores the byte or character for each child edge. A terminal bitvector marks nodes that complete keys. A value array stores payloads for map-like uses.`,
+        `Lookup begins at the root. For the current node, rank/select formulas compute the contiguous range of child entries. The code searches labels in that range for the next input symbol. If no label matches, the key is absent. If a label matches, the child entry maps to the next node number, and lookup consumes the symbol.`,
+        `Implementations vary in their exact formulas and indexing conventions. The stable idea is that node numbers, child entries, LOUDS runs, labels, and terminal bits are all ordered consistently, so simple arithmetic replaces object references.`,
+      ],
+    },
+    {
+      heading: `Correctness`,
+      paragraphs: [
+        `The encoding is lossless for ordered rooted trees. Each node contributes exactly one terminating 0, so the 0 bits identify node boundaries in breadth-first order. Each child contributes exactly one 1 before its parent's terminating 0, so the run length before that 0 is the node's degree.`,
+        `Because breadth-first order lists all children in the same order they become later nodes, the child entries form the next layer of the traversal. Rank/select does not guess the topology; it counts and jumps among the markers created by the encoding. If the label array is aligned with the child entries, following matching labels reconstructs the same path a pointer trie would follow.`,
+      ],
+    },
+    {
+      heading: `Cost and Tradeoffs`,
+      paragraphs: [
+        `The topology costs one 0 per node and one 1 per edge, which is about 2n bits for a tree with n nodes, plus rank/select support. Labels, terminal bits, and values are separate. Compared with a pointer trie, this removes most per-node object overhead and improves locality by keeping data in arrays.`,
+        `The tradeoff is that every traversal step performs rank/select arithmetic and searches a child label range. Small child ranges can be scanned. Larger ranges may need sorted labels, binary search, bitmaps, or split layouts. Updates are expensive because inserting a node can shift later LOUDS bits and labels.`,
+      ],
+    },
+    {
+      heading: `Worked Example`,
+      paragraphs: [
+        `Suppose the breadth-first node order starts with a root that has children c and d, then node c has child a, node d is a leaf, and node a has child t. The degree sequence is 2, 1, 0, 1, 0. The LOUDS code is 110 10 0 10 0.`,
+        `To look up cat, start at the root's child range. The labels aligned with the two 1 bits might be c and d, so c selects the first child. That child has one outgoing label a, so the path continues. The a node has one outgoing label t. After consuming t, the terminal bit for the reached node decides whether cat is a stored key rather than only a prefix.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `LOUDS wins for static dictionaries, autocomplete tables, lexicons, compact key maps, and trie-based range filters. It is valuable when order, prefix traversal, or common-prefix lookup matter, and when many keys share enough structure that a trie is conceptually right but pointer overhead is too high.`,
+        `The animation's "Dense top, sparse bottom" frame points at a common production refinement. Upper levels are hot because every lookup touches them, so they may use faster bitmap-style layouts. Lower levels contain most nodes, so they may use denser LOUDS-style arrays.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `LOUDS is a poor fit for heavy online mutation. Insertions and deletions can shift broad regions of the topology and label arrays, so a mutable pointer trie, log-structured rebuild, or dynamic succinct tree may be simpler.`,
+        `It is also not automatically better than a hash table. If the workload only needs exact membership or key-to-value lookup and does not need order or prefixes, a hash table, minimal perfect hash, Bloom filter, or binary fuse filter may be smaller or faster.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Study Rank/Select Bitvector first, because LOUDS depends on those operations. Then study Trie for the uncompressed baseline, SuRF Range Filter for a production-style LOUDS use, Finite-State Transducer Static Map for another compact ordered dictionary, and Wavelet Matrix or FM-Index to see the same rank/select primitive in numeric and text indexes.`,
+        `Useful references include Memoria's LOUDS tree overview at https://memoria-framework.dev/docs/data-zoo/louds-tree/, the SuRF paper at https://db.cs.cmu.edu/papers/2018/mod601-zhangA-hm.pdf, the CACM Succinct Range Filters article at https://cacm.acm.org/research/succinct-range-filters/, Tx-trie at https://github.com/logogin/tx-trie, and fast_succinct_trie notes at https://github.com/kampersanda/fast_succinct_trie.`,
       ],
     },
   ],

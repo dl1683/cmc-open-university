@@ -56,7 +56,7 @@ function* changeGraph() {
   yield {
     state: graph('Automerge history is a graph of changes'),
     highlight: { active: ['root', 'c1', 'c2', 'merge', 'e-root-c1', 'e-root-c2'], found: ['heads'] },
-    explanation: 'An Automerge document keeps the full history of changes. Concurrent edits create multiple tips. Merging records dependencies so later replicas can understand which changes happened before which.',
+    explanation: 'Automerge stores history, not just current JSON. Concurrent edits create multiple tips, and merge records dependencies so later replicas can tell which changes knew about which earlier changes.',
     invariant: 'The visible document is derived from change history plus deterministic conflict resolution.',
   };
 
@@ -81,13 +81,13 @@ function* changeGraph() {
       ],
     ),
     highlight: { found: ['actor:why', 'deps:why'], active: ['ops:meaning'] },
-    explanation: 'A change groups operations and names dependencies. The head set is the set of changes no known later change depends on. Multiple heads mean concurrent frontiers, not necessarily a user-visible conflict.',
+    explanation: 'A change record carries actor, sequence, dependencies, and operations. Heads are the current frontier: changes no known later change depends on. Multiple heads often mean normal concurrency, not an error.',
   };
 
   yield {
     state: graph('Heads summarize concurrent frontiers', { heads: 'c1,c2', sync: 'compare', peer: 'needs c2' }),
     highlight: { active: ['c1', 'c2', 'heads', 'sync', 'e-merge-heads', 'e-heads-sync'], found: ['peer'] },
-    explanation: 'Sync can compare heads and send missing changes. This is why the Local-First Sync Engine page treats heads as a data structure, not just a debug field.',
+    explanation: 'Heads make sync incremental. If a peer reports heads that exclude c2, the sender can transmit the missing change instead of replaying or shipping the entire document.',
   };
 
   yield {
@@ -111,7 +111,7 @@ function* changeGraph() {
       ],
     ),
     highlight: { found: ['map:merge', 'list:merge', 'text:use'], compare: ['counter:merge'] },
-    explanation: 'Automerge gives application developers a JSON-like model while tracking enough operation metadata to merge maps, lists, counters, and collaborative strings.',
+    explanation: 'The JSON-like model is the developer surface. Under it, Automerge tracks object IDs, keys, list positions, counters, text operations, and conflicts so normal-looking data can still merge offline work.',
   };
 
   yield {
@@ -145,14 +145,14 @@ function* columnarStorage() {
       ],
     ),
     highlight: { active: ['actor:compress', 'action:compress'], found: ['key:compress'] },
-    explanation: 'Automerge storage is built for repetitive history. Columnar layout groups similar fields together so actor ids, object ids, operation types, counters, and values can be compressed effectively.',
+    explanation: 'Columnar storage exploits repetition in history. Actor IDs repeat, object IDs repeat, action kinds repeat, and counters often delta well. Grouping similar fields makes full history cheaper to keep.',
     invariant: 'Keeping history is practical only if history is stored compactly.',
   };
 
   yield {
     state: graph('Compressed storage serves both disk and sync', { merge: 'changes', doc: 'runtime', sync: 'wire', peer: 'load' }),
     highlight: { active: ['merge', 'heads', 'sync', 'peer', 'e-heads-sync', 'e-sync-peer'], compare: ['doc'] },
-    explanation: 'The binary format is for storage or transfer. That aligns with the local-first goal: full history can survive offline, be synced later, and still be compact enough for real applications.',
+    explanation: 'The same compact representation supports disk and wire use. That matters for local-first apps: keeping full history is useful only if loading, saving, and syncing it are not dominated by metadata overhead.',
   };
 
   yield {
@@ -200,7 +200,7 @@ function* columnarStorage() {
       ],
     ),
     highlight: { active: ['one:cost', 'many:cost'], found: ['subdoc:benefit', 'refs:benefit'] },
-    explanation: 'Automerge modeling docs warn that choosing document boundaries is an application decision. Data structure design continues above the CRDT: what belongs in one document, and what should be a separate sync unit?',
+    explanation: 'Document boundaries are an application data-structure decision. One huge document simplifies references but broadens every sync. Many tiny documents reduce scope but make discovery, transactions, and lifecycle harder.',
   };
 
   yield {
@@ -224,7 +224,7 @@ function* columnarStorage() {
       ],
     ),
     highlight: { found: ['arrow:shared', 'seq:shared'], compare: ['yjs:contrast'] },
-    explanation: 'Automerge is a good crossroad: it is a CRDT, a sync protocol, a compact storage format, and a JSON-like data modeling layer.',
+    explanation: 'Automerge sits at a useful crossroads: CRDT semantics, change DAG, sync frontier, compact storage, and JSON-like modeling. Studying it shows why local-first design is more than a merge function.',
   };
 }
 
@@ -238,43 +238,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Automerge is a CRDT library for local-first collaborative applications. It gives developers a JSON-like document model while preserving the change history needed for offline work, merging, sync, conflict inspection, and version-oriented workflows.',
-        'The implementation lesson is that the CRDT is not just a merge function. It is a change graph, head-set summary, operation identity scheme, sync protocol, storage format, and runtime representation.',
+        `Automerge exists for local-first software, where users can edit shared data without assuming one always-reachable server orders every write. A notes app, task board, design tool, or project planner may need to work on a train, across devices, through flaky networks, or against several sync servers. The user still expects the document to merge later without losing work.`,
+        `The product surface is intentionally familiar. Application code works with a JSON-like document made of maps, lists, text, counters, and simple values. The implementation underneath is not a plain JSON object. It is a durable history of changes, operation IDs, dependencies, conflicts, and sync state. That hidden structure is what lets offline replicas become consistent again.`,
+      ],
+    },
+    {
+      heading: 'The naive approach',
+      paragraphs: [
+        `The simple answer is to store the latest JSON blob and let the server choose a winner. On each save, overwrite the old value. On conflict, keep the newest timestamp, ask the user to choose, or merge fields with a few custom rules. This works for single-user settings and small server-centered apps.`,
+        `It breaks when two users edit different parts of the same document while disconnected. Last writer wins can erase a paragraph, a list insertion, or a counter increment that was never logically in conflict. A timestamp also cannot tell which write knew about which earlier write. Without causal information, the system cannot distinguish "this update replaces that value" from "these two updates were concurrent."`,
+        `Shipping the whole JSON document on every sync is also wasteful. A one-character edit should not require sending a megabyte document. More importantly, sending only the current state loses the reason that state exists. A peer that missed one old change needs that missing change, not a vague statement that the final object is different.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `The core insight is to store changes as the source of truth and derive the visible document from them. Each change has an actor, local sequence information, dependencies, and operations. Dependencies form a directed acyclic graph. The current heads are the frontier: changes that no known later change depends on.`,
+        `This gives sync a compact question to ask. If two peers compare heads, each can infer which changes the other may be missing. They can exchange changes rather than whole materialized documents. Concurrent edits create multiple heads. A later merge change records both heads as dependencies, so the graph remembers that the merge saw both branches.`,
+        `The second insight is that complete history must be stored like a systems problem, not like a pile of objects. Operation histories are repetitive. Actor IDs repeat, object IDs repeat, action kinds repeat, counters move by small deltas, and keys cluster. Automerge's binary format uses columnar storage so similar fields sit together and compress well.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'An Automerge document stores changes. Each change has an actor, sequence information, dependencies, and operations. Concurrent work creates multiple heads. Merging records dependency relationships and materializes a deterministic current document.',
-        'The binary format specification describes serialized Automerge documents as containing complete history of changes and operations. The format is designed for compactness and fast parsing because that history can be large but repetitive. Automerge concepts also describe a compact binary storage format and a transport-agnostic per-document sync protocol.',
+        `A user edit becomes one or more operations inside a change. Setting a map key, inserting a list element, editing collaborative text, or incrementing a counter is recorded with object identity and operation identity. The application reads a materialized document, but the durable record is the change history.`,
+        `When two actors edit offline, each actor extends its own causal branch. The document now has multiple heads. That is not an error. It is the honest representation of concurrent work. When a replica receives both branches, it can apply deterministic merge rules to produce a current view while still preserving conflict information where application code may need to show or resolve it.`,
+        `Sync uses the change graph. A peer can advertise the heads it has. Another peer can walk dependencies and send the missing changes. This is much cheaper and clearer than replaying every document version or sending the whole current JSON value. The graph also supports history inspection and version-oriented workflows because old changes remain named objects, not vanished intermediate states.`,
+        `Storage uses a different shape from the developer API. Instead of keeping every operation as a verbose object with repeated field names, the binary representation groups fields into columns. One column may describe actors, another object references, another keys or elements, another actions, and another values. Compression works because each column has a narrow vocabulary or predictable numeric pattern.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'The main cost is metadata. Collaborative strings may assign identifiers to fine-grained edits; maps and lists track object ids, keys, indexes, dependencies, and values. Without compression, memory and load time can dominate the application.',
-        'Automerge 3.0 frames much of the technical work as making large histories practical. It describes compressed columnar storage and a runtime representation that keeps memory use lower for large documents and busy sync servers.',
+        `The change-graph visual proves that a local-first document is not a single mutable blob. The root, concurrent branches, merge node, heads, materialized document, sync node, and peer show different roles. Heads summarize the frontier. Dependencies show causality. The materialized document is a view derived from history, not the storage contract itself.`,
+        `The columnar-storage visual proves the hidden cost of CRDT design. Keeping every change is useful only if the history stays cheap enough to load, store, and transmit. The table turns "CRDT metadata" into concrete fields: actor, object, key, action, and value. The point is not that columns are fashionable. The point is that similar data compresses better when the format respects its shape.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A user edits a project plan offline. Automerge records a local change with operations such as setting a map key, inserting a list item, and editing collaborative text. Another user concurrently edits another section. When the two devices sync, each compares heads, sends missing changes, merges dependencies, and materializes one document. If both users changed the same field, Automerge keeps deterministic conflict information instead of pretending there was no conflict.',
-        'The storage layer persists complete history in a compact binary format. The sync layer sends missing changes rather than the whole document. The app layer decides document boundaries: one document per page, many documents per workspace, or a hybrid with refs and repositories.',
+        `The change graph works because dependencies preserve causality. If change B lists change A as a dependency, every replica knows B was made with knowledge of A. If two changes do not depend on each other, they are concurrent. Deterministic merge rules can then make every replica compute the same current value from the same set of changes.`,
+        `Operation identity gives the system stable references. A list insertion, object creation, or text edit can be named by the actor and counter that created it. That lets later operations refer to earlier structure without trusting local memory addresses or server order. The graph and operation IDs together replace the missing central clock.`,
+        `Columnar storage works because the history has regularity. A document may contain thousands of operations from the same actor against nearby objects and repeated action types. General-purpose object serialization repeats too much structure. A columnar format spends bytes on the changing values and lets runs, dictionaries, deltas, and typed encodings do their job.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Automerge does not remove modeling decisions. If an app puts an entire company workspace into one document, sync scope and load time can become the bottleneck. If it splits every tiny object into its own document, discovery and cross-document workflows become harder. CRDTs make merge local; they do not erase schema design.',
+        `Automerge trades server simplicity and offline mergeability for metadata. Every meaningful operation needs identity, causal context, and enough information to replay or merge it. Text editing can create many small operations. Long-lived documents can accumulate long histories. Compression reduces this cost, but it does not make history free.`,
+        `Runtime representation matters as much as file size. A document that is compact on disk can still become expensive if loading expands the history into many heap objects. Automerge 3's move toward using compressed representation at runtime is an example of the broader lesson: CRDT correctness has to meet memory, load-time, and sync-budget constraints.`,
+        `Document boundaries are an application data-structure choice. One large document makes references and transactions easier, but it widens sync scope and load cost. Many small documents make independent sharing and retention easier, but discovery, cross-document references, and lifecycle management become harder. Local-first design moves some server coordination into product modeling.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Automerge binary format specification at https://automerge.org/automerge-binary-format-spec/, Automerge concepts at https://automerge.org/docs/reference/concepts/, Automerge modeling data guide at https://automerge.org/docs/cookbook/modeling-data/, and Automerge 3.0 post at https://automerge.org/blog/automerge-3/. Study Sequence CRDTs for Collaborative Text, Local-First Sync Engine Case Study, Delta-State CRDT Anti-Entropy Case Study, Apache Arrow Columnar Memory Case Study, Delta Bit-Packing Integer Compression, Yjs Struct Store & Updates, and CRDT Snapshot Compaction & Garbage Collection next.',
+        `Automerge fits collaborative notes, project plans, shared settings, structured documents, whiteboards, kanban boards, and local-first tools where offline edits are normal rather than exceptional. It is strongest when users need a familiar object model but the product cannot rely on one always-online writer.`,
+        `A good example is a project plan. One person edits a task description offline. Another inserts a checklist item. A third increments a counter or changes ownership. When devices reconnect, the peers compare heads, exchange missing changes, merge the graph, and materialize the same document. If two people changed the same field, the conflict remains inspectable instead of being silently erased by time order.`,
+        `It also wins when history is part of the product. Version review, audit trails, local undo, conflict explanation, and multi-device repair all benefit from having a graph of changes rather than only the latest state. The same structure that makes merge possible makes debugging possible.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first failure mode is pretending that CRDTs remove schema design. They do not. A bad document boundary can make every small edit sync a huge workspace. A too-fragmented model can make ordinary product actions span many documents with weak transaction semantics. The CRDT can merge each document correctly while the product still feels slow or inconsistent.`,
+        `The second failure mode is unbounded history pressure. Busy collaborative text, generated content, or high-frequency object updates can create large histories. Teams need metrics for resident memory, load time, sync payload size, number of heads, and document churn. These are product health signals, not internal curiosities.`,
+        `The third failure mode is conflict complacency. Deterministic conflict handling is not the same as user intent. If two people edit the same title, the system can preserve both values or choose a display rule, but the product may still need a clear conflict UI. Automerge prevents silent loss; it does not automatically design the human workflow.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Sequence CRDTs for Collaborative Text to understand ordered insertion. Study Delta-State CRDT Anti-Entropy for another sync style, Local-First Sync Engine for repository-level concerns, Yjs Struct Store for a contrasting implementation, and CRDT Snapshot Compaction for history management.`,
+        `For storage, read Apache Arrow Columnar Memory and Delta Bit-Packing Integer Compression. For primary Automerge references, use the Automerge concepts guide, binary format specification, modeling-data guide, and Automerge 3.0 post. The key habit is to separate semantic merge from storage engineering. A real local-first system needs both.`,
       ],
     },
   ],

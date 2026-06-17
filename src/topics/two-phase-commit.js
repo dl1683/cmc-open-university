@@ -114,40 +114,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `Two-phase commit is the classic atomic-commit protocol for one transaction that touches multiple resource managers. Jim Gray's transaction-processing work made the pattern central in databases: each participant promises it can commit, then a coordinator records one final decision and tells everyone to commit or abort. The goal is all-or-nothing atomicity across machines that do not share one disk or one local log.`,
-        `The trade-off is sharp. A participant owns its local durability through a Write-Ahead Log (WAL), locks, and recovery. But after it votes yes, it no longer controls the outcome. It must wait for the coordinator's durable decision, even if that means holding locks while a machine or network link is down.`,
+        `A local database transaction is easy to reason about because one log owns the outcome. If the process crashes, recovery reads that log and decides whether the transaction committed or rolled back.`,
+        `Distributed transactions lose that simplicity. A checkout might charge a card in one system, reserve inventory in another, and create an order in a third. The user still expects one answer: either all three effects become durable, or none of them do.`,
+        `Two-phase commit exists to provide that all-or-nothing boundary across machines that do not share a disk, a lock manager, or a write-ahead log. It is not trying to make failure disappear. It is trying to make partial success impossible.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The Obvious Approach and the Wall`,
       paragraphs: [
-        `Phase 1 is prepare. The coordinator asks every participant whether it can commit. Each participant checks constraints, writes enough undo/redo information to its log, keeps the relevant locks, and replies yes or no. A no vote or timeout before prepare completes lets the coordinator abort. A yes vote is a durable promise: after crash recovery, the participant must still be able to commit if ordered.`,
-        `Phase 2 is decision. If every participant voted yes, the coordinator writes commit to its own durable log and broadcasts COMMIT. If any participant voted no, it writes abort and broadcasts ABORT. Participants then finish, release locks, and record completion. The dangerous window is after participants have prepared and before they learn the decision. If the coordinator is unavailable, they cannot safely decide alone because some other participant may already have received the opposite-looking fact: the coordinator's real decision.`,
+        `The obvious approach is to ask each participant to do its local transaction and then hope every participant succeeds. That works only on the happy path. If payment commits and inventory fails, the system has already exposed an effect it cannot simply unshow.`,
+        `The other obvious approach is to ask everyone whether they are ready before committing. That is closer, but it creates a harder question: what does ready mean after a crash? A participant that merely says "yes" from memory may reboot and forget what it promised.`,
+        `The wall is durable uncertainty. Once a participant has promised it can commit, it cannot safely abort on its own, because the coordinator may already have recorded commit and told another participant to finish. The same promise that preserves atomicity is what makes the protocol block.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `The Core Insight`,
       paragraphs: [
-        `The minimum cost is two coordinator round trips plus forced log writes for prepare and decision. Locks can live much longer than two messages: a slow participant, a coordinator crash, or a partition can leave prepared transactions blocking other work for seconds, minutes, or worse. That blocking is the protocol's defining availability cost. It interacts directly with Transaction Isolation Levels because prepared rows may be invisible or locked while other transactions wait.`,
+        `2PC separates "I can commit" from "we did commit." In the prepare phase, each participant does enough work locally that it can later commit or abort after recovery. In the decision phase, one coordinator records the global outcome.`,
+        `The coordinator can write commit only after every participant has durably voted yes. Any no vote, failed prepare, or timeout before the prepared point sends the transaction to abort. After the decision is logged, participants finish according to that decision.`,
+        `The protocol is simple because there is exactly one global decision record. It is also fragile for the same reason: a prepared participant that cannot learn the decision has to wait.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `How the visual model teaches it`,
       paragraphs: [
-        `XA transactions in Oracle, PostgreSQL prepared transactions, MySQL XA, and Java transaction managers expose 2PC across databases and message brokers. Google Spanner and CockroachDB use 2PC-like coordination across shards, but they replicate transaction records or participant state with Paxos/Raft-style consensus so a single coordinator process is not the only copy of the decision. That does not make commit free; it replaces one fragile coordinator with replicated metadata and quorum latency from Raft Log Replication.`,
+        `The graph shows one coordinator above three participants: payment, stock, and order. In the "all vote yes" scenario, follow the prepare requests outward, the yes votes back in, and the final commit broadcast outward again. Those two waves are the two phases.`,
+        `In "one votes no," notice that a single no vote is enough to make the coordinator choose abort. The point is not majority rule. Atomic commit requires unanimity because any participant that cannot safely commit would break the global transaction.`,
+        `In "coordinator crashes," watch the coordinator disappear after all participants are prepared. The participants are not confused because the protocol is vague; they are blocked because the protocol is precise. A prepared participant must not invent a decision.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `How It Works`,
       paragraphs: [
-        `A yes-voting participant cannot unilaterally abort after prepare. That is the whole promise. Conversely, before a participant prepares, timeouts can safely push the transaction toward abort. Another misconception is that consensus simply replaces 2PC. Raft Leader Election and replication can make the coordinator decision highly available, but atomic commit across many shards is still a separate protocol. The CAP Theorem framing is that 2PC preserves atomicity by blocking when communication needed for the decision is unavailable.`,
-        `2PC is also not a Saga Pattern. A saga commits each local step immediately and later runs compensating actions if needed. 2PC prevents partial effects from becoming visible, at the cost of locks and waiting. MVCC Internals & VACUUM may hide some waiting from readers, but writers and unique constraints can still block behind prepared work. Distributed Tracing is often the only way to see which participant is holding the transaction open.`,
+        `Phase 1 is prepare. The coordinator sends PREPARE to every participant. Each participant checks constraints, performs the local work, writes the needed undo or redo information to its write-ahead log, keeps the locks that protect the tentative result, and replies yes or no.`,
+        `A yes vote is a durable promise. After a crash, that participant must recover into a prepared state and remain able to commit if the coordinator's decision says commit. It cannot release the locks as if nothing happened.`,
+        `Phase 2 is decision. If every participant voted yes, the coordinator force-writes commit to its own log and broadcasts COMMIT. If any participant voted no, or if prepare cannot complete, the coordinator force-writes abort and broadcasts ABORT. Participants then finalize, release locks, and record completion.`,
+        `Recovery follows the logs. A participant that finds a prepared transaction contacts the coordinator to learn the decision. A coordinator that finds a decision record repeats the decision. Repeating COMMIT or ABORT is safe because the decision is idempotent; changing the decision is not.`,
       ],
     },
     {
-      heading: `Study next`,
+      heading: `Why It Works`,
+      paragraphs: [
+        `Atomicity comes from matching two durable facts. First, every yes-voting participant has promised it can commit later. Second, the coordinator records one final decision before telling anyone to act on it.`,
+        `If commit is logged, every prepared participant has enough local state to finish, even after a crash. If commit is not logged and prepare did not complete, abort is safe because the system has not crossed the point where every participant is bound.`,
+        `The famous blocking behavior is not an implementation accident. It is the safety argument made visible. A prepared participant that cannot reach the coordinator does not know whether commit was logged and perhaps delivered to another participant. Waiting is the only action that cannot split the transaction.`,
+      ],
+    },
+    {
+      heading: `Worked Example`,
+      paragraphs: [
+        `Suppose a checkout transaction touches three services. Payment can debit the card, stock can reserve the last item, and order can create the order row. In prepare, payment writes a pending debit, stock writes a pending reservation, and order writes a pending order. Each keeps enough lock or version state to prevent another transaction from contradicting the prepared work.`,
+        `If stock votes no because the item is gone, the coordinator aborts and the customer sees one clean failure. If all three vote yes, the coordinator logs commit and tells all three to make their prepared records final. The customer never sees a charged card without an order, or an order without reserved inventory.`,
+        `Now make the coordinator crash after the yes votes. Payment, stock, and order may all be holding locks. They cannot decide by voting among themselves because the coordinator might have logged commit just before crashing. They must wait for recovery or for a replicated decision service to answer.`,
+      ],
+    },
+    {
+      heading: `Costs and Tradeoffs`,
+      paragraphs: [
+        `The minimum latency is two coordinator round trips plus forced log writes for prepare and decision. In practice, the larger cost is lock duration. Prepared rows, unique keys, inventory counts, or account balances can block unrelated work while the transaction waits.`,
+        `2PC also concentrates availability in the decision record. Replicating the coordinator with Raft or Paxos can make that record more available, but it adds quorum latency and does not remove the need for atomic commit across participants.`,
+        `Operationally, prepared transactions are debt. Systems need timeouts, monitoring, cleanup tools, and tracing that can show which participant is holding the transaction open. Without that visibility, the protocol's correctness looks like an outage.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `2PC wins when partial visibility is worse than waiting: distributed SQL commits, XA transactions, prepared transactions in relational databases, and shard-spanning updates that must preserve hard invariants.`,
+        `It works best with a small number of participants, short transactions, predictable storage latency, and a recovery path that operators actually understand. The protocol is a poor fit for long user workflows, but a strong fit for short database work that must be atomic.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `It fails when the system cannot tolerate blocking. A yes-voting participant cannot unilaterally abort after prepare, so coordinator failure or a partition can hold locks and prepared state hostage.`,
+        `It also fails as a substitute for business-level recovery. A saga commits each local step immediately and later runs compensating actions if a later step fails. That gives up strict atomic visibility but avoids holding locks across a long workflow. 2PC and sagas solve different problems.`,
+        `A common misconception is that consensus replaces 2PC. Consensus can replicate the coordinator's decision, elect a new coordinator, or make transaction metadata highly available. It still does not let one participant safely commit while another aborts.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
       paragraphs: [
         `Study Write-Ahead Log (WAL) first, because prepared promises live or die by durable logs. Then read Transaction Isolation Levels and MVCC Internals & VACUUM to understand what locks and versions do while a commit waits. Use Raft Leader Election and Raft Log Replication for replicated coordinators, CAP Theorem for the availability trade-off, and Saga Pattern for the compensation-based alternative.`,
       ],

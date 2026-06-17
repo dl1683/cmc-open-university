@@ -68,7 +68,7 @@ function* triageQueue() {
   yield {
     state: triageGraph('Source triage happens before reading everything'),
     highlight: { active: ['query', 'cand', 'dedupe', 'auth', 'fresh', 'e-query-cand', 'e-cand-dedupe', 'e-cand-auth', 'e-cand-fresh'], found: ['queue'] },
-    explanation: 'A deep research agent cannot read every search hit. It needs a triage queue that dedupes candidates, ranks authority, checks freshness, and schedules the few sources most likely to change the answer.',
+    explanation: 'The naive baseline is to read search results in rank order. A better agent dedupes candidates, separates relevance from authority, checks freshness, and spends context on the sources most likely to change the answer.',
   };
 
   yield {
@@ -99,7 +99,7 @@ function* triageQueue() {
       ],
     ),
     highlight: { active: ['paper:auth', 'docs:act', 'filing:act'], compare: ['forum:risk'], found: ['blog:novel'] },
-    explanation: 'The source row stores authority, freshness, novelty, risk, access scope, and the next action. That row lets the agent justify why a source was read, skipped, downgraded, or sent to audit.',
+    explanation: 'The source row stores authority, freshness, novelty, risk, access scope, and the next action. It makes source choice reviewable: why this source was read, why another was skipped, and what kind of claim each source is allowed to support.',
     invariant: 'Source rank is not the same as retrieval rank.',
   };
 
@@ -197,7 +197,7 @@ function* sourceBudget() {
       ],
     }),
     highlight: { active: ['primary', 'gate'], compare: ['lowauth'] },
-    explanation: 'A high retrieval score does not erase source risk. The priority queue should preserve both: relevance decides whether to inspect; authority and support decide whether the source can carry a final claim.',
+    explanation: 'A high retrieval score does not erase source risk. Relevance decides whether to inspect; authority, freshness, method, and support spans decide whether the source can carry a final claim.',
   };
 }
 
@@ -211,45 +211,77 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'A source authority triage priority queue ranks candidate sources before the research agent spends context, tool time, or report trust on them. It is the missing structure between retrieval and citation. Retrieval finds candidates; triage decides which candidates deserve reading, which deserve skepticism, and which should be skipped with an audit reason.',
-        'This module extends Multi-Index RAG, Claim Graph & Source Ledger, and Deep Research Question Decomposition DAG. Multi-Index RAG can retrieve many hits. The claim ledger can store exact evidence. The triage queue decides which source objects are worth converting into evidence rows.',
+        'A research system can find more sources than it can read well. Search engines, vector indexes, news feeds, academic databases, and internal corpora all return candidates. The scarce resource is not only web bandwidth. It is attention, context window, citation trust, and the number of claims a final report can support without becoming a pile of weak references.',
+        'A source authority triage priority queue sits between retrieval and citation. Retrieval says this item might be relevant. Triage says this item deserves reading now, this one is a duplicate, this one is stale, this one is useful only as a lead, and this one is too risky to quote. The data structure turns source choice into an auditable scheduling problem.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'Each source candidate gets a feature row: source class, publisher, author or organization, primary versus secondary role, publication date, access date, version, retrieval score, novelty cluster, permission scope, prompt-injection risk, and proposed action. The queue score should not be a single opaque model score. It should be decomposable so a later audit can explain why a source was selected.',
-        'The Google Search Quality Rater Guidelines are useful source-quality background because they separate page quality from needs met and give raters a common evaluation frame: https://guidelines.raterhub.com/searchqualityevaluatorguidelines.pdf. Google also summarizes Search Quality Rater Guideline updates in official Search Central posts: https://developers.google.com/search/blog/2023/11/search-quality-rater-guidelines-update. A research agent should not copy that rubric blindly, but the distinction between relevance and quality is exactly the data-structure lesson here.',
+        'The obvious approach is to read search results in retrieval order. The first result feels important because the search engine ranked it highly. The second and third may repeat the same facts in different packaging. The agent keeps reading until the report feels sourced, then cites whatever was easiest to quote.',
+        'That approach is not foolish. Retrieval rank often captures relevance. For simple factual questions, the top official page may be enough. The failure appears in deep research: many top results are duplicates, summaries, SEO pages, vendor claims, old versions, or pages that are relevant to the query but not authoritative for the claim the report needs to make.',
       ],
     },
     {
-      heading: 'Priority features',
+      heading: 'The Wall',
       paragraphs: [
-        'Authority is domain-specific. Official docs are high authority for product behavior but weak for independent performance claims. Papers are strong for methods but may be stale for production availability. Filings can be strong for dates and business commitments. Forums can be strong for discovering user pain, but weak for broad generalization. The queue should store source duty, not just source rank.',
-        'Freshness matters only for date-sensitive claims. A proof, API design, or mathematical definition can be stable for years. A price, product feature, regulation, benchmark leaderboard, or CEO quote can change tomorrow. Evidence Freshness Refresh Scheduler turns that distinction into TTLs and watch queries.',
+        'The wall is that source rank is not the same as retrieval rank. A forum post can be highly relevant because it names the exact failure mode, but it should not carry a broad factual claim. A vendor benchmark can be relevant and official, but weak for independent performance. A paper can be authoritative for method lineage and stale for current production behavior. A news article can provide context while being too indirect to support technical details.',
+        'The second wall is budget shape. If the agent reads ten near-duplicates, it may look busy while learning one fact. If it reads only friendly sources, it may miss counterevidence. If it reads only primary sources, it may miss how the idea fails in practice. Deep research needs coverage across source duties: definitions, primary facts, methods, numbers, current updates, counterclaims, and concrete cases.',
       ],
     },
     {
-      heading: 'Complete case study: vendor benchmark report',
+      heading: 'Core Insight',
       paragraphs: [
-        'A user asks whether a vendor benchmark proves leadership. Raw search returns the vendor post, a press article, a GitHub issue, an old paper, two benchmark repos, and a social thread. The queue reads the benchmark repo and method notes first, reads the vendor post for claims, reads the paper for method lineage, skims the article for context, and flags the social thread as a lead rather than a citable source.',
-        'The ledger then stores exact benchmark version, hardware, workload, batch size, data date, and whether the vendor compared against current baselines. If the vendor post and benchmark repo disagree, Research Contradiction Resolution Graph classifies the conflict before the report writes a conclusion.',
+        'The useful abstraction is a priority queue of source candidates with decomposable scores and explicit duties. A source is not simply good or bad. It is good for some claims and weak for others. The queue should store authority, freshness, novelty, risk, accessibility, source class, and proposed use. It should also store why a candidate was skipped.',
+        'This is a data-structure boundary. A retriever returns candidates. The triage queue schedules reading. A source reader extracts exact spans. A claim ledger attaches spans to claims. A contradiction resolver handles disagreements. When these jobs collapse into one opaque prompt, the final report cannot explain why it trusted one page and ignored another.',
       ],
     },
     {
-      heading: 'Operational details',
+      heading: 'Mechanism',
       paragraphs: [
-        'The queue needs dedupe. The same press release may appear as a vendor blog, copied article, newsletter summary, and social post. MinHash, canonical URLs, source clusters, and claim similarity prevent duplicate material from filling the context window. RAG Dedup, MinHash, and Chunk Canonicalization covers the adjacent corpus-level problem; this module applies the same idea to research-source scheduling.',
-        'The queue also needs a skip ledger. A skipped source can matter later if the final answer is challenged. The skip record should say whether the source was duplicate, low authority, stale, inaccessible, out of scope, unsafe, or redundant after stronger evidence was found. That turns source selection into an auditable decision rather than hidden model taste.',
+        'Each candidate becomes a feature row. The row can include URL, canonical URL, title, publisher, author or organization, source class, publication date, access date, version, retrieval score, novelty cluster, primary-or-secondary role, claim duty, prompt-injection risk, access restrictions, and next action. The point is not to create bureaucracy. The point is to make source selection inspectable.',
+        'The priority score should be decomposable. Relevance answers whether the source is worth considering. Authority answers whether it can carry a claim. Freshness answers whether the date is acceptable for the claim type. Novelty answers whether the source adds information beyond already-read material. Risk answers whether the content is unsafe, user-generated, unverifiable, or likely to manipulate the agent.',
+        'The queue pops the highest-value source for the current report gap. After reading, the extracted spans enter a claim ledger. Duplicates collapse into clusters so one press release does not occupy five read slots. Skipped sources leave records: duplicate, stale, low authority, inaccessible, out of scope, unsafe, or redundant after stronger evidence. The skip ledger is what makes later audits possible.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Visual Proof',
+      paragraphs: [
+        'The triage view proves that reading everything is not the algorithm. Candidates first pass through dedupe, authority, and freshness checks. Only then do they enter the read queue. The skip path is visible because skipped sources still matter: a report should be able to say which candidates were ignored and why.',
+        'The source feature table proves that authority is contextual. Papers, official docs, blogs, news, forums, and filings can all be useful, but not for the same job. A filing can anchor dates and commitments. Official docs can anchor product behavior. A benchmark can support a number only when its method survives audit. User-generated content can reveal a failure mode, but it should usually be treated as a lead rather than final evidence.',
+        'The budget view proves why source count is a weak metric. Twenty carefully selected sources can beat sixty near-duplicates if the smaller set covers primary facts, methods, numbers, counterevidence, and current updates. The curve rises when the queue improves value per source, not when the agent reads more pages indiscriminately.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The queue works because it preserves distinctions that raw retrieval collapses. Relevance, authority, freshness, novelty, and risk are different axes. A source can score high on one and low on another. Keeping those axes separate lets the research system choose sources by the claim it needs to support rather than by a single attractive rank.',
+        'Correctness here means auditability, not mathematical optimality. The queue does not prove that the top source is objectively best. It gives the system a repeatable policy for spending source budget and a record that can be challenged. If the final answer is wrong, the audit can inspect whether the queue overtrusted a source class, missed counterevidence, accepted stale data, or let duplicates crowd out original material.',
+      ],
+    },
+    {
+      heading: 'Cost and Tradeoffs',
+      paragraphs: [
+        'The cost is bookkeeping and latency before reading. Feature extraction, canonicalization, dedupe, risk checks, and scoring all take time. For a simple question, that overhead may be unnecessary. For a high-stakes report, the overhead is cheaper than filling the context window with weak sources and discovering the evidence gap after the conclusion is written.',
+        'The scoring policy can also bias the report. Overweighting official sources can miss independent failures. Overweighting freshness can discard stable foundational work. Overweighting novelty can reward speculation. Overweighting low risk can suppress useful counterexamples from messy public forums. The queue should expose weights and duties so the policy can be tuned by report type.',
+        'Freshness is claim-dependent. A mathematical proof, protocol definition, or historical paper can remain useful for years. A product feature, pricing claim, regulation, benchmark leaderboard, or executive statement may need live verification. The queue should attach freshness requirements to claim classes instead of treating every old source as bad or every new source as better.',
+      ],
+    },
+    {
+      heading: 'Uses and Failure Modes',
+      paragraphs: [
+        'This structure fits deep research agents, legal and policy review, technical due diligence, benchmark analysis, incident retrospectives, market reports, and any RAG system that must cite evidence rather than merely retrieve context. It is especially useful when the final artifact must explain provenance: where a claim came from, why that source was trusted, and what competing evidence was considered.',
+        'It is the wrong tool when source choice is obvious or the task is purely exploratory. A quick lookup of a stable API parameter may not need a full triage queue. A brainstorming session may benefit from messy breadth before scoring. The queue should be activated when source budget, claim support, freshness, or risk matters.',
+        'The failure modes are familiar ranking failures. The queue can amplify an authority prior and ignore marginalized evidence. It can overfit to recency and miss original sources. It can treat access restrictions as low value and ignore paywalled primary documents. It can log skip reasons mechanically without real review. It can also be attacked by prompt-injection content, which is why source risk and tool permissions belong in the feature row.',
+      ],
+    },
+    {
+      heading: 'Study Next',
       paragraphs: [
         'Primary sources: OpenAI Deep Research system card at https://openai.com/index/deep-research-system-card/, OpenAI WebGPT at https://openai.com/index/webgpt/ and https://arxiv.org/abs/2112.09332, STORM project page at https://storm-project.stanford.edu/research/storm/, STORM paper at https://arxiv.org/abs/2402.14207, Anthropic multi-agent research system at https://www.anthropic.com/engineering/multi-agent-research-system, W3C PROV-DM at https://www.w3.org/TR/prov-dm/, and Google Search Quality Rater Guidelines at https://guidelines.raterhub.com/searchqualityevaluatorguidelines.pdf.',
-        'Study Deep Research Question Decomposition DAG, Research Contradiction Resolution Graph, Evidence Freshness Refresh Scheduler, Claim Graph & Source Ledger, RAG Citation Span Index, RAG Claim Verification Support Ledger, RAG Dedup MinHash Chunk Canonicalization, Multi-Index RAG, Filtered Vector Search Bitset, Prompt Injection Threat Model, Zanzibar Authorization Case Study, and Distributed Tracing next.',
+        'Study Priority Queue for the scheduling base. Study Deep Research Question Decomposition DAG for deciding what evidence gaps exist. Study Claim Graph and Source Ledger for attaching spans to claims. Study Research Contradiction Resolution Graph for disagreements. Study Evidence Freshness Refresh Scheduler for time-sensitive claims, RAG Citation Span Index for quote-level support, RAG Dedup MinHash Chunk Canonicalization for duplicate control, Prompt Injection Threat Model for hostile source content, and Distributed Tracing for audit patterns.',
       ],
     },
   ],

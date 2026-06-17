@@ -51,7 +51,7 @@ function* outlierResistantDirection() {
       points: CLEAN_POINTS,
     }),
     highlight: { active: ['p0', 'p7'] },
-    explanation: 'Vanilla PCA is excellent when the main variation is a clean linear direction. With only the inlier cloud, the first principal component follows the diagonal structure.',
+    explanation: 'Use this as the clean baseline. The inlier cloud has one obvious diagonal direction, so ordinary PCA does the right thing: it finds the line where the real data varies and ignores only small perpendicular noise.',
   };
 
   yield {
@@ -64,7 +64,7 @@ function* outlierResistantDirection() {
       ],
     }),
     highlight: { active: ['o0', 'o1'], compare: ['badPc'], found: ['cleanPc'] },
-    explanation: 'A few large outliers can dominate covariance because PCA squares distances from the mean. The principal direction can rotate toward unusual magnitude rather than the inlier pattern.',
+    explanation: 'Now add two far points and read the arrows as influence. PCA squares distance from the mean, so a small number of large residuals can buy enough leverage to rotate the principal direction away from the inlier pattern.',
     invariant: 'Squared-distance methods let large residuals buy large influence.',
   };
 
@@ -86,7 +86,7 @@ function* outlierResistantDirection() {
       ],
     }),
     highlight: { found: ['a0', 'a1', 'a2'], compare: ['b0', 'b1'] },
-    explanation: 'Angular robust PCA normalizes observations to directions and looks for dense angular agreement. Magnitude no longer gives an outlier unlimited leverage.',
+    explanation: 'After normalization, every point lives on the unit circle. The inliers still agree on direction, but raw distance is gone, so an outlier can no longer dominate just by being far away.',
   };
 
   yield {
@@ -214,42 +214,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'Angular robust PCA is a family of robust dimensionality-reduction ideas that protect principal components from large outliers by emphasizing direction rather than raw squared distance. Ordinary PCA finds directions of maximum variance through covariance. That is fast, interpretable, and useful, but covariance gives very large residuals very large influence. A few corrupted samples can rotate the first component away from the real inlier structure.',
-        'The angular move is to normalize observations onto a sphere and look for dense agreement in direction. The 2020 paper "A New Angular Robust Principal Component Analysis" uses Angular Embedding and a trimmed variant to handle high-dimensional data and large outliers. The older "Angular Embedding: A Robust Quadratic Criterion" paper also frames local ordering information through angular geometry. The shared lesson is that angles can carry robust structure when magnitudes are untrustworthy.',
+        `Principal Component Analysis finds low-dimensional structure by looking for directions of high variance. When the data is mostly clean, this is one of the best tools in applied linear algebra: it compresses correlated features, reveals dominant directions, denoises measurements, and gives a simple basis for downstream models. The problem is that PCA trusts squared distance from the mean. A point that is ten times farther away can have roughly one hundred times the influence on the covariance objective.`,
+        `That influence is dangerous when a data set contains corrupted images, sensor spikes, bad rows, mislabeled examples, adversarial points, or rare ingestion failures. A few large outliers can rotate the first principal component away from the structure shared by most observations. Angular robust PCA is a response to that outlier-influence problem. It asks whether the data agree in direction after scale has been removed, then uses that directional consensus to recover a more stable subspace.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive approach',
       paragraphs: [
-        'Start by centering the data, or using a robust location estimate when the center itself may be contaminated. Normalize observations so each sample contributes a direction rather than an unbounded length. Estimate angular density or angular agreement to find the dominant subspace. Trim observations with weak or inconsistent angular support. Then recover a low-dimensional representation from the consensus structure.',
-        'This differs from vanilla PCA in its influence behavior. PCA asks which direction maximizes total squared projection. Angular robust PCA asks which direction has stable directional support. A far-away corrupted image, sensor spike, or bad embedding can still vote, but it cannot buy unlimited influence merely by being far from the mean.',
+        `The naive approach is ordinary PCA. Center the data, compute the covariance matrix or an SVD, and keep the top eigenvectors or singular vectors. This is fast, deterministic, and widely optimized. If the noise is roughly symmetric and not too heavy-tailed, PCA gives a useful best-fit linear subspace. It is also easy to explain: the first component is the direction where the centered data varies most.`,
+        `The wall is outlier influence. PCA does not know whether a large residual is a meaningful signal or a broken measurement. It only sees that the residual contributes a large squared term. If a camera frame contains a corrupt block, a sensor reports an impossible value, or a transaction vector contains a one-off spike, vanilla PCA may spend its first component explaining the error. Removing rows by hand is possible, but manual deletion does not scale and can introduce its own bias.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'Robust methods usually cost more than ordinary PCA and can introduce extra knobs such as trimming percentage or neighborhood density. That is the price of not letting outliers dominate. In clean data, ordinary PCA may be more statistically efficient and simpler to explain. In contaminated data, robust PCA can recover a useful subspace where ordinary PCA mostly explains the corruption.',
-        'A practical system should compare both. Fit PCA and robust PCA on training data only, inspect how much the components disagree, and look at the trimmed or downweighted points. If the robust path improves downstream validation, keep it. If it mainly removes legitimate minority structure, the trimming rule is too aggressive or the task needs a supervised model instead.',
+        `The angular insight is to separate direction from magnitude. After centering, each observation can be projected onto the unit sphere by dividing by its norm. Once that happens, a far-away point no longer gets unlimited voting power merely because it is far away. It still contributes a direction, but it does not dominate the objective through raw length. The method then looks for angular density: many observations pointing in compatible directions.`,
+        `This does not mean magnitude is always noise. In many applications, length is meaningful. But when the main threat is gross contamination, directional agreement can be more trustworthy than squared residual size. The robust method changes the influence function. A corrupted sample can disagree, and a cluster of corrupted samples can still cause trouble, but a single large point has less ability to hijack the first component.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanics',
       paragraphs: [
-        'Angular robust PCA is relevant to image denoising, corrupted pixel detection, sensor fault analysis, finance shock filtering, embedding outlier audits, anomaly detection, and preprocessing before clustering or visualization. It connects directly to PCA: Principal Component Analysis, SVD & Low-Rank Approximation, Eigenvalues & Eigenvectors, t-SNE & UMAP: Seeing Embeddings, and Data Leakage & Contamination.',
+        `A robust angular pipeline usually begins with centering. If the mean itself is contaminated, a robust location estimate may be needed, because subtracting a bad center can pollute every direction. Next, each centered observation is normalized onto the unit sphere. The algorithm estimates which directions are dense or mutually consistent. Points with weak support, unusual angles, or low density can be trimmed or downweighted. The final subspace is fit from the supported directions rather than from all raw squared distances.`,
+        `The exact method can vary. Some approaches use angular embeddings, local angular neighborhoods, robust quadratic criteria, or trimmed estimators. The shared pattern is the same: remove offset, remove scale, find directional consensus, reduce outlier influence, then recover a low-rank representation. The result can still be represented as principal directions, but those directions came from a robust objective rather than ordinary covariance alone.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Robust does not mean correct under all contamination. If outliers form a dense aligned group, angular density can treat them as a legitimate direction. If rare but meaningful subpopulations are trimmed away, the method can hide exactly the cases the product or science cares about. Robust PCA is a diagnostic and preprocessing tool, not a substitute for understanding the data-generating process.',
+        `The first animation view starts with clean points along a diagonal. Ordinary PCA is appropriate there: the first component runs through the inlier cloud and captures the main direction of variation. Then two far points are added. The clean component still describes the majority pattern, but the covariance component rotates because the outliers have outsized influence. The picture is deliberately small so the failure is visible.`,
+        `The unit-circle frame shows the angular move. Every point is converted to a direction with length one. The inliers still cluster around a shared direction, while the outliers point elsewhere. They can still be noticed, but they cannot dominate merely through distance. The second view turns that intuition into a recipe: center, normalize, estimate angular density, trim weak votes, and fit the subspace. The comparison curve shows the usual trade: a small cost on clean data, slower degradation under contamination.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `PCA is fragile because the covariance matrix is an average of outer products. Outer products grow with magnitude, so extreme observations can dominate. Angular normalization bounds that particular route of influence. A point can change the angular density, but it cannot increase its vote by moving farther away along the same ray. This is why robust angular methods can recover the inlier direction in settings where vanilla PCA spends its capacity on large residuals.`,
+        `Trimming adds another layer. If most points support a direction and a few points do not, a trimmed fit can ignore the weakly supported points when estimating the final subspace. The method is not magic; it relies on the assumption that inliers form a coherent angular pattern and outliers are not the majority. Under that assumption, directional consensus is a better guide than unbounded squared error.`,
+      ],
+    },
+    {
+      heading: 'Costs',
+      paragraphs: [
+        `Robust PCA methods usually cost more than ordinary PCA. Normalization is cheap, but angular density estimation, neighborhood construction, trimming, repeated fitting, or robust location estimation can add runtime and memory. There are also tuning choices: trim fraction, density bandwidth, number of components, stopping criteria, and whether to run a baseline PCA beside the robust method. These choices affect both accuracy and interpretability.`,
+        `The statistical cost is also real. On perfectly clean Gaussian-like data, ordinary PCA can be more efficient because it uses all magnitude information. Angular robust PCA intentionally throws away or downweights some of that information to gain resistance to contamination. The engineering decision is therefore empirical: compare validation error, reconstruction quality, downstream task performance, and the identity of trimmed points before declaring the robust method better.`,
+      ],
+    },
+    {
+      heading: 'Tradeoffs',
+      paragraphs: [
+        `The largest tradeoff is between robustness and sensitivity to rare legitimate structure. If a rare disease subgroup, fraud pattern, machine state, or product category points in a different direction, aggressive trimming may label it as an outlier. That can make the main reconstruction cleaner while hiding the cases the analyst cares about. Robust preprocessing should therefore produce an audit trail of trimmed rows, not just a cleaned matrix.`,
+        `Another tradeoff is interpretability. Ordinary PCA has a clean covariance story. Angular robust PCA has a more complex pipeline, especially when density estimation and trimming are involved. That complexity is acceptable when outliers are common and costly, but it should be justified. A good workflow fits both PCA and angular robust PCA, compares the subspaces, inspects disagreements, and checks whether the robust path improves a concrete downstream objective.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Angular robust PCA is useful for image data with corrupt frames or occlusions, sensor arrays with malfunctioning devices, finance data with shock days, industrial telemetry with spikes, embedding spaces with bad clusters, and preprocessing before clustering or visualization. It is especially attractive when the expected signal is a low-dimensional direction shared by many observations, while contamination is large in magnitude and relatively sparse.`,
+        `It is also useful as a diagnostic. If ordinary PCA and angular robust PCA agree, the dominant subspace is probably not being driven by a few gross outliers. If they disagree sharply, the disagreement points to rows, features, or collection windows that deserve inspection. In production analytics, that diagnostic role can be as valuable as the final components because it tells the team where the data pipeline may be lying.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `The method can fail when outliers form their own dense angular group. If many corrupted observations share a direction, angular density may treat them as a real component. It can also fail when the inlier structure is not well described by a linear subspace, when magnitude is the signal of interest, or when the chosen center is badly contaminated. Robustness at the direction stage does not repair every upstream data problem.`,
+        `It can also fail through misuse. Running robust PCA on the full dataset before train-test splitting can leak information. Trimming based on the entire corpus can remove examples from the test distribution in a way that flatters evaluation. Using the method without inspecting removed rows can encode a business or scientific bias: the algorithm may be deleting inconvenient minority cases rather than measurement errors.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `Watch for unstable components across random seeds, trim fractions, or bootstrap samples. If a tiny change in trimming moves the first component dramatically, the data may not contain a stable low-dimensional structure. Watch for trimmed rows that share a real label, geography, demographic group, device type, or time period. That pattern suggests the method is removing a subpopulation, not random corruption.`,
+        `Also watch for preprocessing mistakes. Scaling features incorrectly can change directions. Centering with a contaminated mean can put every normalized point on the wrong sphere. Treating sparse high-dimensional data as dense Euclidean observations can create misleading angles. In embedding applications, two-dimensional projections can make a robust result look cleaner than it is. Always validate in the original feature space and in the downstream task.`,
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: A New Angular Robust Principal Component Analysis at https://arxiv.org/abs/2011.11013 and Angular Embedding: A Robust Quadratic Criterion at https://pubmed.ncbi.nlm.nih.gov/21576735/. Study PCA: Principal Component Analysis, SVD & Low-Rank Approximation, Eigenvalues & Eigenvectors, Embeddings & Similarity, Bootstrap Confidence Intervals, and Data Leakage & Contamination next.',
+        `Study PCA: Principal Component Analysis first, then SVD & Low-Rank Approximation and Eigenvalues & Eigenvectors for the linear algebra. Study Bootstrap Confidence Intervals to measure component stability, Anomaly Detection for outlier framing, t-SNE & UMAP: Seeing Embeddings for visualization cautions, and Data Leakage & Contamination for evaluation risks. Embeddings & Similarity is a useful companion because high-dimensional embeddings often need outlier audits before clustering or retrieval.`,
+        `Primary sources include A New Angular Robust Principal Component Analysis at https://arxiv.org/abs/2011.11013 and Angular Embedding: A Robust Quadratic Criterion at https://pubmed.ncbi.nlm.nih.gov/21576735/. When reading papers or implementations, look for the exact centering rule, normalization rule, trimming criterion, and validation setup. Those details decide whether the method is robust to corruption or merely another opaque preprocessing step.`,
       ],
     },
   ],

@@ -4,7 +4,6 @@
   "description": "Free, visual computer-science education: data structures, algorithms, and AI concepts explained step by step.",
   "type": "module",
   "scripts": {
-    "test": "node --test",
     "dev": "python -m http.server 8000"
   },
   "license": "MIT"

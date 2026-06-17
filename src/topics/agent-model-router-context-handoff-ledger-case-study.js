@@ -341,10 +341,18 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
         'An agent model router is the control plane that decides which model, specialist agent, deterministic workflow, or human reviewer owns the next step. It is not only a cost optimizer. In a serious product it also decides which context crosses the boundary, which tools are available, which permissions are attenuated, which evaluator runs afterward, and which trace proves the route was justified.',
         'This fills the gap between Agentic AI Patterns and Multi-Agent Orchestration Topologies. The generic agent loop explains planning, tools, memory, and evaluation. The router answers a narrower production question: when a workflow can use small models, deep models, code agents, research agents, domain specialists, or normal service code, how does the system switch without losing task state?',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The visual is not showing a chat feature with extra steps. It is showing a control plane. In the route-matrix view, the important movement is from one undifferentiated user request into a scored decision: task class, capability fit, policy constraint, context size, tool need, budget, and evaluator. A good router makes those inputs explicit before it gives work to a small model, a deeper model, a tool-using agent, a domain specialist, or a human reviewer.',
+        'In the context-handoff view, the key idea is that delegation is a state transition, not a summary paragraph. The receiving agent should get a capsule with task intent, current progress, evidence IDs, files or tool handles, remaining budget, permissions, unresolved questions, and the stop condition. The failure-audit view then asks whether the route was reversible and explainable. If the answer got worse, the ledger should show whether the problem was the wrong owner, missing context, stripped permissions, stale evidence, a weak evaluator, or an unsafe fallback.',
+        'This matters because routing errors are often misdiagnosed as model errors. A small model may look weak because it received no evidence. A large model may look wasteful because the router sent it routine work. A specialist may hallucinate because the handoff removed source IDs. The ledger turns those failures into inspectable causes so the team can repair the route, not just rewrite the prompt.',
       ],
     },
     {
@@ -376,6 +384,13 @@ export const article = {
       ],
     },
     {
+      heading: 'Why it works',
+      paragraphs: [
+        'A router works when it turns invisible judgment into a logged control-plane decision. The request features, capability scores, cost envelope, policy checks, tool requirements, selected owner, capsule fields, and evaluator result are all inspectable. That makes routing errors debuggable instead of mystical.',
+        'Typed handoffs work because they preserve just enough state for continuity while keeping provenance outside the summary. The receiver can follow trace links back to evidence, verify permissions, and continue from a known stop condition. That is what prevents a multi-agent workflow from becoming a chain of fresh starts.',
+      ],
+    },
+    {
       heading: 'Operations and reliability',
       paragraphs: [
         'LangGraph persistence separates thread-scoped checkpoints from longer-term stores, which is exactly the distinction a router needs: current run state must survive interruption, while reusable user facts and preferences live outside the graph state: https://docs.langchain.com/oss/python/langgraph/persistence. Temporal describes durable execution as maintaining workflow state and progress through failures using event history, letting work resume from the last recorded event: https://docs.temporal.io/temporal. Those ideas apply directly to long agent workflows because route decisions and handoffs are state transitions.',
@@ -383,7 +398,7 @@ export const article = {
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Limits, pitfalls, and study next',
       paragraphs: [
         'Do not let the router become hidden prompt magic. If route rules are not versioned, evaluated, and logged, the product will silently drift toward cheap-but-wrong answers or expensive-but-unnecessary escalation. Do not treat a handoff summary as evidence. Do not let a receiver inherit broad tool scope just because the sender had it. Do not optimize only for latency or cost if the expensive failures happen on a high-risk slice.',
         'Primary and official sources: Anthropic Building Effective Agents at https://www.anthropic.com/engineering/building-effective-agents, OpenAI Agents SDK overview at https://developers.openai.com/api/docs/guides/agents, OpenAI handoffs at https://openai.github.io/openai-agents-python/handoffs/, OpenAI tracing at https://openai.github.io/openai-agents-python/tracing/, LangGraph persistence at https://docs.langchain.com/oss/python/langgraph/persistence, and Temporal durable execution overview at https://docs.temporal.io/temporal. Study Agentic AI Patterns, Multi-Agent Orchestration Topologies, Agent2Agent Protocol Task State Case Study, Model Context Protocol Case Study, Agent Memory & Context Engineering Case Study, Deep Research Agent Architecture Case Study, LLM Unit Economics Ledger Case Study, Feature Flag Control Plane, Distributed Tracing, LLM Judge Calibration & Drift Monitor, AI Audit Evidence Packet Case Study, Prompt Injection Threat Model, Zanzibar Authorization Case Study, and Temporal Workflow Case Study next.',

@@ -226,44 +226,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A feature freshness SLO monitor tracks whether online feature values are recent enough for prediction. It stores per-feature update times, source watermarks, materialization lag, TTLs, owners, dependent models, and fallback policies.',
-        'The data structure is simple but important: a table of feature states plus a priority queue keyed by next freshness breach. The operational contract is that a model should never silently consume a value older than the feature definition allows.',
+        `Online models do not only depend on model weights. They depend on data arriving on time. A fraud model may need a card velocity feature from the last few minutes. An ETA model may need fresh road speed. A ranking model may need recent clicks. If those values are old, the model can still return a confident score, but the score is now answering yesterday's question.`,
+        `A feature freshness SLO monitor exists to make that hidden contract explicit. The contract is not "the feature job is running." It is "the value served to this model for this entity is fresh enough for this prediction." That distinction matters because online feature systems have several clocks: event time at the source, processing time in the stream, materialization time in the feature pipeline, publication time in the online store, and lookup time at serving.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The reasonable first attempt',
       paragraphs: [
-        'Each feature view reports successful materialization time, source watermark, row counts, error status, and online publication time. The monitor computes age and lag, compares them with the SLO, and updates a deadline heap. The heap top is the next feature likely to breach; alerts include owners and dependent models.',
-        'At serving time, lookups should return not just a value but a freshness decision: fresh, stale with fallback, missing with default, or blocked. The decision is logged so delayed-label analysis can later separate model weakness from data-pipeline failure.',
+        `The first reasonable attempt is job monitoring. If the stream processor is up, the scheduled materialization job is green, and the online store is responding, the system looks healthy. This is useful basic observability. A failed job should page someone, and a broken online store should be visible immediately.`,
+        `The second reasonable attempt is a simple age check. Store one last_update timestamp beside each feature and alert when now minus last_update exceeds a threshold. This is easy to explain, easy to graph, and good enough for a small feature set where every feature has the same cadence and the same business risk.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Where that breaks',
       paragraphs: [
-        'Freshness monitoring is cheap compared with model inference, but it requires accurate clocks, event-time semantics, source lag metrics, materialization status, and dependency metadata. The hardest part is policy: deciding when to serve stale values, when to fall back, and when to block predictions.',
-        'Watermarks, TTLs, SLOs, and freshness alerts should not be conflated. A watermark says how complete event time appears. A TTL says when a value is too old to serve. An SLO says when humans or automation should respond. A stale lookup log says what the model actually consumed.',
+        `Job status is too far away from the prediction. A pipeline can be green while its source is late, while one partition is missing, while the event-time watermark is stuck, or while the online store is still serving an old value because the final publication step failed. Green infrastructure does not prove fresh features.`,
+        `A single global threshold also collapses facts that should stay separate. A daily profile feature, a five-minute road-speed feature, and a thirty-second fraud counter do not deserve the same SLO. Watermark lag is not the same as materialization lag. A TTL is not the same as an alert threshold. A fallback decision at lookup time is not the same as the feature being healthy. Once those facts are mixed together, the monitor cannot tell whether to wait, page, degrade, block, or replay.`,
       ],
     },
     {
-      heading: 'Complete case study: ETA road-speed feature',
+      heading: 'The core insight',
       paragraphs: [
-        'An ETA model depends on route_speed_5m. During a traffic spike, the stream processor falls behind and the online store keeps serving a 25-minute-old speed. Predictions look confident but are wrong in the busiest region. Without freshness metadata, this looks like model drift.',
-        'With a freshness monitor, the deadline heap detects the SLO breach, the serving layer switches to a route-average fallback, and the alert names the lagging stream job plus every affected model. The incident is now a pipeline freshness problem, not a vague ML quality mystery.',
+        `The core insight is to treat freshness as serving state, not as a dashboard decoration. Each online feature needs a small record that says when the value was last produced, which source watermark it reflects, when it entered the online store, how old it is allowed to be, which models depend on it, who owns it, and what serving should do when it is stale.`,
+        `The useful data structure is a feature-state table plus a priority queue keyed by next breach time. The table holds the facts. The heap makes monitoring cheap. When a feature materializes successfully, the monitor updates its timestamps and pushes the next deadline forward. The heap top is the next feature expected to violate its contract, so the monitor does not have to scan every feature every second.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'Do not use one freshness threshold for every feature. Static profile features, one-minute fraud counts, and real-time location features have different risk. Do not alert only on global averages; slice by region, tenant, model, and feature source. Do not let stale fallback become invisible, because the fallback may be safer but lower quality.',
-        'Another mistake is relying on online-store write success alone. A write can succeed while the source is delayed, the watermark is stuck, or the transformation logic is wrong. Freshness must track the whole path from event source to model lookup.',
+        `At write time, the feature pipeline publishes both a value and metadata. The metadata should include at least the feature id, entity key, source event-time watermark, materialization timestamp, online publication timestamp, row count or coverage signal, version, and producer. The feature registry supplies the SLO, TTL, owner, dependent models, and fallback policy.`,
+        `At monitor time, the system computes the next breach deadline for each feature or feature slice. For example, if route_speed_5m was last published at 10:58 with a five-minute SLO, its alert deadline is 11:03 and its serve TTL may be 11:08. Those can be different because alerting should start before serving becomes unsafe. A min-heap or timer wheel keeps the nearest deadlines visible. When the heap top is in the past, the monitor verifies the current table entry, emits an alert, and marks affected serving paths as degraded if the policy requires it.`,
+        `At lookup time, serving checks freshness before handing a value to the model. The decision can be return fresh value, return fallback, return default, block, or ask for manual review. That decision is logged with feature id, model id, entity, age, fallback used, and reason. Those logs are not bookkeeping. They let later model evaluation separate "the model was weak" from "the model was fed stale inputs."`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Official sources: Feast feature store concepts at https://feast.dev/blog/what-is-a-feature-store/, Tecton materialization docs at https://docs.tecton.ai/docs/1.0/materializing-features, Tecton introduction at https://docs.tecton.ai/docs/introduction, and Uber Palette at https://www.uber.com/us/en/blog/palette-meta-store-journey/. Study Feature Store, Streaming Watermarks, Message Queues, Cache Invalidation, Distributed Tracing, and MLOps next.',
+        `The lag-heap view proves that freshness monitoring is a deadline system. Events, stream processing, materialization, online storage, model lookup, fallback, and alerting are not independent boxes. They form a control loop. The table shows that the monitor must store per-feature state, while the heap shows why the next breach can be found without repeatedly scanning the whole catalog.`,
+        `The stale-fallback view proves the second half: detecting staleness is not enough. A production system has to decide what the model consumes when the value is late or missing. A stale fraud count may require holding a transaction. A stale ETA speed may fall back to a route average. A low-risk profile field may serve the last good value. The visual ties freshness to the actual serving decision, which is where users feel the failure.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The monitor works because it preserves a simple invariant: a served feature value is never just a value. It is a value plus an age, source progress signal, policy, and serving decision. If any of those pieces is missing, the system is guessing.`,
+        `The priority queue is correct for deadline detection for the same reason a scheduler heap is correct: the earliest deadline is always at the top. If the top feature has not breached yet, no later-deadline feature has breached under the same clock. If the top has breached, the monitor checks whether a newer materialization already moved the deadline; if so, it updates the heap entry and continues. This lazy-update pattern keeps the monitor cheap while still handling frequent feature updates.`,
+        `The lookup log closes the loop. Once fresh, fallback, missing, default, and blocked decisions are recorded, offline replay can evaluate model behavior under the data the model actually saw. That is the correctness test for the whole design: can an incident reviewer reconstruct which stale feature affected which model predictions, which fallback ran, and when the feature recovered?`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `Freshness monitoring costs metadata, storage writes, alert design, and operational discipline. Per-entity freshness can become large, so systems often monitor both coarse feature-level deadlines and important slices such as region, tenant, merchant class, or route. The deeper the slicing, the better the detection and the higher the cardinality.`,
+        `Alerting has its own tax. If the SLO is too tight, normal late events become noise. If it is too loose, stale predictions reach users. If fallback is too aggressive, the model may degrade more often than necessary. If fallback is too relaxed, the model may consume values that should have been blocked. Freshness SLOs are product contracts, not only engineering thresholds.`,
+      ],
+    },
+    {
+      heading: 'Real use cases',
+      paragraphs: [
+        `Freshness monitoring matters most when features drive immediate decisions: fraud scoring, ETA, dispatch, risk limits, pricing, ads, recommendations, search ranking, support routing, and abuse detection. In each case, one stale feature can affect many predictions because the online store fans out into multiple serving paths.`,
+        `The ETA example is typical. During a traffic spike, a route speed stream falls behind. Without a freshness monitor, the ETA model continues serving old speeds with clean infrastructure dashboards. With freshness state, the deadline breach is detected, serving switches to a route-average fallback, and the alert names the source stream, affected feature, dependent model, region, and owner.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The common failure is averaging away the incident. A global freshness chart can look healthy while one city, tenant, feature slice, or source partition is stale enough to break the product. Slice the SLO around the way predictions are made, not around the way dashboards look neat.`,
+        `Clock mistakes are another source of false confidence. Event time, processing time, publication time, and lookup time must be named separately. Late events can move a watermark differently from a materialization timestamp. Retries can update publication time without improving source completeness. Backfills can create fresh writes for old event time. If the monitor does not distinguish those cases, it will page for the wrong reason.`,
+        `A final failure is invisible fallback. Fallback can be the right safety move, but it still changes product behavior. If the system does not log fallback use, a team may blame model quality for a data incident or miss that one high-value slice has been running degraded for days.`,
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        `Study feature stores to understand offline-online consistency, streaming watermarks to understand event-time progress, message queues to understand source lag and delivery semantics, cache invalidation to understand stale reads, distributed tracing to connect data incidents to serving paths, and MLOps monitoring to connect feature health to model quality. Useful public references include Feast feature store concepts at https://feast.dev/blog/what-is-a-feature-store/, Tecton materialization documentation at https://docs.tecton.ai/docs/1.0/materializing-features, and Uber Palette at https://www.uber.com/us/en/blog/palette-meta-store-journey/.`,
       ],
     },
   ],

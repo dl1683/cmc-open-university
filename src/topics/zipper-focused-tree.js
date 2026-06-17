@@ -253,6 +253,7 @@ export const article = {
       heading: 'What it is',
       paragraphs: [
         'A zipper is a way to represent a recursive data structure together with a current focus. Instead of storing parent pointers inside every node, the zipper stores the focused subtree plus a stack of breadcrumbs. Each breadcrumb records the parent shape and the siblings that were not followed. Together, focus and breadcrumbs contain enough information to rebuild the whole structure.',
+        'The obvious way to edit a tree at a cursor is to keep parent pointers or to start again from the root after each move. Parent pointers complicate immutable data and sharing; root searches repeat path work. A zipper exists because the path to the focus is exactly the information needed for the next local move and for rebuilding the tree after an edit.',
         'Gerard Huet introduced the zipper as a functional programming pearl for navigating and updating trees. The idea generalizes to lists, trees, syntax trees, filesystems, editor outlines, and other recursive structures. It is especially useful when data is immutable but the program still needs cursor-like movement and local edits.',
       ],
     },
@@ -261,12 +262,21 @@ export const article = {
       paragraphs: [
         'To move down into a child, push a breadcrumb describing the parent and the other children. To move sideways, rotate the focus through sibling lists in the current breadcrumb. To move up, pop one breadcrumb and rebuild the parent by placing the focus back into the remembered hole. To edit, replace the focus locally, then zip up when a full root is needed.',
         'The key invariant is reconstruction. A zipper is not merely a pointer; it is a context with a hole. The focused subtree fills that hole. If the focus is changed, replaying the breadcrumbs creates a new whole tree that shares unchanged siblings with the old tree. That makes the zipper a cursor-shaped cousin of Persistent Segment Tree path copying and RRB Tree structural sharing.',
+        'Correctness is structural: every move preserves the equation whole tree = context with focus plugged into its hole. Moving down takes one child out of the whole and records the missing parent context. Moving up plugs the focus back into that context. Editing changes the focus, not the promise that the context can rebuild a whole tree.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Read the highlighted focus as the current subtree and the breadcrumb stack as everything needed to rebuild the path back to the root. When the focus moves down, the parent is not lost; it is turned into a context with a hole.',
+        'The practical lesson is local editing on immutable data. The animation is showing why an editor, proof assistant, or AST tool can change one focused region while sharing untouched siblings. The zipper is useful when movement is local and the current focus matters more than global random access.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
         'Local movement is often O(1): down pushes one crumb, up pops one crumb, and left/right moves within stored sibling lists. Rebuilding the root is O(depth) because every breadcrumb on the path must be replayed. A local edit allocates the new focus plus the rebuilt path, while untouched subtrees can be shared. The memory overhead is the breadcrumb stack for the current focus.',
+        'The behavior is excellent for a single active cursor and poor for random global indexing. If every operation jumps to an arbitrary node by ID, the zipper needs another index to find that path. If the user moves locally through the structure, the breadcrumb stack turns recent navigation into constant-time context.',
       ],
     },
     {
@@ -281,6 +291,28 @@ export const article = {
       paragraphs: [
         'A zipper is not the same as a mutable parent pointer. Parent pointers live inside the structure and can create cycles or aliasing concerns. Breadcrumbs live outside the focused subtree and are usually consumed or copied as navigation state. This distinction matters in immutable programs and undoable editors.',
         'Zippers are also not ideal for many simultaneous cursors. One zipper represents one focus. If thousands of cursors must move independently, an indexed tree, rope, piece table, interval tree, Finger Tree Measured Sequence, or CRDT metadata may fit better. Use the zipper when focused local navigation is the main operation, not as a universal replacement for indexes.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'The main limit is focus locality. A zipper is excellent when the next operation is near the current focus. It is not a search index. If the application repeatedly jumps to arbitrary nodes by ID, the zipper either needs a separate map from IDs to paths or it will spend time rediscovering paths from the root.',
+        'Another failure mode is stale context. If the underlying tree is edited elsewhere while a zipper still holds old breadcrumbs, zipping up may rebuild against an outdated structure. Pure immutable designs avoid this by treating the zipper as a versioned view of one root; collaborative or concurrent editors need explicit merge rules.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Take the expression tree `(x * 2) + call(f, y)`. Focus on `x`. The top breadcrumb remembers that `x` was the left child of `*` and that `2` was the right child. The next breadcrumb remembers that the `*` subtree was the left child of `+` and that `call(f, y)` was the right child.',
+        'If the editor replaces `x` with `price`, no whole-tree copy is needed immediately. When the editor zips up, it rebuilds `price * 2`, then rebuilds `(price * 2) + call(f, y)`. The old `2` and `call(f, y)` subtrees are shared. That is the practical value: local edits produce a new immutable root with copying proportional to depth, not total tree size.',
+      ],
+    },
+    {
+      heading: 'When to choose it',
+      paragraphs: [
+        'Choose a zipper when the user or algorithm has a current location and mostly moves to nearby structure: next sibling, parent, child, previous field, selected expression, current proof term, current directory. The zipper makes that focus first-class without mutating the tree.',
+        'Choose something else when the dominant operation is global lookup, range query, many concurrent cursors, or text editing by byte offset. In those cases the zipper may still help inside one local edit, but it should be paired with an index, rope, piece table, finger tree, or CRDT rather than carrying the whole workload alone.',
+        'The rule of thumb is simple: if the next edit starts where the previous edit ended, a zipper is probably natural. If every edit starts from a search box, build an index first.',
       ],
     },
     {

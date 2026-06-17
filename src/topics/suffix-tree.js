@@ -199,24 +199,94 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'A suffix tree is a compressed trie containing every suffix of a text. Each root-to-leaf path spells one suffix, and every substring of the text appears as a prefix of some path. Compression is the key: instead of storing one node per character on long chains, an edge stores a whole substring interval from the original text.',
-      'The structure is one of the most powerful string indexes because it turns many substring questions into tree questions. Pattern search is a path walk. Longest repeated substring is the deepest internal node with multiple leaves. Shared prefixes become explicit topology instead of repeated comparisons.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'The naive mental model is insert every suffix into a trie, then compress every single-child path. That explains the query behavior. Ukkonen construction explains how to build it online in linear time: keep an active point, track how many suffixes remain in the current phase, split edges only when a new branch is forced, and follow suffix links from one repeated context to the next.',
-      'Suffix links are the practical bridge between suffixes. If an internal node represents xA, its suffix link points to A. After finishing work for one suffix, the algorithm drops the first character and resumes at the linked context rather than starting over from the root.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'A suffix tree can be built in O(n) time with a linear-time algorithm and uses O(n) nodes, but the hidden constants and pointer overhead are real. Each edge label is usually stored as a pair of indices into the original text, not as a copied string. Without that trick, construction can accidentally become memory-heavy and slow.',
-      'The most common implementation mistakes are forgetting the sentinel, copying edge substrings, mishandling active length after a split, and treating suffix links as optional decoration. They are not decorative in efficient construction; they are the mechanism that keeps repeated scans from dominating.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'Consider a genome-analysis task: find long repeats in a static DNA sequence. Build a suffix tree once. Then inspect internal nodes. A node with many descendant leaves marks a substring that occurs many times, and the string-depth of that node gives the repeat length. Leaves provide positions, so the same structure answers both "what repeated?" and "where did it repeat?"',
-      'This is why suffix trees are a conceptual hub for string algorithms. Even when a production system chooses Suffix Array, FM-Index, or Suffix Automaton for memory reasons, suffix-tree thinking explains what the compressed index is trying to preserve.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: Esko Ukkonen, "On-line construction of suffix trees", https://www.cs.helsinki.fi/u/ukkonen/SuffixT1withFigs.pdf, and the VLDB paper "Practical Suffix Tree Construction", https://www.vldb.org/conf/2004/RS1P3.PDF. Study Suffix Array, FM-Index, Trie, KMP Prefix Function, and Suffix Automaton next.',
-    ] },
+    {
+      heading: 'The problem',
+      paragraphs: [
+        'String problems often ask the same question in different forms: where does this pattern occur, what is the longest repeated substring, where do two texts share a substring, or how can many substring queries be answered after one preprocessing pass. Re-scanning the text for every question wastes the repeated structure inside the string.',
+        'A good substring index should make all suffixes visible without copying the whole text many times. It should also preserve enough topology to answer richer questions than simple membership.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and its wall',
+      paragraphs: [
+        'The obvious index is a trie containing every suffix. Insert `banana$`, `anana$`, `nana$`, `ana$`, `na$`, `a$`, and `$`. Then a substring query walks from the root. If the walk succeeds, the substring appears.',
+        'The wall is size. A plain suffix trie can be quadratic because long one-child paths duplicate text. The query idea is right, but the representation is too large unless those paths are compressed and edge labels refer back to the original text.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Every substring is a prefix of some suffix. If all suffixes are indexed, substring search becomes path search. A suffix tree keeps that property while compressing every one-child path into one edge label.',
+        'The tree is not just a membership index. Its branching structure exposes repeated substrings. A deep internal node with several descendant leaves represents a long substring that occurs at several positions.',
+        'That topology is the reason suffix trees are worth learning even when another structure ships. They make substring problems visible as path and branch questions, which is the mental model behind suffix arrays, LCP arrays, suffix automata, and compressed text indexes.',
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        'The conceptual build is insert every suffix into a trie, append a sentinel such as `$` so every suffix ends at a distinct leaf, and compress non-branching paths. Real implementations store edge labels as `[start, end]` intervals into the original text rather than copied strings.',
+        'Ukkonen construction builds the same structure online in linear time. It maintains an active node, active edge, active length, and remainder. When a new character arrives, the algorithm extends the pending suffixes, splits an edge only when a new branch is forced, updates implicit leaf ends cheaply, and follows suffix links to avoid rescanning known contexts.',
+        'The sentinel is not cosmetic. Without a unique terminal symbol, one suffix can be a prefix of another and disappear as an implicit endpoint inside an edge. The sentinel forces every suffix to end at its own leaf, which makes occurrence reporting and repeat logic unambiguous.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'For `banana$`, the suffixes beginning with `a` share the path for `a`, then branch through `na`. Searching for `ana` starts at root, follows `a`, then consumes `na` across the next edge. The leaves below that point correspond to occurrences beginning at positions 1 and 3.',
+        'The same topology finds repeats. The path spelling `ana` reaches an internal branching point with multiple leaves below it, so `ana` is a repeated substring. The deeper the internal node, the longer the repeated string represented by that node.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Indexing all suffixes is enough because any substring of the text begins at some position, and the suffix starting at that position has the substring as its prefix. A root-to-leaf suffix path therefore contains every substring that starts at that suffix position.',
+        'Compression preserves query behavior because it removes only nodes that have no branching decision. A search still compares the same characters in the same order, but long deterministic runs are stored as edge intervals. Suffix links preserve construction work because the next suffix context after `xA` is `A`.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'A suffix tree has O(n) nodes and can be built in O(n) time with Ukkonen construction, but the constants are large. Pointer-heavy nodes, maps of outgoing edges, suffix links, and edge interval bookkeeping make it much less compact than the asymptotic bound suggests.',
+        'The implementation is also easy to get subtly wrong. Common failures include omitting the sentinel, copying edge strings instead of storing intervals, mishandling active length after a split, and treating suffix links as optional. Suffix links are the reason efficient construction avoids repeated root scans.',
+        'Memory layout matters more than the big-O line suggests. A suffix tree for a large genome or document collection can spend most of its time chasing pointers through cache-unfriendly nodes. A suffix array plus LCP array may answer the production query with less direct topology but far better locality.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'Suffix trees are often not the production structure for large static text collections. Suffix arrays, LCP arrays, FM-indexes, and compressed indexes usually have better memory locality and lower space use while preserving enough search power for many workloads.',
+        'They are also awkward for frequent text edits. The classic structure is built for a fixed or append-only text. If the underlying string changes in the middle, maintaining the full topology is usually more trouble than rebuilding or choosing a different index.',
+      ],
+    },
+    {
+      heading: 'Practical use',
+      paragraphs: [
+        'Use suffix-tree thinking when the workload asks for string topology: longest repeated substring, longest common substring, occurrence positions, repeated motifs, and explaining why suffix arrays or compressed text indexes work. The tree gives the clearest mental picture even when another representation ships.',
+        'A genome repeat task is the clean case study. Build the tree once for a static DNA sequence. Internal nodes with multiple descendant leaves mark repeated substrings; the string depth gives repeat length; leaf labels give positions.',
+        'The same pattern appears in plagiarism checks, log-template discovery, malware signature analysis, and text indexing. The exact data structure may differ, but the question is often the same: after paying one preprocessing cost, how quickly can the system answer many substring questions?',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Store edge labels as source-text intervals, not copied substrings. Keep leaf suffix indices so successful searches can report positions. Use a terminal symbol that cannot occur in the input alphabet. If multiple texts are indexed together, give each text its own terminal marker so suffixes do not cross document boundaries.',
+        'For Ukkonen-style construction, test tiny strings with repeated prefixes such as `aaaa$`, branching strings such as `banana$`, and strings with no repeated structure. Those cases expose active-length errors, missing edge splits, and bad suffix-link updates quickly.',
+        'Separate the educational model from the production layout. The tree is easiest to understand as labeled edges and branch nodes, but production code usually wants compact child maps, integer node ids, shared edge-end objects for leaves, and cache-aware arrays where possible.',
+        'When searches need counts only, store subtree leaf counts at internal nodes. When searches need positions, keep suffix indices at leaves or a compact range over a suffix-array order built from the same topology.',
+      ],
+    },
+    {
+      heading: 'Reading the visualization',
+      paragraphs: [
+        'In the compressed trie view, start with the suffix table and watch which suffixes share first branches. The graph then compresses those shared character runs into labeled edges. When the view searches for `ana`, the important signal is that success ends inside the suffix topology, and all leaves below that point are occurrences.',
+        'In the Ukkonen phases view, focus on the active point and suffix link frames. Active node, active edge, active length, and remainder explain where construction resumes. The suffix link from a longer context to its shorter suffix context is the move that prevents the algorithm from restarting at the root after every extension.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Sources: Esko Ukkonen, "On-line construction of suffix trees", https://www.cs.helsinki.fi/u/ukkonen/SuffixT1withFigs.pdf, and the VLDB paper "Practical Suffix Tree Construction", https://www.vldb.org/conf/2004/RS1P3.PDF. Study Suffix Array, LCP Array, FM-Index, Trie, KMP Prefix Function, and Suffix Automaton next.',
+      ],
+    },
   ],
 };

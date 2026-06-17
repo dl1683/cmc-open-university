@@ -224,24 +224,92 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'An archetype ECS stores entities by exact component set. Entities with Position and Velocity live in one group. Entities with Position, Velocity, and Health live in another. Each group stores component data in packed columns, usually inside fixed-size chunks.',
-      'This is a data-structure choice, not just an architecture label. It turns repeated systems into columnar scans over dense arrays, similar in spirit to analytical column stores, but tuned for mutable simulation worlds.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'The world keeps an entity-location index that maps each entity id to an archetype, chunk, and row. A query for Position and Velocity finds matching archetypes, then iterates chunks and reads the Position and Velocity columns in row order.',
-      'When a component is added or removed, the entity changes archetype. The ECS copies retained component columns to the target archetype, initializes or drops the changed component, fills the source row gap, and repairs entity locations.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'The fast path is scanning stable component sets. Query iteration can be cache-friendly, branch-light, SIMD-friendly, and easy to split across jobs by chunk. The expensive path is structural change: add/remove component, spawn, despawn, or any operation that moves rows between archetypes.',
-      'Archetype explosion is another cost. If a program creates many rare component combinations, metadata and empty archetypes can accumulate. Real engines cache queries and expect archetype sets to stabilize after startup or level load.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'A character simulation has thousands of entities with Transform, Velocity, and Collider. The movement system scans exactly those chunks and updates positions. Rendering scans Transform plus Mesh. The engine batches commands that add Stunned, Invisible, or NetworkOwned components so those structural moves happen outside the tight simulation loop.',
-      'Unity DOTS stores archetype chunks as packed arrays per component type. Bevy documents archetypes as unique component combinations and distinguishes archetypes from tables and sparse-set components. The shared lesson is the same: choose archetype tables for stable, repeated scans and sparse sets for high-churn optional components.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: Unity Entities archetype concepts, https://docs.unity3d.com/Packages/com.unity.entities%401.0/manual/concepts-archetypes.html; Bevy archetype module docs, https://docs.rs/bevy/latest/bevy/ecs/archetype/index.html; Bevy ComponentSparseSet docs, https://docs.rs/bevy/latest/bevy/ecs/storage/struct.ComponentSparseSet.html. Study Sparse Set Entity Index, Generational Arena Slot Map, Apache Arrow Columnar Memory, Dynamic AABB Tree Broad Phase, and Data Structure Design Patterns Primer next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Game engines and simulation systems spend much of their time doing the same operation to many similar things. A movement system updates positions from velocities. A visibility system reads transforms and bounds. A physics system reads colliders, masses, and transforms. The work is simple, but the data volume is large enough that memory layout can decide whether a frame fits its budget.',
+        'The object-oriented version looks natural at first. Each entity is an object, and each object owns fields or pointers to components. That design is easy to explain, but it scatters hot data across the heap. A loop over moving entities may touch object headers, unrelated fields, missing components, and pointers before it reaches the two arrays it really needs: Position and Velocity.',
+        'An archetype ECS exists to make the hot loop look like a data scan instead of a pile of object questions. It groups entities by exact component set, then stores each component type as a dense column inside chunks. Once a system has found chunks containing Position and Velocity, it can stream those columns in row order and ignore every entity with the wrong shape.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and its wall',
+      paragraphs: [
+        'A reasonable first ECS design stores one collection per component type. Position has a dense set, Velocity has a dense set, Health has a dense set, and each set maps entity ids to component values. That sparse-set style is good for adding and removing individual components because a component can appear or disappear without moving the rest of the entity. It also makes single-component access direct.',
+        'The wall appears in multi-component systems. A movement system needs the intersection of entities that have Position and Velocity. A renderer may need Transform, Mesh, Material, and Visibility. If every component owns its own sparse set, the system must join sets, probe membership, and chase component locations before it can do useful work. The loop spends time proving that rows line up instead of streaming aligned data.',
+        'An object layout has the opposite wall. It keeps an entity conceptually together, but systems rarely want all fields of one entity at once. They want one or two fields from many entities. The CPU cache pays for nearby bytes whether the system uses them or not. Archetype storage is the layout that says the hot access pattern is the system scan, not the single object.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is that component composition can be encoded by storage location. An entity with Position and Velocity belongs in the Position+Velocity archetype. An entity with Position, Velocity, and Health belongs in a different archetype. The archetype is not a tag stored beside the row; it is the table shape that owns the row.',
+        'Inside an archetype, data is stored in chunks. A chunk contains one dense array per component type plus entity ids and metadata. Row 12 of the Position column, row 12 of the Velocity column, and row 12 of the Entity column describe the same entity. That row alignment is the invariant that turns a query into a linear scan.',
+        'This is why archetype ECS feels like a column store. Analytical databases group values by column so scans touch only the fields a query needs. Archetype ECS uses the same memory instinct, but the rows are live simulation entities that can move between tables when their component set changes.',
+      ],
+    },
+    {
+      heading: 'Storage flow',
+      paragraphs: [
+        'The storage hierarchy is world, archetype, chunk, column, row. The world owns an entity-location index that maps each entity id to its current archetype, chunk, and row. Each archetype owns chunks for one exact component signature. Each chunk owns fixed-capacity arrays for the components in that signature.',
+        'A query for Position and Velocity first finds archetypes whose signatures contain both component types. It does this using cached archetype metadata, not by asking every entity. Then it iterates the matching chunks. Inside each chunk, Position and Velocity are read by row index. If the system writes Position, it writes the Position column in the same row order.',
+        'The structural-change path is the price of this layout. Adding Health to an entity is not a field assignment inside its old row. The entity no longer belongs in Position+Velocity, so the ECS allocates a row in Position+Velocity+Health, copies retained component bytes, initializes Health, removes the old row, and updates the entity-location index. Removing a component performs the same move in the other direction.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Chunk layout is usually fixed-size storage chosen to fit cache, allocator, and scheduling constraints. A chunk may store occupancy, change versions, enabled masks, shared component values, and links into a scheduler. The important property is that a chunk is a natural unit of work. A job can process one chunk or a range of chunks without inventing a partition for every system.',
+        'Query caching matters because archetypes are metadata objects, not individual entities. Once a query knows which archetypes match Position and Velocity, it can reuse that list until a new archetype appears or an old one stops matching. Runtime work shifts from repeated per-entity tests to occasional query-cache invalidation.',
+        'Removal keeps chunks dense with swap-with-last. If row 7 is removed, the last occupied row can move into row 7, and the moved entity location is repaired. That makes iteration compact, but it means storage order is not stable by default. Any system that needs presentation order, deterministic order, or parent-before-child order needs a separate ordering rule.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Correctness comes from the row-alignment invariant. In one chunk, every component column has the same occupied row set. If a query scans row i of a matching chunk, the Position at row i and Velocity at row i belong to the same entity. The system does not need a join because the storage layout has already performed the join.',
+        'The entity-location index preserves identity while the storage moves. Game code can keep an entity handle even though the entity changes rows during structural changes. After every move, the index must point to the new archetype, chunk, and row. If swap-with-last moved another entity into the old hole, that moved entity must also be repaired.',
+        'The signature invariant explains why queries can skip work. If an archetype signature does not include Velocity, no row in any of its chunks can satisfy a Position+Velocity query. One metadata check eliminates every row in that archetype. If the signature does include both components, every occupied row has them, so the scan can run without per-row component checks.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The fast path is stable iteration. Query setup pays for matching archetypes. The scan then costs proportional to the number of rows in matching chunks, with tight memory access over the columns the system asked for. When the number of entities doubles inside the same few archetypes, scan work roughly doubles, but branch cost and lookup overhead stay low.',
+        'Memory cost is the sum of component columns, entity ids, chunk metadata, query caches, and the entity-location index. Sparse optional components can waste space if they force many small archetypes or mostly empty chunks. Archetype explosion happens when the world creates many rare component combinations, each with its own metadata and query-cache interactions.',
+        'The expensive path is structural change. Add component, remove component, spawn, despawn, and some prefab operations move bytes between archetypes and update indexes. If a system toggles tags every frame on thousands of entities, it can spend more time reshaping storage than running simulation. Engines often stage these changes in command buffers so hot systems get stable chunk scans and structural moves happen at known boundaries.',
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        'Consider a character simulation. Most active characters have Transform, Velocity, Collider, AnimationState, and Health. The movement system reads Transform and Velocity, so it scans every chunk whose archetype contains both. The animation system reads Transform and AnimationState. The health system scans Health. Each system gets a compact view of the columns it needs.',
+        'Temporary state is where the design choice becomes visible. A Stunned component could be a real component if many systems query it and entities keep it for meaningful spans. If it appears for one frame and disappears immediately, moving rows between archetypes may be too expensive. A command buffer, sparse marker, timer wheel, or bitset can be a better fit.',
+        'Projectile entities show the happy path. A projectile is born with Position, Velocity, Collider, and Lifetime. It keeps that shape until it despawns. Every frame, movement and collision systems stream the same chunks. The component set is stable, so archetype storage pays a small setup cost and gets many dense scans in return.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Archetype storage wins when systems repeatedly scan stable component sets. Movement, animation sampling, particle updates, broadphase preparation, visibility classification, audio emitter updates, and many AI perception passes have this shape. The system asks for a few columns across many entities, and most entities keep the same component set for many frames.',
+        'It also helps scheduling. Chunks give the engine a natural unit for parallel jobs and conflict analysis. If one job writes Position and another reads Health, their component access declarations can be checked before execution. Chunk boundaries make it easier to split work while keeping cache-local loops.',
+        'It is a good default for data that is hot, uniform, and scanned often. The more a field participates in wide systems, the more it benefits from being packed with rows that share the same query shape.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Archetype storage is weaker for high-churn optional state. If a component is constantly added and removed, the storage moves can dominate. Sparse-set storage, side tables, flags, event queues, or command buffers may be better because they make existence changes cheap even if iteration is less perfectly aligned.',
+        'It is also not a replacement for relationship data structures. Parent-child transforms, scene graphs, navigation links, skeletal hierarchies, and dependency graphs may still need trees, adjacency lists, dirty queues, or topological order. ECS storage can store the components that reference those structures, but it does not make graph traversal disappear.',
+        'The layout can mislead teams into over-componentizing. If every tiny state becomes its own component, the number of archetypes grows and queries become harder to reason about. Good ECS design keeps hot scan data in archetype tables and moves rare, relational, or high-churn state into structures that match those access patterns.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary references: Unity Entities archetype concepts, https://docs.unity3d.com/Packages/com.unity.entities%401.0/manual/concepts-archetypes.html; Bevy archetype module docs, https://docs.rs/bevy/latest/bevy/ecs/archetype/index.html; Bevy ComponentSparseSet docs, https://docs.rs/bevy/latest/bevy/ecs/storage/struct.ComponentSparseSet.html.',
+        'Study Sparse Set Entity Index to understand the contrasting component-store design. Study Generational Arena Slot Map for stable entity handles. Study Apache Arrow Columnar Memory for the columnar layout instinct. Study Dynamic AABB Tree Broad Phase for a case where the engine needs a separate spatial structure. Study Dirty Rectangle Damage Tracking and Data Structure Design Patterns Primer for the broader lesson: choose the structure that matches the dominant access pattern, then name the tax it creates.',
+      ],
+    },
   ],
 };

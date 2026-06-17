@@ -69,7 +69,7 @@ function* permitsAndWaiters() {
   yield {
     state: permitGraph('Acquire consumes permits while the count is positive', { permits: '0 free', queue: 'empty', c: 'arrives', post: 'idle' }),
     highlight: { active: ['a', 'b', 'counter', 'e-counter-a', 'e-counter-b'], compare: ['c'] },
-    explanation: 'Workers A and B each decrement the counter and enter the bounded region. With two permits consumed, the third acquire cannot simply decrement to negative one.',
+    explanation: 'Workers A and B each decrement the counter and enter the bounded region. With two permits consumed, the third acquire cannot decrement into negative capacity.',
   };
 
   yield {
@@ -206,42 +206,109 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A semaphore is a permit counter with a waiting rule. Acquiring a permit decrements the counter when it is positive. Releasing a permit increments it or wakes a waiter. The counter is never allowed to become negative.',
-        'Semaphores are useful because many resources are not exclusive. A lock says one thread may enter. A semaphore says up to N operations may enter: database connections, open files, in-flight API calls, download slots, GPU jobs, or worker tasks.',
+        'Many shared resources are limited without being exclusive. A database pool might allow 40 checked-out connections. A downloader might allow 6 active transfers. A service might allow 20 concurrent calls to a fragile dependency. A mutex is too strict because it admits only one holder, while an unbounded queue admits overload and hides the damage.',
+        'A semaphore exists to represent bounded capacity directly. It answers one question at the edge of a critical region: is there a permit available now, or must this caller wait, time out, reject, cancel, or fall back?',
+        'The important idea is that capacity is data. If the limit lives only in comments, dashboards, or downstream timeouts, callers will discover overload after they have already consumed threads, memory, sockets, and user patience. A semaphore moves the limit to the admission point.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The fast path checks the count. If count is positive, acquire decrements and proceeds. If count is zero, the caller joins a wait queue, optionally with timeout or cancellation. Release wakes one waiter or restores a visible permit.',
-        'Implementations differ on fairness. A strict FIFO semaphore reduces starvation but can waste capacity when the front waiter needs a large weighted permit. A looser semaphore may improve throughput but can surprise callers who expect arrival order.',
+        'The first reasonable approach is a mutex. Wrap the resource in a lock so only one caller can enter at a time. That is correct for exclusive state such as a single in-memory map or a file region that cannot be updated concurrently.',
+        'The wall is underuse. Many resources are not exclusive. A connection pool, worker pool, GPU queue, rate-limited API, or download manager may support several concurrent users safely. A mutex protects the resource by throwing away parallelism.',
+        'The next reasonable approach is to let every caller start and rely on the downstream system to push back. That maximizes short-term throughput in happy paths, but it fails during slowdowns. When service time rises, in-flight work rises too. Without an admission counter, overload turns into hidden queues, timeouts, memory growth, and cascading failure.',
       ],
     },
     {
-      heading: 'Case study: dependency bulkhead',
+      heading: 'The core model',
       paragraphs: [
-        'An API service calling payments, search, and recommendations should not use one shared in-flight counter. Give each dependency its own semaphore. When recommendations slows, its semaphore fills and rejects or queues locally; payments and search still have their own permits.',
-        'Sizing follows Little Law: in-flight work is arrival rate times hold time. The incident case is governed by tail latency, not the average. A downstream that holds calls for 2 seconds can require an order of magnitude more permits than it did when healthy.',
+        'A semaphore is a nonnegative integer plus a waiting discipline. POSIX describes a semaphore value as an integer that is never allowed to fall below zero; wait decrements when possible, and post increments and may wake a blocked waiter. Higher-level runtimes keep the same shape even when the waiters are promises, tasks, fibers, or coroutines instead of OS threads.',
+        'The central invariant is conservation: permits in use + visible permits + permits reserved for woken waiters = capacity. If that equation is broken, the system either over-admits work or loses capacity forever.',
+        'The queue policy is part of the data structure. A FIFO semaphore, priority semaphore, unfair semaphore, async semaphore, and weighted semaphore can all share the same permit counter while making different promises about who gets the next permit. The integer alone does not define fairness, cancellation, ownership, or overload behavior.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Acquire and release',
       paragraphs: [
-        'Acquire and release are O(1) in the uncontended case. Contention adds a wait-queue operation, a wakeup, and sometimes a kernel transition. The hard parts are fairness, cancellation cleanup, timeout races, weighted acquisition, and avoiding unbounded queues behind the semaphore.',
+        'Acquire has a fast path and a slow path. On the fast path, an atomic update observes a positive count and decrements it. The caller enters immediately. On the slow path, the count is zero or too small, so the caller joins a wait queue, waits with a timeout, returns a would-block error, or follows an overload policy.',
+        'Release is the mirror operation. If no waiter can use the returned permit, the visible count increases. If a waiter exists, many implementations perform a direct handoff: the releasing thread wakes one waiter and reserves the permit for it, so a racing newcomer cannot steal capacity between the wakeup and the resumed acquire.',
+        'Weighted semaphores add one more check. A caller may ask for 5 permits instead of 1 because a job uses more memory, tokens, bandwidth, or downstream slots. Weighted acquisition is useful, but it creates fairness problems. A large request at the head of a FIFO queue can block smaller requests behind it even when enough partial capacity is available for them.',
+        'Async semaphores replace sleeping threads with suspended tasks. That saves OS threads, but it does not remove the need for cleanup. A canceled task must leave the wait queue and must not keep a reserved permit. A timed-out acquire must have a clear result: either it obtained a permit and owns release responsibility, or it did not.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'A semaphore is not automatically a mutex, and a binary semaphore is still not the same abstraction as ownership-tracking mutual exclusion. A semaphore also does not decide the right overload policy. If exhausted callers wait forever, the semaphore has merely moved the outage into a queue.',
+        'The capacity bound holds because every entrant must pass through acquire before entering the protected region. The wait queue records demand without turning the counter negative. Release returns exactly the capacity that a completed holder used.',
+        'The linearization points are the atomic decrement, the enqueue-or-fail decision at zero, and the release handoff or increment. Correct implementations make those transitions indivisible enough that no permit can be counted twice and no waiter can sleep through the wakeup intended for it.',
+        'The conservation invariant also explains permit leaks. If a path acquires a permit and exits without release, the capacity equation still balances locally, but one permit is stuck in the in-use term forever. Over time the visible capacity shrinks until the system looks overloaded even when no real work is happening.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The permits-and-waiters view shows the counter as the admission gate. A and B take the two permits and enter the resource. C arrives when the counter is zero, so C cannot make the counter negative. The only safe choices are wait, timeout, reject, cancel, or use a fallback.',
+        'The release frame is the key state transition. A posts a permit, but the public count can remain zero because the permit is immediately reserved for C. That direct handoff prevents a newcomer from racing ahead of an already queued waiter.',
+        'The bulkhead view shows why one semaphore per dependency is different from one global limit. A slow recommendations service can exhaust its 20 permits and reject locally while payments and search keep their independent pools. The data structure becomes a failure boundary.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The uncontended path is O(1): an atomic read-modify-write and a branch. The contended path adds queue manipulation, scheduling, and sometimes a kernel transition through a futex or equivalent parking primitive. Async semaphores queue tasks or promises instead of OS threads, but the same logical states remain.',
+        'The hidden cost is contention. A single hot semaphore can become a cache-line fight among cores. Waking too many waiters creates thundering herd behavior. Waking too few can underuse capacity. Good implementations choose wakeup discipline carefully and keep the fast path small.',
+        'Fairness is not guaranteed by the integer. FIFO queues reduce starvation but can create head-of-line blocking, especially for weighted permits. Looser queues can improve throughput but may surprise callers that expect arrival order. Priority queues can protect urgent work but can starve low-priority callers if aging or quotas are missing.',
+      ],
+    },
+    {
+      heading: 'Sizing and bulkheads',
+      paragraphs: [
+        'Sizing starts from the resource, not from the caller count. For a database pool, the limit may come from server connection capacity. For an API dependency, it may come from latency budgets and downstream quotas. For a CPU-heavy worker pool, it may come from cores and memory. For a GPU or LLM gateway, it may come from tokens, memory, or batch slots.',
+        'Little Law gives a useful first estimate: expected in-flight work equals arrival rate times hold time. If a dependency receives 50 requests per second and each request holds a permit for 120 milliseconds, the steady-state demand is about 6 permits. If an incident raises hold time to 2 seconds, the same arrival rate demands about 100 in-flight calls. A 20-permit semaphore caps the damage before it consumes the rest of the service.',
+        'Bulkheads use separate semaphores for separate failure domains. Payments, search, recommendations, image generation, and audit logging should not all draw from one undifferentiated pool if one dependency can become slow. A per-dependency semaphore lets one subsystem fail fast while the rest of the process continues to serve useful work.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Semaphores are strongest at resource pools, producer-consumer gates, and bulkheads. They make capacity visible in code instead of burying it in a queue length, thread count, or downstream timeout.',
+        'They also fit client-side concurrency caps. A web crawler can limit active requests per host. A downloader can limit active file transfers. A test runner can limit expensive integration tests. An async service can bound concurrent calls to a model endpoint without blocking OS threads.',
+        'Weighted semaphores fit resources where every job has a different cost. A small image resize may consume one unit while a large transcode consumes eight. A language-model gateway may count approximate tokens or memory pressure instead of request count. The same counter idea works as long as the weight predicts the scarce resource well enough.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A semaphore is not a full mutex. A binary semaphore can act like a gate, but it usually does not enforce ownership, recursion rules, priority inheritance, or unlock-by-owner checks. Use a mutex when those properties are part of correctness.',
+        'A semaphore also does not choose the overload policy for you. Waiting forever creates a hidden outage queue. Failing fast can protect latency but drop useful work. Timeouts and cancellation require cleanup so a canceled waiter does not keep a permit reserved or remain in the queue.',
+        'Permit leaks are the common operational failure. Any path that acquires and then returns early, throws, panics, or is canceled must still release. In structured languages that usually means defer, finally, RAII, or a scoped permit object.',
+        'A semaphore can also hide priority inversion. Low-priority work may hold permits while high-priority work waits. If the protected resource is latency-critical, the design may need priority queues, separate pools, request classes, or admission control at a higher layer.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Expose scoped acquisition when the language supports it. A scoped permit object can release automatically when it leaves scope. In JavaScript and other async systems, use try/finally around every awaited region that owns a permit. The dangerous path is acquire, then await several operations, then throw before release.',
+        'Make overload behavior explicit. Decide whether acquire waits forever, waits with a timeout, returns immediately when full, or calls a fallback. Do not let an unbounded semaphore wait queue become the real outage queue. Queue length, wait time, timeout count, rejection count, and permit hold time should be observable.',
+        'Do not use the current semaphore value as a precise planning signal unless the API promises it. Some systems report zero when waiters exist; others may expose approximate or race-prone values. The reliable control path is acquire and release, not polling a value and acting later.',
+        'Keep the protected region small. A permit should be held only while the scarce resource is actually in use. Holding a permit across unrelated CPU work, logging, retries, sleeps, or user callbacks reduces effective capacity and makes incidents harder to reason about.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'An API service calls payments, search, and recommendations. Payments normally receives 400 requests per second with 50 millisecond hold time, so about 20 in-flight calls are expected. Search receives 250 requests per second with 80 millisecond hold time, also about 20. Recommendations receives 50 requests per second with 120 millisecond hold time, about 6.',
+        'The service sets separate limits: 80 for payments, 60 for search, and 20 for recommendations. During an incident, recommendations slows to 2 seconds. Demand jumps to about 100 in-flight calls, but the semaphore admits only 20. The rest time out quickly or use a fallback. Payments and search do not lose their capacity because they do not share the recommendations permit pool.',
+        'The semaphore did not fix recommendations. It prevented one slow dependency from becoming the whole outage. That is the operational point of a bulkhead: contain failure at the admission boundary.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: POSIX semaphore overview at https://man7.org/linux/man-pages/man7/sem_overview.7.html, sem_wait at https://man7.org/linux/man-pages/man3/sem_wait.3.html, and sem_post at https://man7.org/linux/man-pages/man3/sem_post.3.html. Study Futex Wait Queue, Bulkheads & Resource Isolation, Backpressure & Flow Control, Token Bucket Rate Limiter, and Message Queue next.',
+        'Primary sources: POSIX semaphore overview at https://man7.org/linux/man-pages/man7/sem_overview.7.html, sem_wait at https://man7.org/linux/man-pages/man3/sem_wait.3.html, sem_post at https://man7.org/linux/man-pages/man3/sem_post.3.html, sem_init at https://man7.org/linux/man-pages/man3/sem_init.3.html, and sem_getvalue at https://man7.org/linux/man-pages/man3/sem_getvalue.3.html.',
+        'Study Futex Wait Queue for the sleep and wake slow path, Mutex for ownership and exclusion, Condition Variable for waiting on predicates, Bulkheads & Resource Isolation for failure containment, Backpressure & Flow Control for producer control, Token Bucket Rate Limiter for time-based admission, Message Queue for buffered handoff, and Circuit Breaker for dependency-failure policy.',
       ],
     },
   ],

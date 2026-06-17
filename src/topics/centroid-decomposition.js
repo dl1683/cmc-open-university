@@ -54,7 +54,7 @@ function* findCentroid() {
   yield {
     state: centroidGraph('A centroid splits every remaining component to <= half'),
     highlight: { active: ['c'], found: ['a', 'b', 'd', 'e', 'f', 'g'], compare: ['ct'] },
-    explanation: 'A centroid is a node whose removal leaves no component with more than half the current tree. Every tree has one or two centroids.',
+    explanation: 'A centroid is a balance cut, not a distance center. Removing it leaves no component with more than half the current tree, so recursion cannot keep one giant side alive.',
     invariant: 'After removing a centroid, every recursive subproblem has size at most n/2.',
   };
   yield {
@@ -80,7 +80,7 @@ function* findCentroid() {
   yield {
     state: centroidGraph('Recurse on each component and build a centroid tree'),
     highlight: { active: ['c', 'ct', 'e-c-ct'], compare: ['a', 'e'] },
-    explanation: 'After choosing a centroid, recursively decompose each remaining component. The chosen centroids become children in a new centroid tree.',
+    explanation: 'After choosing a centroid, each remaining component becomes an independent subproblem. The chosen centroids form a new index tree whose height is bounded by repeated halving.',
   };
   yield {
     state: labelMatrix(
@@ -123,12 +123,12 @@ function* nearestMarked() {
       ],
     ),
     highlight: { active: ['walk:move', 'store:move'], found: ['query:move'] },
-    explanation: 'The classic dynamic query is nearest marked node. Each update touches centroid ancestors and stores best distances. Each query checks the same ancestor chain.',
+    explanation: 'The nearest-marked query stores one summary per centroid ancestor. An update pushes a red node into every scale that can use it; a query checks those same scales for the best meeting point.',
   };
   yield {
     state: centroidGraph('Distances are measured in the original tree'),
     highlight: { active: ['c', 'ct'], found: ['a', 'g'], compare: ['e-c-a', 'e-c-e'] },
-    explanation: 'The centroid tree is an index. Distances still come from the original tree, often precomputed from every centroid to nodes in its component.',
+    explanation: 'The centroid tree is an index, not the metric. Distances still come from the original tree, often precomputed from each node to its centroid ancestors.',
     invariant: 'For any node pair, some centroid ancestor separates their recursive component at the level that matters.',
   };
   yield {
@@ -182,32 +182,104 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'Centroid decomposition is divide and conquer on a tree. Pick a centroid, remove it, recurse on the remaining components, and connect those chosen centroids into a new centroid tree.',
-      'A centroid is a node whose removal leaves every component with at most half the original nodes. This halving property makes the centroid tree height O(log n).',
-      'The structure is useful for distance-style updates and queries on static trees, especially when answers can be combined through a small set of centroid ancestors.',
-      'The original tree is not replaced. The centroid tree is an index layered on top of it. Queries usually move through centroid ancestors while measuring distances in the original tree.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'Compute subtree sizes, walk toward any child with size greater than n/2, and stop at a centroid. Mark it removed. Recursively decompose each component created by removing it. Store the centroid parent relation.',
-      'For nearest-marked-node queries, update(x) walks centroid ancestors of x and improves best[c] with dist(x, c). query(v) walks centroid ancestors of v and minimizes best[c] + dist(v, c).',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'Building the decomposition is commonly O(n log n), though careful implementations can be close to linear for some work. Updates and queries that walk centroid ancestors cost O(log n), plus whatever distance lookup costs.',
-      'Distance lookup is often handled with LCA preprocessing or precomputed centroid-to-node distances. The implementation challenge is keeping original-tree distances separate from centroid-tree parent links.',
-      'Memory grows with the auxiliary distance information. A simple version stores distances from each node to each centroid ancestor, which is O(n log n). That is often acceptable, but it should be designed deliberately for large trees.',
-    ] },
-    { heading: 'Real-world uses', paragraphs: [
-      'Centroid decomposition appears in static network search, facility-location queries on trees, nearest activated node problems, tree metric indexes, and contest problems with colored or marked nodes.',
-      'A complete case study is a delivery network shaped as a tree. Warehouses are activated over time, and each customer query asks for the nearest active warehouse. Centroid ancestors bound each query to logarithmic candidates.',
-      'Another case is incident response on a tree-shaped dependency graph. Mark unhealthy services as they alert, then query each downstream service for the nearest known unhealthy ancestor-side region using centroid distance summaries.',
-      'Centroid decomposition, Virtual Tree LCA Compression, and Rerooting DP: All Roots Tree DP are three different ways to reuse work on static trees. Centroid decomposition builds one global index for online distance updates, virtual trees build a small per-query auxiliary tree for a known marked set, and rerooting DP scores every possible root with two passes.',
-    ] },
-    { heading: 'Pitfalls and misconceptions', paragraphs: [
-      'Centroid decomposition does not support arbitrary topology changes cheaply. It is also not the same as choosing the root by center or diameter. The centroid property is about component sizes after removal.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: CP-Algorithms centroid decomposition at https://cp-algorithms.com/graph/centroid_decomposition.html and USACO Guide centroid notes at https://usaco.guide/plat/centroid. Study Rerooting DP: All Roots Tree DP, Virtual Tree LCA Compression, Binary Lifting LCA, Heavy-Light Decomposition, Tree Traversals, and Link-Cut Tree next.',
-    ] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Centroid decomposition exists for static trees where many operations ask global distance-style questions. The original tree keeps the real edges. The centroid tree is a second index built by repeatedly removing balanced cut vertices.',
+        'The problem is reuse. A breadth-first search or depth-first search from the query node can always find the nearest marked node, count paths, or explore far branches. But if updates and queries repeat thousands of times, scanning the original tree every time throws away too much previous work.',
+      ],
+    },
+    {
+      heading: 'Obvious approach and wall',
+      paragraphs: [
+        'The obvious approach for nearest marked node is to search outward from the query node until a marked node is found. That is easy to reason about, but one query can touch the whole tree. Caching one answer per node also breaks after updates because a newly marked node in another branch can become the nearest answer.',
+        'Heavy-Light Decomposition helps when the query is about paths. Binary Lifting helps with ancestors and LCA. The wall is that nearest marked node is not confined to one path. The answer may cross a high-level cut between branches, so the data structure needs reusable summaries at several tree scales.',
+      ],
+    },
+    {
+      heading: 'Core insight and invariant',
+      paragraphs: [
+        'The core insight is to cut the tree by size, not by depth. A centroid is a node whose removal leaves every component with at most half the current nodes. Repeating that cut creates a centroid tree of height O(log n).',
+        'The invariant is the halving bound: after removing a centroid, every recursive subproblem has size at most half of the current component. Because of that invariant, each original node has only O(log n) centroid ancestors, but those ancestors represent cuts from the whole tree down to local components.',
+        'For nearest-marked-node queries, `update(x)` walks centroid ancestors of `x` and improves `best[c]` with `dist(x, c)`. `query(v)` walks centroid ancestors of `v` and minimizes `best[c] + dist(v, c)`. The original tree supplies the distance; the centroid tree supplies the small candidate set.',
+      ],
+    },
+    {
+      heading: 'Build mechanism',
+      paragraphs: [
+        'To build the decomposition, work inside one current component. Compute subtree sizes, then walk toward any child whose side has more than half the component. When no side is too large, the current node is a centroid. Mark it removed for construction and recurse on each remaining component.',
+        'The chosen centroids become nodes in a new centroid tree. The first centroid is the root. Centroids found inside the remaining components become its children. This index tree is separate from the original adjacency list; it records recursive cuts, not original edges.',
+        'Most implementations also store, for each original node, the chain of centroid ancestors and the distance from the node to each ancestor. That makes later updates and queries simple loops over arrays instead of repeated graph searches.',
+      ],
+    },
+    {
+      heading: 'Query mechanism',
+      paragraphs: [
+        'For the insert-only nearest marked problem, each centroid stores `best[c]`, the smallest original-tree distance from `c` to any marked node that has updated it. Initially every `best[c]` is infinity. When node `x` becomes marked, update every centroid ancestor `c` of `x` with `min(best[c], dist(x, c))`.',
+        'To answer `query(v)`, walk every centroid ancestor `c` of `v` and compute `best[c] + dist(v, c)`. The minimum over those ancestors is the answer. Each candidate means: travel from `v` to a centroid-level meeting point, then use the best marked node known from that meeting point.',
+        'The centroid tree is not used as a distance metric. Distances are still measured in the original tree. The index only decides which O(log n) meeting points are enough to check.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument uses the first separating centroid. Take any marked node `x` and query node `v`. During the recursive decomposition, there is a highest level where both are in the same current component. At the next relevant cut, either the centroid is one of them or `x` and `v` fall into different child components.',
+        'That centroid lies on the centroid-ancestor chain for both nodes. When `x` was marked, it updated that centroid with `dist(x, c)`. When `v` is queried, it checks the same centroid and forms `dist(v, c) + best[c]`. Therefore the query considers a candidate for the level that separates `x` from `v`.',
+        'Taking the minimum over all ancestors is safe because every candidate is a real original-tree distance through some centroid, and the separating centroid for the nearest marked node is included in the checked set. The data structure may check extra candidates, but it does not miss the one needed for the optimum.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Building the decomposition is usually O(n log n). Each level processes nodes in components whose total size is O(n), and there are O(log n) levels because of the halving invariant. Careful code can reduce constants, but O(n log n) is the common mental model.',
+        'Updates and queries cost O(log n) when distances to centroid ancestors are precomputed. If distance is computed through LCA, add the LCA lookup cost. Space is commonly O(n log n) for ancestor chains and distances, plus arrays for centroid parent, removed flags, and per-centroid summaries.',
+        'The main tradeoff is implementation and memory. Centroid decomposition is much more complex than one BFS. It pays off only when many operations reuse the same static tree index.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Centroid decomposition fits static tree metrics with online updates: nearest activated warehouse, nearest unhealthy service, nearest red node, distance to a marked region, or path-count problems that can be solved by counting through each centroid cut.',
+        'It wins when the tree topology is fixed and many operations would otherwise search far-away branches. A service topology, road-tree simplification, dependency tree, or contest tree can all benefit if marks change often but edges do not.',
+        'It sits next to other tree tools. Heavy-Light Decomposition handles path ranges. Binary Lifting handles ancestors and LCA. Virtual trees build small per-query trees for known marked sets. Rerooting DP scores all roots with two passes. Centroid decomposition builds one reusable online index for global distance summaries.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'The biggest limit is topology changes. If edges are inserted or deleted, the centroid index can become stale and expensive to rebuild. Link-Cut Trees or Euler Tour Trees are better fits when the tree itself changes online.',
+        'A common failure mode is confusing centroid with center. A centroid minimizes the largest remaining component size after removal. It is not necessarily the midpoint of the diameter and does not minimize maximum distance.',
+        'Deletion of marks is another hazard. Insert-only marking is easy because `best[c]` only decreases. If marks can be removed, each centroid needs a multiset, heap with lazy deletion, or another structure that can expose the nearest still-active mark. One scalar `best[c]` is not enough.',
+      ],
+    },
+    {
+      heading: 'Practical guidance',
+      paragraphs: [
+        'Keep three structures separate: the original adjacency list, the removed-centroid flags used during construction, and the centroid-parent index used after construction. Mixing those roles causes subtle bugs because the centroid tree is not the original tree.',
+        'Precompute distances from each node to each centroid ancestor when query volume is high. Store ancestors and distances in the same order so update and query loops are simple. Initialize `best[c]` to infinity, update every ancestor of marked nodes, and query every ancestor of the requested node.',
+        'Use centroid decomposition when the tree is static, the metric is original-tree distance, and each operation would otherwise consider far-away branches. Do not use it when a simpler path structure solves the problem.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Take a seven-node tree where node 4 connects a three-node left branch and a three-node right branch. Removing node 4 leaves components of size 3 and 3, so 4 is a centroid. It becomes the root of the centroid tree. The left and right branches are decomposed independently.',
+        'Now mark node 2 red and query node 7. A plain search might walk across the tree. The centroid index checks centroid ancestors of 7. At centroid 4, `best[4]` already stores `dist(2, 4)`, and the query computes `dist(7, 4) + best[4]`. That candidate represents the cross-branch answer without scanning the branch containing node 2.',
+      ],
+    },
+    {
+      heading: 'What the visual shows',
+      paragraphs: [
+        'The find-centroid view highlights the size test. A node is accepted only when every remaining side is at most half the component. That is the reason the centroid tree height is logarithmic.',
+        'The nearest-marked view highlights the summary rule. Updates push distances from a marked node to its centroid ancestors. Queries combine stored distances with the query node distance to the same ancestors. The visual separates the original tree, where distances live, from the centroid tree, where the reusable summaries live.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Sources: CP-Algorithms centroid decomposition at https://cp-algorithms.com/graph/centroid_decomposition.html and USACO Guide centroid notes at https://usaco.guide/plat/centroid.',
+        'Study Tree Traversals for DFS fundamentals, Binary Lifting LCA for distance support, Heavy-Light Decomposition for path queries, Virtual Tree LCA Compression for per-query marked sets, Rerooting DP: All Roots Tree DP for all-root scoring, and Link-Cut Tree for dynamic topology.',
+      ],
+    },
   ],
 };

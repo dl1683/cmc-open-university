@@ -210,11 +210,96 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: ['SLH-DSA is NIST FIPS 205: the standardized stateless hash-based digital signature algorithm based on SPHINCS+. It relies on hash functions, one-time signatures, and Merkle authentication paths rather than lattice assumptions.', 'The data structures are FORS forests, WOTS+ chains, hypertree layers, address fields for domain separation, authentication paths, public roots, and large signature bundles.'] },
-    { heading: 'How it works', paragraphs: ['The signer hashes the message into indexes, reveals selected FORS and WOTS+ material, and includes Merkle authentication paths through a hypertree. The verifier recomputes hashes upward and checks the final root against the public key.', 'Because it is stateless, the signer does not need to track which one-time leaf was used across signatures. That avoids a dangerous state-management class of failures at the cost of larger signatures.'] },
-    { heading: 'Cost and complexity', paragraphs: ['SLH-DSA spends bytes and hashing work to get conservative security assumptions. It can be a strong fit for firmware, root signatures, audit logs, or fallback policy, but large signatures are expensive for handshakes and constrained links.'] },
-    { heading: 'Complete case study', paragraphs: ['A vendor signs firmware images with SLH-DSA as a long-horizon fallback. The verification path stores the public root, algorithm identifier, signature bundle, image hash, verification result, and release timestamp. The artifact system accepts larger signatures because firmware updates are not a per-request latency path.', 'A TLS-style handshake has a different ledger: signature bytes, certificate chain size, handshake fragmentation, CPU cost, and client support become first-class rollout constraints.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not confuse stateless hash-based signatures with small signatures. Do not assume every PQC signature has the same deployment profile. Do not strip address/domain-separation fields from the mental model; they prevent cross-layer hash reuse confusion.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary source: NIST FIPS 205 at https://csrc.nist.gov/pubs/fips/205/final. Study Merkle Tree, ML-DSA Dilithium Rejection Sampling Case Study, ML-KEM Kyber Module-Lattice KEM Case Study, Transparency Log Witnessing Case Study, and Software Supply Chain Provenance Graph next.'] },
+    {
+      heading: 'Why This Exists',
+      paragraphs: [
+        'Post-quantum cryptography is not one replacement algorithm. ML-KEM covers key establishment, ML-DSA covers lattice-based signatures, and SLH-DSA covers stateless hash-based signatures. SLH-DSA, standardized in FIPS 205 and based on SPHINCS+, matters because it gives systems a signature option whose security story is built mostly from hash functions rather than lattice assumptions.',
+        'That conservative assumption base is useful for long-lived trust anchors. Firmware, root certificates, audit logs, software releases, and archival records may need signatures that remain credible across many years. SLH-DSA is not chosen because it is small. It is chosen when a hash-based fallback or defense-in-depth signature family is worth the extra bytes.',
+      ],
+    },
+    {
+      heading: 'Naive One-Time Signatures',
+      paragraphs: [
+        'The simple hash-signature idea is easy to sketch. Generate many one-time signing keys, sign a message with one of them, and prove that the corresponding one-time public key is part of a Merkle tree whose root is the public key. Verification is public recomputation: hash the one-time material, walk the authentication path, and compare the root.',
+        'The obvious design fails operationally because it is stateful. If a signer must remember which one-time leaves have already been used, then backup restoration, parallel signing, crash recovery, or clock mistakes can reuse a leaf. Reusing one-time signing material can destroy security. The hard part is avoiding that state-management cliff while keeping verification public and simple.',
+      ],
+    },
+    {
+      heading: 'Core Insight',
+      paragraphs: [
+        'SLH-DSA makes the scheme stateless by deriving signing choices from the message, randomness, secret seed material, and address structure. Instead of asking the signer to maintain a global counter, the signature carries enough one-time-signature and authentication-path material for the verifier to rebuild the public root for this message.',
+        'The price is size. Statelessness moves information into the signature bundle. The verifier does not trust a hidden database of used leaves. It trusts the public root and checks that the provided FORS data, WOTS+ data, and Merkle paths hash upward to that root under the right address domains.',
+      ],
+    },
+    {
+      heading: 'FORS Layer',
+      paragraphs: [
+        'FORS is the forest-of-random-subsets component. The message digest selects leaves across several small trees. The signature reveals selected secret values and sibling nodes so the verifier can reconstruct a FORS public value. Think of it as a hash-based way to bind message-derived indexes to a compact root used by the next layer.',
+        'FORS is not the whole signature. It signs a message-derived value inside the larger construction. Its output is then authenticated by WOTS+ and by the hypertree. This layering is why the bundle has many parts that look similar at first glance: each part belongs to a different level of public recomputation.',
+      ],
+    },
+    {
+      heading: 'WOTS Plus',
+      paragraphs: [
+        'WOTS+ is a one-time signature scheme made from hash chains. A secret value is hashed forward a message-dependent number of steps, and the verifier hashes the revealed chain value the remaining number of steps to reach a public chain endpoint. Many chains together authenticate the value being signed.',
+        'The one-time warning still matters. WOTS+ material is safe only inside the construction that prevents dangerous reuse. SLH-DSA wraps it in randomized message processing, tree addressing, and hypertree authentication so that the signer can be stateless while the verifier still sees a complete public proof object.',
+      ],
+    },
+    {
+      heading: 'Hypertree Paths',
+      paragraphs: [
+        'A single huge Merkle tree would be unwieldy. SLH-DSA uses a hypertree: multiple layers of smaller Merkle trees. A WOTS+ signature at one layer authenticates the root of the layer below. Authentication paths provide sibling nodes that let the verifier hash from a leaf or subtree root upward.',
+        'This is the Merkle Tree lesson repeated carefully. A leaf alone is not enough. The verifier needs the sibling at each level and the rule for ordering left and right children. The final check is the public root. If the recomputed root differs, the signature is rejected.',
+      ],
+    },
+    {
+      heading: 'Address Separation',
+      paragraphs: [
+        'SLH-DSA performs many hash calls that would be dangerous to confuse. A hash used for a FORS leaf must not be interchangeable with a hash used for a WOTS+ chain step or a Merkle internal node. Address fields and domain separation tell each hash invocation what role, layer, tree, and position it belongs to.',
+        'This is not clerical metadata. In a construction made almost entirely of hashes, context is part of security. The same bytes under the wrong address should not validate in another role. Good implementations treat address construction as critical logic, not formatting glue.',
+      ],
+    },
+    {
+      heading: 'What The Visual Proves',
+      paragraphs: [
+        'The hypertree visual shows verification as a path of public recomputation. The message selects FORS material. FORS produces a value. WOTS+ and authentication paths lift that value through Merkle layers. The public key is reached only if every revealed piece fits its claimed position.',
+        'The signature-bundle view explains the size tradeoff. The signature is not a single digest plus a short scalar. It is a portable proof object containing randomness, selected leaves, chain values, sibling nodes, layer indexes, and enough structure for a verifier with no signing secret to rebuild trust from hash operations.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'Verification works because each layer reduces to a public hash check. The verifier recomputes FORS roots from the revealed secret values and siblings, recomputes WOTS+ public keys from chain values, compresses those public keys into leaves, and walks Merkle authentication paths through the hypertree.',
+        'Security depends on the hash assumptions, the one-time-signature limits, correct randomized message processing, and correct domain separation. The signer does not need to remember used leaves, which removes a serious operational failure mode. The verifier accepts only if the whole bundle recomputes to the expected public root for the exact message.',
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        'The cost ledger for SLH-DSA should track algorithm parameter set, signature bytes, public-key bytes, private-key handling, signing CPU, verification CPU, artifact size, transport fragmentation, cache impact, and policy reason. Large signatures are not incidental overhead. They are the data needed for stateless public recomputation.',
+        'The tradeoff is unusually plain. SLH-DSA buys conservative assumptions and stateless operation with larger signatures and more hashing work. That can be a good bargain for artifacts signed rarely and verified many times. It can be a poor bargain when every byte appears on a latency-sensitive network path.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'SLH-DSA fits firmware signing, software supply-chain attestations, root-of-trust material, archival signatures, offline release signatures, audit logs, and fallback signature policy. These settings can often tolerate large signatures because the signed object is already large or because verification is not inside a tight handshake loop.',
+        'It is also an excellent teaching bridge. It connects hash functions, Merkle authentication paths, one-time signatures, domain separation, and proof bundles into one standardized object. Students who understand SLH-DSA understand why cryptographic engineering is often about state, serialization, and failure modes as much as formulas.',
+      ],
+    },
+    {
+      heading: 'Failure Modes',
+      paragraphs: [
+        'The first failure mode is pretending that all post-quantum signatures have the same deployment shape. ML-DSA and SLH-DSA both sign, but their size, assumption story, and operational fit differ. A protocol that can absorb ML-DSA may not be able to absorb SLH-DSA without changes to packetization, certificate chains, caches, or storage.',
+        'The second failure mode is hiding the bytes. Large signatures affect bandwidth, database indexes, transparency logs, embedded firmware partitions, certificate compression, and denial-of-service surfaces. The third is implementation confusion: wrong addresses, wrong parameter identifiers, weak randomness handling, or accepting a bundle under the wrong algorithm label can defeat the clean theory.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Start with Merkle Tree if authentication paths are new. Then compare ML-DSA Dilithium Rejection Sampling for lattice signatures, ML-KEM Kyber Module Lattice KEM for key establishment, Transparency Log Witnessing for public audit, TUF Update Metadata for signed software updates, Sigstore Keyless Signing, and Software Supply Chain Provenance Graph.',
+        'The primary specification is NIST FIPS 205. The useful mental model is not that SLH-DSA is complicated magic. It is a carefully addressed stack of hash-based proof checks, designed to remove signer state at the cost of carrying a large but verifiable signature bundle.',
+      ],
+    },
   ],
 };

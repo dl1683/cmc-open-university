@@ -216,43 +216,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'OpenLineage is an open standard for collecting metadata about data jobs and their corresponding events. Its object model centers on Jobs, Runs, and Datasets. A lineage event records what ran, which datasets it read, which datasets it wrote, and which structured facets describe the execution.',
-        'This case study links Schema Registry Case Study, Debezium CDC Case Study, Distributed Tracing, Google Dataflow Model Case Study, Flink Checkpointing Case Study, and Topological Sort. It treats lineage as a production graph with typed metadata, not as a static diagram drawn after the fact.',
+        'Data teams need to answer impact questions before they change a table, schema, job, column, dashboard, feature set, or quality rule. Without lineage, the answer lives in tribal knowledge, stale diagrams, warehouse naming conventions, and emergency chat threads after something breaks.',
+        'OpenLineage exists to make data movement observable as a typed event stream. Jobs emit events with runs, input datasets, output datasets, and facets. A lineage backend turns those events into a graph that can answer upstream source questions, downstream blast-radius questions, run-history questions, ownership questions, and data-quality questions.',
+        'The practical constraint is freshness. A lineage diagram drawn by hand is useful the day it is drawn and suspect the day after. Data platforms change through scheduler edits, dbt models, notebooks, CDC streams, warehouse jobs, dashboards, manual backfills, and one-off scripts. A production lineage graph has to be built from systems that actually move data.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'A data platform integration emits events when jobs start, complete, or fail. The event contains a job identity, a run identity, input datasets, output datasets, and facets. A backend stores those events and indexes the resulting graph so users can inspect upstream sources, downstream consumers, run history, schema changes, quality checks, and owners.',
-        'Facets are the extension mechanism. A run facet might describe nominal time, parent run, processing engine, or source code. A dataset facet might describe schema, version, lifecycle state, or column-level lineage. Because facets are structured, the lineage backend can filter and reason about them instead of treating all context as comments.',
+        'The first reasonable approach is a hand-maintained DAG diagram or wiki page. It helps onboarding because people can see the main jobs and tables in one place. For a small team with a stable pipeline, that may be enough.',
+        'The next approach is scheduler metadata. Airflow, Dagster, dbt, Spark, warehouse query history, and BI tools each know part of the story. A scheduler knows task order. A warehouse knows queries. A dashboard knows consumers. A catalog knows owners. Each view is useful, but none is automatically the whole graph.',
+        'The wall appears when a specific change needs a specific answer. If raw.orders.customer_id changes, which production models, dashboard tiles, fraud features, alert jobs, owners, and quality gates are affected? A high-level DAG edge from raw.orders to clean.orders is too broad. A query log without owner metadata is too raw. A wiki page without freshness is too easy to trust after it has drifted.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'The challenge is coverage and trust. If Spark jobs emit lineage but manual SQL scripts do not, the graph has gaps. If schema facets are stale, impact analysis is wrong. If every temporary table becomes a first-class node, the graph becomes noisy. A production lineage system needs emitter coverage metrics, freshness checks, dataset-type conventions, owner metadata, and failure handling for event delivery.',
-        'Lineage can also create governance and privacy concerns. The graph may reveal sensitive dataset names, owners, query text, or column dependencies. Access control and redaction rules are part of the data structure, not an afterthought.',
+        'The wall is coverage and identity. Coverage means every important system that reads, writes, transforms, validates, or publishes data emits usable events. Identity means the same dataset, job, run, and column resolve to the same node across tools. Missing emitters create invisible edges. Bad identity creates duplicate nodes and broken paths.',
+        'Freshness is the next wall. A graph can be complete for last month and wrong today. Owners move, schemas change, tables are renamed, temporary datasets appear, backfills rewrite outputs, and dashboards are rebuilt. Impact analysis needs time-aware evidence, not only a historical dependency list.',
+        'Precision is the third wall. Dataset-level lineage can over-warn. If clean.orders feeds a dashboard and an ML feature table, not every column change affects both. Column-level lineage, SQL facets, schema facets, and quality facets let the graph move from possible impact to likely impact.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'A team wants to rename raw.orders.customer_id to buyer_id. Before changing the CDC stream and warehouse table, they ask the lineage backend for downstream paths from that column. The graph finds a dbt model, a fraud feature table, an alerting job, and a revenue dashboard. Column lineage shows that the dashboard uses total_cents but not customer_id, while fraud features depend directly on customer_id.',
-        'The migration plan now has owners, tests, and rollout order. Schema Registry protects Kafka event shape, Debezium emits CDC changes, OpenLineage records which jobs transform those changes, and the graph tells the team who is actually affected.',
+        'The core insight is to represent lineage as structured events about jobs, runs, datasets, and facets. The job is the stable transformation identity. The run is one attempt or execution of that job. Datasets are named inputs and outputs. Facets attach structured metadata without changing the core object model.',
+        'That split turns lineage into a graph with evidence. A completed run can say this job read these input datasets and produced those output datasets at this time, with this schema, SQL, source code, engine, quality result, or column mapping attached. The backend can index those events into nodes, edges, and searchable metadata.',
+        'Facets are the extensibility mechanism. Instead of forcing every system fact into a fixed table, OpenLineage lets run, job, and dataset records carry structured facet payloads. That is why lineage can start with read/write edges and then grow into column dependencies, data-quality checks, ownership, processing engine details, nominal time, source code, and custom platform facts.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How It Works',
       paragraphs: [
-        'The biggest misconception is that lineage is just a graph visualization. The visual graph is the final interface; the hard work is event emission, identity normalization, facet quality, column extraction, and keeping the graph current. Another mistake is using only dataset-level edges for schema migration. Dataset-level lineage is useful for discovery, but column-level lineage is often needed for precise impact analysis.',
+        'A platform integration emits events when jobs start, complete, abort, or fail. Each event includes a producer identity, event type, event time, run identity, job identity, input datasets, output datasets, and any facets the integration can supply. The backend stores the event and updates indexes for graph traversal, run history, schema history, and search.',
+        'The graph usually has two main node families: jobs and datasets. A run connects a job to a particular attempt. Input and output lists create edges between datasets and jobs. Facets then enrich those edges and nodes. A SQL facet may preserve the query. A schema facet may preserve fields. A column-lineage facet may say which input columns contributed to which output columns. Quality facets may record assertions or test results.',
+        'Column lineage is where broad graph reachability becomes useful migration evidence. A dataset-level edge can say clean.orders feeds both fraud features and revenue dashboards. A column mapping can say customer_id affects fraud features and alerting, while total_cents affects revenue. That precision changes who must review a change.',
+        'Identity normalization is continuous work. The same table may appear as a warehouse table name, a file path, a catalog URN, a dbt model, or a dashboard source. Symlink or alias metadata can help, but the platform still needs conventions for namespaces, names, case sensitivity, environments, and temporary objects.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
       paragraphs: [
-        'Primary sources: OpenLineage object model at https://openlineage.io/docs/spec/object-model/, facets and extensibility at https://openlineage.io/docs/spec/facets/, dataset facets at https://openlineage.io/docs/spec/facets/dataset-facets/, column lineage facet at https://openlineage.io/docs/spec/facets/dataset-facets/column_lineage_facet/, and example lineage events at https://openlineage.io/docs/spec/examples/. Study Schema Registry Case Study, Debezium CDC Case Study, Distributed Tracing, Topological Sort, Google Dataflow Model Case Study, and Flink Checkpointing Case Study next.',
+        'Lineage works when graph edges come from systems that actually executed work. A completed run with input and output datasets is stronger evidence than a manually drawn dependency because it records what happened, not what someone believed the architecture to be.',
+        'The main invariant is stable identity over time. The same dataset, job, or column must resolve to the same logical node across schedulers, warehouses, CDC tools, dbt, dashboards, and catalogs. If identity fragments, the graph underestimates impact. If identity merges unrelated objects, the graph overestimates impact and erodes trust.',
+        'Facets make the graph useful beyond reachability. A raw edge can say A feeds B. Schema, column, SQL, quality, ownership, lifecycle, and source-code facets explain how A feeds B, which part of B depends on A, whether the last run passed checks, and who owns the downstream decision.',
+        'The correctness argument is operational. If emitters cover the real execution paths, identities are normalized, event delivery is reliable, and facets are fresh enough for the decision, then graph traversal gives a defensible impact set. If any of those conditions fail, the graph should expose uncertainty rather than pretending to be complete.',
+      ],
+    },
+    {
+      heading: 'What the visual proves',
+      paragraphs: [
+        'The event-object-model view shows why job and run are separate. A job is the named transformation. A run is one attempt with timestamps, inputs, outputs, status, and facets. Keeping both lets the graph answer design questions such as "what depends on this table?" and incident questions such as "which run produced the bad dataset?"',
+        'The facets node shows why metadata belongs beside the edge. Dataset-to-dataset relationships are the skeleton. Facets add the muscles and nerves: schema, SQL, processing engine, source code, quality checks, ownership, and column dependencies. Without facets, the graph can tell that something downstream may be affected but not why.',
+        'The impact graph shows blast-radius analysis as traversal plus filtering. Starting at raw.orders, the graph walks downstream to cleaned tables, features, dashboards, alerts, owners, and tickets. Facets narrow the traversal so an owner receives a targeted migration notice instead of every downstream team getting the same vague warning.',
+      ],
+    },
+    {
+      heading: 'Cost and Behavior',
+      paragraphs: [
+        'A production lineage system costs more than graph storage. It needs emitter integrations, event delivery, retries, schema validation, deduplication, namespace conventions, dataset-type rules, owner metadata, freshness checks, column extraction, access control, and UI workflows. The graph query is often the easy part.',
+        'Volume is not the only cost. Noise can be worse than size. If every temporary table, scratch notebook, transient staging object, and failed exploratory query becomes a first-class business dependency, users stop trusting impact reports. The platform needs rules that preserve important ephemeral lineage without burying stable assets in noise.',
+        'Column lineage has extraction cost. SQL parsing, query planning, transformations, UDFs, notebooks, dynamic SQL, and warehouse-specific behavior can all complicate column mapping. Dataset-level lineage is easier and broader. Column-level lineage is harder and more useful for schema changes.',
+        'Lineage can expose sensitive information. Dataset names, query text, owners, columns, business logic, and data-quality failures may reveal more than a user is allowed to know. Access control and redaction rules belong in the graph design, not as a UI patch after ingestion.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'A team plans to rename raw.orders.customer_id. Dataset-level lineage says raw.orders feeds clean.orders, fraud features, a revenue dashboard, and an alert job. That is a useful first pass, but it is too broad for review. Blocking every downstream owner wastes time and encourages people to ignore future notices.',
+        'Column-level lineage shows customer_id affects fraud features and alerting, but not total_cents on the revenue dashboard. A schema facet shows the field type. A SQL facet shows the transform. Ownership facets identify the feature owner and alert owner. A quality facet shows which checks must pass after the migration.',
+        'The migration ticket can now notify the feature and alert owners, require tests on those paths, and avoid blocking unrelated dashboard owners. That is the difference between graph reachability and useful impact analysis.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'OpenLineage fits schema migrations, incident blast-radius analysis, data-quality debugging, ownership discovery, compliance evidence, pipeline observability, and platform migration. It is strongest when many engines and tools need to contribute to one lineage view.',
+        'It also helps incident response. If a bad upstream load writes null customer ids, the graph can find downstream datasets, feature builds, dashboards, alerts, and owners. Run facets and quality facets can identify the first failing run and the last known good output.',
+        'It is useful for governance when evidence must be sampled. A reviewer can ask which datasets fed a report, which jobs transformed them, which run produced the current table, which quality checks passed, and who owns the downstream asset. The graph is not the policy; it is the evidence substrate that policy can query.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'Lineage fails when it is treated as a visualization project. The visual graph is the final interface. The hard work is event emission, identity normalization, facet quality, column extraction, delivery reliability, and freshness monitoring.',
+        'It fails when important work happens outside instrumented paths. Manual warehouse queries, notebooks, vendor exports, spreadsheet uploads, emergency backfills, and legacy scripts can create real dependencies that never emit events. The graph should measure coverage and expose unknowns.',
+        'It fails when dataset-level reachability is oversold as exact impact. Broad lineage is valuable for discovery, but schema migration often needs column-level evidence. A field rename, deletion, semantic change, or privacy classification change may affect only part of a downstream dataset.',
+        'It also fails when users cannot act on the output. A graph that returns 800 downstream nodes without owners, environments, criticality, freshness, or suggested review paths is technically correct and operationally weak.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
+      paragraphs: [
+        'Primary sources: OpenLineage object model at https://openlineage.io/docs/spec/object-model/, facets and extensibility at https://openlineage.io/docs/spec/facets/, dataset facets at https://openlineage.io/docs/spec/facets/dataset-facets/, column lineage facet at https://openlineage.io/docs/spec/facets/dataset-facets/column_lineage_facet/, symlinks facet at https://openlineage.io/docs/spec/facets/dataset-facets/symlinks/, and example lineage events at https://openlineage.io/docs/spec/examples/.',
+        'Study Schema Registry Case Study for event shape governance, Debezium CDC Case Study for source change events, Distributed Tracing for cross-service execution context, Topological Sort for dependency ordering, Data Catalog Indexes for discovery, Google Dataflow Model Case Study for event-time processing, Flink Checkpointing Case Study for stream recovery, and Data Quality Assertion Facets for test evidence.',
       ],
     },
   ],

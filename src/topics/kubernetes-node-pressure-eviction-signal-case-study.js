@@ -123,7 +123,7 @@ function* evictionChoice() {
   yield {
     state: evictionGraph('When reclaim fails, kubelet ranks victim Pods', { rank: 'choose', podA: 'keep?', podB: 'evict' }),
     highlight: { active: ['rank', 'podB', 'e-rank-podB'], compare: ['podA'] },
-    explanation: 'Eviction selection considers local resource pressure and Pod characteristics. Requests, QoS, priority, and actual usage all matter to the outcome.',
+    explanation: 'The kubelet is choosing the cheapest Pod loss that relieves the breached local resource. Requests, QoS, priority, and actual usage decide which eviction best preserves node survival.',
   };
 
   yield {
@@ -191,30 +191,104 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Node-pressure eviction is kubelet-side protection. The kubelet watches local resource signals such as memory, disk, image filesystem, container filesystem, and inodes. When thresholds are crossed, it tries local reclaim and may terminate Pods to prevent node starvation.',
-        'The official node-pressure eviction documentation says the kubelet proactively terminates Pods to reclaim resources, monitors memory, disk space, and filesystem inodes, marks selected Pods Failed, and distinguishes node-pressure eviction from API-initiated eviction: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/. The disruptions documentation lists node-pressure eviction as a kubelet termination cause distinct from API eviction and preemption: https://kubernetes.io/docs/concepts/workloads/pods/disruptions/.',
+        'Kubernetes scheduling is an admission decision, not a permanent guarantee that the node will stay healthy. The scheduler places Pods using requests, node capacity, taints, affinity, and other cluster-level constraints. After placement, the kubelet lives with actual memory use, actual writable layers, actual logs, actual local volumes, actual image storage, and actual inode creation on one machine.',
+        'Node-pressure eviction exists because local resources fail locally. A cluster may have spare capacity somewhere else while one node is unable to allocate memory, pull an image, write a log, create a file, or keep node daemons alive. If the kubelet waits until the operating system kills a random process or disk writes fail, the failure is late, blunt, and harder for the control plane to explain.',
+        'The official Kubernetes node-pressure eviction documentation describes a local kubelet loop that monitors signals, compares them with thresholds, attempts node-level reclaim, and evicts Pods if reclaim cannot restore safety: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/. The disruptions documentation treats these as involuntary disruptions; PodDisruptionBudgets can mitigate voluntary maintenance, but they do not prevent unavoidable node failures: https://kubernetes.io/docs/concepts/workloads/pods/disruptions/.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The useful data structure is a signal ladder. Each node keeps observed values, thresholds, grace periods, reclaim options, and a victim ranking. The kubelet tries node-level reclaim first where possible. If pressure persists, it chooses Pods based on the pressure type and Pod attributes such as requests, QoS, priority, and usage.',
-        'This is different from PodDisruptionBudget and drain behavior. The official docs state that node-pressure eviction is not the same as API-initiated eviction and that kubelet does not respect configured PDBs or normal terminationGracePeriodSeconds in the same way. Under hard thresholds, termination can be immediate.',
+        'A reasonable first design is to trust the scheduler and the operating system. The scheduler can avoid placing too many requested CPUs and too much requested memory on one node. The operating system already has an OOM killer, filesystem accounting, page reclaim, and process-level failure behavior. For small clusters with well-behaved workloads, this can appear to work.',
+        'Operators also try overprovisioning: larger disks, more memory, lower bin-packing density, and broad safety margins. That reduces incidents, but it does not define which workload should lose capacity first when a node still gets into trouble. It also does not explain why a Pod was killed or how much resource must be reclaimed before the node is safe again.',
+        'Manual cleanup is another tempting answer. Delete old images, restart noisy Pods, drain the node, and move traffic away. Manual cleanup is useful during an incident, but the kubelet needs an automatic loop because pressure can arrive faster than an operator can diagnose it.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The wall',
       paragraphs: [
-        'A node fills its image filesystem after repeated deploys. Kubelet observes imagefs pressure and first deletes unused images. The pressure remains because several large images are still referenced by running Pods. Kubelet ranks victims and evicts a low-priority batch Pod. The Pod enters Failed, the owning Job or controller sees the loss, and future work may be scheduled on another node after capacity is available.',
-        'The root fix is not just "raise priority." The operator needs image garbage collection policy, disk sizing, ephemeral-storage requests and limits, namespace quota, alerts on pressure signals, and workload designs that can survive local eviction.',
+        'The wall is the gap between requested resources and real local pressure. A Pod can request little memory and then burst. A container can write more logs than expected. Repeated deploys can leave image storage near a threshold. Many small files can exhaust inodes while byte capacity still looks fine. The scheduler cannot fix these after the Pod is already running.',
+        'Operating-system failure is also the wrong abstraction. An OOM kill chooses a process, not a Kubernetes workload intent. A disk-full error hits whichever write arrives next, not necessarily the workload creating the most pressure. Node daemons such as kubelet, container runtime, logging, and network agents also need reserved resources; if they fail, the node stops being manageable.',
+        'The kubelet needs a policy that turns raw measurements into Kubernetes decisions. It must know which signal is breached, whether a grace period applies, what can be reclaimed without evicting a Pod, which Pod loss is most defensible, and how to report the result so controllers can replace failed work.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Node-pressure eviction is a signal ladder. The kubelet observes resource signals such as memory availability, filesystem bytes, filesystem inodes, and process IDs. It compares those signals with soft or hard thresholds. If a threshold is crossed, it tries local reclaim when reclaim can help. If pressure remains, it ranks Pods and evicts enough work to protect node stability.',
+        'The invariant is simple: preserve the node before preserving any single non-critical Pod. That does not mean evictions are harmless. It means the kubelet treats some Pod loss as less damaging than letting memory pressure, disk pressure, inode starvation, or PID starvation take down the node and its daemons.',
+        'The key design move is that eviction follows the breached resource. Memory pressure should remove memory pressure. Disk pressure should reclaim the relevant filesystem. Inode pressure should prefer decisions that restore inode headroom. A generic "kill a Pod" rule would be easy to implement but weak; the useful policy is resource-specific.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The kubelet samples eviction signals at its monitoring interval. Memory pressure uses a calculation of memory available to the node and cgroup hierarchy rather than a naive host-level free-memory number. Filesystem signals are separated by layout: nodefs for the main node filesystem, imagefs for image layers when separated, and containerfs for writable container layers in runtimes and Kubernetes versions that support the split. Inodes have their own signals because a filesystem can have bytes free but no file entries left.',
+        'Each signal is compared with configured thresholds. A hard threshold means the kubelet acts immediately when the measured value crosses the line. A soft threshold means the signal must stay bad for a grace period before eviction. This distinction matters because short spikes and sustained starvation should not be treated the same way.',
+        'Before evicting end-user Pods, the kubelet tries node-level reclaim. For disk pressure, that may mean garbage collecting dead Pods and containers or deleting unused images, depending on which filesystem is pressured. This is the cheapest path because it can restore headroom without terminating live application work.',
+        'If reclaim does not bring the signal below the threshold, the kubelet chooses victim Pods. Kubernetes documentation describes the ordering in terms of whether usage exceeds requests, Pod priority, and usage relative to requests. QoS class is often a useful summary because it is derived from requests and limits, but the documentation is explicit that QoS class itself is not the direct sorting key for all resources. For inodes and PIDs, there are no requests, so relative priority dominates.',
+        'An evicted Pod is terminated and reported as Failed. A controller such as a Deployment, ReplicaSet, StatefulSet, Job, or DaemonSet may create replacement work. That replacement returns to normal scheduling; it is not guaranteed to land on the same node, and it still has to pull images, start containers, and pass readiness before capacity returns.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is not a mathematical proof of optimal placement. It is a survival invariant. At every stage, the kubelet must either recover the resource directly or remove work according to a ranking that is tied to the resource under pressure. If it cannot do either, the node remains at risk and may fall back to lower-level operating-system failure.',
+        'Requests make the ranking more defensible. A Pod that uses much more than it requested has consumed unreserved headroom. Under pressure, evicting that Pod preserves the expectation that workloads closer to their requests should be safer. Priority adds a second ordering signal: critical workloads should survive before low-priority batch work when both contribute to pressure.',
+        'The reclaim-before-evict rule is what keeps the policy from being needlessly destructive. If deleting unused images restores imagefs headroom, no live Pod needs to die. If dead container logs or writable layers can be garbage collected, eviction can be avoided. Eviction is the last local mechanism before arbitrary resource failure, not the first cleanup tool.',
+        'The control-plane handoff also matters. Marking the Pod Failed gives higher-level controllers a clear event to react to. A silent process kill would leave more ambiguity. Kubernetes cannot promise that the replacement is instant, but it can keep the workload controller model intact after the local node decision.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Consider a node with a separate imagefs. A deployment wave has pulled many large images. Some old images are unused, but several running Pods still reference large image layers. The kubelet samples imagefs.available and sees it below the hard threshold. The node can still serve existing traffic, but new image pulls are at risk and the node is close to disk starvation.',
+        'The kubelet first deletes unused images. If the signal returns above threshold, the incident ends without Pod eviction. If the signal stays bad, the kubelet must rank Pods whose removal can reduce the pressure. The exact ranking depends on the filesystem layout. With imagefs and containerfs split, image storage and writable layer pressure are treated differently because they reclaim different bytes.',
+        'Suppose a low-priority batch Pod has a large writable layer and weak requests, while a high-priority service Pod is close to its request. Under the documented ranking, the batch Pod is a better victim. The kubelet terminates it, records an eviction event, marks the Pod Failed, and the owning Job can retry later. The service keeps running, and the node has a chance to recover before image pulls or daemons fail.',
+        'The root cause is still not solved by the eviction itself. The durable fix may be image garbage collection settings, disk sizing, ephemeral-storage requests and limits, namespace quotas, log rotation, admission controls for large images, or moving batch work to nodes with different risk tolerance.',
+      ],
+    },
+    {
+      heading: 'Animation focus',
+      paragraphs: [
+        'The signal-ladder view shows the kubelet as a local controller. The useful thing to notice is the order of responsibility: observe memory, disk, and inode signals; compare those signals with policy; try reclaim; then rank victims only if the signal still threatens the node.',
+        'The eviction-choice view shows that victim selection is not a moral judgment about an application. It is a constrained local decision. A Pod becomes a good victim when removing it is likely to relieve the breached resource while preserving higher-priority or better-reserved work.',
+        'The replacement nodes in the diagram are deliberately separated from eviction. Kubelet evicts locally; workload controllers and the scheduler handle replacement globally. Confusing those two loops leads to bad debugging. The kubelet can create the failure signal, but it cannot promise that cluster capacity, image pulls, readiness, and placement will all succeed immediately afterward.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The steady-state monitoring cost is small: each kubelet samples local signals and updates node conditions. The incident cost is much larger. Eviction can terminate useful work, lose warm caches, drop in-flight requests, trigger retries, start image pulls, and create a burst of scheduling and controller activity.',
+        'Soft thresholds trade responsiveness for stability. They avoid killing Pods for short-lived spikes, but they can wait too long if pressure rises quickly. Hard thresholds trade stability for survival. They can protect the node quickly, but they can also shorten application grace and surprise operators who expected a gentler failure path.',
+        'Minimum reclaim settings change how aggressively the kubelet tries to move away from the threshold. Without enough reclaim margin, the node can oscillate: reclaim a little, cross the threshold again, evict another Pod, and repeat. With too much margin, the kubelet may remove more work than needed during a brief incident.',
+        'The ranking quality depends on honest resource modeling. If many Pods omit realistic requests, the kubelet has less information. If everything is high priority, priority no longer separates critical work from expendable work. If system-reserved and kube-reserved are too small, node daemons can create pressure that application Pods then pay for.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Node-pressure eviction is the right tool when local scarcity is real and immediate. Memory pressure, imagefs exhaustion, nodefs exhaustion, containerfs exhaustion, inode starvation, and PID starvation are not abstract cluster states. They are local conditions that can break the node before a central scheduler loop can repair anything.',
+        'It is especially useful in mixed clusters that run services, batch jobs, controllers, and DaemonSets together. Priority and requests let operators express which work should survive first. Batch work can be retried; critical node services and user-facing replicas often deserve stronger protection.',
+        'It also creates a useful incident ledger. A good event trail can show the signal, threshold, reclaim attempt, selected Pod, and replacement path. That turns "the node killed my Pod" into a more precise question: which resource crossed policy, why was reclaim insufficient, and why did this Pod rank as the best victim?',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Eviction is not capacity planning. If image storage is always near full, if logs are unbounded, if ephemeral-storage requests are absent, or if nodes are undersized, kubelet will keep choosing victims. The incident may look automatic, but the system is still spending application availability to cover a design gap.',
+        'Eviction is not a voluntary disruption workflow. A PodDisruptionBudget can protect against many API-initiated evictions, but it cannot veto unavoidable local node pressure. That surprises teams that treat PDBs as a universal availability shield.',
+        'Eviction can also fail to act before the operating system does. Kubernetes documents that rapid memory growth can outrun the kubelet polling loop, causing the OOM killer to respond first. In that case, a container may be killed and restarted according to restartPolicy instead of the whole Pod being evicted through the kubelet policy path.',
+        'The hardest failure mode is misleading safety. A high-priority Pod can still be evicted if the node must preserve itself and no better victim remains. A Guaranteed Pod is strongly protected against another Pod consuming memory, but it is not protected from every possible node-level pressure source, daemon misreservation, PID starvation, or hardware failure.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Kubernetes Priority and Preemption Nomination for scheduler-side scarcity, Kubernetes PodDisruptionBudget Eviction Budget for voluntary eviction, Kubernetes ResourceQuota and LimitRange Admission for namespace limits, Linux Page Cache XArray and Linux Working Set Refault Reclaim for lower-level memory pressure, and Load Shedding for the general survival pattern.',
+        'Study Kubernetes Priority and Preemption for scheduler-side scarcity, PodDisruptionBudget for voluntary eviction, ResourceQuota and LimitRange for namespace admission controls, kube-reserved and system-reserved for node-daemon headroom, and Linux memory reclaim for the lower-level mechanism underneath memory pressure.',
+        'For the broader pattern, compare node-pressure eviction with load shedding, circuit breakers, backpressure, and admission control. All of them choose controlled loss before uncontrolled failure. The difference is the resource boundary: Kubernetes node-pressure eviction protects one worker node, while the others usually protect a service, queue, or request path.',
       ],
     },
   ],

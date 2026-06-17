@@ -110,6 +110,20 @@ export const article = {
       ],
     },
     {
+      heading: `The obvious approach`,
+      paragraphs: [
+        `The obvious web architecture is to put the origin in one region and send every browser there. That is simple to reason about, but it makes every user pay the network distance to the origin. It also concentrates traffic, TLS handshakes, connection churn, image requests, video segments, and static assets on the same origin fleet that may already be doing database-backed work.`,
+        `Another obvious answer is "just add more origin servers." That helps capacity but not geography. A user far from the origin still pays the round trip. CDNs solve a different problem: move cacheable bytes close to users and let the origin handle misses, dynamic work, and refreshes rather than every repeat request.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `The core insight is that many web responses are reusable if the cache key and freshness rules are correct. A JavaScript bundle with a content hash, an image, a font, or a video segment can be served to many users from the same nearby edge. The origin produces or stores the object once; the edge repeats delivery where latency is low.`,
+        `The hard part is deciding when two requests are the same. URL, method, query string, Vary headers, cookies, authorization, device class, language, and cache-control policy can all change the cache key. A CDN is a distributed key-value store with freshness rules, not a magic speed layer.`,
+      ],
+    },
+    {
       heading: `How it works`,
       paragraphs: [
         `Step 1 is DNS steering. GeoDNS can return the Mumbai edge to one user and Frankfurt to another. Inside an edge cluster, Consistent Hashing can choose which cache machine owns a URL. The cache behaves like an LRU Cache for hot objects. A hit in the demo is served in about 20 ms, and the Virginia origin never sees the request.`,
@@ -117,22 +131,39 @@ export const article = {
       ],
     },
     {
+      heading: `What the visual is proving`,
+      paragraphs: [
+        `Read the request path as a sequence of cache decisions: browser cache, edge cache, shield or regional cache, then origin. Each miss moves the request closer to the expensive system; each hit saves latency, bandwidth, and origin capacity. The hit path is valuable because the origin is absent.`,
+        `The miss path is just as important. The first user pays the long trip, but the edge stores the response under a cache key and freshness policy. The next local user receives the object nearby. That is the fill pattern behind the business value of a CDN: one slow request can warm a city or region if the object is safely reusable.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `CDNs work because web traffic is skewed. A small fraction of objects often accounts for a large fraction of requests. Popular bundles, images, fonts, map tiles, and video segments can be reused many times. Putting those objects near users removes origin latency from the common path and reduces bandwidth pressure on the origin.`,
+        `They also work because HTTP gives caches a contract. Cache-Control, ETag, Last-Modified, Vary, stale-while-revalidate, and surrogate keys let the origin describe freshness and variation. When those headers are precise, the edge can be aggressive without guessing. When those headers are sloppy, the edge must be conservative or risk serving the wrong data.`,
+      ],
+    },
+    {
       heading: `Cost and complexity`,
       paragraphs: [
         `The data-structure cost of a hit is tiny; the infrastructure cost is enormous: edge sites, storage, network contracts, monitoring, and purge systems. Hit ratio is the business metric. Static assets can reach very high hit rates; personalized or uncacheable responses may miss constantly. Tail Latency & p99 Thinking matters because users feel the misses and slow purges, not the average hit.`,
         `Invalidation is the hard part. When cat.jpg changes, every edge may hold the old copy until max-age expires or a purge propagates. Cache Invalidation & Versioning gives the safer pattern: version immutable files, use shorter TTLs for changeable data, and reserve emergency purges for mistakes.`,
+        `A mature CDN setup measures more than hit rate. It tracks origin offload, edge p50 and p99 latency, cache-fill latency, purge propagation time, shield hit rate, response-size distribution, error rates by region, and cache-key cardinality. A site can have a high global hit rate while one region or one content class is broken.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
         `Static sites, software downloads, images, video segments, fonts, and JavaScript bundles are CDN classics. Large platforms may run their own edge networks or use providers such as Cloudflare, Akamai, Fastly, or CloudFront. Personalized content can be cached only when the cache key includes the right variation, such as language, device class, or authorization scope; otherwise private data can leak. Service Workers & Offline-First uses similar strategy inside one browser, while a CDN does it for the planet.`,
+        `A useful pattern is immutable assets plus short-lived HTML. Build artifacts get content-hashed filenames and long TTLs because changing the bytes changes the URL. HTML stays shorter-lived because it points to the current asset graph. That split gives high cacheability without making deploy rollback or security patches depend on waiting for old HTML to expire everywhere.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `A CDN is not magic. A miss still pays origin latency, database time, and the ocean crossing. If every response has max-age=0 or a unique cache key, the CDN becomes an expensive proxy. If you cache private responses without varying correctly, it becomes a security bug. If you deploy a security patch without purging or versioning, stale vulnerable code can keep serving until TTL expiry.`,
+        `The operational failures are usually boring and severe: a purge that does not reach every edge, an origin shield that stampedes, a Vary header that explodes the cache, a personalized response cached publicly, or a long TTL attached to mutable content. Good CDN design starts with classifying content by mutability and privacy before tuning performance.`,
       ],
     },
     {

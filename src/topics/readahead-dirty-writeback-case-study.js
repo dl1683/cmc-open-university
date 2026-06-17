@@ -199,42 +199,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Readahead and dirty writeback are the policy loops around the Linux page cache. Readahead speculatively fills future file folios so sequential reads avoid waiting on every page. Dirty writeback pushes modified cached folios to storage before memory pressure or durability demands make the dirty set dangerous.',
-        'Together they explain why buffered file I/O often feels much faster than storage: reads are predicted ahead, and writes are acknowledged into memory before the storage device has necessarily caught up.',
+        'Buffered file I/O sits between applications and storage. The application asks to read or write file offsets. The kernel page cache holds file-backed memory so repeated reads can hit RAM and writes can be batched before they reach the device.',
+        'Readahead and dirty writeback are the policy loops around that cache. Readahead asks which nearby file ranges should be fetched before demand arrives. Dirty writeback asks how long modified cached data may stay ahead of storage before background flushers, sync, or writer throttling force it out.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting wrong answer',
       paragraphs: [
-        'Readahead is triggered by a miss or by touching a folio marked as part of an earlier readahead request. The kernel reads future folios that are not already in the cache, trying to keep storage I/O ahead of the application cursor.',
-        'Dirty writeback tracks memory that has newer file data than storage. Background flusher threads start work at a lower dirty threshold. At a higher threshold, processes generating writes may be forced to participate in writeback, creating backpressure.',
+        'The simplest read policy is demand-only I/O: read exactly the requested page or folio when the application asks for it. The simplest write policy is immediate write-through: every modified range reaches storage before write returns. Both are easy to reason about.',
+        'They are too conservative for real machines. Sequential reads would wait one storage round trip per page even though the next offsets are predictable. Small buffered writes would become device-latency events instead of memory copies followed by efficient batched IO.',
+        'The opposite mistake is unbounded optimism. Prefetching far ahead can fill memory with pages nobody reads. Deferring every write can create a large crash window, memory pressure, and long stalls when the system finally has to clean dirty data.',
       ],
     },
     {
-      heading: 'Case study: the latency cliff',
+      heading: 'The wall',
       paragraphs: [
-        'A service that writes logs or checkpoints may run smoothly while dirty memory grows. Then the device slows, the dirty limit is reached, or fsync forces pending data forward. Latency jumps because work that looked deferred has become foreground. The structural fix is to bound dirty data, batch commits intentionally, and measure fsync/writeback latency rather than only write() latency.',
+        'The wall is latency hiding without lying about durability. A kernel wants sequential readers to find data already in memory, but it cannot know the future. It wants writers to return quickly, but it cannot let dirty memory grow forever or pretend write has the same durability promise as fsync.',
+        'The second wall is shared memory. Readahead and dirty pages compete with anonymous memory, executables, filesystem metadata, and other cached files. A policy that helps one streaming reader can evict useful pages for another workload. A policy that buffers one writer can throttle unrelated tasks when dirty limits are shared.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'Readahead spends memory and I/O bandwidth now to reduce future waiting. Dirty writeback spends crash window and memory pressure now to batch writes later. Both policies are feedback systems. Too little readahead leaves the CPU waiting for storage; too much pollutes memory. Too little dirty buffering wastes I/O opportunities; too much creates long stalls and durability surprises.',
+        'Keep the page cache as the common data structure, then add feedback loops. Readahead is speculative read scheduling based on observed access pattern. Dirty writeback is delayed write scheduling bounded by thresholds, age, memory pressure, and explicit sync operations.',
+        'The invariant for readahead is prediction must beat pollution. Growing the window is useful only while the application consumes nearby offsets. The invariant for writeback is dirty memory must remain bounded. A dirty folio is newer than storage; the kernel can batch it, but it cannot forget that it is debt.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Do not treat write() latency as durability latency. Buffered write() can be cheap because it dirties memory. fsync, writeback, or memory reclaim may pay the real bill later. Do not treat readahead as universally good either; random workloads can turn it into avoidable cache pollution.',
+        'A file mapping is indexed by file offset. Modern Linux describes cached file memory with folios, which may contain one or more pages. When an application reads a missing folio, the kernel can submit IO for that folio plus an ahead window. When a later access touches a folio marked as part of the previous readahead, that touch can trigger the next window.',
+        'The policy state is small but meaningful. Linux tracks readahead state for a file, including where the most recent window started, how large it was, how much was asynchronous, and what previous position was observed. Sequential evidence grows or maintains the window. Random jumps weaken the evidence and reset the guess.',
+        'For writes, the application copies data into cached file memory and the kernel marks the affected folios dirty. Later, writeback code walks dirty folios, submits writes through the filesystem and block layer, and clears dirty state after IO completes. Clean folios can remain cached for reads or be reclaimed under memory pressure.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Data structures',
       paragraphs: [
-        'Primary sources: Linux readahead docs in the memory-management API at https://docs.kernel.org/core-api/mm-api.html, VM dirty writeback sysctls at https://docs.kernel.org/admin-guide/sysctl/vm.html, VFS address_space docs at https://docs.kernel.org/filesystems/vfs.html, and readahead(2) at https://man7.org/linux/man-pages/man2/readahead.2.html. Study Linux Page Cache XArray, Linux Workingset Refault & Reclaim, Filesystem Extent Tree & Delayed Allocation, fsync Rename Crash Consistency, ext4 JBD2 Journal Modes, Write-Through vs Write-Back, Backpressure & Flow Control, LRU Cache, and Write-Ahead Log next.',
-        'PostgreSQL Buffer Pool Clock Sweep and PostgreSQL WAL Checkpoint & Recovery show the database-level version of the same pressure: dirty shared buffers, checkpoint writeback, eviction stalls, and recovery-time bounds.',
+        'The main structure is the page cache index for an address_space. It maps file offsets to cached folios and their state bits: uptodate, dirty, under writeback, readahead, locked, and related flags. The cache answers whether a file range is already resident and whether it can be reclaimed.',
+        'Readahead adds a per-file policy state and a window over future offsets. It does not change the meaning of the file. It only schedules extra reads into the same cache. The risk is that the guessed offsets are wrong and occupy memory that could have held useful data.',
+        'Dirty writeback adds queues and accounting. The kernel tracks dirty memory globally, per backing device, and in cgroup-aware paths. Thresholds such as dirty_background_bytes, dirty_bytes, dirty_background_ratio, and dirty_ratio decide when background writeback starts and when writers may have to slow down or participate in cleaning.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Readahead works when access has locality. A sequential scan of p0, p1, p2 gives evidence that p3 and p4 are likely. If storage can fetch those pages while the application processes current data, the next read becomes a memory hit instead of a device wait.',
+        'The policy is safe because it is speculative only in performance terms. Fetching an unused page wastes bandwidth and memory, but it does not change the application result. The correctness boundary remains the page cache: a read returns the bytes for the requested offset, whether they arrived by demand IO or earlier readahead.',
+        'Dirty writeback works because write and durability are different contracts. A successful buffered write means the kernel accepted the data into memory. Durability requires fsync, fdatasync, sync, filesystem journal rules, or later writeback completion. The policy can batch dirty folios as long as limits and explicit durability calls are honored.',
+      ],
+    },
+    {
+      heading: 'Threshold feedback',
+      paragraphs: [
+        'Dirty memory has two broad thresholds. The background threshold starts flusher activity while applications can often continue. The higher dirty threshold applies backpressure to writers so dirty memory does not grow without bound. Byte-based knobs and ratio-based knobs express the same idea in different units.',
+        'Age also matters. Dirty data that has been sitting too long becomes eligible for writeout even if the system is not at the highest dirty limit. Periodic writeback wakes up to move old dirty folios toward storage. Explicit sync calls bypass patience and force the foreground to wait for the requested durability boundary.',
+        'This makes write latency uneven. A stream of write calls may look cheap while the dirty set is below thresholds. The same workload can later stall when the dirty set crosses a limit, the backing device slows, reclaim needs clean pages, or fsync has to wait for hidden buffered work.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Readahead wins for sequential file scans, media streaming, backups, compaction jobs, database checkpoint reads, filesystem metadata walks, and mmap fault streams with predictable movement. It turns idle storage time into useful future reads.',
+        'Dirty writeback wins for small writes, append-heavy logs, build artifacts, checkpoints, package installs, and workloads where batching turns many small updates into fewer larger IOs. It lets applications proceed after copying to memory while the kernel chooses a better device schedule.',
+        'The shared lesson is that the page cache is not a passive map. It is a cache plus policy. Correct tuning depends on access pattern, memory pressure, device speed, filesystem behavior, and durability requirements.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Readahead fails on random reads, sparse access, competing streams, tight memory, and workloads where the next offset is not close to the previous offset. In those cases it can read data that is never used and evict data that would have been useful.',
+        'Dirty writeback fails when applications confuse write latency with durable persistence. A program that writes important data and never calls fsync may lose recently written bytes after a crash. The page cache improved apparent latency, not the durability contract.',
+        'It also fails operationally when dirty limits are too loose for the device. Fast writers can fill dirty memory faster than slow storage can clean it. The visible symptom is not only lower throughput; it is foreground stalls, reclaim waits, fsync latency cliffs, and noisy-neighbor effects in shared systems.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'For reads, watch cache hit rate, major page faults, readahead hits, wasted prefetch where available, read throughput, IO queue depth, and memory reclaim. A sequential job with low cache benefit may have disabled or ineffective readahead, wrong access hints, or competing memory pressure.',
+        'For writes, watch dirty pages, writeback pages, time spent in writeback, fsync latency, balance_dirty_pages stalls, backing-device congestion, cgroup writeback behavior, and reclaim waiting on writeback. These signals explain why write calls that were cheap a minute ago are now slow.',
+        'Tuning should start from the workload contract. A database with its own buffer pool and WAL durability path may use direct IO or careful fsync policy. A file-copy job may want large sequential throughput. A desktop workload may prefer responsiveness over long dirty bursts. One set of dirty knobs is not right for every machine.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study LRU Cache, Write Caching, Write-Ahead Log, PostgreSQL Buffer Pool Clock Sweep, PostgreSQL WAL Checkpoint Recovery, Backpressure, fsync crash consistency, filesystem extents, and block-device queues. These topics separate cache policy, durability policy, and storage scheduling.',
+        'Official sources: Linux memory-management API readahead documentation at https://docs.kernel.org/core-api/mm-api.html, VM dirty writeback sysctls at https://docs.kernel.org/admin-guide/sysctl/vm.html, VFS documentation at https://docs.kernel.org/filesystems/vfs.html, filesystem API summaries at https://docs.kernel.org/filesystems/api-summary.html, and readahead(2) at https://man7.org/linux/man-pages/man2/readahead.2.html.',
       ],
     },
   ],

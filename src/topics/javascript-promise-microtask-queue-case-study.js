@@ -234,42 +234,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Promise microtask queue is the high-priority follow-up lane in browser JavaScript. Promise reactions, queueMicrotask callbacks, and some platform callbacks run after the current JavaScript stack empties and before the browser advances to the next ordinary task.',
-        'This is the deeper version of The Event Loop page. The core idea is not just "promises beat timers." It is that the browser runs a microtask checkpoint, drains the microtask queue to empty, performs platform cleanup such as rejected-promise notification, and only then proceeds to rendering or another task.',
+        'JavaScript needs a way to finish same-turn cleanup after the current call stack but before timers, input callbacks, or rendering observe the next state. Promise reactions, queueMicrotask callbacks, MutationObserver delivery, and some platform cleanup use the microtask queue for that follow-up lane.',
+        'This is why promise handlers can run before a zero-delay timer. The useful idea is not speed. It is consistency: the platform gets a checkpoint where settled promises, mutation records, rejected-promise reporting, and small framework flushes can complete before the browser moves to the next ordinary task.',
+        'The danger is that a high-priority lane can become a starvation lane. If microtasks keep enqueuing more microtasks, the browser cannot proceed to the next task or render opportunity. The page can feel frozen even though no single callback is large.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first mistake is treating a microtask as a faster setTimeout. That model works for tiny ordering demos, then breaks as soon as code chains work through Promise.then and wonders why clicks, timers, and paint stopped moving.',
+        'A task yields the event loop after it finishes. A microtask checkpoint does not yield until the microtask queue is empty. Replacing chunked tasks with a self-refilling microtask chain removes the visible gap the browser needs for input and rendering.',
+        'Another shortcut is assuming async means off-thread. An async function continuation still runs on the JavaScript thread. If the continuation performs expensive work, it blocks input and rendering just like ordinary synchronous JavaScript.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The invariant is simple: after the stack empties, the browser keeps running the oldest queued microtask until the microtask queue is empty. If a running microtask queues another microtask, that new job joins the same drain before the next task.',
+        'That rule makes same-turn state reliable, but it also makes starvation possible. Total cost is the sum of every microtask in the checkpoint, not the cost of one callback. Long chains need an explicit yield through a task, requestAnimationFrame, scheduler.postTask where available, or a worker.',
+        'The decision is not "microtask or timeout" in the abstract. It is which boundary the work needs. Promise consistency wants a microtask. User input, rendering, and CPU-heavy chunks need a real yield.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A script starts on the stack. Promise.then schedules a reaction job once the promise is settled. setTimeout schedules a task. When the current stack unwinds, the event loop performs a checkpoint and runs all queued microtasks. If a microtask queues another microtask, the new one runs before the next task too.',
-        'The HTML Standard describes this explicitly: a checkpoint keeps dequeuing and running microtasks while the microtask queue is not empty. MDN highlights the two practical differences from tasks: checkpoints can run multiple times per event-loop iteration, and a self-refilling microtask queue can starve the event loop.',
+        'A task begins when the event loop runs script, a timer callback, an input callback, a network callback, or another task source. That task runs JavaScript until the stack is empty. During the task, promises can settle and queue reactions as microtasks.',
+        'At the microtask checkpoint, the runtime drains the microtask queue in FIFO order. Promise reactions and queueMicrotask callbacks run there. If one callback queues another microtask, the new callback is added to the same queue and runs before the browser advances.',
+        'Only after the checkpoint can the event loop move toward rendering or the next task. That is why a zero-delay timer waits behind a resolved Promise reaction. It is also why endless promise chains can starve timers, clicks, and frames.',
+        'The platform also uses the checkpoint for follow-up duties such as rejected-promise reporting and some cleanup work. Treat it as a phase in the event loop, not just a trivia answer about Promise ordering.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Microtasks are useful because they preserve same-turn consistency. A promise library can settle state, then run handlers before timers or input callbacks observe a half-updated world. MutationObserver can report DOM changes after a batch of synchronous mutations. Frameworks can flush small internal queues promptly.',
-        'The cost is starvation risk. A chain of microtasks can block input, timers, and rendering without any single callback looking expensive. Work that should let users see progress must eventually yield through a task, requestAnimationFrame, a scheduler API, or a worker.',
+        'Watch the task, stack, and microtask queue as separate lanes. Synchronous code runs first. Promise reactions wait until the stack unwinds. The timer may already be ready, but it cannot run until the checkpoint drains.',
+        'The starvation scene is the important one. Nothing in it is a single giant callback. The freeze comes from the invariant being obeyed too well: each microtask refills the queue before the browser can advance to a task or render opportunity.',
+        'The scheduling table proves that the right primitive depends on what you are protecting. Promise consistency belongs in the microtask lane. Visual writes belong near requestAnimationFrame. Long CPU work belongs in a worker or a bounded task scheduler.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Consider a data grid that applies 20,000 row updates. If every microtask processes one row and queues the next microtask, the UI may freeze because the checkpoint never empties. A better design processes a bounded batch, commits state, then schedules the next batch as a task or frame callback. The grid remains consistent at boundaries while clicks and paints get time.',
-        'If the row processing itself is CPU-heavy, Web Workers: A Second Thread is the stronger tool. If the result is a visual update, How a Browser Paints a Page explains why requestAnimationFrame is the right place to perform frame-bound DOM writes.',
+        'Microtasks work because they create a deterministic cleanup boundary. Libraries can batch state changes during a task, then flush after the call stack unwinds but before outside tasks observe partially updated state.',
+        'They also work because Promise continuation ordering becomes predictable. Code after a synchronous call finishes before then callbacks, and then callbacks finish before timers. That gives JavaScript a reliable way to settle async reactions without interrupting the current stack.',
+        'The same rule explains the failure mode. A tool that is ideal for small consistency work is harmful when used as an infinite or large work queue.',
+        'The model is small enough to use during code review. Ask which queue the callback enters, when the current stack unwinds, whether new callbacks join the same checkpoint, and where the browser gets a chance to paint or handle input.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Do not teach microtasks as simply "faster setTimeout." They have a different semantic role. They are for immediate consistency after the current stack, not for indefinite background work. Do not assume async means nonblocking: async functions resume through promise jobs and can still run expensive JavaScript when resumed.',
-        'Unhandled rejection timing is another subtlety. The platform waits until the checkpoint gives promise handlers a chance to attach before reporting unhandled rejections. That timing is one reason the checkpoint is a platform phase, not only a queue-ordering trick.',
+        'The cost is responsiveness risk. Microtasks have priority over tasks and rendering, so a long chain can block the very browser work that users care about. The code may be split into many small callbacks and still create one large checkpoint.',
+        'There is also observability complexity. A trace may show one task containing many promise reactions rather than one obvious long function. Debugging requires distinguishing a long callback from a self-refilling microtask chain.',
+        'The tradeoff is precision versus yielding. Microtasks give same-turn consistency. Tasks, rAF, postTask, idle callbacks, and workers give the browser room to process input, frames, and background work.',
+        'That tradeoff should be encoded in APIs. A helper named flushNow can reasonably use a microtask; a helper named processAllRows should probably include a task or worker boundary.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
+      paragraphs: [
+        'Use microtasks for short consistency work: promise continuation, cleanup after a synchronous mutation batch, internal framework flushes, and APIs that must run after the current stack but before outside observers see another task.',
+        'A data grid can use a microtask to settle one batch boundary, then schedule the next visible slice as a task or frame callback. That keeps state coherent without hiding all progress behind the checkpoint.',
+        'Frameworks use this idea to batch updates and avoid exposing half-finished internal state. The key word is short: microtasks are for completing a turn, not for doing the work of an entire feature.',
+        'It also fits error and rejection handling. Promise rejection reporting waits until the checkpoint can see whether a handler was attached, which is another example of same-turn cleanup needing a precise boundary.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Microtasks fail as a background-work scheduler. Applying 20,000 row updates by queuing one microtask per row can freeze the page because input and paint wait behind the same never-empty checkpoint. CPU-heavy work belongs in bounded tasks or a worker; visual DOM writes belong near requestAnimationFrame.',
+        'Async code is not automatically nonblocking. An async function resumes through promise jobs, and expensive JavaScript inside that continuation still occupies the main thread. Unhandled rejection timing is another reason to think of the checkpoint as a platform phase, not only queue trivia.',
+        'A practical review question is simple: does this chain have a guaranteed yield point? If not, it can starve the browser under larger inputs even when the demo looks fine.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MDN microtask guide at https://developer.mozilla.org/en-US/docs/Web/API/HTML_DOM_API/Microtask_guide, MDN queueMicrotask at https://developer.mozilla.org/en-US/docs/Web/API/Window/queueMicrotask, and the HTML Standard event loop processing model at https://html.spec.whatwg.org/multipage/webappapis.html. Study The Event Loop, Queue, Stack, Browser Scheduler postTask Priority Queue, requestIdleCallback Idle Deadline Queue, Async Context Propagation, How a Browser Paints a Page, Web Workers, Browser Message Channels & Broadcast Coordination, Backpressure & Flow Control, and React Fiber Scheduler Case Study next.',
       ],

@@ -195,37 +195,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Prometheus native histograms add a richer histogram sample type. Instead of exposing every classic bucket as a separate time series with an le label, a native histogram sample carries bucket populations, schema information, zero-bucket configuration, count, sum, and reset hints together.',
-        'The data-structure change is important. A native histogram is a compact sparse distribution object, not a bundle of scalar bucket counters. That lowers some cardinality pressure but requires histogram-aware ingestion, storage, remote write, rules, and queries.',
+        'Services are judged by distributions, not averages. A checkout API can have a fine mean latency while the slowest 1 percent of requests break the user experience. Observability systems need p90, p95, p99, and tail shape without storing every request.',
+        'Classic Prometheus histograms answer this with fixed buckets, but each bucket is a separate time series for every label set. More resolution means more series. Native histograms exist to keep the distribution as one richer histogram sample with bucket populations, count, sum, schema, zero-bucket information, and counter-reset context.',
+      ],
+    },
+    {
+      heading: 'The reasonable first attempt',
+      paragraphs: [
+        'The standard approach is a classic histogram: choose bucket boundaries, export cumulative counters with an le label, then use histogram_quantile over rates. It is simple, widely supported, and good enough when the important thresholds are known in advance.',
+        'Teams naturally add buckets when the first set is too coarse. That improves estimates near the new boundaries, but it multiplies ingest volume, storage, remote-write traffic, rule work, and dashboard query cost across every label combination.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'Classic buckets force an early guess about the future. If the service gets faster, slower, or more variable, the old buckets may put precision in the wrong place. If one route needs millisecond buckets and another needs second-scale buckets, a shared bucket layout wastes either accuracy or cost.',
+        'Native histograms hit a different wall: the whole pipeline must understand the richer sample type. Instrumentation, scraping, Prometheus ingestion, remote write, long-term storage, recording rules, alert queries, and dashboards all need to preserve histogram meaning.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A native histogram is a first-class distribution sample, not a bundle of scalar bucket counters. One time series can carry a count, sum, zero bucket, positive and negative bucket spans, and the schema that explains bucket boundaries.',
+        'The tradeoff moves from series explosion to sample complexity. Labels still create series, and populated buckets still cost bytes, but empty bucket runs do not need their own time series and query functions can operate on histogram samples directly.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the bucket-schema view, follow one observation as it becomes structure: schema chooses the bucket scale, sparse spans hold populated positive or negative runs, the zero bucket handles values near zero, and count plus sum preserve aggregate facts. The state changes matter because a native histogram is more than one float.',
+        'In the merge-query view, focus on compatibility. Matching schemas add cleanly. Different schemas, zero thresholds, reset hints, or downstream support force conversion, warnings, or loss. That is the production lesson: histogram samples are useful only when every hop keeps their interpretation intact.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Native histograms use bucket schemas to define bucket boundaries. They can store positive and negative bucket spans, which lets the encoding skip long runs of empty buckets. A zero bucket captures values near zero, where exponential bucket logic needs special handling. Count and sum keep the ordinary aggregate facts available.',
-        'Queries and aggregations must preserve the meaning of the buckets. Matching schemas are straightforward to add. Different schemas or zero thresholds require reconciliation, conversion, or warnings. Counter-style histograms also need reset handling so rate calculations do not silently invent or erase observations.',
+        'A schema defines how bucket indexes map to boundaries. Standard schemas are exponential, so buckets scale with magnitude. Positive and negative spans describe consecutive bucket runs, which lets the encoding skip empty areas. A zero bucket covers observations close to zero, where exponential indexing needs a special case.',
+        'PromQL sees native histogram samples as histogram values. Functions such as histogram_count, histogram_sum, histogram_avg, histogram_fraction, and histogram_quantile can operate on them. Aggregation has to preserve bucket meaning: identical schemas are easy, compatible schemas may be converted, and incompatible or reset-ambiguous cases can produce warnings or weaker results.',
       ],
     },
     {
-      heading: 'Complete case study: p95 latency rollout',
+      heading: 'Why it works',
       paragraphs: [
-        'An API team wants p95 latency by route, method, and status class. Classic histograms create one series per bucket per label set, so bucket count multiplies series cardinality. Native histograms keep the distribution in one sample per label set. The team enables instrumentation, Prometheus ingestion, remote-write support, recording rules, and dashboard functions that understand native histograms.',
-        'The payoff is more flexible resolution with fewer explicit bucket series. The risk is compatibility. If a remote backend drops native histograms, if rules use scalar-only functions, or if dashboards assume le buckets, the rollout can look successful at scrape time but fail at query time.',
+        'The representation works because many real distributions are sparse across a wide numeric range. A latency metric may need to represent microseconds through seconds, but any one scrape interval usually occupies only part of that range. Sparse spans store the occupied runs instead of a dense wall of empty buckets.',
+        'The query model works because quantile estimation needs bucket populations, not individual events. Native histograms keep those populations inside the sample, so the query engine can reason about count, sum, buckets, and histogram flavor together instead of reconstructing a distribution from many independent float series.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Worked example',
       paragraphs: [
-        'Native histograms do not make cardinality free. Labels still define series. A user_id label on a native histogram is still dangerous. Native histograms reduce bucket-series multiplication; they do not remove label economics.',
-        'Another trap is treating quantiles as exact. A histogram quantile is an estimate derived from bucket populations. Better bucket schemas can improve accuracy, but query output is still constrained by how observations were bucketed and merged.',
+        'An API team wants p95 latency by route, method, and status class. With a classic histogram, 20 buckets create 20 bucket series plus count and sum for every label set. If there are 300 label sets, that is 6,600 series before adding more buckets.',
+        'A native histogram keeps one histogram sample per label set, with the populated buckets inside the sample. The team still has 300 label-defined series, but it no longer pays one time series per bucket boundary. The migration is not finished until scrape config, remote write, storage, rules, dashboards, and alerts all read the native type correctly.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Primary sources: Prometheus native histogram specification at https://prometheus.io/docs/specs/native_histograms/ and Prometheus querying basics for native histograms at https://prometheus.io/docs/prometheus/latest/querying/basics/#notes-about-the-experimental-native-histograms. Study Prometheus TSDB Case Study, Metric Label Cardinality Control, Metric Exemplars Trace Correlation, OpenTelemetry Exponential Histogram Aggregation, DDSketch Relative-Error Quantiles, and SLO Error Budget Burn Rate Alert next.',
+        'Native histograms reduce bucket-series multiplication, but they do not make labels cheap. A route label with bounded values can be fine. A user_id, request_id, or raw URL label is still a cardinality incident.',
+        'Quantiles are still estimates from buckets. Schema choice, downscaling, sparse bucket population, merge behavior, and zero-bucket settings affect accuracy. The sample type gives the query engine more structure; it does not recreate the original observations.',
+        'A safe rollout keeps old and new metrics side by side for the alerts that matter. Compare p95 and p99 over real incidents, check remote-write behavior, and document which dashboards now consume histogram samples directly instead of classic bucket series.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'Native histograms fit latency, request size, payload size, queue wait, RPC duration, and other metrics whose values span orders of magnitude and whose tail behavior matters. They are strongest when the team wants useful quantiles without hand-picking a large explicit bucket layout for every metric.',
+        'They also fit migrations from coarse classic histograms where the main pain is bucket count, not label count. A side-by-side rollout can compare old and new queries before dashboards and alerts switch over.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'Native histograms are the wrong fix for unbounded labels. If a metric has user_id, session_id, or full path labels, moving from classic to native changes the bucket cost but leaves the core cardinality problem intact.',
+        'They are also a poor fit when precise custom bucket thresholds are the product requirement. A classic histogram with carefully chosen buckets around an SLO boundary may be easier to audit than a standard exponential schema, especially during a conservative alerting migration.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The common operational failures are partial support, silent conversion, remote-write drops, recording rules that expect float samples, dashboards still querying _bucket series, alerts comparing old and new quantiles without a dual-write window, and billing models that surprise teams by charging for populated buckets inside samples.',
+        'The common analytical failures are treating histogram_quantile as exact, ignoring merge warnings, mixing counter and gauge histograms, changing schemas midstream without understanding the effect, and comparing quantiles across jobs that used different instrumentation choices.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Prometheus native histogram specification at https://prometheus.io/docs/specs/native_histograms/, Prometheus histograms and summaries at https://prometheus.io/docs/practices/histograms/, and Prometheus querying basics at https://prometheus.io/docs/prometheus/latest/querying/basics/. Check current Prometheus configuration docs before a real migration because feature flags and defaults have changed across releases.',
+        'Study Prometheus TSDB Case Study for storage layout, Metric Label Cardinality Control for the real cost boundary, OpenTelemetry Exponential Histogram Aggregation for the related telemetry model, DDSketch Relative-Error Quantiles for sketch-based alternatives, and SLO Error Budget Burn Rate Alert for alerting on distribution-derived signals.',
       ],
     },
   ],

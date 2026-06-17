@@ -214,42 +214,117 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A merge-sort tree is a static range-query structure built on top of a segment tree. Instead of storing one aggregate at each node, every node stores a sorted catalog of all values in that interval. A query decomposes an index range into canonical segment-tree nodes, then uses Binary Search inside each selected catalog.',
-        'This topic connects Segment Tree & Lazy Propagation, Merge Sort, Binary Search, Fractional Cascading, and Wavelet Tree. The name is literal: the build process merges sorted child catalogs just like merge sort, but keeps every intermediate catalog as queryable data.',
+        'Some range questions are not about a single aggregate like sum or min. They ask about value ranks inside an index interval: how many values are <= x, what is the successor, or which values fall under a threshold.',
+        'A merge-sort tree exists for static range value queries. It adds sorted catalogs to segment-tree nodes so each canonical range can answer by binary search.',
+        'The structure is useful because many arrays have two meanings at once. The position may be time, document order, customer index, genomic coordinate, or row number. The value may be price, score, latency, size, or rank. A query such as "how many orders between days 20 and 80 were at most 50" is not just a range query over positions and not just a search over values. It is both at the same time.',
+        'A normal segment tree is excellent when every covered segment can be summarized by one value. Range sum stores a sum. Range min stores a minimum. Range counting under a threshold needs more information: it needs part of the value distribution inside each covered position interval. The merge-sort tree stores that distribution in the simplest useful form, a sorted list.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to scan arr[l..r] and count values. That is too slow across many queries.',
+        'A normal segment tree stores one compact aggregate per node. That works for sums or minima, but it cannot answer "how many values in this segment are <= x?" without more information.',
+        'Another obvious approach is to sort the whole array by value. That helps with thresholds but loses the ability to restrict by original position. You can find every value <= x, but then you still need to know which of those values fall between l and r. The problem is two-dimensional: one axis is array position, the other is value. Solving only one axis leaves the other expensive.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that the query has two axes: position range and value threshold. A single segment aggregate collapses away the distribution of values.',
+        'The second wall is updates. Sorted catalogs are easy to build once and annoying to maintain after arbitrary point changes.',
+        'The third wall is duplicates and boundary semantics. "Less than x", "less than or equal to x", "first value at least x", and "kth smallest" all sound similar but use different binary-search positions. A good implementation has to define those semantics exactly or it will be off by one around equal values.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Keep the segment-tree range decomposition, but store a sorted list at each node instead of one aggregate. The index dimension is handled by canonical nodes; the value dimension is handled by binary search inside catalogs.',
+        'The build is literally merge sort that keeps every intermediate merge result.',
+        'That is why the name is so good. A segment tree gives the node hierarchy over positions. Merge sort gives the sorted catalogs. During build, every internal node merges the sorted lists from its children. The root has the entire array sorted. A node covering [4, 7] has only those positions sorted. A leaf has one value. Every level preserves a different granularity of the same array.',
+      ],
+    },
+    {
+      heading: 'Reading the visualization',
+      paragraphs: [
+        `In the range-count view, the active nodes are the canonical segment-tree nodes that exactly cover the query interval. The query does not inspect every array position. It asks each selected node's sorted catalog how many values satisfy the threshold, then adds those independent counts.`,
+        `In the fractional-cascading view, watch the repeated search key x. Plain merge-sort trees binary-search x in every selected catalog. Fractional cascading adds bridge positions so one search can be carried forward, replacing many independent searches with one search plus local pointer moves.`,
+        `The important habit is to watch both filters. The tree traversal filters by position. The binary searches filter by value. If a node is not part of the canonical cover, its catalog is irrelevant even if it contains small values. If a node is selected, its catalog is searched without looking back at individual positions because the node already certifies the position interval.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Build the normal segment-tree shape over array positions. At a leaf, the catalog is the one value at that position. At an internal node, merge the sorted catalogs of its two children. Because the tree has O(log n) levels and every level stores n total values, the total memory is O(n log n).',
-        'To answer count of values <= x in range [l, r], decompose [l, r] into O(log n) disjoint nodes. For each node, binary-search its sorted catalog to count entries <= x. Add those counts. A range successor query is similar: search each selected catalog for the first value >= x, then take the minimum candidate.',
+        'Build the segment-tree shape over positions. A leaf catalog contains one value. An internal catalog is the sorted merge of its child catalogs. Each value appears once per tree level.',
+        'To answer count <= x in [l, r], decompose [l, r] into O(log n) canonical nodes. For each node, binary-search its catalog for the last value <= x and add the counts.',
+        'Successor queries use the same catalogs differently. For each canonical node, binary-search for the first value >= x. That gives one local candidate per node. The answer for the whole range is the minimum of those candidates. Predecessor queries search for the last value <= x and take the maximum local candidate. Range count in [a, b] is count <= b minus count < a.',
+        'Kth-smallest queries are possible, but they add another layer. One common method binary-searches over the value domain and asks the merge-sort tree how many values in [l, r] are <= mid. That costs an extra logarithmic factor over the value range or coordinate-compressed domain. A wavelet tree often serves kth and rank queries more directly, which is one reason this topic leads naturally into wavelet trees.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Build time is O(n log n) with straightforward merging. Space is O(n log n). A range counting query is O(log^2 n): O(log n) canonical nodes times O(log n) search per catalog. Fractional cascading can reduce repeated searches for the same key across related catalogs, trading more metadata and build complexity for faster queries.',
-        'Point updates are the weak spot. In a plain array-backed implementation, changing one value means removing and inserting it in O(log n) catalogs. That is awkward unless each catalog is a balanced multiset or the whole structure is rebuilt in batches.',
+        'It works because segment-tree decomposition gives disjoint position ranges, and sorted catalogs make threshold counts inside each position range logarithmic.',
+        'The query is a composition of two simple tools: canonical range cover plus binary search.',
+        'The counts add because the canonical nodes are disjoint. No array position appears in two selected nodes for the same query cover, so summing local catalog counts neither misses nor double-counts values.',
+        'The sorted catalogs are valid because each catalog contains exactly the multiset of values for its node range. Sorting changes order inside the catalog, but it does not change membership. The segment-tree node remembers the position interval; the catalog remembers the value multiset for that interval. That separation is the whole trick.',
+        'Duplicates are handled naturally if the binary search is chosen correctly. upper_bound(x) gives the number of values <= x. lower_bound(x) gives the number of values < x. The catalog may contain repeated values, and the insertion position accounts for all copies before the boundary.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'For array positions [2..6], the segment tree may decompose the interval into nodes [2..3], [4..5], and [6..6]. If the threshold is 5, search catalogs [2,5], [1,6], and [4]. Their local counts are 2, 1, and 1, so the answer is 4.',
+        'The sorted catalogs are what make the value threshold cheap. Without them, each selected node would still need to scan its values. With them, each selected node is just an upper_bound search.',
+        'For a successor example, use the same canonical nodes and ask for the first value at least 5. Catalog [2,5] returns 5, catalog [1,6] returns 6, and catalog [4] has no local successor. The range successor is the minimum available candidate, so the answer is 5. The position cover did not change; only the catalog operation changed.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Build time and space are O(n log n). A range counting query is O(log^2 n): O(log n) canonical nodes times O(log n) binary search. Fractional cascading can reduce repeated searches at the cost of extra metadata.',
+        'Point updates are the weak spot. Changing one value means updating catalogs along a root-to-leaf path. That requires balanced containers, rebuilds, or a different structure.',
+        'The O(n log n) space comes from value duplication across levels. Each original array value appears in one node per level of the segment tree. That is the price paid for fast static queries. If n is large and values are simple integers, a wavelet tree or compressed variant may be more memory efficient. If the array is moderate and the implementation needs to be obvious, merge-sort trees are often easier to build and audit.',
+        'Fractional cascading changes the query tradeoff. Plain queries perform independent binary searches in each selected catalog. With bridge metadata, the first search can guide later searches, reducing the repeated logarithmic factor for supported query patterns. The cost is a more complex build, more stored pointers, and harder updates. It is an optimization for stable catalogs with many queries, not a default requirement.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins for static snapshots with many value-threshold queries: order amounts by time, scores by index range, versioned metrics, and range successor questions.',
+        'It is often the easiest stepping stone toward wavelet trees because it makes the rank-in-range problem explicit.',
+        'It also wins in teaching and verification. The build is just a segment tree whose combine step is sorted merge, and the query is just range decomposition plus binary search. That transparency matters when a team needs a correct static index quickly and does not yet need the tighter memory model or richer operations of a wavelet tree.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when frequent updates matter, when memory is tight, or when a specialized Wavelet Tree gives cleaner rank/select/quantile operations.',
+        'It can also be overkill. Square-root decomposition may be easier for moderate n and custom block-local logic.',
+        'It can fail through bad value-domain assumptions. If kth queries binary-search over raw 64-bit values without coordinate compression, the value search can add unnecessary work. If floating-point values are involved, boundary and equality semantics need extra care. If the query wants top-k values rather than counts or successors, each catalog may need a different stored summary.',
+        'It is also not a general replacement for an ordered database index. A merge-sort tree is built over one fixed array order. If the position dimension changes because rows are inserted, deleted, resorted, or filtered by arbitrary predicates, the static tree no longer represents the query space. At that point the system may need a database index, a Fenwick tree of ordered sets, a persistent segment tree, or a rebuilt snapshot.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'Suppose an analytics dashboard has a static snapshot of customer order amounts and must answer thousands of questions like: how many orders between days 20 and 80 were at most $50? A Fenwick Tree can aggregate sums, but it cannot answer value-rank questions inside an index interval. A merge-sort tree stores the order values by time range and answers each count with catalog searches.',
-        'The same design also answers range successor: find the cheapest order at least $50 in a time window. The query visits canonical nodes for the time window, finds one successor candidate in each sorted catalog, and returns the smallest candidate. If that workload dominates and the snapshot is static, the structure is much cleaner than maintaining per-query scans.',
+        'An analytics dashboard has a static snapshot of customer order amounts and asks: how many orders between days 20 and 80 were at most $50? The merge-sort tree decomposes the day interval into canonical nodes and binary-searches each node catalog.',
+        'For range successor, it finds the first value >= $50 in each selected catalog and returns the smallest candidate. The same catalog structure supports both queries.',
+        'The operational rule is to rebuild on snapshot boundaries. If the dashboard ingests yesterday once, builds the tree, and serves thousands of exploratory queries, the structure fits. If orders update continuously and the dashboard demands second-by-second freshness, the maintenance cost may outweigh the query speed. The data lifecycle decides whether the static assumption is acceptable.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Implementation guidance',
       paragraphs: [
-        'A merge-sort tree is not just a Segment Tree & Lazy Propagation with a different merge function. Lazy propagation assumes each node stores a compact aggregate and tags can update whole intervals. Sorted catalogs are not compact under arbitrary value updates, so the dynamic story changes. Another trap is using it when a Wavelet Tree is the better static rank/select structure.',
-        'It is also not a replacement for Square-Root Decomposition Range Queries when implementation speed matters more than asymptotics. Square-root blocks are often easier to code for moderate n. Merge-sort trees are useful when static range value queries are central enough to justify O(n log n) space.',
+        'Start with coordinate and boundary definitions. Decide whether queries are zero-based or one-based, inclusive or half-open, and whether count thresholds use <, <=, >, or >=. Write helper functions with names such as countLessThan and countLessOrEqual rather than scattering raw lower_bound and upper_bound calls through the code.',
+        'Store catalogs as arrays when the structure is static. Arrays give compact memory, binary search, and good cache behavior. During build, merge child arrays into a new sorted array. Avoid repeatedly sorting from scratch at internal nodes; that loses the merge-sort structure and increases build cost.',
+        'Test with duplicates, all equal values, strictly increasing values, strictly decreasing values, empty query ranges if the API allows them, thresholds below the minimum and above the maximum, and ranges that align exactly with a node boundary. Most merge-sort tree bugs are not in the idea; they are in range decomposition and binary-search boundary handling.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Study next',
       paragraphs: [
         'Primary study links: CP-Algorithms Segment Tree notes cover sorted lists at nodes and fractional cascading at https://cp-algorithms.com/data_structures/segment_tree.html, Chazelle and Guibas introduce Fractional Cascading at https://www.cs.princeton.edu/~chazelle/pubs/FractionalCascading1.pdf, and MIT 6.851 range searching notes discuss nested range structures at https://courses.csail.mit.edu/6.851/spring10/scribe/lec03.pdf. Study Segment Tree & Lazy Propagation, Fractional Cascading, Wavelet Tree, Square-Root Decomposition Range Queries, and 2D Fenwick Tree & Coordinate Compression next.',
       ],

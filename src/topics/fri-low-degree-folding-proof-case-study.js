@@ -171,41 +171,101 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'FRI means Fast Reed-Solomon Interactive Oracle Proof of Proximity. It is a protocol for proving that a committed evaluation table is close to a low-degree polynomial, using repeated folding and random queries.',
-        'FRI is central to many STARK-style systems because it is transparent: it uses hash commitments and randomness rather than a trusted setup.',
+        "A STARK-style proof wants a verifier to trust a large computation without redoing it. The prover turns the computation into tables of field elements and algebraic constraints. The verifier cannot read the whole table, but it needs confidence that the committed data has the low-degree structure promised by the arithmetization.",
+        "FRI, the Fast Reed-Solomon Interactive Oracle Proof of Proximity, is the low-degree testing engine behind many transparent proof systems. It lets a prover commit to a large evaluation table and lets a verifier use random queries to test whether that table is close to evaluations of a low-degree polynomial. That is the bridge from a huge table to a small verification procedure.",
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The prover commits to a large evaluation table with a Merkle root. A verifier challenge defines a fold that combines even and odd parts into a smaller table. The prover commits to that smaller table, repeats the process, and ends with a tiny polynomial.',
-        'The verifier samples random positions and asks for values plus authentication paths across layers. The checks tie each opened value to a Merkle root and tie each layer to the next fold equation.',
+        "The direct method is to inspect the whole table. If the verifier sees every value, it can interpolate or run a complete low-degree check. That is a reasonable starting point because low-degree structure is a global property. You cannot prove it from one row in isolation.",
+        "The direct method defeats succinct verification. If the verifier does work proportional to the committed table, the proof has not compressed the computation. A second tempting shortcut is a Merkle root. A Merkle path proves that an opened value belongs to a committed table. It does not prove that the table is close to any low-degree polynomial.",
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'The wall',
       paragraphs: [
-        'A STARK proof for an execution trace first commits to trace-derived polynomial evaluations. FRI then proves those evaluations behave like low-degree polynomials. The verifier only opens a small number of random rows, but the commitments bind the prover to all rows.',
+        "The wall is testing a global algebraic claim with local openings. A malicious prover can commit to a table that looks plausible at many positions but is far from every low-degree codeword. The verifier needs a protocol that forces local checks to reflect global structure with high probability.",
+        "The prover must also be bound before the verifier chooses positions. If the prover could adapt the table after seeing the query, it could repair only the sampled rows. Commitments, random challenges, and transcript order are not ceremony. They are the mechanism that prevents an adaptive table from pretending to be low degree.",
       ],
     },
     {
-      heading: 'Why it matters',
+      heading: 'Core insight',
       paragraphs: [
-        'Low-degree testing is the bridge between a giant execution table and a small verifier. Without it, the verifier would have to inspect the whole trace. With FRI, the verifier checks a few authenticated positions and a final small polynomial.',
+        "FRI reduces one large low-degree claim into a sequence of smaller low-degree claims. A round splits the polynomial into even and odd parts, combines them with a random challenge, and produces a folded table over a smaller domain. If the original table came from a low-degree polynomial, the folded table should also match the corresponding lower-degree object.",
+        "After enough folds, the table becomes small enough to check directly. The verifier then samples positions across the layers. For each sampled position, the prover opens values and authentication paths, and the verifier checks that adjacent layers satisfy the fold relation. The protocol turns one expensive global check into many cheap consistency checks tied together by randomness.",
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'The Reed-Solomon view',
       paragraphs: [
-        'Do not confuse Merkle authentication with low-degree testing. Merkle paths only prove that values came from a committed table. FRI additionally checks that the committed table is close to a low-degree codeword.',
+        "A low-degree polynomial evaluated over a domain is a Reed-Solomon codeword. That codeword has distance: a table that is far from the code cannot be changed into a valid low-degree evaluation table without modifying many positions. FRI is a proof of proximity, so the verifier asks whether the committed table is close enough to that code.",
+        "This framing matters because the verifier usually does not need the polynomial itself. It needs assurance that the committed values are consistent with a low-degree polynomial. Once that is true, other parts of the proof system can rely on polynomial identities, quotient checks, and boundary constraints. FRI supplies the low-degree discipline those later checks need.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How folding works',
       paragraphs: [
-        'Primary sources: FRI paper PDF at https://drops.dagstuhl.de/storage/00lipics/lipics-vol107-icalp2018/LIPIcs.ICALP.2018.14/LIPIcs.ICALP.2018.14.pdf and RISC Zero FRI docs at https://dev.risczero.com/reference-docs/about-fri. Study Merkle Tree, KZG Polynomial Commitments, ZK-SNARK Arithmetization, and zkVM Execution Trace AIR next.',
+        "Conceptually, write a polynomial p(x) as p_even(x^2) + x p_odd(x^2). A verifier challenge alpha combines the even and odd pieces into a new polynomial, often described as p_even + alpha p_odd under the appropriate domain mapping. The new polynomial has lower degree, and its evaluation table is smaller.",
+        "The exact folding factor and domain choices vary by implementation. The teaching version halves the table because it exposes the invariant cleanly: each round reduces the problem size while preserving a checkable relation between old values and new values. Practical systems may fold by larger factors, but the logic is the same: commit to the next layer before later randomness is known.",
+      ],
+    },
+    {
+      heading: 'Commitments and queries',
+      paragraphs: [
+        "Each layer is committed, commonly with a Merkle tree. The root binds the prover to that layer. After the commitments are fixed, the verifier derives or samples query positions. The prover returns opened leaves and Merkle authentication paths for the relevant positions across the FRI layers.",
+        "A query packet has two jobs. First, it proves membership: these values are the ones under the previously committed roots. Second, it proves algebra: the opened values from one layer fold into the opened value in the next layer under the verifier's challenge. Passing one query is not enough. Passing enough independent queries makes a far-from-low-degree table unlikely to survive.",
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        "Low-degree polynomials are rigid. If two low-degree polynomials agree at many points, they are heavily constrained. If a table is far from every low-degree polynomial, random folding and random openings make it hard to keep satisfying the layer relations. The prover can get lucky on a few samples, but each query applies pressure to a different part of the committed structure.",
+        "The soundness is probabilistic and parameterized. Domain size, code rate, blowup factor, folding schedule, number of queries, hash security, and Fiat-Shamir transcript discipline all matter. FRI does not say that one sampled row proves the table. It says that enough committed folding rounds and enough random queries make cheating probability small under the chosen parameters.",
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        "FRI gives a verifier far less work than scanning the whole table. The original paper frames FRI as a Reed-Solomon proximity test with linear prover work and logarithmic verifier arithmetic in the domain size, under its model and parameters. Practical STARK systems also pay for hashing, Merkle paths, transcript operations, field arithmetic, and proof serialization.",
+        "The proof-size tax is real. Hash-based transparency avoids a trusted setup and pairing assumptions, but Merkle authentication paths and multiple query rounds use bytes. KZG-style polynomial commitments can give smaller openings under different assumptions and setup requirements. FRI is attractive when transparent setup and scalable proving matter more than minimizing every proof byte.",
+      ],
+    },
+    {
+      heading: 'Worked case study',
+      paragraphs: [
+        "A zkVM prover runs a program and records a machine trace: program counters, registers, memory events, opcodes, and helper columns. The arithmetization turns transition rules and boundary conditions into polynomial constraints over evaluation domains. The prover commits to the relevant evaluation tables.",
+        "FRI enters after those commitments. The prover folds the low-degree claim through several committed layers. The verifier samples positions, checks Merkle paths, checks fold equations, and finally checks the last small polynomial. The verifier never reads the full machine trace, but it gains confidence that the committed polynomial data has the low-degree structure required by the proof.",
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        "FRI is a strong fit for transparent STARK systems, zkVMs, rollup provers, and proof systems where avoiding a trusted setup is a major design goal. It pairs naturally with hash commitments and random-oracle transcript challenges. It also teaches a central proof-system idea: commitments bind large data, randomness chooses pressure points, and algebraic structure lets small checks say something global.",
+        "It wins educationally because it separates two concerns that beginners often mix. Merkle trees authenticate openings. Low-degree tests establish algebraic structure. A STARK verifier needs both. Authentication alone only says the prover opened the committed row; FRI says the committed table behaves like a low-degree codeword with high probability.",
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "FRI is not a magic proof of arbitrary computation. It proves proximity to low-degree structure inside a larger proof system. If the arithmetization is wrong, if the public statement is bound incorrectly, or if the transcript omits a commitment, a valid FRI check can still support the wrong claim.",
+        "Common implementation mistakes include deriving challenges before commitments are fixed, using too few queries, mixing domains incorrectly, forgetting paired openings needed by the fold relation, underestimating proof bytes, treating hash collision resistance as a side issue, and comparing proof systems only by verifier time while hiding prover memory and serialization cost.",
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        "Keep the transcript order explicit. Every commitment that a challenge depends on must be absorbed before that challenge is derived. Keep domain definitions, cosets, field choices, folding factors, and query indexes typed or otherwise hard to mix. Most FRI bugs are not arithmetic difficulty; they are boundary mistakes between layers.",
+        "Expose parameters in proof metadata. A verifier should know domain size, blowup factor, folding schedule, number of query rounds, hash function, field, final-degree threshold, and security target. A benchmark should report prover time, verifier time, proof size, peak memory, and any batching or recursion assumptions.",
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        "Primary sources: Fast Reed-Solomon Interactive Oracle Proofs of Proximity at https://drops.dagstuhl.de/entities/document/10.4230/LIPIcs.ICALP.2018.14 and RISC Zero's FRI docs at https://dev.risczero.com/reference-docs/about-fri.",
+        "Study Merkle Tree for authentication paths, Finite Fields for arithmetic, Reed-Solomon codes for the codeword view, ZK-SNARK Arithmetization for the constraint pipeline, zkVM Execution Trace AIR for the trace-to-polynomial bridge, and KZG Polynomial Commitments for a contrasting commitment family.",
       ],
     },
   ],

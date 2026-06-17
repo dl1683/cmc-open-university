@@ -213,50 +213,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'React Fiber is the data-structure rewrite behind modern React reconciliation. The older mental model was recursive tree diffing: call components, compare children, patch the DOM. Fiber turns that work into explicit records that can be scheduled. Each fiber stores identity, pending props, tree pointers, update lanes, effect flags, and a link to its alternate fiber.',
-        'Andrew Clark\'s React Fiber Architecture notes describe Fiber as a reimplementation of React\'s core algorithm whose headline feature is incremental rendering: splitting rendering work into chunks and spreading it over frames: https://github.com/acdlite/react-fiber-architecture. That makes Fiber a natural continuation after Virtual DOM Reconciliation.',
+        'React has to turn a changing component tree into host updates while keeping the interface responsive. A small page can reconcile recursively and patch the DOM immediately. A large application can receive typing, clicks, network data, Suspense reveals, and background transitions while a previous render is still expensive.',
+        'Fiber exists because the old call-stack-shaped renderer gave React too little control over time. Once a recursive render started, the browser could be blocked until the traversal finished. Fiber turns reconciliation into explicit units of work that React can prioritize, pause, resume, abandon, and finally commit.',
+        'The important data-structure shift is that UI identity and scheduler bookkeeping live in nodes. A fiber is not just a virtual DOM element. It is a work record with tree links, pending props, lanes, flags, state, and an alternate copy used to prepare the next tree.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive baseline and the wall',
+      paragraphs: [
+        'The naive baseline is recursive reconciliation: call a component, recurse into its children, diff the result against the previous tree, and keep going until the whole tree is done. That model is simple and matches how many developers first imagine rendering.',
+        'The wall is that the JavaScript call stack is not a good scheduler. It does not naturally remember a partially completed tree, attach priorities to subtrees, switch to urgent input, or throw away stale work. If rendering a large list takes too long, the user sees lag even if the final DOM diff is correct.',
+        'A framework can avoid some work through memoization and keys, but it still needs a representation that can survive interruption. Fiber supplies that representation.',
+      ],
+    },
+    {
+      heading: 'The core invariant',
+      paragraphs: [
+        'A fiber is both UI identity and schedulable work. The identity part lets React decide whether old state can be reused: type, key, position, and alternate fibers connect the previous committed tree to the next draft tree. The work part lets React store pending props, lanes, child links, return links, sibling links, and effect flags.',
+        'The scheduling invariant is: render work may be interrupted because it only prepares a draft tree, but commit work must be coherent because it mutates the host environment. React can pause while computing what should happen; it cannot leave the DOM half-committed as the visible truth.',
+        'Lanes preserve another invariant: updates with different urgency do not have to be treated as one indivisible blob. React can choose a set of lanes, render the work for those lanes, and leave lower-priority work for later.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the fiber-nodes view, follow the child, sibling, and return shape. The point is not that the displayed graph is a pretty component tree; the point is that traversal state has moved out of the JavaScript call stack and into heap objects React controls.',
+        'When current, work, and commit appear, read them as a double-buffering pattern. The current tree is what the user sees. The work-in-progress tree is the draft. The commit edge is the moment the draft becomes visible.',
+        'In the lanes-and-commit view, watch the fork between render and yield before commit. Yielding during render protects responsiveness. Committing synchronously protects consistency. The plot is showing time slicing, not reduced total work.',
+      ],
+    },
+    {
+      heading: 'Mechanics',
       paragraphs: [
         'A fiber tree represents the UI. Instead of only relying on the JavaScript call stack, each fiber points to its child, sibling, and return fiber. That makes the traversal resumable. React can begin work on a fiber, pause after a unit of work, yield to the browser, then continue later. The current tree represents what is committed on screen; the work-in-progress tree is the draft being prepared.',
-        'React documentation explains the user-facing render and commit phases: trigger a render, render components, then commit changes to the DOM: https://react.dev/learn/render-and-commit. Fiber is the internal structure that lets the render phase be interruptible while keeping the commit phase coherent.',
+        'During render, React walks fibers, calls components as needed, compares children, records flags, and builds or reuses the work-in-progress tree. Because the next tree is still a draft, React can stop after a unit of work and later continue from the stored fiber pointers.',
+        'During commit, React applies host mutations, refs, layout effects, and other visible changes. The commit phase is intentionally not treated like a long interruptible background job. Once React decides to publish the finished tree, the host environment must move from old UI to new UI consistently.',
       ],
     },
     {
       heading: 'Lanes and scheduling',
       paragraphs: [
-        'React lanes are priority buckets for updates. The React 18 working group describes lanes as bits in a bitmask; updates assigned to the same lane render in the same batch, while different lanes may be rendered separately: https://github.com/reactwg/react-18/discussions/27. This is a scheduling data structure, not just a naming scheme.',
-        'The practical effect is that urgent input can be handled differently from a lower-priority transition. React 18 introduced concurrent rendering as a foundation for Suspense, transitions, and streaming server rendering: https://legacy.reactjs.org/blog/2022/03/29/react-v18.html. Fiber and lanes provide the machinery that makes those features possible.',
+        'Lanes are priority buckets represented internally as bitmasks. An update enters a lane, the root tracks pending lanes, and React chooses which lanes to render based on urgency and scheduling policy.',
+        'The practical effect is that urgent input can be handled differently from a lower-priority transition. Typing into a field should not wait behind a large chart refresh if the chart update can be deferred. A click that changes visible state usually deserves faster service than idle background work.',
+        'Lanes also make batching explicit. Updates in compatible lanes can be rendered together. Work in lower-priority lanes can remain pending without losing the fact that it exists.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Correctness',
+      paragraphs: [
+        'Fiber is correct only if interruption cannot leak an impossible UI. React gets that property by separating render from commit. Render can compute, compare, allocate, and even be abandoned. Until commit runs, the current tree remains the visible truth.',
+        'State preservation depends on identity. If a new element matches an old fiber by type, key, and position rules, React can reuse the state carried by that fiber. If identity changes, React is allowed to remount and reset state. Keys are therefore part of the correctness model, not decorative list syntax.',
+        'The alternate tree model also prevents a half-finished render from corrupting the committed tree. Work-in-progress fibers can be prepared separately, then swapped into place only after the render is complete enough to commit.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
       paragraphs: [
         'Fiber does not make rendering free. It adds metadata, alternate trees, bookkeeping, scheduler decisions, and possible discarded work. Incremental rendering can improve responsiveness, but total work still matters. A large component tree that re-renders too often can still block or waste CPU if memoization, data flow, and component boundaries are poor.',
         'The commit phase remains sensitive. DOM mutation, layout effects, refs, and host updates must happen in a consistent batch. If commit work is huge, no scheduler can hide it completely. This is why Browser Rendering and The Event Loop still matter even when the framework has a sophisticated scheduler.',
+        'The model also increases implementation complexity. React must track pending lanes, child lanes, effect flags, alternates, update queues, suspended work, and retry paths. Application developers mostly see the benefits through transitions, Suspense, state preservation, and reduced input lag, but the internal machinery is substantial.',
       ],
     },
     {
-      heading: 'State identity case study',
+      heading: 'Worked example',
       paragraphs: [
-        'Fiber also clarifies why keys and positions matter. React keeps component state according to where a component appears in the tree, and keys/types can preserve or reset that state. The React docs on preserving and resetting state explain that state is tied to a position in the UI tree: https://react.dev/learn/preserving-and-resetting-state. A fiber is the concrete record that carries that identity through reconciliation.',
-        'That connects directly to the Virtual DOM page. Keys are not decorative list syntax; they control whether React can match old fibers to new elements. Stable identity preserves state. Different type or key means a different fiber identity and often a state reset.',
+        'Imagine a search page with a text input and a result list of ten thousand rows. The user types one more character. A recursive blocking renderer might start recomputing the whole result list and keep the browser busy long enough that the input feels sticky.',
+        'With Fiber, the input update can enter a high-priority lane while the expensive list refresh can be placed in a lower-priority transition lane. React renders the urgent work first, yields when appropriate, and keeps the current screen coherent until it can commit a finished update.',
+        'Now add keys. If each result row has a stable key, React can match old row fibers to new row fibers and preserve row-local state where appropriate. If keys are unstable, React may remount rows, throw away state, and do extra work. The scheduler cannot rescue bad identity.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins and fails',
       paragraphs: [
-        'Do not interpret Fiber as a public API. It is an implementation architecture, and details can change. The durable concepts are safer to learn than internal field names: explicit units of work, identity through keys and type, alternate trees, priority lanes, interruptible render, and synchronous commit. Also, concurrent rendering does not mean everything runs in parallel. It means React can prepare work in an interruptible way and choose when to commit it.',
+        'Fiber wins when UI work has mixed urgency: direct input, animations, Suspense reveals, data refreshes, transitions, and large trees that can be prepared in chunks. It gives React a place to store partial progress and a vocabulary for deciding what to do next.',
+        'It fails as a mental shortcut when people hear concurrent and assume parallel CPU execution. React concurrent rendering means interruptible preparation and prioritized commitment, not that every component runs on a separate thread.',
+        'It also cannot fix every slow application. Expensive render functions, unstable props, unnecessary context churn, layout-heavy effects, and huge synchronous commits can still dominate user experience.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: React Fiber Architecture at https://github.com/acdlite/react-fiber-architecture, React Render and Commit at https://react.dev/learn/render-and-commit, React state preservation docs at https://react.dev/learn/preserving-and-resetting-state, React 18 release notes at https://legacy.reactjs.org/blog/2022/03/29/react-v18.html, and React 18 lanes discussion at https://github.com/reactwg/react-18/discussions/27. Study Virtual DOM Reconciliation, React Suspense Resource Cache, Signals Reactivity Dependency Graph, UI State Machine Workflow, Tree Traversals, Linked List, Queue, The Event Loop, Browser Scheduler postTask Priority Queue, Browser Rendering, and Web Workers next.',
+        'Primary sources: React Fiber Architecture at https://github.com/acdlite/react-fiber-architecture, React Render and Commit at https://react.dev/learn/render-and-commit, React state preservation docs at https://react.dev/learn/preserving-and-resetting-state, React 18 release notes at https://legacy.reactjs.org/blog/2022/03/29/react-v18.html, and React 18 lanes discussion at https://github.com/reactwg/react-18/discussions/27.',
+        'Study Virtual DOM Reconciliation for the diffing baseline, Tree Traversals and Linked List for the pointer structure, Queue and Priority Queue for scheduling intuition, The Event Loop and Browser Rendering for responsiveness, React Suspense Resource Cache for deferred UI, Signals Reactivity Dependency Graph for a different update model, and Web Workers for real off-main-thread execution.',
       ],
     },
   ],

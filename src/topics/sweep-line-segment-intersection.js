@@ -206,23 +206,93 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: [
-      'Sweep-line segment intersection reports crossings among line segments by moving a conceptual vertical line left to right. Instead of testing every pair, it keeps only the active segments that currently cross the sweep line and checks neighboring active segments for future crossings.',
-      'The classic Bentley-Ottmann algorithm uses two main data structures: an event priority queue ordered by x coordinate, and a balanced search tree for active segment order along the sweep line.',
-    ] },
-    { heading: 'How it works', paragraphs: [
-      'Initialize the event queue with segment endpoints. When the sweep reaches a left endpoint, insert that segment into the status tree and check its immediate neighbors for intersections. When it reaches a right endpoint, remove the segment and check the newly adjacent neighbors. When it reaches a crossing, report it, swap the crossed segments in the status order, and schedule newly possible neighbor crossings.',
-      'The invariant is that active segment order changes only at endpoints and crossings. Between events, the order is stable. That is why the algorithm can search locally in the status tree rather than globally across all segment pairs.',
-    ] },
-    { heading: 'Cost and complexity', paragraphs: [
-      'With n segments and k reported intersections, the typical bound is O((n + k) log n) time and O(n + k) space, depending on event management and duplicate handling. If k is quadratic, the output is already quadratic.',
-      'Robustness dominates real implementations. Equal x coordinates, vertical segments, overlapping collinear segments, shared endpoints, and floating-point precision all need policy. A beautiful sweep can fail if event ordering is underspecified.',
-    ] },
-    { heading: 'Complete case study', paragraphs: [
-      'A GIS map overlay combines road segments and parcel boundaries. A brute-force pair test is wasteful when most segments are far apart. A sweep-line pass schedules endpoints, keeps only active nearby segments in order, and reports crossings for snapping, splitting, or topology validation. Degenerate cases such as shared parcel corners and nearly collinear road edges are handled explicitly.',
-    ] },
-    { heading: 'Sources and study next', paragraphs: [
-      'Sources: Bentley and Ottmann, "Algorithms for Reporting and Counting Geometric Intersections", IEEE Transactions on Computers 28, 643-647 (1979), reference listing at https://epubs.siam.org/doi/10.1137/0220029; York University Bentley-Ottmann overview, https://www.eecs.yorku.ca/~aaw/legacy/TristanCarvelho/SegmentIntersectionAlgorithm.html; and de Berg et al. computational geometry notes as summarized in https://en.wikipedia.org/wiki/Bentley%E2%80%93Ottmann_algorithm. Study Binary Heap, Red-Black Tree, Interval Tree, Convex Hull: Monotone Chain, and Delaunay Triangulation & Voronoi Dual next.',
-    ] },
+    {
+      heading: `Why This Exists`,
+      paragraphs: [
+        `Segment-intersection reporting shows up whenever a program must turn drawn or measured geometry into trustworthy topology. Map overlays, CAD validation, vector graphics cleanup, road networks, VLSI layouts, and planar graph checks all need to know which segment pairs meet.`,
+        `The important word is reporting. The algorithm is not merely asking whether one crossing exists; it must output every crossing. A sweep line is useful because many real drawings have far fewer intersections than segment pairs, so the running time should track the output instead of blindly charging for all pairs.`,
+      ],
+    },
+    {
+      heading: `Naive Baseline and Wall`,
+      paragraphs: [
+        `The baseline is all-pairs testing: for every pair of segments, run an orientation test and a bounding-box check. It is exact if the predicates are exact, easy to implement for small inputs, and a good way to test a more sophisticated implementation.`,
+        `The wall is pair explosion. With n segments there are n(n - 1) / 2 pairs, even when only a few segments are geometrically close. The missing idea is locality: as a vertical line moves left to right, only neighboring active segments can be the next pair to change order.`,
+      ],
+    },
+    {
+      heading: `Core Insight and Invariant`,
+      paragraphs: [
+        `Move a conceptual vertical sweep line through the plane. The event queue stores x-ordered endpoints and discovered intersections. The status tree stores only the segments currently crossing the sweep line, ordered by their y-coordinate at the current x.`,
+        `The invariant is that active vertical order changes only at events: a segment enters, leaves, or two adjacent segments cross. Between events, no segment endpoint or crossing is encountered, so the order is fixed. That makes neighbor checks sufficient after each status update.`,
+      ],
+    },
+    {
+      heading: 'What the views teach',
+      paragraphs: [
+        `In the event sweep view, read Q as future time and T as the live vertical order. Endpoint rows insert or remove a segment; intersection rows report a crossing and swap two neighbors. The highlighted neighbor pair is the only place a new crossing can become newly relevant.`,
+        `In the robust cases view, the table is not an implementation footnote. Same-x events, vertical segments, shared endpoints, collinear overlap, and many segments meeting at one point decide whether the textbook invariant survives real data. The animation's batch-at-one-point frame is the practical lesson.`,
+        `The graph is not saying that distant segments can never cross. It is saying they cannot be the next crossing while another active segment sits between them in sweep order. That is the algorithmic meaning of the status tree: it stores the current adjacency relation that makes future intersection tests local.`,
+      ],
+    },
+    {
+      heading: `Mechanics`,
+      paragraphs: [
+        `Initialize the event priority queue with all segment endpoints. Each event is ordered primarily by x, with tie-breaking rules for equal coordinates. The status tree compares segments by where they intersect the current sweep x, using robust orientation and intersection predicates rather than a casual floating-point y calculation when correctness matters.`,
+        `At a left endpoint, insert the segment into status order and test it against the predecessor and successor. At a right endpoint, remove it and test the new predecessor-successor pair. At an intersection event, report the point, swap the two crossed segments in the status tree, and test each against its new outside neighbor. A reported-event set prevents duplicate crossing events from being scheduled repeatedly.`,
+        `Many implementations store events by exact point and type, not just by x. Processing all segments that start, end, and cross at the same point as one batch avoids status orders that depend on arbitrary queue tie breaks. That batch step is where a classroom algorithm becomes a reliable geometry routine.`,
+      ],
+    },
+    {
+      heading: `Correctness`,
+      paragraphs: [
+        `The sweep invariant gives the proof. Suppose two segments are the next unreported pair to intersect. Just before their intersection, they must be adjacent in the active vertical order; if another active segment were between them, one of the pairs involving that middle segment would need to cross first to let the order change.`,
+        `Every event that can make a new adjacent pair is handled immediately: insertion creates two possible neighbor pairs, deletion creates one, and a crossing creates the pairs around the swapped segments. Therefore no future crossing between active segments is missed. Batching equal-location events extends the same argument to degeneracies instead of relying on arbitrary tie order.`,
+      ],
+    },
+    {
+      heading: `Cost and Tradeoffs`,
+      paragraphs: [
+        `With n segments and k reported intersections, the standard Bentley-Ottmann shape is O((n + k) log n) time: O(log n) for event-queue and status-tree updates, once per endpoint and reported crossing. Space is O(n + k) in the worst case if scheduled events and output are counted.`,
+        `The bound is output-sensitive, not magic. If almost every segment crosses almost every other segment, k is Theta(n^2) and the output is already quadratic. In production, the hardest costs are often exact predicates, event deduplication, tie handling, and representing overlapping collinear segments, which may be intervals rather than single points.`,
+        `The status comparator is a common source of bugs because it depends on the current sweep position. A balanced tree assumes its ordering is stable between updates. Change the sweep x only at event boundaries, and update the tree through the local swaps, inserts, and deletes that make the new order explicit.`,
+      ],
+    },
+    {
+      heading: `Worked Example`,
+      paragraphs: [
+        `Imagine three active segments in vertical order s1, s2, s3 at the current sweep x. If s1 and s3 geometrically intersect somewhere to the right, they still cannot be the next crossing while s2 lies between them. Some crossing or endpoint involving s2 must happen first to remove or reorder that middle segment.`,
+        `When the sweep reaches a left endpoint for a new segment s, the status tree finds the segments directly above and below s. Only those two pairs are tested. If s crosses the upper neighbor at x=8, that intersection is inserted into Q. When Q later pops x=8, the crossing is reported, s and the neighbor swap order, and only the two newly exposed outside pairs need new tests.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `Sweep-line intersection wins for sparse-to-moderate crossing workloads where exact reporting matters: GIS overlays, parcel and road topology checks, CAD validation, vector-graphics cleanup, VLSI layout verification, and computational-geometry pipelines.`,
+        `It also teaches a reusable pattern. A heap manages future events, an ordered tree stores the current frontier, and a local invariant turns a global all-pairs problem into a sequence of small neighbor checks.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `The clean textbook version usually assumes general position: no vertical ambiguity, no equal event coordinates, no overlapping collinear segments, and no many-way crossing. Real geometry cannot assume that. You need a documented policy for closed versus half-open segment endpoints, batch processing, exact or filtered predicates, and duplicate outputs.`,
+        `It is also the wrong tool when the goal is a quick approximate spatial filter or when updates are continuous. Spatial hashes, R-trees, or bounding-volume hierarchies may be better front ends if you only need broad-phase candidates rather than a complete exact intersection report.`,
+        `Floating-point coordinates make equality and orientation decisions fragile. If input comes from CAD, GIS, or layout tools, decide whether coordinates are rational, integer grid values, snapped tolerances, or exact predicates over original values. A silent epsilon rule can create missing intersections and invented intersections in the same dataset.`,
+      ],
+    },
+    {
+      heading: `Implementation Guidance`,
+      paragraphs: [
+        `Keep the brute-force all-pairs checker in the test suite for small random cases. Generate segments with shared endpoints, vertical lines, near-collinear triples, duplicate segments, and many-way crossings. A sweep-line implementation without degeneracy tests is usually correct only for the examples it was drawn with.`,
+        `Return structured output, not just a list of points. For each intersection, record the point or overlap interval, the participating segment ids, and whether the meeting is proper crossing, endpoint touch, or collinear overlap. Later graph-building stages need that classification to split edges correctly.`,
+      ],
+    },
+    {
+      heading: `Sources and Study Next`,
+      paragraphs: [
+        `Primary source: Bentley and Ottmann, "Algorithms for Reporting and Counting Geometric Intersections", IEEE Transactions on Computers 28, 643-647 (1979), reference listing at https://epubs.siam.org/doi/10.1137/0220029. Supporting overview: York University Bentley-Ottmann notes at https://www.eecs.yorku.ca/~aaw/legacy/TristanCarvelho/SegmentIntersectionAlgorithm.html.`,
+        `Study Binary Heap for event queues, Red-Black Tree for ordered status maintenance, orientation predicates for robust geometry, Interval Tree for one-dimensional overlap, Convex Hull: Monotone Chain for another sweep-like geometry algorithm, and Delaunay Triangulation & Voronoi Dual for a larger planar-geometry next step.`,
+      ],
+    },
   ],
 };

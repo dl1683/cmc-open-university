@@ -8,7 +8,7 @@ export const topic = {
   id: 'regression-discontinuity',
   title: 'Regression Discontinuity',
   category: 'Concepts',
-  summary: 'A deterministic cutoff manufactures a local experiment: fit a line on each side, read the gap at the threshold — the known +8 recovered exactly, live.',
+  summary: 'A deterministic cutoff manufactures a local experiment: fit a line on each side and read the gap at the threshold.',
   controls: [
     { id: 'view', label: 'View', type: 'select', options: ['the jump at the cutoff', 'bandwidth, bunching & fuzzy RD'], defaultValue: 'the jump at the cutoff' },
   ],
@@ -194,12 +194,18 @@ export function* run(input) {
   else throw new InputError('Pick a view.');
 }
 
-export const article = {
+const legacyArticle = {
   sections: [
     {
       heading: `What it is`,
       paragraphs: [
         `Regression discontinuity (RD) measures a causal effect when a sharp threshold divides treatment and control. The visualization: a scholarship rule (score ≥ 70). Assignment is deterministic, yet right at the line, a 69 and 70 are statistical twins — differing by one careless answer, not intent. Bureaucratic determinism becomes luck locally. The estimator: fit a line on each side and read the vertical jump where they meet.`,
+      ],
+    },
+    {
+      heading: `Legacy visual note`,
+      paragraphs: [
+        `Read the score axis as the running variable and the cutoff as the only place where treatment jumps. Away from the cutoff, score still captures ability and other confounders. Right at the cutoff, nearby units are treated as local twins. The two fitted lines remove smooth score trends and compare the predicted outcomes at the same threshold point. The invariant is continuity: anything other than treatment should move smoothly through the cutoff. The naive baseline is comparing all treated to all untreated, which mixes treatment with score. The failure views show the price: bandwidth controls bias versus variance, sorting breaks the twin argument, and fuzzy take-up turns the cutoff into an instrument.`,
       ],
     },
     {
@@ -235,3 +241,87 @@ export const article = {
   ],
 };
 
+export const article = {
+  sections: [
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Regression discontinuity exists for the common case where treatment is assigned by a rule instead of by a randomized trial. Scholarships start above a test score. Benefits begin at an age threshold. A policy applies when vote share crosses 50 percent. The assignment is deterministic, but the threshold can still create a local experiment.',
+        'The key is locality. A student at 69 and a student at 70 are usually much more similar than students at 50 and 95. If nobody can precisely manipulate which side of the cutoff they land on, then the tiny difference around the line is close to luck. Bureaucratic determinism becomes randomization at the margin.',
+        'Regression discontinuity is useful because it turns a visible rule into causal evidence. It does not claim treated and untreated groups are globally comparable. It claims the units just below and just above the cutoff are comparable enough that a jump in the outcome at the cutoff can be attributed to the treatment.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to compare everyone who received treatment with everyone who did not. In the scholarship example, that means comparing students above the score cutoff to students below it. That comparison is badly confounded because higher scores also proxy for preparation, income, school quality, motivation, and other traits that affect later outcomes.',
+        'Another tempting approach is to compare local means in a narrow window. That is better, but not automatically clean. Inside a finite window, the treated side still has slightly higher scores on average. If the outcome rises smoothly with score, a simple local mean comparison can still mix treatment with the running variable.',
+        'Regression discontinuity fixes that by modeling the smooth trend on each side and asking only about the vertical gap at the cutoff itself. The comparison is not average treated student versus average untreated student. It is the predicted treated and untreated outcome for the threshold student.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The core insight is discontinuity versus continuity. The treatment jumps at the cutoff. Confounders should not. Ability, family background, preparation, and motivation may all vary with score, but they should vary smoothly through the cutoff if students cannot sort precisely around the threshold.',
+        'That gives the design its identifying logic: if every non-treatment factor moves smoothly through the cutoff, then any sudden jump in the outcome at that exact point belongs to the treatment. Smooth causes create smooth outcome changes. A discontinuous treatment can create a discontinuous outcome change.',
+        'The estimate is local. RD estimates the effect for units near the cutoff, not for the whole population. A scholarship effect for threshold students may not equal the effect for very high-score or very low-score students. That limitation is not a weakness to hide; it is the honesty that makes the design credible.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The running variable is the assignment score. The cutoff is the threshold where treatment probability changes. In a sharp RD, treatment switches from no to yes at the cutoff. In a fuzzy RD, the cutoff only changes the probability of treatment, so the design becomes an instrumental-variables design at the threshold.',
+        'The standard estimator fits separate local regressions on each side of the cutoff and evaluates both at the cutoff. The difference between those two fitted values is the estimated jump. Local linear regression is common because it removes the smooth slope in the running variable while keeping the estimate focused near the threshold.',
+        'Bandwidth controls how much data around the cutoff is used. A wide bandwidth gives more observations and lower variance, but it can import curvature that a simple local line cannot model. A narrow bandwidth is more locally honest, but it has fewer observations and wider uncertainty. Credible RD work reports sensitivity across bandwidth choices rather than presenting one flattering window.',
+        'Fuzzy RD adds one more step. If crossing the threshold raises treatment take-up from 30 percent to 80 percent, the raw outcome jump is diluted by people whose treatment status did not change. Divide the outcome jump by the treatment-probability jump to estimate the effect for compliers near the cutoff.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The first view proves why the global comparison is junk. Recipients and non-recipients differ across the whole score range, so the naive difference mixes treatment with the smooth relationship between score and outcome.',
+        'The jump plot proves the RD logic. The outcome trend can slope upward on both sides. RD does not deny that score matters. It asks whether the outcome has an extra vertical jump exactly where the treatment rule changes. That gap is the signal.',
+        'The local-estimator table proves why fitting the slope matters. Even inside a narrow band, the just-above group can have slightly higher scores. Evaluating both fitted lines at the cutoff compares the same threshold point rather than two nearby but different score averages.',
+        'The bandwidth and density views prove the two major threats. Too wide a window can turn curvature into bias. Sorting around the cutoff breaks the local-randomization story. If units can manipulate their score or administrators can nudge borderline cases, the density of the running variable may show a pile-up on one side.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'RD works because it changes the causal question. Instead of asking whether all treated units are comparable to all untreated units, it asks whether units infinitesimally close to the cutoff are comparable. That smaller claim is often much more plausible.',
+        'It also works because its central threat leaves evidence. Sorting can show up as a discontinuity in the density of the running variable. If many people appear just above the threshold and too few just below it, the threshold may be manipulated. That does not prove every RD is valid, but it gives the design a visible diagnostic that many causal designs lack.',
+        'The design is strongest when the cutoff is known, mechanically applied, hard to manipulate precisely, and unrelated variables look smooth through the line. It is weaker when the threshold is anticipated, retakes are common, administrators can override borderline cases, or the rule changes many things at once.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The main tradeoff is bias versus variance. Wide windows use more data but risk modeling the wrong shape of the outcome curve. Narrow windows stay closer to the local experiment but may be noisy. Polynomial choices, bandwidth rules, clustered errors, and sensitivity checks matter because the design lives at a boundary.',
+        'The second tradeoff is credibility versus scope. RD can be very credible near the cutoff, but it estimates a local effect. If the policy question concerns people far from the threshold, the RD result may be only one piece of evidence.',
+        'The third tradeoff is interpretability in fuzzy designs. Fuzzy RD estimates the effect for compliers whose treatment status is changed by crossing the cutoff. That can be exactly the policy-relevant group, but it is not automatically the average effect for everyone eligible.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'RD is useful anywhere a rule draws an arbitrary line through a smooth population: exam scores, age thresholds, vote shares, income cutoffs, class-size rules, admissions indexes, benefit eligibility, geographic boundaries, and regulatory thresholds.',
+        'It is especially strong when the cutoff was chosen administratively rather than optimized around the outcome. A pension age, scholarship score, or narrow election threshold can create local comparison groups that are far more believable than a broad treated-versus-untreated comparison.',
+        'The method is also useful pedagogically because it shows how causal inference often works in practice: find where the world accidentally created a narrow comparison that resembles randomization, then state exactly which population that comparison can speak for.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The biggest failure is sorting. If people can retake, appeal, time behavior, misreport, or otherwise position themselves around the threshold, the just-above and just-below groups may no longer be comparable. Density tests and covariate smoothness checks are essential.',
+        'Another failure is a compound cutoff. If crossing the threshold changes several policies at once, the outcome jump cannot be attributed to one treatment without more structure. RD identifies the effect of the discontinuous bundle unless the bundle can be separated.',
+        'A third failure is overgeneralization. The estimate belongs near the threshold. Treating it as the effect for the whole population turns a careful local design into a broad claim the evidence did not support.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Instrumental Variables & Natural Experiments to see fuzzy RD as IV at a cutoff. Study Difference-in-Differences for another quasi-experimental design with a different identifying assumption. Study Causal Graphs, Confounding & Simpson\'s Paradox for why smooth confounders matter. Study A/B Testing & p-values to contrast designed randomization with threshold-based local randomization.',
+      ],
+    },
+  ],
+};

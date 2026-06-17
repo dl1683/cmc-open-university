@@ -1,6 +1,5 @@
-// Union-Find (disjoint sets): answer "are these two connected?" in nearly
-// O(1), by keeping every group as a shallow tree of parent pointers.
-// The engine inside Kruskal's MST and every connectivity check.
+// Union-Find (disjoint sets): answer "are these two connected?" in near
+// constant amortized time using parent pointers, union by size, and path compression.
 
 import { graphState, InputError } from '../core/state.js';
 
@@ -8,7 +7,7 @@ export const topic = {
   id: 'union-find',
   title: 'Union-Find (Disjoint Sets)',
   category: 'Data Structures',
-  summary: 'Merge groups and test connectivity in near-constant time — parent pointers plus two sly tricks.',
+  summary: 'Merge groups and test connectivity in near-constant time with parent pointers and two balancing tricks.',
   controls: [
     { id: 'compression', label: 'Path compression', type: 'select', options: ['on', 'off'], defaultValue: 'on' },
   ],
@@ -53,7 +52,7 @@ export function* run(input) {
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: `${N} elements, each alone in its own set — its own root. Union-Find answers exactly two requests: union(a, b) merges two groups; find(x) names the group, by walking parent pointers up to the ROOT. Same root = same group. Watch how cheap both stay.`,
+    explanation: `${N} elements start alone. Union-Find supports two operations: union(a, b) merges two groups, and find(x) returns the root that names x's group. Same root means same connected component.`,
   };
 
   for (const [a, b] of UNIONS) {
@@ -64,7 +63,7 @@ export function* run(input) {
     yield {
       state: snapshot(),
       highlight: { active: [...new Set([...pathA, ...pathB])].map((i) => `v${i}`) },
-      explanation: `union(${a}, ${b}): find both roots — ${a} leads to root ${ra}${pathA.length > 1 ? ` (${pathA.join('→')})` : ''}, ${b} leads to root ${rb}${pathB.length > 1 ? ` (${pathB.join('→')})` : ''}.`,
+      explanation: `union(${a}, ${b}) first finds roots. ${a} reaches ${ra}${pathA.length > 1 ? ` through ${pathA.join(' -> ')}` : ''}; ${b} reaches ${rb}${pathB.length > 1 ? ` through ${pathB.join(' -> ')}` : ''}. Only roots should be attached.`,
     };
     const [small, big] = size[ra] <= size[rb] ? [ra, rb] : [rb, ra];
     parent[small] = big;
@@ -72,18 +71,17 @@ export function* run(input) {
     yield {
       state: snapshot(),
       highlight: { active: [`pe${small}`], found: [`v${big}`] },
-      explanation: `Attach the SMALLER tree's root (${small}) under the larger's (${big}) — "union by size". This one rule keeps every tree's height logarithmic: a tree only gets deeper when it at least doubles in members.`,
-      invariant: 'Tree height grows only when a tree merges into one at least as large.',
+      explanation: `Attach the smaller root ${small} under the larger root ${big}. This is union by size: a tree only gets deeper when it joins a component at least as large as itself.`,
+      invariant: 'Tree height grows only when the component size at least doubles.',
     };
   }
 
-  // a deep find, with or without compression
   const probe = 1;
   const path = pathOf(probe);
   yield {
     state: snapshot(),
     highlight: { active: path.map((i) => `v${i}`) },
-    explanation: `find(${probe}): walk ${path.join(' → ')} — ${path.length - 1} hops to the root. ${compress ? 'Now the second trick, PATH COMPRESSION: on the way back, re-point every node on this path DIRECTLY at the root.' : 'Path compression is OFF — the path stays as long as it is, and repeated finds keep paying for it.'}`,
+    explanation: `find(${probe}) walks ${path.join(' -> ')} to the root. ${compress ? 'With path compression on, the return trip rewires every touched node directly to the root.' : 'With path compression off, repeated finds keep paying for the same path.'}`,
   };
   if (compress) {
     const root = path[path.length - 1];
@@ -91,64 +89,129 @@ export function* run(input) {
     yield {
       state: snapshot(),
       highlight: { found: [`v${root}`], active: path.slice(0, -1).map((i) => `pe${i}`) },
-      explanation: `Compressed: everything ${probe} touched now points straight at root ${root}. The NEXT find on any of these is one hop. Every find flattens the structure a little more — the data structure repairs itself as a side effect of being used.`,
+      explanation: `Compressed: every node touched by find(${probe}) now points straight at root ${root}. The data structure becomes flatter as a side effect of normal queries.`,
     };
   }
 
-  // the payoff: cycle detection
   const ta = 3;
   const tb = 6;
   yield {
     state: snapshot(),
     highlight: { compare: [`v${ta}`, `v${tb}`] },
-    explanation: `The classic payoff. Suppose elements are cities and we're adding roads one by one: should we build road (${ta}, ${tb})? Ask Union-Find: find(${ta}) = ${rootOf(ta)}, find(${tb}) = ${rootOf(tb)} — ${rootOf(ta) === rootOf(tb) ? 'SAME root: these cities are already connected, so this road would create a CYCLE. Skip it. That single check, run over edges sorted by cost, is Kruskal\'s minimum spanning tree algorithm in its entirety.' : 'different roots, safe to add.'}`,
+    explanation: `Cycle check: before adding road (${ta}, ${tb}), compare roots. find(${ta}) = ${rootOf(ta)} and find(${tb}) = ${rootOf(tb)}. ${rootOf(ta) === rootOf(tb) ? 'Same root means the road would connect a component to itself, creating a cycle. Kruskal skips it.' : 'Different roots means the road connects two components, so it is safe to add.'}`,
   };
 
   yield {
     state: snapshot(),
     highlight: {},
-    explanation: `With both tricks (union by size + path compression), m operations cost O(m·α(n)) where α is the inverse Ackermann function — at most 4 for any n that fits in this universe. Effectively constant time. This is how compilers group equivalent variables, how image editors flood-fill regions, how networks test connectivity, and how Kruskal builds cheapest networks. Two arrays and two tricks.`,
+    explanation: 'With union by size plus path compression, a long sequence of operations is effectively constant time per operation in practice. The structure is only two arrays, but the amortized behavior is strong enough for massive connectivity workloads.',
   };
 }
 
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this structure exists',
       paragraphs: [
-        `Union-Find, also called disjoint-set union, maintains a changing collection of groups. It supports two operations: find(x), which returns the representative root of x's group, and union(a, b), which merges two groups. The representation is deliberately small: a parent array says where each node points, and a size array says how large each root's tree is. The visualization starts with eight elements, then performs unions such as (0,1), (2,3), and (1,5) so you can watch separate sets become one component.`,
-        `This data structure is about connectivity, not distance. If two nodes have the same root, they are connected somehow. If roots differ, no known connection joins them yet. That is why Union-Find (Disjoint Sets) is the engine inside Kruskal's Minimum Spanning Tree: every candidate road asks one question, "would this edge connect two different groups, or close a cycle?"`,
+        `Union-Find exists for problems where objects keep merging into larger groups and the main question is whether two objects now belong to the same group. Roads connect towns, friendship links connect accounts, pixels connect regions, edges connect graph vertices, and compiler constraints connect type variables. The details differ, but the shape is the same: each new fact can only merge groups; it never splits one group back apart.`,
+        `That monotone setting is narrower than general graph reachability, and that is exactly why the data structure is so fast. It does not try to remember every road, every friendship edge, or every proof step. It remembers the partition induced by all accepted merge events. Once two elements are in the same component, most clients only need that fact, not the full route between them.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The baseline and the wall',
       paragraphs: [
-        `find(x) follows parent pointers until it reaches a root, where parent[root] equals root. union(a, b) first finds both roots. If they already match, the merge would do nothing. If they differ, union by size attaches the smaller tree's root under the larger one. A tree's height only grows when its component at least doubles, so union by size alone gives logarithmic height.`,
-        `Path compression is the second trick. During find, after walking from x up to the root, repoint every node on that path directly to the root. The demo's toggle shows the difference: with compression on, a later lookup over the same path becomes nearly flat. Together, union by size and path compression give amortized O(alpha(n)) operations, where alpha is the inverse Ackermann function. For any realistic n, alpha(n) is at most 4 or 5, which is effectively constant for Big-O Growth Rates at human scale.`,
+        `A simple baseline is to store the graph and run BFS or DFS every time someone asks whether two vertices are connected. That is correct, but it throws away the fact that past queries and past edges already established components. If there are many connectivity queries, the same regions of the graph get rediscovered again and again.`,
+        `Another baseline gives every element a component id and rewrites the id of every member when two components merge. Queries become cheap because ids can be compared directly, but a merge can be expensive. If a large component is rewritten many times, the total work becomes the bottleneck. Union-Find is the compromise: it keeps merges cheap, keeps queries cheap, and lets a small amount of pointer structure stand in for the component id.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The public contract',
       paragraphs: [
-        `For m operations on n elements, union by size plus path compression costs O(m alpha(n)) total time and O(n) space. With union by size but no compression, each operation is O(log n). Without these rules, a careless implementation can build a chain and make find O(n). Union-Find is faster than Graph BFS when you repeatedly ask connectivity questions after edges are added, but it cannot answer shortest paths; Dijkstra's Shortest Path and Binary Heap (Priority Queue) solve a different problem.`,
+        `The interface is deliberately small. find(x) returns a representative for the set containing x. union(a, b) merges the two sets if their representatives differ. connected(a, b) is just find(a) === find(b). Many libraries expose only those operations plus optional helpers such as size(x) or count().`,
+        `The representative is not a meaningful leader. It is a name chosen by the data structure, usually the root of a tree. Clients must not depend on a particular representative unless the implementation explicitly promises one. After more unions or path compression, the same component may be represented by a different root in some implementations, while the partition itself remains correct.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Core invariant',
       paragraphs: [
-        `Kruskal's Minimum Spanning Tree is the classic application, but the pattern appears anywhere equivalence classes grow over time. Compilers use related union structures for Unification Union-Find Type Constraints and alias analysis. Image processing can label connected components by unioning neighboring pixels. Percolation simulations union open grid cells to ask whether a path spans the system. Offline graph algorithms answer batches of connectivity queries quickly after sorting or grouping events. Hash Table often appears beside Union-Find when elements are names or objects rather than dense integer IDs.`,
+        `Union-Find represents each component as a rooted tree of parent pointers. For a root r, parent[r] equals r. For a non-root node x, parent[x] points to another node in the same component. Following parent pointers must eventually reach the root. The root is the representative returned by find.`,
+        `The key invariant is partition equivalence: two elements are in the same set if and only if following parent pointers from both elements reaches the same root. Every optimization must preserve that invariant. The tree shape is not the abstract answer; it is only the encoding of the answer. That distinction is why path compression can freely reshape trees without changing connectivity.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism',
       paragraphs: [
-        `The biggest pitfall is unioning nodes instead of roots. Always find both roots first, then attach one root to the other. Another misconception is that path compression instantly makes the whole forest flat. It only compresses paths touched by find; untouched branches remain as they were until queried. Also remember the limitation: Union-Find handles incremental connectivity. It does not naturally support deleting edges, and it does not know weights, routes, or counts inside a component unless you store extra metadata at roots.`,
+        `The parent array is the main storage. A second array, often called size or rank, is stored at roots and used to decide which tree should become the child during a merge. To run union(a, b), the implementation first finds rootA and rootB. If they are equal, the operation is a no-op because the elements are already connected. If they differ, one root becomes the parent of the other root.`,
+        `find(x) is the other half. It walks parent[x], parent[parent[x]], and so on until it reaches a root. With path compression, find then rewires every touched node directly to that root. In an iterative implementation, this can be done with one pass to discover the root and a second pass to rewrite the path. In a recursive implementation, the rewiring happens on the return from recursion.`,
+      ],
+    },
+    {
+      heading: 'Union by size and rank',
+      paragraphs: [
+        `If union always attaches the second root under the first root, an unlucky sequence can build a long chain. find then becomes linear in the number of elements. Union by size avoids that by attaching the smaller component under the larger component. Union by rank uses a height-like upper bound instead. Both rules keep trees shallow before compression has a chance to help.`,
+        `The doubling argument is the useful mental model. A node becomes one level deeper only when its current component is attached under a component at least as large. Each time that happens, the size of the node's component at least doubles. A component can double only logarithmically many times before it reaches n elements, so union by size alone prevents the worst chain behavior.`,
+      ],
+    },
+    {
+      heading: 'Path compression',
+      paragraphs: [
+        `Path compression is the repair step that makes repeated queries almost free. If find(1) walks 1 to 0 to 2 to 6, every node on that path is already known to be in the component rooted at 6. Repointing 1, 0, and 2 directly to 6 preserves the set and removes future intermediate hops.`,
+        `This is a rare optimization because it happens during a read-like operation. A find query asks for a representative, but the implementation mutates the internal forest while answering. That is safe in single-threaded code because the abstract partition does not change. In shared concurrent code, this detail matters because even queries write parent pointers and need the same memory-safety discipline as updates.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `Correctness comes from preserving the root equivalence invariant. A union only attaches one root under another root after both roots have been found. Every node in the losing tree already reached the losing root, and the losing root now reaches the winning root, so every node in both old components reaches the same new root. No outside component gets a pointer into this tree, so unrelated components stay unrelated.`,
+        `Path compression is correct for the same reason. Every node on a find path already reaches the root. Replacing its parent with that root gives it a shorter path to the same representative. The set of elements reaching each root does not change, so connected(a, b) gives the same answer before and after compression. Only later cost changes.`,
+      ],
+    },
+    {
+      heading: 'Cost model',
+      paragraphs: [
+        `With union by size or rank plus path compression, m operations on n elements take O(m alpha(n)) total time, where alpha(n) is the inverse Ackermann function. For realistic input sizes, alpha(n) is so small that people usually describe the operations as effectively constant time. The important word is amortized: a particular find can still walk several pointers, but that walk flattens the path for later operations.`,
+        `Space is O(n): one parent entry per element and one size or rank entry per root. If the client uses strings, object references, account ids, or coordinates, production code usually maps those labels to dense integer ids with a hash table and then uses arrays for the DSU itself. The dense arrays are compact, predictable, and fast in tight graph algorithms.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Suppose the stream says union(0, 1), union(2, 3), union(0, 2), and then asks whether 1 and 3 are connected. The first two unions create two two-element components. The third union compares the roots of 0 and 2, sees different representatives, and attaches one root under the other. Now find(1) and find(3) reach the same representative, so the query returns true.`,
+        `Kruskal's minimum spanning tree algorithm uses the same pattern as a cycle test. Sort edges by weight. For each edge (u, v), compare find(u) and find(v). If the roots differ, the edge connects two components and can be accepted. If the roots match, u and v are already connected by accepted edges, so adding this edge would create a cycle and must be skipped.`,
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        `Union-Find wins in incremental connectivity and equivalence-class problems: Kruskal MST, image connected-component labeling, percolation simulation, account merging, social cluster merging, duplicate detection, type unification, offline connectivity, and equation satisfiability. In all of these, the important event is that two names now mean the same group.`,
+        `It also works well as a helper inside larger algorithms. The DSU does not need to understand edge weights, user profiles, image colors, or type syntax. It only answers the group question quickly. That narrow contract is a strength because it lets the surrounding algorithm keep the domain logic while Union-Find handles the merge bookkeeping.`,
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        `Union-Find does not support ordinary online edge deletion. Once two components merge, the structure does not remember which specific edge made the merge possible or whether another path still exists after that edge disappears. Rollback DSU can handle some offline problems where operations are processed in a controlled order, but fully dynamic connectivity needs heavier structures.`,
+        `It also does not answer distance, shortest path, minimum cut, route reconstruction, neighbor listing, or "how are these connected?" Same root means connected and nothing more. If the application needs a path, cost, or explanation, it must keep another graph representation or use a different algorithm.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Attach roots, not arbitrary nodes. Update size or rank only at the winning root. Treat size stored at a non-root as stale unless your implementation deliberately maintains it. Make find total over the known element set, and decide how new labels are registered before union is called.`,
+        `Use an iterative find when the language has a small call stack or when hostile input could build tall trees before compression. Be explicit about indexing, because off-by-one bugs are common when problem statements number vertices from 1 but arrays are zero-based. In concurrent settings, either guard the DSU with synchronization or use a design that makes parent rewrites safe under the memory model.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `The visual model shows the parent-pointer forest, not the original graph. That is the right abstraction to watch. During each union, the important moment is when two roots are compared and one root becomes a child of the other. During find, the important moment is the walk up to the representative.`,
+        `Run the same sequence with compression disabled and then enabled. Without compression, old paths remain visible. With compression, a find query flattens the path it just used. The component membership stays the same across both views, which makes the central idea concrete: the tree shape is an implementation detail, while the partition is the answer.`,
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        `Study Kruskal's Minimum Spanning Tree next, because it uses this exact cycle check. Then compare Graph BFS and Dijkstra's Shortest Path: both explore graphs, but they answer reachability and shortest-path questions rather than dynamic grouping. Review Tree Traversals for parent-pointer intuition, Hash Table for mapping arbitrary labels to integer IDs, Binary Heap (Priority Queue) for the other graph-algorithm workhorse, and Unification Union-Find Type Constraints for the compiler use of equivalence classes.`,
+        `Study Kruskal's Minimum Spanning Tree next because it uses Union-Find as its cycle detector. Then compare Graph BFS and Dijkstra's Shortest Path for cases where reachability or route cost matters more than component membership. Review Tree Traversals for parent-pointer intuition, Hash Table for mapping arbitrary labels to ids, Binary Heap for the other classic graph-algorithm helper, and Unification Union-Find Type Constraints for compiler-style equivalence classes.`,
       ],
     },
   ],

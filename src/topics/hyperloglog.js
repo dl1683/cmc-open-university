@@ -185,42 +185,107 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `HyperLogLog is a probabilistic data structure for approximate cardinality: how many distinct users, IPs, URLs, tokens, products, or sessions did we see? It does not store the items. It stores a fixed number of tiny registers and estimates the distinct count from the most surprising hash patterns observed.`,
-        `The core intuition is rarity. In a random bit string, seeing one leading zero is common, two leading zeros is less common, and six leading zeros is rare. If a bucket ever sees a suffix with six leading zeros, that bucket is evidence that many distinct hashes have landed there. HyperLogLog spreads events across many buckets, then averages those rarity signals carefully.`,
+        'COUNT DISTINCT is expensive when the stream is huge, distributed, or privacy-sensitive. Exact sets store every distinct user, IP, URL, token, product, or session. HyperLogLog exists for the common analytics case where a small relative error is acceptable and the raw identities are too large to keep or move.',
+        'The practical problem is everywhere: daily active users, distinct search queries, unique IPs per service, distinct files touched by a job, or unique devices seen by a fraud system. Exact counts require keeping identity. HyperLogLog keeps a fixed-size statistical trace instead.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `Hash every item. Use the first p bits to choose one of m = 2^p registers. Use the remaining bits to compute a rank: one plus the number of leading zeros. Update that register with max(old, rank). At query time, combine all registers using a harmonic mean. Empty-register correction handles small cardinalities, while large systems use bias corrections and engineering refinements.`,
-        `The merge rule is the same as the update rule: max per register. If shard A and shard B use the same hash function and same register count, their union sketch is register[i] = max(A[i], B[i]). That property makes HyperLogLog ideal for distributed analytics, where raw identifiers may be too large, too private, or too expensive to move.`,
+        'The direct solution is a hash set of all seen identities. It is exact and can list members. It also grows with cardinality, duplicates require set lookups, and distributed union requires shipping or merging identity sets. Bitmaps help only when the id universe is bounded and reasonably dense.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'The wall',
       paragraphs: [
-        `Update is O(1), query is O(m), merge is O(m), and memory is O(m) regardless of stream size. The standard error is roughly 1.04 / sqrt(m), so increasing registers improves accuracy predictably. With 16,384 registers, typical relative error is under 1 percent. The tradeoff is information loss: the sketch estimates cardinality but cannot list members, delete arbitrary items, or prove membership.`,
+        'A sample of identities can miss rare groups, and a simple bitset of hashed buckets saturates. The wall is estimating how many distinct hashes landed without remembering which hashes they were.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'Core insight',
       paragraphs: [
-        `HyperLogLog appears in Redis, PostgreSQL extensions, Snowflake-style approximate distinct queries, stream processors, telemetry pipelines, ad-tech reporting, fraud monitoring, observability dashboards, and privacy-sensitive analytics. A Message Queues pipeline may sketch unique users per service per minute, merge sketches by region, and alert when distinct cardinality jumps.`,
-        `Compared with Count-Min Sketch, HyperLogLog estimates distinct count, not per-key frequency. Compared with Bloom Filter, it does not answer "have I seen x?" Compared with Roaring Bitmaps, it is much smaller but approximate and non-enumerable. These three pages form a useful triangle: approximate membership, approximate frequency, and approximate cardinality.`,
+        'Use rarity in random hashes. Seeing a suffix with many leading zeros is unlikely unless many distinct items have appeared. HyperLogLog spreads items across buckets, records the largest zero-run rank per bucket, and combines those bucket-level rarity signals.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'Reading the visualization',
       paragraphs: [
-        `Do not use HyperLogLog where exact identity matters: billing, permissions, deduplication that deletes data, or legal reporting. It is a measurement instrument, not a source of truth. Also keep hash seeds stable; merging sketches built with different hash functions is meaningless. Finally, tiny sketches are noisy. The toy animation uses eight registers so you can see every bucket, not because eight is a production configuration.`,
+        "In the register-updates view, read each register as the strongest rarity signal seen for one bucket. Duplicates do not matter because the same item hashes to the same bucket and rank; max does not move.",
+        "In the merge view, watch the union rule. Two sketches built with the same hash scheme merge by register-wise max. That is the whole distributed-systems trick: the merged sketch behaves like one sketch over the union stream without moving raw identities.",
       ],
     },
     {
-      heading: `Sources and study next`,
+      heading: 'How it works',
       paragraphs: [
-        `Primary source: Flajolet, Fusy, Gandouet, and Meunier, "HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm" at https://algo.inria.fr/flajolet/Publications/FlFuGaMe07.pdf. Study Count-Min Sketch, Bloom Filter, Roaring Bitmaps, Hash Table, Reservoir Sampling, and Message Queues to understand the sketching family inside production analytics.`,
+        'Hash every item. Use the first p bits to choose one of m = 2^p registers. Use the remaining bits to compute a rank: one plus the leading-zero count. Update the chosen register with max(old, rank). Query combines registers with a harmonic mean and small-range correction when many registers are still empty.',
+        'A long leading-zero run is rare. In a fair hash stream, about half the hashes start with 1, about a quarter start with 01, about an eighth start with 001, and so on. If one bucket has seen rank 10, the bucket probably received many distinct items. HyperLogLog collects that weak evidence across many buckets.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The maximum rank in a bucket is a noisy signal of how many distinct hashes reached that bucket. Splitting across many registers lowers variance, and the harmonic mean reduces the effect of extreme buckets. Merge works because union only needs the maximum rank seen per register.',
+        'The estimator assumes hash outputs behave like independent random bits. That assumption is why the hash function matters. A biased or adversarial hash distribution can break the zero-run statistics and produce bad counts.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Update is O(1), query is O(m), merge is O(m), and memory is O(m) regardless of stream size. Standard error is roughly 1.04 / sqrt(m), so more registers improve accuracy predictably. The tradeoff is information loss: the sketch cannot list members, prove membership, or delete arbitrary items.',
+      ],
+    },
+    {
+      heading: 'Accuracy knobs',
+      paragraphs: [
+        'The register count is the main accuracy knob. More registers reduce standard error because the estimate averages more independent bucket signals. Fewer registers save memory but make the estimate jumpier, especially when the true cardinality is near the range where small-sample corrections matter.',
+        'The hash function is part of the estimator, not an implementation detail. HyperLogLog assumes hash outputs look like independent random bits. If ids are hashed inconsistently across services, or if an adversary can shape hashes, register ranks stop representing rarity correctly.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'HyperLogLog fits Redis-style approximate distinct counts, database approximate COUNT DISTINCT, telemetry pipelines, ad-tech reporting, fraud monitoring, observability dashboards, and privacy-sensitive analytics. Shards can count locally and merge by register-wise max without moving raw identifiers.',
+        'It is particularly strong for dashboards where trends and rough magnitude matter more than exact membership. A product team can compare daily unique devices, a platform team can merge per-region service sketches, and a data warehouse can answer approximate distinct questions without spilling enormous hash sets.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Do not use it for billing, permissions, destructive deduplication, or legal reporting where exact identity matters. Keep hash functions and register counts compatible before merging. Tiny sketches are noisy; the animation uses few registers for visibility, not as a production sizing recommendation.',
+        'It also fails for deletion-heavy workloads unless the system uses a different design. A register stores only the maximum rank seen, not which item caused it. Removing an item cannot tell whether the max should fall back to the second-largest rank.',
+        'Another common failure is mixing incompatible sketches. Different p values, hash functions, seeds, normalization rules, or identity definitions make register-wise max meaningless. Version the sketch format the same way you would version a persisted data file.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Normalize identities before hashing, choose p from an explicit error budget, and store sketch metadata with the registers. For distributed use, enforce the same hash and register count everywhere before allowing merge.',
+        'Expose the estimate as approximate. Dashboards should show error expectations or confidence language, and pipelines should keep exact checks for audits where a wrong distinct count changes money, access, or legal obligations.',
+      ],
+    },
+    {
+      heading: 'How to choose it',
+      paragraphs: [
+        'Use HyperLogLog when the question is cardinality and identity is disposable. If the product needs to ask whether a particular item was seen, use a Bloom filter or set. If it needs counts per key, use a frequency sketch. If it needs exact enumeration, use a set, bitmap, or database table.',
+        'Size it from the error budget. A sketch for an internal trend dashboard can tolerate more error than a customer-facing usage report. The memory choice should be written down in the same place as the metric definition, because changing register count changes the estimate behavior.',
+        'For privacy-sensitive analytics, remember that a sketch is not automatically anonymous. It hides raw identities from the normal query path, but the pipeline still hashes identifiers and may be vulnerable to small-domain attacks. Treat source identifiers and hash salts according to the data policy.',
+        'Use exact validation samples. Periodically compare sketch estimates against exact counts on bounded windows or sampled partitions. That catches hash changes, normalization mistakes, and accidental merges between incompatible sketch versions before dashboards drift for weeks.',
+        'Document the identity definition. Unique users, unique devices, unique accounts, and unique sessions are different metrics even if they use the same sketch. Many bad approximate-count debates are actually disagreements about what was hashed.',
+      ],
+    },
+    {
+      heading: 'A worked case',
+      paragraphs: [
+        'Suppose a service has 200 shards and each shard sees user IDs locally. An exact global distinct count requires collecting or merging large identity sets. With HyperLogLog, each shard updates the same-size register array. The global count is computed by taking the max of register 0 across shards, the max of register 1 across shards, and so on.',
+        'The result cannot tell you which users were present. It can tell you approximately how many distinct users appeared, with memory that does not grow with the number of users. That is the exact trade: cardinality signal instead of identity.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary source: Flajolet, Fusy, Gandouet, and Meunier, "HyperLogLog: the analysis of a near-optimal cardinality estimation algorithm" at https://algo.inria.fr/flajolet/Publications/FlFuGaMe07.pdf. Study Count-Min Sketch, Bloom Filter, Roaring Bitmaps, Hash Table, Reservoir Sampling, and Message Queues to understand the sketching family inside production analytics.',
       ],
     },
   ],

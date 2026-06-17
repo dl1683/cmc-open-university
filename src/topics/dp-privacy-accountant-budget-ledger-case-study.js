@@ -63,7 +63,7 @@ function* epsilonLedger() {
       ],
     ),
     highlight: { active: ['clip:role', 'noise:role', 'sample:role'], found: ['steps:ledger'] },
-    explanation: 'A privacy accountant records the training mechanism parameters: clipping norm, noise multiplier, sampling rate, number of steps, target delta, and accounting method.',
+    explanation: 'Read this table as the contract between training and privacy review. The accountant cannot invent epsilon later; it needs the actual clip norm, noise multiplier, sampling rate, steps, delta, and method used.',
   };
   yield {
     state: labelMatrix(
@@ -86,13 +86,13 @@ function* epsilonLedger() {
       ],
     ),
     highlight: { active: ['r1:eps', 'r20:eps', 'r50:eps'], removed: ['r90:gate'] },
-    explanation: 'Repeated private training consumes budget. The exact accountant may use RDP, PRV, or another analysis, but the product decision still needs a ledger with a stop rule.',
+    explanation: 'Repeated private training consumes budget. The exact accountant may use RDP, PRV, or another analysis, but the product decision still needs a ledger row and a stop rule for each candidate release.',
     invariant: 'Budget is consumed by repeated releases, not by intent.',
   };
   yield {
     state: epsilonPlot('Epsilon spend rises as rounds compose'),
     highlight: { active: ['eps'], compare: ['cap'], removed: ['stop'], found: ['warn'] },
-    explanation: 'A curve makes the release risk visible. Validation accuracy can still improve after the privacy cap, but the accountant says the run should stop or change parameters.',
+    explanation: 'The curve is a warning display. Validation accuracy can still improve after the privacy cap, but the accountant says this run must stop, retune, or go back through review.',
   };
   yield {
     state: labelMatrix(
@@ -198,44 +198,79 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this topic exists',
       paragraphs: [
-        'A privacy accountant tracks cumulative privacy loss for a differentially private training run. In DP-SGD, each step clips per-example gradients, adds noise, and composes privacy loss over repeated sampling and updates. The accountant turns those parameters into an epsilon-delta claim.',
-        'The budget ledger is the operational version of the math. It records the accounting method, sampling assumptions, noise multiplier, clipping norm, number of steps, target delta, epsilon, and release decision.',
+        `Differential privacy is not only a training trick. It is a release claim about how much one person's data can affect what an outside observer sees. In private machine learning, that claim is usually stated as epsilon and delta. Epsilon is the privacy-loss budget, and delta is a small failure probability. The lower the budget, the stronger the privacy guarantee, but the harder it is to keep model utility high.`,
+        `The problem is that privacy loss composes. One noisy gradient step spends a little budget. One private checkpoint spends budget. Repeated experiments, releases, and model updates spend more. A team can start with a serious DP-SGD implementation and still lose track of what has been spent if accounting lives in a notebook, a model card, or a one-time review. The privacy accountant budget ledger exists to keep the mathematical guarantee connected to the actual training run and release decision.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approaches',
       paragraphs: [
-        'The accountant receives mechanism parameters from training. It composes privacy loss across steps or rounds using an analysis such as Renyi Differential Privacy or a PRV accountant. The exact method matters, because different accountants can give different bounds for the same training run.',
-        'The release gate compares the resulting epsilon and delta against a policy. It should also include model utility, slice regressions, privacy attack audits, and whether the accounting assumptions match the production data pipeline.',
+        `The first naive approach is to train with clipping and noise, then calculate epsilon at the end. That is too late. If the model has already crossed the policy cap, the best checkpoint may not be releasable. Worse, the run may have used batch construction, sampling, noise, or clipping settings that do not match the assumptions of the accountant. A final number cannot repair a broken mechanism.`,
+        `The second naive approach is to treat epsilon as a static label. A team writes "DP model, epsilon 6" in a document and reuses that claim for later checkpoints, new data, changed batch sizes, or extra fine-tuning. That breaks the guarantee. The privacy claim belongs to a particular mechanism, data population, sampling process, step count, delta, accountant method, and release boundary. Change those, and the ledger needs a new row.`,
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'The core insight',
       paragraphs: [
-        'A private text-classification model trains for 90 rounds. At round 50, epsilon is 4.2 and validation quality is acceptable. At round 90, epsilon exceeds the product cap. The model at round 90 may be more accurate, but the privacy budget says it cannot ship under the current policy.',
-        'The team can stop at the earlier checkpoint, retrain with more noise, reduce sampling, lower rounds, or request a new review. What it should not do is publish a model with a stale privacy report.',
+        `A privacy accountant is a composition engine. It does not look at the model's weights and decide whether they feel private. It receives the mechanism parameters that determine privacy loss, then composes that loss across repeated accesses to the protected data. A budget ledger turns that composition into an operational control. Every candidate release has a recorded epsilon, delta, accounting method, code version, assumptions, and gate outcome.`,
+        `That ledger changes the workflow. Training is no longer "run until validation accuracy stops improving." It becomes "train while the privacy budget, utility floor, and audit checks still pass." The ledger lets the team compare checkpoints on a privacy-utility frontier instead of pretending that accuracy is the only objective. It also creates evidence for reviewers who need to know exactly which run produced the released model.`,
       ],
     },
     {
-      heading: 'Why it matters',
+      heading: 'How DP-SGD spends budget',
       paragraphs: [
-        'Differential privacy claims are easy to overstate when accounting is disconnected from training. A privacy accountant ledger keeps the claim tied to concrete parameters and code versions.',
-        'The ledger also makes repeated releases visible. A single private training run is not the whole story if the same data population is used across many experiments, checkpoints, or product launches.',
+        `DP-SGD changes ordinary gradient descent in two important ways. First, it clips each example's gradient to a maximum norm C. This bounds how much any one training example can influence the update. Second, it adds random noise, usually Gaussian noise scaled by a noise multiplier and the clipping norm. Sampling a minibatch also matters, because privacy amplification can make the effective privacy loss smaller when each step sees only a fraction of the data.`,
+        `The accountant combines those details with the number of steps and the target delta. Common implementations use analyses based on Renyi Differential Privacy, privacy random variables, or related composition bounds. Different accountants can give different epsilon bounds for the same mechanism, so the method is part of the evidence. The ledger should not store only the final epsilon. It should store clip norm, noise multiplier, sampling rate, step count, delta, accountant type, library version, and any assumptions about replacement or Poisson sampling.`,
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'How the release gate works',
       paragraphs: [
-        'Do not report epsilon without delta, sampling assumptions, noise multiplier, clipping norm, and accounting method. Do not keep training after a budget gate fails just because validation accuracy improved. Do not reuse an old privacy report after changing data, batch construction, or training code.',
-        'Do not treat privacy accounting as a unit conversion. It is part of the release evidence packet and should be reviewable by privacy, ML, and product owners.',
+        `A release gate compares the accountant result with policy. A simple gate might say epsilon must be at or below 6 for delta 1e-6. A better gate also checks utility, fairness slices, privacy attack audits, data lineage, and whether the accountant parameters were produced automatically from the training job rather than typed into a spreadsheet. Passing epsilon alone does not mean the model is useful, and passing accuracy alone does not mean the model is releasable.`,
+        `When a candidate breaks the budget, the response should be explicit. The team can ship an earlier checkpoint, retrain with more noise, lower the number of steps, reduce the sampling rate, change clipping, use more public pretraining, or request a new privacy review. The wrong response is silent drift: keep training, keep the better validation number, and update the privacy report by hand. The ledger prevents that by making the stop condition visible before launch.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Primary sources: TensorFlow Privacy tutorial at https://www.tensorflow.org/responsible_ai/privacy/tutorials/classification_privacy, Opacus PrivacyEngine at https://opacus.ai/api/privacy_engine.html, Opacus DP-SGD privacy script at https://opacus.ai/api/compute_dp_sgd_privacy.html, and Deep Learning with Differential Privacy at https://arxiv.org/abs/1607.00133. Study Differential Privacy SGD, Membership Inference Shadow Model, Model Inversion Confidence Attack, and LLM Judge Calibration Drift Monitor next.',
+        `The input table is proving that a privacy claim is only as strong as its recorded mechanism. Clip norm bounds one person's contribution. Noise hides part of that contribution. Sampling rate affects amplification. Step count controls how many times the mechanism composes. If any of those fields are missing, the epsilon number has no audit trail.`,
+        `The ledger and plot are proving that privacy budget can be spent while model quality is still improving. That is the uncomfortable product lesson. A later checkpoint can be more accurate and less releasable. The budget-gate view adds the second lesson: the decision is not "maximize epsilon." The decision is to choose a point on the privacy-utility frontier that satisfies policy, still performs well enough, and has enough evidence to survive review.`,
+      ],
+    },
+    {
+      heading: 'Why the ledger works',
+      paragraphs: [
+        `The ledger works because it turns an abstract composition theorem into a concrete control surface. Differential privacy has a strong property: once you know the mechanism and its parameters, you can bound cumulative privacy loss under composition. The accountant encodes that math. The ledger gives the organization a place to bind the math to a model version, training configuration, data population, and approval decision.`,
+        `It also works as a coordination tool. Privacy reviewers need the parameters. ML engineers need to know which knobs affect utility. Product owners need a clear stop rule. Security teams may want membership-inference or extraction audits. Without a ledger, those concerns scatter across code, dashboards, tickets, and documents. With a ledger, the release packet can answer the basic question: what exactly are we claiming, and which evidence supports it?`,
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        `The privacy knobs are coupled. Lower clipping norms bound individual influence more tightly, but they can bias gradients and slow learning. More noise improves privacy, but it reduces signal. Smaller sampling rates can help privacy, but they may require more steps. More steps can improve accuracy, but they compose more loss. A useful budget ledger makes these tradeoffs visible instead of hiding them behind a single final metric.`,
+        `There are also engineering costs. Per-example gradients are more expensive than ordinary batch gradients. Large models can make clipping and noise memory-heavy. Distributed training must preserve the accounting assumptions. Accountants are conservative in different ways, and the team must pick one method and document it. Finally, epsilon is not intuitive to most product users, so organizations still need policy, threat modeling, and plain-language release criteria.`,
+      ],
+    },
+    {
+      heading: 'Real uses',
+      paragraphs: [
+        `Privacy accounting is used in DP-SGD systems for health, finance, education, mobile telemetry, federated learning, keyboard prediction, ad measurement, and analytics over sensitive populations. It also applies when teams fine-tune or evaluate models on private user data. The key question is always the same: how much information about a single person can leak through the released artifact or query output?`,
+        `A budget ledger is especially important when there are repeated releases. A company may train many checkpoints on the same population, publish multiple model versions, run ablations, and expose metrics to different teams. Each public or semi-public release can consume privacy budget. The ledger is the durable memory of those spends, so a later team cannot accidentally treat the same data population as fresh.`,
+      ],
+    },
+    {
+      heading: 'Failure modes and limits',
+      paragraphs: [
+        `The most common failure is a mismatched assumption. The accountant assumes Poisson sampling, but the pipeline uses fixed shuffled batches. The report assumes a particular clipping norm, but the training job changed it. Delta is omitted. The data population changes. Additional fine-tuning happens after the approved checkpoint. Any one of these breaks the connection between the guarantee and the release.`,
+        `Differential privacy also does not solve every privacy problem. It bounds individual influence under the stated mechanism. It does not guarantee that training data was collected lawfully, that memorized public facts are harmless, that group-level harms disappear, or that a released model cannot be misused. Attack audits are still useful, but they are not a substitute for the DP proof. The ledger should keep those roles separate: proof parameters, empirical audits, utility checks, and final approval.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Read Deep Learning with Differential Privacy, the TensorFlow Privacy classification tutorial, and the Opacus PrivacyEngine documentation for concrete mechanisms and accountant APIs. Then study Differential Privacy SGD, Membership Inference Shadow Model, Model Inversion Confidence Attack, LLM Judge Calibration Drift Monitor, AI Audit Evidence Packet Case Study, and Benchmark Variance & Model Selection. The next useful mental model is that privacy accounting is not a footnote. It is a budgeted release system with math behind the gate.`,
       ],
     },
   ],

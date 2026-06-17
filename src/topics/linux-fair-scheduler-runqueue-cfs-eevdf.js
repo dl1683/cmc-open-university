@@ -94,7 +94,7 @@ function* vruntimeTree() {
       ],
     ),
     highlight: { active: ['nice5:vr', 'group:effect'], compare: ['nice0:vr'] },
-    explanation: 'Virtual runtime is weighted. Lower-priority tasks accumulate virtual runtime faster for the same real CPU time, so they become less eligible for immediate service.',
+    explanation: 'Virtual runtime is weighted service accounting. Lower-priority tasks accumulate virtual runtime faster for the same real CPU time, so priority changes fairness debt without abandoning the ordered run queue.',
   };
 
   yield {
@@ -183,7 +183,7 @@ function* eevdfDeadlineCaseStudy() {
       ],
     ),
     highlight: { active: ['eevdf:key', 'eevdf:goal'], compare: ['cfs:key'] },
-    explanation: 'The modern kernel documentation frames EEVDF as the fair scheduling path with lag and virtual deadlines. The classic CFS rb-tree remains the simpler data-structure gateway to understand virtual service accounting.',
+    explanation: 'CFS teaches the ordered-service ledger. EEVDF keeps that ledger but adds eligibility and deadline choice, so latency-sensitive work can run sooner only when fairness debt allows it.',
   };
 }
 
@@ -197,35 +197,99 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'What a fair run queue solves',
       paragraphs: [
-        'A fair CPU scheduler maintains runnable work, accounts for service already received, and picks a next task quickly. Classic Linux CFS taught the central data-structure idea with per-CPU run queues ordered by virtual runtime. Modern Linux fair scheduling uses EEVDF, adding eligibility and virtual deadlines to improve latency behavior while preserving fair service accounting.',
-        'This page focuses on the run-queue mechanics: ordered runnable entities, weighted virtual time, eligibility, deadlines, and reinsertion after a task consumes CPU.',
+        'A CPU core can run one ordinary task at a time, but a general-purpose Linux system may have many runnable tasks. Some are CPU-bound builds. Some are interactive shells. Some are browser tabs, database workers, audio threads, background indexers, and container processes. The scheduler must decide who runs next, update accounting, handle wakeups, respect weights, avoid starvation, and do all of it on a path that runs constantly.',
+        'The fair scheduler turns that policy problem into a data-structure problem. Classic CFS stores runnable scheduling entities in an ordered tree keyed by virtual runtime. The task that has received the least weighted CPU service is the natural next candidate. Modern EEVDF keeps fair-service accounting but adds eligibility and virtual deadlines. It can favor latency-sensitive work without allowing a task that already received too much CPU to jump the line.',
+      ],
+    },
+    {
+      heading: 'The simple schedulers',
+      paragraphs: [
+        'The first scheduler most people imagine is FIFO. Put runnable tasks in a queue, run the front task, then move to the next. That is easy, but it is not fair under mixed workloads. A CPU-bound task that arrived early can create bad latency for a task that just woke up to handle input. A task that blocks often may not get useful service at the right moment.',
+        'Round-robin improves the picture. Give each task a time slice and rotate. When all tasks are equal, this avoids permanent starvation and is easy to reason about. Priorities add another layer: higher-priority tasks receive more service or shorter waits. But these simple queues still do not maintain a precise ledger of weighted CPU service already received. They know order and priority. They do not know fair debt well enough.',
+      ],
+    },
+    {
+      heading: 'The fairness ledger',
+      paragraphs: [
+        'Fairness is not arrival order. It is service relative to weight. A task with a larger weight should receive a larger share of CPU over time. A task with a smaller weight should still make progress, but its virtual service accounting should move faster for the same real CPU time. That is the purpose of virtual runtime: it converts real execution time into weighted service time.',
+        'In the classic CFS model, a task that runs accumulates vruntime. A lower-weight task accumulates vruntime faster than a normal task for the same real milliseconds, so it moves away from the left side of the ordered tree sooner. A task that waits while others run does not accumulate service, so it becomes relatively more deserving. Repeatedly picking the smallest vruntime pulls tasks toward their fair share.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core CFS insight is to store runnable work in virtual time. The run queue is not a plain FIFO list. It is an ordered set where the left side represents entities that have received less weighted service. Picking from the left gives a local rule that approximates a global fair-sharing goal. After the task runs, its vruntime advances and it is reinserted at a new position.',
+        'EEVDF adds a second insight: latency preference should be guarded by eligibility. Each entity has lag, meaning how far it is ahead or behind its fair service. An entity with nonnegative lag is owed service and is eligible. Among eligible entities, EEVDF chooses the earliest virtual deadline. A short slice can therefore help an interactive task run sooner, but only if the fairness ledger says the task is eligible.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The vruntime-tree view shows why a balanced ordered structure is useful. The leftmost task is not first by arrival time. It is first by the fair-service ledger. When that task runs, its virtual runtime increases and it moves right. The next pick changes because the accounting changed. This is the scheduler as a constantly updated ordered map.',
+        'The EEVDF view adds the part that a plain tree diagram can hide. The earliest virtual deadline is not enough by itself. A task with an early deadline but negative lag has already received too much service, so it is not eligible. The highlighted choice is the eligible entity with the earliest deadline. That distinction prevents deadline policy from breaking fairness.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'In the CFS mental model, each runnable entity has a vruntime. Running increases vruntime according to task weight. The run queue can be represented as a time-ordered red-black tree, and the next task is the leftmost entity with the smallest vruntime.',
-        'EEVDF adds lag and virtual deadlines. A task with nonnegative lag is owed service. Among eligible tasks, the scheduler picks the earliest virtual deadline. Shorter requested slices can improve latency, but ineligible tasks do not bypass fairness.',
+        'Linux scheduling is per-CPU at the hot path. Each CPU has run queues for scheduling classes. This topic focuses on the fair class, which schedules normal tasks and groups. In the classic CFS explanation, runnable entities are stored in a red-black tree ordered by vruntime. The scheduler keeps quick access to the leftmost node so picking the next entity is cheap. Enqueue, dequeue, and reinsertion update the tree in O(log n).',
+        'When a task runs, the scheduler updates execution time and converts it into vruntime using weight. nice values and cgroup weights change the slope. A higher-weight task advances more slowly in virtual time for the same real CPU, which lets it receive a larger share. A lower-weight task advances faster, which lowers its share without banning it from the CPU.',
+        'EEVDF keeps the idea that fair service is the governing ledger. It adds lag and virtual deadline. Eligibility comes from lag: an entity that is owed service can compete. The virtual deadline includes the requested or assigned slice in virtual time, so shorter slices can express latency sensitivity. The pick is earliest deadline among eligible entities. After execution, accounting changes, deadlines are updated, and the entity may be requeued or blocked.',
       ],
     },
     {
-      heading: 'Case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Suppose task C has the smallest vruntime but negative lag, while task A has positive lag and the earliest virtual deadline among eligible tasks. Classic CFS intuition might expect C to run next; EEVDF chooses A because C has already exceeded its fair share and A is both eligible and latency-urgent.',
+        'The CFS invariant is local but powerful: running consumes fair-service credit. If a task has run less than its peers after weights are considered, it tends to sit left. If it runs now, it moves right. This creates a feedback loop. The more service a task receives, the less urgent it becomes relative to tasks that waited. The tree is simply the data structure that makes this comparison fast.',
+        'EEVDF works because it separates two questions. First, is this entity owed service? That is eligibility through lag. Second, among entities owed service, which one has the most urgent virtual deadline? That is the latency choice. The split matters because deadline scheduling without a fairness gate can let short-deadline work dominate. Fairness without deadline choice can be less responsive than necessary for short interactive bursts.',
+        'The model also composes with groups. A scheduling entity can represent a task or a group, and group scheduling applies weighted service at multiple levels. This is how cgroups can divide CPU among containers or services while still scheduling individual runnable tasks inside those groups.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not describe CFS as the full current Linux scheduler behavior without qualification. The CFS rb-tree model is still the right historical and conceptual primer for vruntime accounting, but EEVDF is the modern fair-scheduler selection model documented by the kernel.',
+        'Suppose three equal-weight tasks are runnable. A has vruntime 30, B has 18, and C has 44. Classic CFS picks B because B has the smallest vruntime. B runs for a slice and its vruntime rises to 36. When B is reinserted, A at 30 may become the leftmost task. Nobody had to remember arrival order. The tree order is the service ledger.',
+        'Now add weights. If B has lower priority, the same real 1 ms of CPU might add more than 1 unit of virtual runtime. B moves right faster and receives a smaller long-term share. If A belongs to a cgroup with a larger weight, its virtual time advances more slowly through the group accounting path, and the group receives more share across time.',
+        'For EEVDF, suppose C has the earliest virtual deadline but negative lag. It is ahead of fair service, so it is not eligible. A and B both have positive lag, and A has the earlier virtual deadline. A runs. This is the key example: earliest deadline is not the whole rule. Eligibility filters out work that would violate the fair-service ledger.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'Primary sources: Linux CFS scheduler design at https://docs.kernel.org/scheduler/sched-design-CFS.html and Linux EEVDF scheduler docs at https://docs.kernel.org/scheduler/sched-eevdf.html. Study Red-Black Tree, Binary Heap, Queue, Work-Stealing Deque Scheduler, Backpressure & Flow Control, Borg Cluster Scheduler Case Study, and Omega Scheduler Case Study next.',
+        'The obvious data-structure cost is O(log n) for ordered-tree updates. In scheduler code, that is only the start. The hot path also pays for time accounting, wakeup placement, preemption decisions, cgroup hierarchy updates, load tracking, and sometimes migration. The scheduler runs under tight latency constraints, so constants and cache locality matter.',
+        'Per-CPU run queues avoid a single global lock and preserve locality. They also create a balancing problem. One CPU may be overloaded while another is idle. Moving a task can improve load balance but lose cache warmth or cross NUMA boundaries. A simple global fair queue would be easier to explain but too expensive and locality-blind for real machines.',
+        'EEVDF adds more policy state. Lag and virtual deadlines give better latency control, but they also require careful accounting and tuning. The model has to handle sleepers, wakeups, slice requests, task groups, and preemption without letting clever behavior turn into unfair advantage. Scheduler design is always a trade between a clean fairness model and messy workload behavior.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'The fair scheduler is built for normal multi-user, multi-process systems. It works well when unrelated tasks share cores and the operating system must provide decent latency without giving up long-term fairness. It explains why an interactive task that slept can get service quickly after waking, why a CPU-bound task does not permanently dominate, and why weights can shape CPU share without a separate queue for every priority.',
+        'It is also the right mental gateway to many other schedulers. A JavaScript event loop, a work-stealing runtime, a GPU serving queue, and a cluster scheduler all need state that proves what should run next. Linux fair scheduling teaches the central move: do not pick only by arrival. Pick by a ledger that encodes the resource contract.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Fair scheduling is not hard real-time scheduling. It improves responsiveness for normal tasks, but it does not promise an exact deadline. Interrupts, kernel locks, disabled preemption regions, CPU isolation, thermal throttling, higher-priority scheduling classes, and hardware behavior can all affect when code actually runs. For hard timing guarantees, study real-time classes and admission control.',
+        'The model also hides locality. A task can be most deserving by fairness accounting and still be expensive to move to another CPU. It may have hot cache lines, NUMA-local memory, or lock relationships with other tasks. The scheduler must balance fair service against locality and load balance. A pure tree model does not show that full decision.',
+        'Another failure is priority inversion or blocking outside the CPU. A task can be eligible to run but blocked on a lock held by a lower-priority task, waiting on I/O, or stuck behind memory pressure. The CPU scheduler controls runnable entities. It cannot by itself fix every wait in the system.',
+      ],
+    },
+    {
+      heading: 'Misconceptions',
+      paragraphs: [
+        'Do not say CFS is just round-robin with a tree. The tree key is weighted service, not queue position. Do not say EEVDF is only earliest-deadline-first. Eligibility is the gate that keeps deadlines inside fairness. Do not say a lower nice value means a task always runs first. Weight changes long-term share and virtual time slope; it does not erase every other scheduler rule.',
+        'Do not treat O(log n) as the whole scheduler cost. The scheduler is a hot systems path where wakeups, accounting, preemption, migrations, cgroups, cache locality, and hardware topology matter. Big-O explains the ordered set, not the whole kernel behavior.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Linux CFS scheduler design at https://docs.kernel.org/scheduler/sched-design-CFS.html and Linux EEVDF scheduler docs at https://docs.kernel.org/scheduler/sched-eevdf.html.',
+        'Study Red-Black Tree for the ordered run queue, Binary Heap for an alternative priority structure, Queue for round-robin intuition, Work-Stealing Deque Scheduler for runtime-local scheduling, Futex Wait Queue Case Study for sleep and wake mechanics, Backpressure & Flow Control for capacity gates, Borg Cluster Scheduler Case Study and Omega Scheduler Case Study for distributed scheduling, and Kubernetes Scheduler PriorityQueue Preemption for a cluster-level priority queue with policy.',
       ],
     },
   ],

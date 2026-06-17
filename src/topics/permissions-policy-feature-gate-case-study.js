@@ -184,38 +184,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'Permissions Policy is a browser feature gate. A document can declare which origins are allowed to use policy-controlled features, including in iframes. The effective policy is evaluated by the browser before a feature API is exposed or allowed to proceed.',
-        'The data structure is a feature-to-allowlist map applied over a document tree. Top-level headers, iframe allow attributes, inherited defaults, and browser-supported feature lists all contribute to the final decision.',
+        'A modern page is rarely one document. It is a tree of documents: the top-level page, payment frames, ad slots, maps, chat widgets, video tools, analytics tags, and internal dashboards embedded inside each other. Some of those documents can try to use powerful browser features such as camera, microphone, geolocation, fullscreen, payment, sensors, or storage-related capabilities.',
+        'User permission prompts are not enough to model that authority. A prompt can ask whether the user wants to share location, but it does not know whether the publisher intended an ad frame, a map frame, or a support-chat frame to be allowed to ask. Permissions Policy gives the page owner a browser-enforced way to say which documents may even attempt specific features.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Context',
       paragraphs: [
-        'A server can send Permissions-Policy headers such as feature=(allowlist). An embedding page can also use iframe allow to delegate a feature to a child frame. The browser intersects the relevant policy sources and decides whether the document may use the feature.',
-        'This is not the same as the user permission prompt. A camera API might still require user consent, but policy can deny the feature before consent is requested. Policy can also generate reports for blocked feature use.',
+        'The browser already has several security layers. Same-origin policy protects many cross-origin reads. CSP controls where scripts, images, frames, and other resources may load from. iframe `sandbox` can remove broad powers from a child frame. User permissions still decide whether the user consents to a feature when a feature needs consent.',
+        'Permissions Policy fills a different gap: capability delegation across the frame tree. The top-level page can set a `Permissions-Policy` header, and an embedding document can use an iframe `allow` attribute to delegate selected features to a child. The useful mental model is not authentication or data authorization. It is a feature gate placed before browser APIs run.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core idea',
       paragraphs: [
-        'A marketplace page embeds ads, a payment iframe, a support chat widget, and a map. The owner denies camera and microphone by default, delegates payment only to the payment origin, considers geolocation only for the map origin, and keeps reports on during rollout. If an ad iframe tries to access a powerful feature, the browser blocks it at the policy gate.',
-        'Permissions Policy is a least-privilege tool for the browser frame tree. It complements CSP Nonce & Hash Policy, Subresource Integrity Hash Manifest, iframe sandbox, and Capability Security Attenuation.',
+        'The core data structure is a feature-to-origin allowlist evaluated over a document tree. For each policy-controlled feature, the browser can ask: what does the feature allow by default, what did the top-level response say, what policy did this child inherit, and what did the parent delegate through the iframe container?',
+        'That creates a least-privilege lattice. Each boundary can narrow what survives. A child frame cannot grant itself a capability that the inherited policy or container policy denied, and a parent should delegate only the capabilities the child actually needs.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism',
       paragraphs: [
-        'Browser support and feature names can vary, so production rollout needs compatibility checks. Policies should be monitored before being made strict where breakage would harm users.',
-        'Do not treat Permissions Policy as authentication or data authorization. It controls browser features in documents and frames. It does not replace server-side access checks, CSP, sandboxing, or user consent.',
+        'At the top level, the server can send a `Permissions-Policy` header that names features and allowlists. An allowlist might allow only `self`, allow specific origins, or disable a feature entirely. The exact set of policy-controlled features changes across browsers, so production code should treat feature names as part of a compatibility contract, not as an abstract list that works everywhere.',
+        'For iframes, the browser combines inherited policy with container policy from the iframe `allow` attribute. When code calls a policy-controlled API, the user agent checks the effective policy before the feature proceeds. If policy denies the feature, the call may fail or the feature may be unavailable before any user prompt appears. Reporting can make violations observable during rollout.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Imagine a publisher page with four embeds: an ad frame, a map frame, a payment frame, and a support-chat frame. The page disables camera for everyone, delegates geolocation only to the map partner, delegates payment only to the payment provider, and leaves the ad frame with no powerful features. The browser now has a per-feature decision table instead of a vague trust relationship with every partner.',
+        'If the ad frame calls a geolocation API, the user agent checks the effective policy for the ad frame and denies it before a location prompt matters. If the map frame calls the same API and the inherited policy plus iframe delegation allow that origin, then policy passes and the normal user permission path can still decide whether the user shares location.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because feature access follows the frame authority graph. The browser, not the child script, computes the effective policy. A third-party child can use only the features that survive defaults, headers, inherited restrictions, and explicit container delegation.',
+        'The safety property is monotonic narrowing. Moving down the frame tree should not magically create new authority. That is the capability-security lesson: delegation is explicit, narrower than the parent authority, and enforced at the boundary where the protected API would run.',
+      ],
+    },
+    {
+      heading: 'Animation guide',
+      paragraphs: [
+        'In the feature-gate view, follow the path from top document to header, feature, user agent, API, report, and result. The important split is between policy and consent: policy decides whether this document is eligible to ask; user permission, where applicable, comes after that.',
+        'In the iframe-delegation view, focus on the parent-to-child boundary. The `allow` node is not a local preference inside the child frame. It is container policy supplied by the embedder. The final lattice frame is the whole lesson: defaults, headers, inherited policy, and iframe delegation intersect into one effective decision.',
+      ],
+    },
+    {
+      heading: 'Tradeoffs',
+      paragraphs: [
+        'The main cost is inventory. A real page has to know which partners need which features, which frames are cross-origin, which features are policy-controlled in the target browsers, and which existing embeds rely on browser defaults.',
+        'Strict policies can break embeds that were silently relying on default access. A careful rollout usually starts with reporting and narrow exceptions. The dangerous failure is turning a least-privilege policy into a long broad allowlist because nobody wants to own the partner-by-partner review.',
+      ],
+    },
+    {
+      heading: 'Limits',
+      paragraphs: [
+        'Permissions Policy is not authentication, data authorization, CSP, or user consent. It controls browser-exposed features in documents and frames; it does not decide who may read database rows, call server APIs, load scripts, or access data that application code already handed to the frame.',
+        'It also cannot protect features that are not exposed through policy, and support varies by browser and feature. Treat it as one browser capability layer. Pair it with CSP, iframe sandboxing where appropriate, server-side authorization, and clear partner contracts.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'A common failure mode is a missing delegation. A partner iframe works in staging because defaults happen to allow something, then fails in production when the header tightens or the frame becomes cross-origin. Reporting and synthetic checks should cover the important embedded flows before the policy becomes a hard gate.',
+        'Another failure mode is assuming policy denial is the same as privacy. If the parent passes sensitive data to a frame through URLs, postMessage, DOM content, or server APIs, Permissions Policy will not claw that data back. It prevents certain browser capabilities; it does not sanitize the application design.',
+      ],
+    },
+    {
+      heading: 'Practical use',
+      paragraphs: [
+        'Use Permissions Policy when a page owns many embeds and wants the browser to enforce partner boundaries: marketplaces, publisher pages, SaaS dashboards, payment flows, maps, video calls, and support widgets. Start from an embed inventory, list the features each partner actually needs, deny the rest, and keep exceptions tied to named origins and product flows.',
+        'Operationally, treat the policy as code. Review it when a new iframe ships, monitor violation reports, test in the browsers your users actually run, and document why each delegated feature exists. The best policies are boring: small, explicit, and easy to audit.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: MDN Permissions-Policy header at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy, MDN Permissions Policy guide at https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Permissions_Policy, W3C Permissions Policy at https://www.w3.org/TR/permissions-policy/, and Chrome permissions policy guide at https://developer.chrome.com/docs/privacy-security/permissions-policy. Study Capability Security Attenuation, CSP Nonce & Hash Policy, Subresource Integrity Hash Manifest, DOM Event Propagation & Path, and OAuth PKCE Token Lifecycle next.',
-        'Storage Access API Third-Party Cookie Gate is the natural follow-up for embedded identity and payment flows: Permissions Policy can block a feature at the frame boundary, while Storage Access makes cookie access an explicit user-mediated capability.',
+        'Primary sources: MDN Permissions-Policy header at https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Permissions-Policy, MDN Permissions Policy guide at https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Permissions_Policy, W3C Permissions Policy at https://www.w3.org/TR/permissions-policy/, and Chrome permissions policy guide at https://developer.chrome.com/docs/privacy-security/permissions-policy.',
+        'Study Capability Security Attenuation, CSP Nonce & Hash Policy, Subresource Integrity Hash Manifest, DOM Event Propagation & Path, Storage Access API Third-Party Cookie Gate, and OAuth PKCE Token Lifecycle next. They separate capability delegation, resource loading, embedded identity, and user authorization, which are often confused in browser security work.',
       ],
     },
   ],

@@ -73,46 +73,75 @@ export function* run(input) {
   };
 }
 
+const quantizationArticleSections = [
+  {
+    heading: `Why This Exists`,
+    paragraphs: [
+      `Neural networks are mostly arrays of numbers. A large language model can contain billions of weights, and every generated token may require moving many of those weights through memory and compute units. Full precision is expensive: float32 uses 32 bits per weight, float16 or bf16 uses 16, int8 uses 8, and int4 uses 4. A 7B-parameter model is about 28 GB in float32, about 14 GB in float16, and roughly 3.5 GB before metadata at 4 bits. Quantization exists because many deployment bottlenecks are byte bottlenecks. If the model keeps nearly the same behavior while using fewer bytes, it can fit on smaller devices, serve more requests per GPU, or spend less time waiting on memory bandwidth.`,
+    ],
+  },
+  {
+    heading: `The Obvious Approach`,
+    paragraphs: [
+      `The obvious approach is to keep the trained weights exactly as floats. That is the safest representation because it preserves the numbers produced by training and works with standard matrix-multiplication kernels. It is also wasteful when the learned function does not need that many distinct values per weight. A second obvious approach is to round every weight with one scale for the whole tensor. Find the largest absolute value, divide the range into integer levels, store q = round(w / scale), and reconstruct w' = q * scale. This simple scheme is the animation's baseline. It teaches the main contract: quantization replaces a continuous-looking set of floats with a smaller numeric grid, then asks whether the model can tolerate the rounding error.`,
+    ],
+  },
+  {
+    heading: `The Wall`,
+    paragraphs: [
+      `The wall is that one scale rarely serves every value equally well. A single outlier can force a coarse scale, leaving small weights with too few usable buckets. Values near zero may collapse to zero. Values outside the chosen range may clip. The damage is not measured only per weight; it is measured after matrix multiplication, layer normalization, residual paths, and attention mix the errors. Activations add another wall because they are input-dependent. A weight can look harmless until real prompts amplify its channel. Hardware adds a final wall. A smaller file is not automatically faster if the runtime must decode packed values awkwardly, dequantize on the wrong device, or fall back to fp16 kernels.`,
+    ],
+  },
+  {
+    heading: `Core Insight`,
+    paragraphs: [
+      `The core insight is that neural networks often have redundancy in their numeric representation. Training does not usually need each weight to preserve all 32 float bits at inference. If quantization error is small, distributed, and aligned with insensitive directions, the network's aggregate behavior can remain close. The algorithm therefore spends precision where error would hurt and saves bits where it would not. Basic symmetric quantization spends precision uniformly inside a group. Group-wise quantization limits how far an outlier can damage unrelated weights. More advanced methods choose scales from calibration data, protect activation-important channels, or train with fake quantization so the model learns to survive the grid. Quantization is not magic compression. It is controlled error allocation.`,
+    ],
+  },
+  {
+    heading: `How It Works`,
+    paragraphs: [
+      `For a symmetric signed scheme, choose a bit width b. The representable integer range is approximately -2^(b-1) to 2^(b-1)-1. For a group of weights, compute max_abs, set scale = max_abs / max_integer, and store q = round(w / scale). Inference reconstructs w' = q * scale or uses a fused kernel that multiplies integer payloads with scales inside the matrix operation. Asymmetric schemes also store a zero-point so the integer grid can shift. Practical systems quantize per tensor, per channel, or per group. Smaller groups usually reduce error because each scale covers a narrower distribution, but they add scale metadata and can complicate kernels. The animation shows this recipe on a fixed 4 by 4 weight slice so the error map is visible instead of hidden inside billions of numbers.`,
+    ],
+  },
+  {
+    heading: `What The Visual Proves`,
+    paragraphs: [
+      `The first frame shows why the problem is a storage problem: every weight is just a number, and models have many of them. The quantized frame shows the grid. At 8 bits the grid is dense; at 4 bits it is coarse but often usable; at 2 bits it has so few levels that structure disappears. The dequantized frame proves that the model does not use the original floats after compression. It uses approximations reconstructed from integer payloads and scales. The error frame proves that damage is uneven. The outlier controls the scale, so some smaller values take more relative error. The final trade frame connects the local matrix to deployment: smaller weights can reduce memory, but the quality question is whether the accumulated error changes the network's outputs.`,
+    ],
+  },
+  {
+    heading: `Why It Works`,
+    paragraphs: [
+      `Quantization works when the approximate network computes nearly the same function as the original network. A single rounded weight is wrong, but a layer output is a sum of many products. If errors are small and not systematically biased in a sensitive direction, later layers often absorb them. This is why 8-bit inference is frequently close to lossless for mature models and why 4-bit can work with careful scaling. The correctness argument is empirical, not absolute. There is no theorem that every model survives a chosen bit width. The invariant a serving team can enforce is narrower: same architecture, known quantization method, known calibration data when needed, measured task quality, compatible kernel, and a rollback path if the quantized variant crosses an error cliff.`,
+    ],
+  },
+  {
+    heading: `Cost And Tradeoffs`,
+    paragraphs: [
+      `Raw weight memory falls roughly in proportion to bit width, but metadata reduces the ideal factor. Int8 stores one quarter as many weight bits as float32; int4 stores one eighth. Group scales, zero-points, headers, and alignment add overhead. Speed depends on the bottleneck. If inference is memory-bandwidth-bound and the hardware has efficient low-bit kernels, quantization can improve latency and throughput. If the workload is compute-bound, if dequantization is expensive, or if the accelerator lacks the expected kernel, smaller weights may not help. Quantization can also shift the bottleneck to the KV cache for long-context decoding. Weight quantization helps the static model; KV-cache quantization helps the per-request state that grows with sequence length.`,
+    ],
+  },
+  {
+    heading: `Where It Wins`,
+    paragraphs: [
+      `Quantization wins in edge deployment, consumer GPUs, browser or desktop inference, mobile speech and vision models, and high-throughput serving where memory movement dominates. It is the reason many open models can run locally through formats such as GGUF or runtime-specific packed checkpoints. It also helps large server deployments because smaller weights improve residency, batching, and sometimes energy per token. The technique is not limited to LLM weights. Embedding indexes use vector quantization to shrink retrieval memory. Training stacks use reduced precision such as fp16 and bf16 even before integer quantization. QLoRA uses a quantized base model with trainable adapters so fine-tuning can fit on much smaller hardware than full-precision training.`,
+    ],
+  },
+  {
+    heading: `Where It Fails`,
+    paragraphs: [
+      `Quantization fails when the error budget is spent in the wrong places. Math, code, structured output, safety classifiers, and narrow domain tasks can regress before general chat quality looks bad. Two models with the same bit width can behave differently because group size, scale strategy, calibration data, outlier handling, and kernel format differ. Two-bit quantization often crosses a cliff because the grid is too small to preserve enough structure. Smaller also does not guarantee faster. A runtime can load an int4 checkpoint and still run slowly if it dequantizes constantly or uses unsupported layouts. Quantization should be treated as a new model variant with its own evaluation, not as a transparent file-size setting.`,
+    ],
+  },
+  {
+    heading: `Study Next`,
+    paragraphs: [
+      `Study Neural Network Forward Pass to see where quantized weights enter matrix multiplication. Then read Activation-Aware Quantization Calibration Ledger for AWQ, GPTQ, SmoothQuant, calibration samples, packed formats, and serving gates. Transformer Inference Roofline explains when byte savings change latency. KV Cache Quantization & Compression covers the long-context memory problem that remains after weights shrink. LoRA Fine-Tuning and QLoRA show how quantized bases can support adapter training. Structured Pruning and N:M Sparsity removes weights instead of rounding them, while SVD & Low-Rank Approximation compresses matrices by factorization. Knowledge Distillation is the complementary path: train a smaller model before quantizing it. Benchmark Variance Model Selection is the guardrail before trusting a single quantized score.`,
+    ],
+  },
+];
+
 export const article = {
-  sections: [
-    {
-      heading: `What it is`,
-      paragraphs: [
-        `Quantization stores neural-network numbers with fewer bits. A float32 weight uses 32 bits; int8 uses 8 bits, and int4 uses 4 bits. That gives roughly 4x and 8x raw weight compression before metadata. A 7B-parameter model needs about 28 GB in float32, about 14 GB in float16, about 7 GB in int8, and about 3.5 GB in int4. The trade is precision: fewer representable values means each weight is rounded to a nearby bucket.`,
-        `The surprise is that trained networks tolerate a lot of rounding. Millions or billions of weights share the work, so small independent errors often average out. Real systems exploit that tolerance with post-training quantization, quantization-aware training, and mixed precision. GPTQ, AWQ, bitsandbytes, TensorRT, ONNX Runtime, and llama.cpp's GGUF formats all live in this family.`,
-      ],
-    },
-    {
-      heading: `How it works`,
-      paragraphs: [
-        `The simplest symmetric scheme finds the largest absolute weight in a group, sets scale = max_abs / max_integer, rounds q = round(w / scale), then stores q as a small integer. To use the model, it dequantizes with w_approx = q * scale or uses kernels that multiply quantized values directly. Group-wise quantization is the practical version: use separate scales for blocks of 32, 64, or 128 weights so one outlier does not ruin precision for an entire matrix.`,
-        `Different methods choose scales differently. GPTQ uses second-order information to minimize output error layer by layer. AWQ protects activation-important channels. SmoothQuant moves activation outlier difficulty into weights for W8A8 execution. Activation-Aware Quantization Calibration Ledger turns those choices into calibration records, group scales, packed formats, and serving gates. Quantization-aware training inserts fake quantization during training so Gradient Descent learns weights that survive rounding. QLoRA combines Quantization with LoRA Fine-Tuning: keep the base model in 4-bit form, but train small full-precision adapters.`,
-      ],
-    },
-    {
-      heading: `Cost and complexity`,
-      paragraphs: [
-        `Memory savings are the obvious win, but speed depends on hardware and kernels. Int8 matrix multiplication is fast on many CPUs, GPUs, and TPUs. Int4 can be faster still, but only when packing, dequantization, and memory access are optimized; otherwise a small model may run slower despite using less RAM. Scales and zero-points add overhead, usually small compared with weights. KV Cache quantization attacks a different bottleneck: long-context inference stores keys and values per layer per token, so reducing cache precision can decide whether 32k-token serving fits at all.`,
-      ],
-    },
-    {
-      heading: `Real-world uses`,
-      paragraphs: [
-        `Quantization is how large models fit on ordinary machines. llama.cpp popularized CPU-friendly 4-bit and 5-bit Llama inference. Mobile inference stacks use int8 for speech, vision, and keyboard models. NVIDIA TensorRT and ONNX Runtime deploy quantized models for low-latency serving. Apple Neural Engine, Qualcomm Hexagon, and Google TPU paths all reward reduced precision. On-Device LLM Inference Cost Crossover depends on this: local models need enough quality per byte to fit RAM, battery, and accelerator limits. In retrieval systems, vector quantization compresses Embeddings & Similarity indexes; in training stacks, bf16 and fp16 mixed precision are standard even before integer quantization is considered.`,
-      ],
-    },
-    {
-      heading: `Pitfalls and misconceptions`,
-      paragraphs: [
-        `Quantization is not automatically lossless. Int8 is often close to free for mature models, but 4-bit can hurt math, code, safety classifiers, and narrow domain tasks. Two methods with the same bit width can behave differently because calibration data, group size, outlier handling, and kernel layout matter. Another misconception is that smaller weights always mean lower end-to-end latency. If generation is bottlenecked by memory bandwidth, quantization helps; if it is bottlenecked by dequantization or unsupported kernels, it may not.`,
-        `The hardest cases are outliers and activations. A few very large channels can dominate the scale, while small but important weights collapse to zero. That is why SVD & Low-Rank Approximation, Knowledge Distillation, Structured Pruning and N:M Sparsity, and quantization are often combined: different compression tools remove different kinds of redundancy.`,
-      ],
-    },
-    {
-      heading: `Study next`,
-      paragraphs: [
-        `Read Neural Network Forward Pass to see where quantized weights are used, KV Cache for long-context memory pressure, LoRA Fine-Tuning for QLoRA, LoRA Adapter Registry, Merge, and Serving Ledger for serving quantized bases with adapters, Activation-Aware Quantization Calibration Ledger for AWQ/GPTQ/SmoothQuant-style post-training compression, Structured Pruning and N:M Sparsity for mask-and-kernel compression, and SVD & Low-Rank Approximation for a different compression lens. Knowledge Distillation explains how to train a smaller model before quantizing it, On-Device LLM Inference Cost Crossover shows why local deployment changes the cost model, and Embeddings & Similarity shows where vector quantization appears outside model weights.`,
-      ],
-    },
-  ],
+  sections: quantizationArticleSections,
 };

@@ -68,7 +68,7 @@ function* freshnessLedger() {
   yield {
     state: freshnessGraph('Freshness is a claim property, not only a source property'),
     highlight: { active: ['claim', 'source', 'date', 'ttl', 'e-claim-source', 'e-claim-date', 'e-source-ttl', 'e-date-ttl'], found: ['gate'] },
-    explanation: 'A source can be old while the claim is stable, or recent while the claim is fragile. The freshness ledger assigns TTLs to claims, not just URLs.',
+    explanation: 'The naive baseline is to mark a whole source as fresh or stale. A better ledger assigns freshness to claims: an old definition may still be stable, while a recent price, release note, or security finding may already be fragile.',
   };
 
   yield {
@@ -104,7 +104,7 @@ function* freshnessLedger() {
   yield {
     state: freshnessGraph('Watch queries attach to fragile claims'),
     highlight: { active: ['ttl', 'watch', 'queue', 'e-ttl-watch', 'e-ttl-queue'], compare: ['source'], found: ['fetch'] },
-    explanation: 'A watch query is a saved search or source-specific check for a fragile claim. It lets the system refresh only claims likely to drift instead of rerunning the whole research report.',
+    explanation: 'A watch query is a saved search or source-specific check for a fragile claim. It lets the system refresh the few claims likely to drift instead of rerunning the whole research report.',
   };
 
   yield {
@@ -182,7 +182,7 @@ function* refreshScheduler() {
   yield {
     state: freshnessGraph('Fetch, diff, and update only affected report sections'),
     highlight: { active: ['queue', 'fetch', 'diff', 'ledger', 'gate', 'e-queue-fetch', 'e-fetch-diff', 'e-fetch-ledger'], compare: ['claim'] },
-    explanation: 'A refresh job should diff the new evidence against the old support span and update only dependent claims and report sections. This is cheaper and safer than regenerating the whole report.',
+    explanation: 'A refresh job should diff new evidence against the old support span and update only dependent claims and report sections. Surgical refresh is cheaper and safer than regenerating a whole report from scratch.',
   };
 
   yield {
@@ -222,45 +222,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'An evidence freshness refresh scheduler tracks which research claims can go stale, when they were last checked, which watch query can update them, and which report sections depend on them. It lets a deep research system refresh fragile evidence without rerunning the entire workflow.',
-        'This module links Claim Graph & Source Ledger, Source Authority Triage Priority Queue, Research Contradiction Resolution Graph, Feature Freshness SLO Monitor, Cache Invalidation, and Temporal Workflow Case Study. The data-structure idea is familiar: stale state needs metadata, invalidation, priority, and repair.',
+        'An evidence freshness refresh scheduler exists because research does not age evenly. A definition from a standard may remain useful for years. A cloud price, product limit, security advisory, model leaderboard, legal rule, release note, or benchmark result can become stale in days. Deep research systems often produce long reports with many claims. Rerunning the whole report every time one source changes is expensive, but leaving date-sensitive claims untouched is how confident answers become quietly wrong.',
+        'The scheduler turns freshness into a claim-level property. It tracks when a claim was supported, what source and span supported it, what kind of claim it is, how volatile that class is, which watch query can update it, and which report sections depend on it. This connects claim graphs, source ledgers, cache invalidation, feature freshness SLOs, and temporal workflows. The basic engineering lesson is simple: state that can go stale needs metadata, invalidation rules, repair jobs, and version history.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive baseline',
       paragraphs: [
-        'Each claim gets source date, access date, claim class, volatility class, source authority, downstream report dependencies, TTL, watch query, last refresh result, and next due time. The scheduler does not refresh stable definitions on the same cadence as prices, laws, security advisories, product launches, or benchmark leaderboards.',
-        'OpenAI describes deep research as reacting to real-time information and pivoting as it encounters new information: https://openai.com/index/introducing-deep-research/. The system card describes searching, interpreting files, analyzing data, and synthesizing many sources: https://openai.com/index/deep-research-system-card/. A freshness scheduler is the operational layer that decides when those actions need to happen again.',
+        'The naive baseline is to mark a source as fresh or stale. That fails because a source contains many claims with different lifetimes. A three-year-old paper may still define a method correctly while its benchmark comparison is obsolete. A vendor documentation page may have a current access date but still describe a feature that changed last week on a different page. Freshness belongs to the claim and its use, not only to the URL.',
+        'The other naive baseline is to rerun the entire research workflow on a schedule. That is safe only when the report is small and refresh cost is low. For serious research, full reruns waste time, reopen stable sections, and create new opportunities for drift in unrelated prose. The better approach is surgical refresh: identify fragile claims, fetch targeted evidence, diff against old support, and update only dependent claims and sections.',
       ],
     },
     {
-      heading: 'Freshness metadata',
+      heading: 'Core insight',
       paragraphs: [
-        'The minimum metadata is published date, modified date if known, access date, source version, retrieval query, evidence span, claim class, and TTL policy. The access date matters because a source can be undated or silently changed. Version identifiers matter because official docs can move while old URLs keep working.',
-        'Dublin Core metadata terms are useful background for source dates and lifecycle fields: https://www.dublincore.org/documents/dcmi-terms/. W3C PROV-DM is useful for modeling entities, activities, agents, and derivation: https://www.w3.org/TR/prov-dm/. OpenLineage shows how production lineage systems attach facets to runs, jobs, and datasets: https://openlineage.io/docs/spec/object-model/.',
+        'The core insight is to treat a research report like a dependency graph. A conclusion depends on section claims. Section claims depend on evidence spans. Evidence spans depend on sources, dates, access permissions, and retrieval queries. If one volatile source changes, the system should be able to identify exactly which claims and sections are affected. That is the same idea as build systems, cache invalidation, lineage graphs, and database refresh plans.',
+        'A freshness scheduler does not ask, "Is this report old?" It asks, "Which important claims are likely to have changed enough to affect a decision, and what is the cheapest trustworthy way to check them?" That question combines stale risk, source authority, claim class, elapsed time, downstream importance, fetch cost, and user stakes. It makes freshness a prioritization problem rather than a vague feeling.',
       ],
     },
     {
-      heading: 'Complete case study: benchmark watch report',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'A research agent writes a report comparing inference engines. The definitions of KV cache and PagedAttention are stable. The benchmark table, pricing, supported model list, CUDA version, and bug status are volatile. The freshness scheduler assigns short TTLs to benchmark and price claims, medium TTLs to product-support claims, and long TTLs to conceptual definitions.',
-        'Two weeks later, a watch query finds a new release and a benchmark rerun. The scheduler fetches the new sources, diffs the benchmark row, updates only affected claims, and reopens a contradiction because the vendor table improved but an independent issue reports a regression on long-context prompts. The final report can be refreshed surgically.',
+        'The freshness-ledger visual proves that a claim has more than citation text. It has a source, a source date, an access date, a TTL policy, a watch query, and a report gate. The matrix of claim classes shows why definitions, prices, laws, benchmarks, model capabilities, and security findings cannot share one refresh cadence. A stable definition can stay. A benchmark claim may need a rerun. A security claim may need a new advisory check.',
+        'The scheduler visual proves that refresh work should be queued by risk and consequence. The stale-risk plot separates stable, product, and security claims over time. The queue table adds cost and blocking status. The fetch-diff-ledger path then shows the expected outcome: fetch new evidence, compare it with the old support span, preserve versions, update affected claims, and reopen contradictions when the new evidence changes the answer.',
       ],
     },
     {
-      heading: 'Scheduler design',
+      heading: 'How the data model works',
       paragraphs: [
-        'The refresh queue is a priority queue over stale risk, downstream importance, fetch cost, and access requirements. A high-risk claim used in the executive summary refreshes before a low-risk appendix note. A cheap official-doc check can run more often than an expensive benchmark rerun. A private source refresh may need authorization before a tool opens it.',
-        'The scheduler also needs diff semantics. Same source content means keep. New version means update and cite the version. Missing source means replace or downgrade. Contradictory source means reopen the contradiction graph. Access-restricted source means redact or reroute. These outcomes should be stored in the ledger, not hidden in a rewritten paragraph.',
+        'A useful claim record stores the claim text, report section, source pointer, exact evidence span, source date, access date, source version, retrieval query, claim class, volatility class, authority label, TTL, last refresh time, next due time, watch query, and dependency edges. A source pointer can be a URL, PDF page, repository commit, command output, dataset version, or private file handle. The exact span matters because a page can support one sentence and not the next.',
+        'The scheduler records jobs separately. A job has a claim ID or claim group, stale-risk score, fetch plan, expected cost, permission requirement, blocking status, owner, and outcome. Outcomes include unchanged, updated, source gone, access restricted, contradicted, superseded, or manually escalated. Keeping those states explicit prevents a dangerous shortcut where the system silently rewrites a paragraph and loses why the old claim changed.',
+        'The metadata has roots in older standards and systems. Dublin Core is useful background for source dates and lifecycle fields. W3C PROV-DM models entities, activities, agents, and derivation. OpenLineage shows how production lineage systems attach metadata to jobs, runs, and datasets. A freshness scheduler applies the same lineage discipline to research claims.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'How the scheduler works',
       paragraphs: [
-        'Do not refresh every source equally. Do not treat publication date as the only freshness signal. Do not silently overwrite old evidence; preserve versions. Do not let stale claims survive because the report still reads well. Do not run watch queries that cross user permission boundaries. Do not use an old private file to answer a new public question without checking access scope.',
-        'Study Claim Graph & Source Ledger, Deep Research Question Decomposition DAG, Source Authority Triage Priority Queue, Research Contradiction Resolution Graph, RAG Index Lifecycle and Alias Swap, Feature Freshness SLO Monitor, HTTP Cache ETag Revalidation, Cache Invalidation, Temporal Workflow Case Study, OpenLineage, W3C PROV-DM, Dublin Core Metadata Terms, and NIST AI RMF at https://www.nist.gov/itl/ai-risk-management-framework next.',
+        'The scheduler begins by classifying claims. Definitions, historical facts, prices, product limits, laws, security advisories, benchmark results, model capabilities, and availability claims get different TTL policies. The policy can be fixed, learned from source volatility, or adjusted by user stakes. A medical, legal, or financial claim gets a shorter leash than a stable computer-science definition because the cost of stale advice is higher.',
+        'Next, the system generates watch queries. A watch can be a source-specific fetch, an official release-page check, a CVE query, a benchmark repository run, a documentation diff, a regulatory update search, or a manual reminder. Jobs enter a priority queue ordered by stale risk, downstream importance, blocking status, cost, and permissions. Cheap high-risk checks can run immediately. Expensive benchmarks can batch. Private-source refreshes may need user authorization before tools open files.',
+        'After fetch, the system diffs new evidence against the old support span. If the support is unchanged, the ledger records a refresh and moves the next due date. If a value changed, dependent claims and sections are updated. If a source disappeared, the system replaces it or downgrades confidence. If a newer source contradicts the old answer, the contradiction graph reopens instead of hiding the conflict in revised prose.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because most reports have a small number of volatile claims carrying a large amount of freshness risk. Refreshing those claims gives a better return than rereading every stable background section. The dependency graph keeps the work bounded. If a CUDA support table changes, update the claims that cite that table. If a price changes, update the cost section. If a definition still matches the standard, leave the conceptual section alone.',
+        'It also works because it preserves versions. Old evidence is not erased. The ledger can show that a claim was true under a previous source date, then superseded by a new release, contradicted by an independent benchmark, or downgraded because a source became unavailable. That history is useful for audit, reproducibility, and user trust. It prevents the system from pretending the report was always current.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The cost is bookkeeping. Every claim needs metadata, and every refresh job needs a result. That overhead is not worth it for throwaway notes, but it is worth it for reports that drive decisions, compliance, market strategy, security posture, medical workflows, legal analysis, or benchmark claims. The scheduler also needs storage for source snapshots or hashes, because silent source changes are common.',
+        'There are operational tradeoffs. Watch queries can create noise. Over-refreshing can waste search budget and destabilize reports. Under-refreshing can leave stale claims in high-visibility sections. Automated diffs can miss semantic changes, especially when a source rewrites language without changing numbers. Permissioned sources require access checks. A system should never refresh private evidence into a public answer without verifying scope.',
+      ],
+    },
+    {
+      heading: 'Real uses',
+      paragraphs: [
+        'A market report can assign short TTLs to prices, funding, leadership, product availability, and benchmark tables while giving long TTLs to definitions and historical background. A security report can watch CVEs, advisories, exploit status, patch versions, and vendor guidance. A legal memo can watch regulations, court decisions, agency guidance, and jurisdiction-specific updates. A model-selection report can watch model cards, release notes, pricing pages, latency benchmarks, and deprecation notices.',
+        'Agentic research products need this especially. A user may return to a report weeks later and ask for an update. The right response is not to regenerate everything from memory. The system should know which claims are stale, which watch jobs are due, what changed, and which sections need revision. That is how a research workspace becomes durable instead of a pile of one-off transcripts.',
+      ],
+    },
+    {
+      heading: 'Failure modes and limits',
+      paragraphs: [
+        'Do not treat publication date as the only freshness signal. A page can be undated, silently modified, or current in one section and stale in another. Do not trust an access date without storing what was accessed. Do not refresh every source equally. Do not silently overwrite old evidence. Do not let a report stay unchanged simply because the prose still reads well.',
+        'The scheduler can also fail by overconfidence. A watch query may miss the authoritative update. A source may move behind an access wall. A benchmark rerun may not be comparable to the old setup. A contradiction may be real rather than a data-entry error. The system should surface these states as review items. Freshness automation is a control loop, not a license to skip judgment.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Claim Graph & Source Ledger, Source Authority Triage Priority Queue, Research Contradiction Resolution Graph, Deep Research Question Decomposition DAG, RAG Index Lifecycle and Alias Swap, Feature Freshness SLO Monitor, HTTP Cache ETag Revalidation, Cache Invalidation & Versioning, Temporal Workflow Case Study, OpenLineage Metadata Lineage Graph Case Study, W3C PROV-DM, Dublin Core Metadata Terms, and NIST AI Risk Management Framework at https://www.nist.gov/itl/ai-risk-management-framework. The next design question is how to choose TTL policy from claim class, source volatility, decision stakes, and refresh cost.',
       ],
     },
   ],

@@ -358,44 +358,67 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'HTTP/3 priority scheduling is the layer that turns browser intent into an order for response bytes. QUIC gives HTTP/3 independent streams, but the server still has to decide whether the next congestion-window slot goes to CSS, a hero image, a progressive thumbnail, an API response, or background work.',
-        'RFC 9218 defines an extensible HTTP priority scheme with an urgency parameter and an incremental parameter. Urgency ranges from 0 to 7, where 0 is most urgent. Incremental means the response can make useful progress when delivered in pieces instead of needing to finish before the next response receives bytes: https://datatracker.ietf.org/doc/rfc9218/.',
+        `A modern page is not one file. It is a dependency graph of HTML, CSS, JavaScript, fonts, images, API responses, video chunks, analytics, ads, and background refreshes. HTTP/3 can put many of those responses on independent QUIC streams, avoiding the TCP-level head-of-line blocking that hurt older multiplexing designs. But independence does not mean unlimited capacity. The connection still has congestion control, flow control, packet loss, round trips, and server-side readiness.`,
+        `The scheduler has one practical job: decide which eligible bytes leave next. If it sends a background image before render-blocking CSS, the page paints late. If it sends every active stream equally, a critical hero image can compete with thumbnails and analytics during the most important first round trips. If it treats priority as absolute, low-urgency streams can starve and progressive content can become jerky. HTTP/3 priority scheduling exists because byte order is user experience.`,
+        `RFC 9218 gives HTTP a compact way to express that intent. A request or response can carry a Priority field with urgency and incremental parameters. HTTP/3 can also carry PRIORITY_UPDATE frames on the control stream so priority can change after a response has started. The scheduler turns those signals into queues, eligibility checks, and release policy.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The naive design and the wall',
       paragraphs: [
-        'A practical implementation is a small scheduling data structure: a stream table keyed by request stream id, one or more queues per urgency level, an incremental fair-share list inside each urgency class, and an eligibility check that consults app bytes, QPACK readiness, stream credit, connection credit, and congestion-window state.',
-        'This is not the old HTTP/2 dependency tree. RFC 9114 notes that HTTP/3 itself does not provide the HTTP/2-style priority signaling mechanism, while priority remains important for performance: https://www.rfc-editor.org/info/rfc9114/. The modern scheme is simpler to encode and easier for intermediaries to forward or update.',
+        `The simplest scheduler is first-in, first-out: send bytes in the order responses become available. That fails because availability is not importance. A large image may be ready before a stylesheet, but the stylesheet may block layout. An analytics request may be easy to send, but it should not consume early congestion window space ahead of user-visible work.`,
+        `The next simple scheduler is equal sharing across streams. Equal sharing sounds fair, yet it spends scarce early bytes on work that has unequal value. During page load, a kilobyte of CSS can be worth more than a kilobyte of below-the-fold image data. During interaction, an API response that unblocks input feedback can be worth more than a decorative asset. Equal sharing ignores the browser's knowledge of the render graph.`,
+        `The opposite mistake is strict priority with no guardrails. If urgency 0 always drains completely before urgency 1, and urgency 1 always drains before urgency 2, lower classes can stall for too long. That harms progressive images, streaming responses, and background tasks that still need some progress. A useful scheduler is biased, not blind. It protects critical bytes while making measured progress on incremental or lower-urgency work when capacity allows.`,
+        `The final naive error is sorting by priority without asking whether a stream can actually send. A high-urgency stream may be blocked because its QPACK header dependencies are not ready, its stream flow-control window is exhausted, the application has not produced more body bytes, or QUIC congestion control says the connection cannot put more data in flight. Priority ranks eligible bytes; it does not make ineligible bytes sendable.`,
       ],
     },
     {
-      heading: 'Complete case study: product page over HTTP/3',
+      heading: 'The core idea',
       paragraphs: [
-        'A product page has render-blocking CSS, a hero image, a font, six below-the-fold images, an interaction API response, and analytics. The browser sends initial priority signals and later reprioritizes the hero after layout discovers it is the LCP candidate. The edge server keeps urgency buckets and moves the hero stream from an incremental image bucket to a high-priority non-incremental bucket.',
-        'The sender still obeys QUIC. RFC 9000 describes QUIC as providing flow-controlled streams for structured communication: https://datatracker.ietf.org/doc/rfc9000/. If connection flow control is exhausted, congestion says the pipe is full, or QPACK says a header block is waiting for a Required Insert Count, the scheduler must choose another eligible stream or stop.',
+        `RFC 9218 replaces the complicated dependency tree model associated with HTTP/2 priority with extensible priority parameters. The main parameter is urgency, an integer from 0 through 7, where 0 is most urgent and 7 is least urgent. The other central parameter is incremental, a boolean signal that partial delivery is useful. A stylesheet is usually not incremental: the browser needs enough of it to parse and apply rules. A progressive image, media chunk stream, or long response may benefit from partial progress.`,
+        `A practical implementation keeps one or more queues per urgency class, plus stream metadata: request id, response id, urgency, incremental flag, bytes queued, bytes sent, flow-control state, QPACK readiness, last update time, and starvation accounting. The scheduler checks the most urgent eligible work first, then uses round robin, deficit round robin, or a related fair policy within a class. Incremental streams can receive smaller slices so several visible resources advance together instead of one object monopolizing the connection.`,
+        `Reprioritization is part of the model. A browser may discover that an image is the largest contentful paint candidate, that a below-the-fold image is not needed yet, or that an interaction response is now urgent. HTTP/3 PRIORITY_UPDATE lets the client change priority for a live response. The data structure therefore cannot be a static sorted list built at request start. It has to support moves between urgency buckets, stale update rejection, and traceable policy decisions.`,
       ],
     },
     {
-      heading: 'QPACK and priority',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'QPACK is a separate but adjacent source of stalls. RFC 9204 defines QPACK for HTTP/3 header compression and describes a design that reduces head-of-line blocking compared with HPACK: https://www.rfc-editor.org/info/rfc9204/. A high-urgency response whose headers wait on a missing dynamic-table insert is not schedulable yet.',
-        'That is why the priority scheduler needs an eligibility check, not just sorted queues. If the top stream is QPACK-blocked, has no flow-control credit, or has no application bytes ready, the scheduler should continue with the next eligible stream rather than leaving capacity unused.',
+        `Suppose a product page opens with HTML, CSS, a JavaScript bundle, a hero image, six thumbnails, a recommendations API call, and analytics. The browser or intermediary assigns urgency values. CSS might be urgency 0 because it blocks rendering. The hero image might be urgency 1 or 2 because it affects largest contentful paint. Thumbnails might be urgency 5 with incremental delivery if visible progress is useful. Analytics might be urgency 7 because it should wait for spare capacity.`,
+        `When QUIC allows the server to send, the scheduler builds an eligible set. A stream is eligible only if headers can be emitted or decoded safely, application bytes are available, connection and stream flow-control credit exist, and congestion control allows more bytes in flight. The scheduler then chooses from the lowest urgency number first, applies per-class fairness, emits HTTP/3 DATA frames, and updates its accounting.`,
+        `QPACK deserves special attention. HTTP/3 header compression can reference dynamic table entries. If a stream depends on encoder instructions the decoder has not received, that stream can be blocked. This is not the same as the network being full and not the same as priority being low. It is an eligibility failure. A good scheduler skips the blocked stream and sends another eligible stream rather than idling the connection while waiting for header state.`,
+        `PRIORITY_UPDATE turns this from a static queue into a live control system. If the browser promotes the hero image after layout identifies it as important, the scheduler moves that response to a higher urgency bucket. If thumbnails become less important after the user scrolls elsewhere, they move down. Every move should be auditable: old priority, new priority, triggering event, time received, time applied, and effect on byte order.`,
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Why it works',
       paragraphs: [
-        'The common failures are inverted urgency, stale PRIORITY_UPDATE frames applied after a stream is done, intermediaries that ignore or overwrite priority, background work that starves forever, and observability that measures bytes but not the reason each stream was chosen. The result is a waterfall that looks random even though every layer is technically functioning.',
-        'A good release gate tracks both user outcomes and scheduler evidence: p75 LCP, p75 INP, critical-resource start and finish times, QPACK blocked-stream counts, connection credit stalls, congestion-window reductions, accepted priority updates, and low-urgency starvation time.',
+        `The design works because it separates three decisions that are often confused. Priority answers value: which byte would help the user most if it could be sent now. Eligibility answers feasibility: which streams are actually allowed to send now. Congestion and flow control answer capacity: how many bytes can leave now. Keeping these decisions separate prevents the scheduler from treating a blocked high-priority stream as a reason to waste the connection.`,
+        `Urgency buckets also match the browser's imperfect but useful knowledge. The browser knows which resources block rendering, which responses are tied to input, which images are likely visible, and which requests are background work. The server or CDN may know cache state, object size, and origin readiness. Priority fields are the meeting point between those views. They are hints to scheduling, not a guarantee that the network will ignore physics.`,
+        `Incremental delivery solves a different problem from urgency. Some resources produce value only near completion. Others produce value as chunks arrive. If the scheduler understands that distinction, it can finish non-incremental critical objects quickly while still giving progressive media enough slices to look smooth once the critical path is safe.`,
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'Where it is used',
       paragraphs: [
-        'Study HTTP/3 over QUIC, QUIC Transport Streams & Loss Recovery, QPACK Dynamic Table HTTP/3, Resource Hints: Preload & Preconnect, Binary Heap, Backpressure & Flow Control, TCP Congestion Control, Tail Latency, and Browser Rendering next. For an operator view, Cloudflare has a practical explanation of HTTP/3 prioritization and the urgency/incremental choices behind page resources: https://blog.cloudflare.com/better-http-3-prioritization-for-a-faster-web/.',
+        `The obvious setting is browser page load, especially through CDNs and edge proxies that terminate HTTP/3. The scheduler can protect CSS, fonts, render-critical scripts, interaction responses, and likely LCP images while delaying thumbnails, prefetches, ads, and analytics. The same ideas apply to web applications that keep many streams active over one connection.`,
+        `It also matters for media and document workloads. A news page with many images wants visible images before below-the-fold images. A map application wants tiles near the viewport before tiles outside it. A large download running beside an API response should not make the interface feel stuck. In each case the scheduler is enforcing a product policy using transport-level constraints.`,
+        `Intermediaries make the case harder. A browser, CDN, reverse proxy, and origin server may not all interpret or preserve priority signals the same way. If one hop ignores PRIORITY_UPDATE or collapses all streams into equal treatment, the trace at the client can look wrong even though the browser sent good hints. Production systems need end-to-end evidence, not only local queue state.`,
+      ],
+    },
+    {
+      heading: 'Tradeoffs and failure modes',
+      paragraphs: [
+        `Priority bugs rarely announce themselves as priority bugs. They show up as worse LCP, slow interaction feedback, uneven progressive image loading, or mysterious gaps in packet captures. Common causes include inverted urgency mapping, stale updates applied after completion, starvation of low urgency streams, overlarge DATA slices that make reprioritization sluggish, QPACK stalls mislabeled as scheduler choices, and missing telemetry about why a stream was selected.`,
+        `The tradeoff is policy complexity. A simple scheduler is easier to reason about but wastes important early bytes. A heavily tuned scheduler can improve page metrics but become hard to debug, especially when browser hints, CDN policy, cache state, and origin behavior interact. Fairness also has several meanings: fairness to streams, fairness to resources, fairness to user-visible milestones, and fairness to tenants. The right policy depends on which outcome is being protected.`,
+        `Evaluation should be tied to user-visible gates and scheduler evidence. Track p75 and p95 LCP, INP, first contentful paint, critical-byte ordering, per-urgency bytes sent over time, starvation time by class, number and timing of PRIORITY_UPDATE frames, QPACK blocked-stream time, congestion-window utilization, flow-control stalls, and cases where a high-urgency stream was skipped. A scheduler that improves traces but not user metrics is not done.`,
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        `Primary sources: RFC 9218 at https://datatracker.ietf.org/doc/rfc9218/, HTTP/3 RFC 9114 at https://www.rfc-editor.org/info/rfc9114/, QUIC RFC 9000 at https://datatracker.ietf.org/doc/rfc9000/, QPACK RFC 9204 at https://www.rfc-editor.org/info/rfc9204/, and Cloudflare HTTP/3 prioritization notes at https://blog.cloudflare.com/better-http-3-prioritization-for-a-faster-web/. Study HTTP/3 over QUIC, QUIC Transport Streams & Loss Recovery, QPACK Dynamic Table HTTP/3, Resource Hints, Binary Heap, Backpressure, TCP Congestion Control, Tail Latency, and Browser Rendering next.`,
       ],
     },
   ],

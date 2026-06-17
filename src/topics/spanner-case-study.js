@@ -164,41 +164,104 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The real problem',
       paragraphs: [
-        'Spanner is Google\'s globally distributed database. It combines sharded storage, Paxos replication, two-phase commit, MVCC, and a clock API called TrueTime to support externally consistent distributed transactions across datacenters.',
-        'The case study matters because it is a serious answer to the question Dynamo leaves open: what if the application cannot tolerate conflict reconciliation later? Spanner pays for coordination and clock infrastructure so users can get strong global transaction semantics.',
+        'A global application wants data close to users, durable across datacenters, and still protected by database invariants. That is easy to say and hard to build. If an account balance, inventory count, identity record, or access-control rule can be updated from several regions, the system must decide what it means for one transaction to happen before another.',
+        'Many distributed stores choose availability and accept later reconciliation. That can work for shopping carts, caches, feeds, and some profile data. It is a poor fit when the application cannot merge conflicts after the fact. Spanner is the case study for paying the coordination cost up front so a distributed SQL database can offer externally consistent transactions across replicated data.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive baseline',
       paragraphs: [
-        'Data is split into groups that are replicated with Paxos. A transaction that touches one group can commit through that group. A transaction that touches multiple groups uses two-phase commit across participant leaders, while each participant replicates its log entry through Paxos.',
-        'TrueTime returns an interval [earliest, latest] for the current time. When Spanner assigns a commit timestamp s, it waits until TrueTime is definitely after s before reporting the commit. This commit-wait ensures that if one transaction finishes before another begins, their timestamps reflect that real-time order.',
+        'The simplest global database is a single primary region with replicas elsewhere. All writes go to the primary, and remote users pay wide-area latency. Reads from replicas may be stale unless they coordinate with the primary. This design is understandable, but it wastes locality and makes the primary region a bottleneck for global workloads.',
+        'Another baseline is eventual consistency. Each region accepts writes, replicates them later, and resolves conflicts when replicas disagree. That improves availability, but it pushes correctness into application-specific merge logic. The hard wall appears when two transactions touch different shards, finish in a real-time order that users can observe, and must later be read in that same order everywhere.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The wall',
       paragraphs: [
-        'Spanner buys strong semantics with latency and operational cost. Cross-region Paxos adds wide-area round trips. Commit-wait adds delay proportional to clock uncertainty. The clock infrastructure itself must be monitored and bounded. If uncertainty grows, performance degrades because the system has to wait longer to preserve the guarantee.',
+        'The wall is external consistency. If transaction T1 commits and the client receives success before transaction T2 starts, then every later serial view should place T1 before T2. This is stronger than merely assigning unique version numbers. The database has to respect real-time order that clients can observe outside the database.',
+        'Physical clocks look tempting, but ordinary clocks are not exact. One machine may think the time is 10:00:00.100 while another thinks it is 10:00:00.095. If the database blindly trusts local timestamps, a later transaction can appear earlier than a transaction that already returned success. Spanner has to use time without pretending time has no uncertainty.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Core insight',
       paragraphs: [
-        'Spanner-style systems fit workloads that need global replication and strong invariants: financial ledgers, inventory, identity, critical metadata, and applications where conflict reconciliation is not acceptable. The design influenced NewSQL systems and cloud databases that try to combine horizontal scale with SQL-like transaction guarantees.',
+        'Spanner composes four ideas. First, data is partitioned into ranges, and each range is replicated by a Paxos group. Second, a transaction that touches multiple groups uses two-phase commit across the participant leaders. Third, MVCC stores multiple versions so reads can choose a timestamp. Fourth, TrueTime exposes clock uncertainty as an interval, and commit-wait turns that uncertainty into an ordering guarantee.',
+        'The important move is not "use clocks" in the vague sense. It is "use bounded clock uncertainty as a protocol input." TrueTime returns an earliest and latest possible current time. If Spanner chooses commit timestamp s, it waits until TrueTime is definitely after s before reporting the commit. That wait is the bridge between timestamp order and real-time order.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'Spanner does not prove that clocks are easy in distributed systems. It works because TrueTime exposes bounded uncertainty and the system waits out that uncertainty. Another misconception is that Spanner invalidates CAP tradeoffs. During partitions, systems still choose behavior; Spanner chooses strong consistency for transactions and may sacrifice availability for some operations.',
+        'At the storage layer, each partition of data has a Paxos group. The group has replicas in different failure domains, and one replica acts as leader for a lease interval. Writes are appended through the group log and become durable when the consensus protocol reaches the required quorum. A single-group transaction can commit through that group without a cross-group two-phase commit coordinator.',
+        'A multi-group transaction needs a coordinator. Participant leaders prepare their parts of the transaction and replicate prepare records through their own Paxos groups. The coordinator chooses a commit timestamp that is greater than relevant prior timestamps and compatible with the TrueTime interval. It then records the commit decision and tells participants. Each participant can make the appropriate MVCC version visible at the chosen timestamp.',
+        'Commit-wait happens before the system reports success to the client. If the commit timestamp is s, the coordinator waits until TrueTime says the earliest possible current time is greater than s. After that point, any transaction that starts later must see a TrueTime interval after s, so it cannot safely receive a timestamp that would place it before the already completed transaction.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'MVCC and snapshot reads',
       paragraphs: [
-        'Primary source: "Spanner: Google\'s Globally-Distributed Database" at https://www.usenix.org/system/files/conference/osdi12/osdi12-final-16.pdf, plus Google\'s TrueTime and CAP discussion at https://research.google.com/pubs/archive/45855.pdf. Study Clocks & Ordering: Lamport to TrueTime, NTP & PTP: How Clocks Actually Sync, Two-Phase Commit (2PC), Paxos: Consensus Without a Leader, MVCC Internals & VACUUM, and Transaction Isolation Levels next.',
+        'MVCC is what makes timestamped reads practical. Instead of overwriting one row version in place, the database keeps versions tagged by commit timestamp. A read-only transaction can choose a timestamp and read the versions visible at that time. If the chosen timestamp is safe for the replicas involved, the read can avoid blocking current writers.',
+        'This is why TrueTime affects both writes and reads. A timestamp is not just metadata for auditing. It is the coordinate system for a consistent snapshot. Replicas have to know whether they are caught up enough to serve a read at timestamp t. When they are, the database can provide a global snapshot without locking every row the reader touches.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a transaction transfers credit between two accounts whose rows live in different Paxos groups. The client contacts a coordinator. Group A prepares the debit and replicates that prepare record. Group B prepares the credit and replicates its prepare record. The coordinator chooses commit timestamp 105 after considering participant state and TrueTime.',
+        'Now the coordinator waits until real time is definitely past 105 according to TrueTime. Only then does it report commit success to the client. If another client starts a balance read after receiving a message from the first client, the second transaction cannot be assigned a timestamp that comes before 105. The real-world communication order and the database timestamp order line up.',
+        'A later read-only transaction can choose a timestamp, such as 110, and read account versions at that timestamp. It does not need to see half of the transfer because the debit and credit became visible as part of one transaction timestamp. The snapshot contract is simple for the application even though the storage path used consensus, two-phase commit, MVCC, and clock uncertainty.',
+      ],
+    },
+    {
+      heading: 'What the animation shows',
+      paragraphs: [
+        'The commit-timestamp view shows Spanner as a stack of coordination mechanisms. The client begins a transaction, the coordinator talks to Paxos group leaders, the groups replicate to regional replicas, and TrueTime supplies an interval rather than a point. The frame with commit-wait is the key: the wait is the mechanism that makes a chosen timestamp safe to expose as committed.',
+        'The snapshot-read view shows why MVCC matters. Rows have versions at different timestamps, and a read chooses the version set for one timestamp. The topology frame then connects that local-looking table idea to global replicas. The lesson is that consistent snapshots come from versioned data plus a timestamp system that the replicas and commit protocol agree to respect.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Spanner works by keeping separate invariants and then composing them. Paxos makes each group agree on its own log. Two-phase commit makes all touched groups agree on one transaction outcome. MVCC makes committed versions readable by timestamp. TrueTime and commit-wait make timestamp order respect real-time order for transactions that clients can observe.',
+        'The external-consistency invariant can be stated directly: if T1 finishes before T2 starts, T1 must receive a smaller commit timestamp than T2. Commit-wait is what closes the loophole created by clock uncertainty. It ensures that after T1 returns, real time has passed T1\'s timestamp, so T2 cannot honestly start in an interval that belongs before T1.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The obvious cost is latency. Cross-region replication needs wide-area communication. Multi-group transactions need two-phase commit messages plus consensus inside each participant group. Commit-wait adds delay proportional to TrueTime uncertainty. If uncertainty grows because clock infrastructure is degraded, the system must wait longer or stop preserving the guarantee.',
+        'The operational cost is also real. Spanner depends on disciplined time synchronization, careful leader placement, replica health, transaction participant tracking, MVCC garbage collection, and schema or data placement choices that avoid turning every transaction into a global transaction. Strong semantics do not make bad data modeling cheap.',
+        'There is also an availability tradeoff. Spanner does not erase CAP-style choices. If a partition prevents a group from reaching the required quorum, strongly consistent writes for that group cannot proceed. The design chooses consistency for the transactional interface and accepts that some failures reduce availability.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Spanner-style systems win when applications need global replication and strong invariants at the same time: financial ledgers, identity and authorization data, inventory, critical metadata, payment state, globally visible configuration, and multi-region services where manual conflict repair is unacceptable.',
+        'It is especially useful when read-only transactions need consistent global snapshots. Analytics, audits, and user-facing reads can ask for a timestamped view instead of locking active writers. The application gets a familiar database abstraction while the system handles the replicated logs and timestamp discipline underneath.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Spanner is not the right answer for every global workload. If the data can tolerate stale reads or conflict resolution, eventual consistency may be cheaper and more available. If most transactions are local to one region, a simpler primary-replica database may be easier to operate. If the application creates many cross-partition write transactions, the coordination cost can dominate.',
+        'It also fails when people simplify the story to "clocks solve distributed systems." Clocks do not solve consensus, atomic commit, or failure detection by themselves. Spanner still needs replicated logs, transaction protocols, and careful waiting. TrueTime is valuable because its uncertainty is explicit and bounded, not because it makes clocks perfect.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Important failure modes include clock uncertainty growing, leaders moving during transactions, Paxos groups losing quorum, two-phase commit participants recovering after a coordinator failure, old MVCC versions being garbage-collected before a long snapshot can finish, and data placement choices that create wide-area transactions for hot paths.',
+        'The defensive patterns follow from the design. Keep related rows colocated when possible. Monitor TrueTime uncertainty and commit latency. Treat cross-group transactions as expensive. Size MVCC retention for long reads. Understand which failures reduce availability. Spanner gives strong semantics, but it does not remove the need to design around failure domains.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary source: "Spanner: Google\'s Globally-Distributed Database" at https://www.usenix.org/system/files/conference/osdi12/osdi12-final-16.pdf, plus Google\'s TrueTime and CAP discussion at https://research.google.com/pubs/archive/45855.pdf.',
+        'Study Clocks & Ordering: Lamport to TrueTime for timestamp semantics, NTP & PTP: How Clocks Actually Sync for clock uncertainty, Two-Phase Commit (2PC) for atomic commit, Paxos: Consensus Without a Leader for replicated decisions, MVCC Internals & VACUUM for versioned reads and cleanup, Transaction Isolation Levels for user-facing guarantees, and Amazon Dynamo Case Study for the contrasting availability-first design.',
       ],
     },
   ],

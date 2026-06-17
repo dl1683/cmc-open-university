@@ -247,44 +247,92 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A priority search tree is a computational-geometry data structure for two-dimensional points. It combines two familiar invariants in one tree: binary-search-tree order on x and heap order on y. The result is a linear-space structure for reporting points in three-sided ranges such as x in [a,b] and y at most c.',
-        'McCreight described the structure as a symbiosis between a search tree and a priority queue. The search-tree side finds canonical x subtrees. The priority-queue side prunes any subtree whose best y value already fails the query threshold.',
+        'A three-sided range query asks for points whose x value lies inside an interval and whose y value passes one threshold, such as x in [2, 8] and y <= 4. This shape appears in computational geometry, interval stabbing transformations, viewport queries, and scheduling problems where one dimension is an ordered range and the other is a priority cutoff.',
+        'A priority search tree exists because neither a plain search tree nor a plain heap sees both constraints. The query needs x-order to avoid scanning unrelated columns, and it needs y-priority to stop descending into subtrees that cannot contain answers.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approaches hit opposite walls',
       paragraphs: [
-        'A node stores one point. In-order traversal is sorted by x, so the tree can split an x interval the way a Binary Search Tree does. At the same time, each subtree root stores the point with minimum y in that subtree. If the root y is larger than the query limit, the whole subtree can be rejected for y.',
-        'For a query [x1,x2] by y<=Y, find the split paths for x1 and x2, identify canonical subtrees whose x ranges lie fully inside the interval, then recursively report from those subtrees while the heap y value passes. The query is output-sensitive: O(log n + k), where k is the number of reported points.',
+        'Sorting by x lets the query jump to the interval, but the interval can still contain thousands of points whose y values fail. A heap by y finds low-y points quickly, but it has no way to restrict the answer to x between a and b.',
+        'A full two-dimensional range tree can answer more general rectangle queries, but it pays extra space for associated structures. The priority search tree targets the narrower three-sided shape and gets linear space with output-sensitive reporting.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core idea',
       paragraphs: [
-        'The classic static priority search tree uses O(n) space and answers three-sided orthogonal range reporting in O(log n + k). Construction is commonly O(n log n), or linear if the right sorted inputs are already available. Dynamic variants exist, but the cleanest teaching version is static or rebuilt in batches.',
-        'The structure is narrower than a full 2D Range Tree Orthogonal Search. Range trees handle arbitrary rectangles at higher space cost. Priority search trees exploit the missing fourth side of the rectangle to fold the second dimension into a heap invariant.',
+        'Every subtree carries two meanings. Its x structure describes an interval of x values, and its priority point gives the minimum y value inside that subtree. The x side tells the query where to look. The y side tells the query when looking is pointless.',
+        'The invariant is the whole data structure: x-order supports splitting into canonical subtrees, and y-heap order puts the best y witness for each subtree at the top. If the best witness fails y <= Y, every point below it fails too.',
+        'Textbook implementations often separate split keys from stored priority points. The visualization uses a compact node-per-point picture because it is easier to read, but the lesson is the same: each explored region needs an x interval and a minimum-y certificate.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'A complete case study is interval intersection. Represent every stored interval [l,r] as a point (l,r). A query interval [a,b] intersects [l,r] when l <= b and r >= a. After flipping the r axis, this becomes a three-sided query. A priority search tree can report all intersecting intervals in output-sensitive time.',
-        'This does not mean priority search trees always replace Interval Tree. If the workload is one-dimensional dynamic calendar booking, an augmented interval tree is simpler. If the workload is a mostly static computational-geometry batch with three-sided reporting, priority search tree is the sharper fit.',
+        'In the x-order y-heap view, read each node label as a point and each subtree as a region. The top point is highlighted because it is the minimum-y witness for the region below it. That witness is what makes pruning safe.',
+        'In the three-sided query view, the query node names the box: x between 2 and 8, y at most 4. Highlighted search paths find the x boundaries. Removed nodes are not random misses; their subtree witness has y above the threshold, so the entire subtree can be ignored.',
+        'In the interval case study view, the important move is the transformation. An interval [l, r] becomes a point. Intersecting a query interval becomes a three-sided condition after one coordinate is flipped.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'The main misconception is treating the y-heap invariant like a Binary Heap that ignores x. A priority search tree must satisfy both invariants simultaneously. If x-order is broken, interval splitting fails. If y-heap order is broken, pruning can silently miss valid points.',
-        'Another trap is applying it to full rectangles without thinking. A four-sided rectangle query needs both lower and upper y constraints. Priority search trees directly handle one y threshold; full range trees, range-tree variants, or layered structures may be required for general orthogonal range reporting.',
+        'For a query [x1, x2] by y <= Y, first use the search-tree side to find the split region for the two x boundaries. This produces search paths and canonical subtrees whose x ranges lie fully inside the query interval.',
+        'Then use the heap side inside those canonical subtrees. If the subtree minimum y is greater than Y, stop. If it passes, report the stored point when its x is in range, then continue into children that might contain more passing points.',
+        'This is output-sensitive reporting. The query pays for the boundary search and for the points it reports, not for every point in the original set.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Worked example',
       paragraphs: [
-        'Primary source: Edward M. McCreight, "Priority Search Trees", SIAM Journal on Computing page at https://epubs.siam.org/doi/10.1137/0214021 and PDF mirror at https://courses.cs.duke.edu/cps234/fall08/handouts/SMJ000257.pdf. Lecture references: Iowa State priority-search-tree notes at https://faculty.sites.iastate.edu/jia/files/inline-files/27.%20priority%20search%20trees.pdf and Brown computational-geometry notes at https://cs.brown.edu/courses/cs252/misc/resources/lectures/pdf/notes07.pdf. Study 2D Range Tree Orthogonal Search, Interval Tree, Binary Heap, Binary Search Tree, k-d Tree, R-Tree Spatial Index, and Fractional Cascading next.',
+        'The visualization query is x in [2, 8] and y <= 4. Points p3 = (3, 2), p6 = (6, 1), p7 = (7, 4), and p8 = (8, 3) pass. Point p4 = (4, 5) has acceptable x but fails y. Point p1 is too far left, and p9 is too far right.',
+        'The useful moment is the y prune. Once a subtree witness has y = 5 or y = 7, the query does not need to inspect its descendants. Heap order says every descendant has y at least that large, so none can satisfy y <= 4.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The x search is safe because the tree decomposes the query interval into disjoint canonical subtrees. Any point outside those subtrees has x outside the interval or lies on a boundary path already checked.',
+        'The y pruning is safe because the root or stored priority point for a subtree is the minimum y in that subtree. If even that point is above the threshold, no hidden descendant can be below it. If it passes, the subtree may contain answers, so the query descends and reports the passing points.',
+        'The two arguments multiply. X-order prevents searching unrelated x regions. Y-heap order prevents scanning every point inside a related x region.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The classic static structure uses O(n) space and answers three-sided reporting queries in O(log n + k), where k is the number of reported points. Construction is often O(n log n), with faster builds possible when the needed orderings are already available.',
+        'The tradeoff is specialization. A priority search tree is strong because the rectangle is missing one side. Add both lower and upper y bounds, and the direct structure no longer answers the full query by one heap threshold. Range trees, layered range trees, or other spatial indexes may be a better fit.',
+        'Dynamic updates are possible but more complex than the static teaching version. If the point set changes constantly, a simpler interval tree, balanced range tree, R-tree, or rebuild-in-batches strategy may be easier to operate.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'Priority search trees fit mostly static point sets with many three-sided queries. Examples include geometric filtering, dominance-style reporting, scheduling queries after a coordinate transform, and interval intersection batches where all matching intervals must be reported.',
+        'The interval transformation is a good case study. Store interval [l, r] as point (l, r). A query [a, b] intersects it when l <= b and r >= a. Flip the r coordinate and the second condition becomes a single threshold, giving the priority search tree its three-sided shape.',
+      ],
+    },
+    {
+      heading: 'Where it is not the right tool',
+      paragraphs: [
+        'Use an interval tree for ordinary dynamic calendar-style overlap queries. Use a range tree for full rectangle reporting. Use an R-tree or spatial database index for disk-backed, high-dimensional, approximate, or geographic workloads with messy update patterns.',
+        'Do not choose a priority search tree because it sounds like a general spatial index. Choose it when the query shape is exactly the one it exploits and output-sensitive exact reporting matters.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'If the x decomposition is wrong, the query misses valid points or scans unrelated regions. If the y witness is stale, pruning becomes unsound and can silently drop answers. These bugs are worse than slow scans because they return plausible incomplete results.',
+        'Another failure mode is weak coordinate modeling. In interval applications, open versus closed endpoints, coordinate flips, timestamp precision, and tie handling must match the API. The tree cannot repair an incorrect geometric reduction.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Binary Search Tree and Binary Heap for the two invariants, Range Tree Orthogonal Search for the more general rectangle problem, Interval Tree for one-dimensional dynamic overlap, k-d Tree and R-Tree for broader spatial indexing, and Fractional Cascading for speeding repeated catalog searches.',
+        'Primary source: Edward M. McCreight, "Priority Search Trees", https://epubs.siam.org/doi/10.1137/0214021. Useful lecture notes include the Iowa State notes at https://faculty.sites.iastate.edu/jia/files/inline-files/27.%20priority%20search%20trees.pdf and Brown computational geometry notes at https://cs.brown.edu/courses/cs252/misc/resources/lectures/pdf/notes07.pdf.',
       ],
     },
   ],

@@ -322,45 +322,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why this exists`,
       paragraphs: [
-        'The eBPF ring buffer is a BPF map type for moving event records from kernel eBPF programs to user space. A program running at a hook can reserve record space in a shared ring, fill it in place, and submit it. A user-space reader maps and polls the buffer, consumes completed records, and turns them into metrics, traces, logs, alerts, or live UI updates.',
-        'This is a data-structure lesson hiding inside observability. Ring Buffer explains the circular queue. eBPF Verifier Register State Case Study explains why kernel programs need proof before they run. OpenTelemetry Collector Case Study explains what happens after raw records leave the kernel.',
+        `Production observability has a hard boundary: the interesting event often happens in the kernel, but the dashboard, alert, trace, or audit log lives in user space. System calls, network packets, scheduler decisions, file opens, and security hooks are too hot to copy through a slow path for every occurrence. The eBPF ring buffer exists to make that boundary cheap and explicit. A tiny verified program can run at a hook, write a compact record into a shared buffer, and let a user-space process drain the records later.`,
+        `The design is not just an API convenience. It is a bounded data structure for exporting kernel facts without letting observability become the thing that breaks the system. The ring buffer says: records may move quickly, memory is capped, loss is possible, and every loss policy must be visible. That is the right contract for telemetry, where blocking the kernel to save a dashboard would be worse than dropping a sample and counting the drop.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The obvious approach`,
       paragraphs: [
-        'BPF_MAP_TYPE_RINGBUF is a multi-producer, single-consumer queue. Multiple CPUs may run the BPF program and reserve records, while one user-space consumer drains the shared ring. The reserve API returns a pointer into the ring when enough space is available. The program writes the payload and then calls submit. If it decides not to publish, it must call discard.',
-        'The verifier enforces the reserve lifecycle. Kernel documentation describes reserved records as tracked by verifier reference-tracking logic, so a program cannot reserve a record and forget to submit or discard it. That turns a common resource leak into a load-time rejection.',
-        'The user-space side is usually libbpf. A ring-buffer manager attaches a callback to the map file descriptor, polls or consumes available records, and invokes the callback with each record. From there the tool decides whether to batch, sample, redact, aggregate, or export.',
+        `The naive approach is to print from the kernel, copy every event through a syscall, or write each CPU into a private buffer and sort everything later. Each version fails in a different way. Printing is a debugging tool, not a data plane. Per-event syscalls are too expensive for hot paths. Per-CPU buffers reduce contention but make global ordering and memory sizing harder. A monitoring tool that needs to reconstruct a process story across CPUs can end up spending more effort repairing the export path than analyzing the event.`,
+        `Another tempting answer is to keep unbounded queues. That is unsafe in exactly the place you most need control. If the collector stalls during an incident, the kernel cannot keep allocating telemetry memory forever. The ring buffer uses a fixed-size region, so overload becomes a measurable condition rather than a hidden memory leak.`,
       ],
     },
     {
-      heading: 'Complete case study: syscall monitor',
+      heading: `Core insight`,
       paragraphs: [
-        'Suppose a platform team wants to monitor suspicious openat calls. An eBPF program attaches to a syscall tracepoint. It filters obvious noise in the kernel, reserves a compact record containing timestamp, pid, tgid, command, event id, and a bounded path field, and submits the record. If the ring is full, reserve returns null and the program increments a drop counter instead of blocking the syscall path.',
-        'A user-space daemon polls the ring buffer, decodes records with a versioned schema, batches them, redacts sensitive paths, and exports counts and examples through the Collector. Metrics show rate and drop counters; logs keep selected examples; traces or exemplars connect incidents back to exact processes. The key design move is explicit loss accounting. Missing records are expected under overload, but silent missing records are a product bug.',
+        `The core insight is reserve, fill, publish. A BPF program first asks the ring for enough contiguous space. If space exists, the helper returns a pointer into the record area. The program writes the event in place. Only after the payload is complete does it submit the record, making it visible to the consumer. If the program decides the event should not be emitted, it discards the reservation instead.`,
+        `That lifecycle gives two useful properties at once. It avoids an extra copy for fixed-size records, because the program writes directly into the ring. It also prevents user space from seeing half-built data, because a record is not published until submit. The data structure is a circular queue, but the engineering value comes from the state transition around each slot: free, reserved, ready, consumed.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Reserve-submit mechanics`,
       paragraphs: [
-        'The ring buffer removes unnecessary copies for the reserve/submit path and avoids the per-CPU memory overhead of perf event buffers. It also helps preserve cross-CPU event order because producers write into one shared ring. Those benefits do not make it lossless. Ring size, record size, producer rate, poll cadence, batching, and downstream exporter health determine whether the pipeline keeps up.',
-        'Full-buffer behavior is a correctness decision. eBPF programs should not wait in the kernel until dashboards catch up. They usually drop, sample, emit smaller records, shard by event class, or push less work into the hot path. The important engineering habit is to expose drop counters and design alerts around them.',
+        `BPF_MAP_TYPE_RINGBUF is a multi-producer, single-consumer queue. Multiple CPUs can run the same BPF program and reserve records in the shared ring. One user-space consumer drains records through libbpf. The BPF helpers provide the lifecycle: reserve, submit, discard, output, and query. The reserve path is the zero-copy path when the record size is known. The output helper is simpler for some dynamic records, but it copies from program memory into the ring.`,
+        `The verifier is part of the data-structure contract. A program that reserves a record must submit or discard it on every path. The verifier tracks the reservation as a reference, so a leaked reservation is rejected when the program is loaded instead of becoming a runtime cleanup problem. In ordinary application code that might feel strict. In kernel code it is the reason this pattern can be exposed safely.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `What the visual proves`,
       paragraphs: [
-        'Do not treat the ring buffer as durable storage. It is a bounded transport, not a log. Do not emit large variable payloads by default; the largest records dominate space and drain cost. Do not forget schema evolution; user-space decoders can outlive loaded programs during rollouts. Do not confuse global order with total system truth: event timestamps, CPU scheduling, lost records, batching delay, and clock behavior still matter.',
-        'Also do not put privacy decisions only after export. If path names, arguments, or packet bytes can contain secrets, the BPF program and poller need a clear record contract before the data reaches a shared observability backend.',
+        `The reserve-submit visual proves that correctness is not just a byte layout. It is a lifecycle. A record should be invisible while it is being filled, visible after submit, and impossible to leak because the verifier requires every reservation to close. The occupied slots in the matrix show that different CPUs can own different parts of the ring at the same time, but the consumer sees only records that crossed the publish boundary.`,
+        `The pipeline visual proves a second point: telemetry has many places to lose or distort data. Kernel filters can skip events, the ring can fill, the poller can fall behind, user-space queues can drop, redaction can remove fields, and exporters can fail. The ring buffer is the first transport step, not the whole observability system. A trustworthy design counts drops at each boundary and keeps record schemas stable enough to decode during rolling upgrades.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Case study: syscall monitor`,
       paragraphs: [
-        'Primary sources: Linux kernel BPF ring buffer documentation at https://www.kernel.org/doc/html/latest/bpf/ringbuf.html, eBPF Docs BPF_MAP_TYPE_RINGBUF reference at https://docs.ebpf.io/linux/map-type/BPF_MAP_TYPE_RINGBUF/, eBPF Docs bpf_ringbuf_reserve helper at https://docs.ebpf.io/linux/helper-function/bpf_ringbuf_reserve/, eBPF Docs bpf_ringbuf_submit helper at https://docs.ebpf.io/linux/helper-function/bpf_ringbuf_submit/, eBPF Docs bpf_ringbuf_discard helper at https://docs.ebpf.io/linux/helper-function/bpf_ringbuf_discard/, and libbpf ring_buffer__new reference at https://docs.ebpf.io/ebpf-library/libbpf/userspace/ring_buffer__new/. Study Ring Buffer, eBPF Verifier Register State Case Study, io_uring Submission & Completion Rings, NIC RX Ring & NAPI Poll Case Study, Cilium eBPF Datapath Case Study, OpenTelemetry Collector Case Study, Distributed Tracing, Metric Label Cardinality Control, and Backpressure & Flow Control next.',
+        `Suppose a platform team wants to monitor suspicious openat calls. The BPF program attaches to a syscall tracepoint. It reads a bounded path, filters obvious noise, reserves a compact record, writes timestamp, pid, tgid, command, event id, return code, and path prefix, then submits. If reserve returns null because the ring is full, the program increments a per-CPU drop counter and returns immediately.`,
+        `A user-space daemon polls the ring, decodes versioned records, batches them, redacts paths that match policy, and exports the result through an OpenTelemetry Collector. Metrics show event rate, ring drops, decode errors, and export drops. Logs keep selected examples. Traces or exemplars connect incidents to specific processes. The system is useful because the hot path is bounded and every missing-event path has a counter.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `The ring buffer works because it separates production from consumption without pretending the consumer is always fast enough. Producers do a small amount of bounded work: reserve, write, publish, or drop. The consumer does heavier work later: decode, batch, enrich, redact, and export. That split keeps kernel hooks fast while still giving user space a high-volume stream.`,
+        `The shared ring also addresses two pain points from older perf-buffer designs. A single ring can reduce per-CPU memory overhead and preserve cross-CPU event order better than independent per-CPU buffers. It does not create perfect truth, because timestamps, scheduling, lost records, and batching still matter. It does give a cleaner order for the records that were actually published.`,
+      ],
+    },
+    {
+      heading: `Costs and tradeoffs`,
+      paragraphs: [
+        `The main cost is loss under sustained overload. Ring size, record size, producer rate, poll cadence, batch size, and downstream exporter health decide whether the buffer absorbs bursts or fills. Making the ring larger can absorb spikes but consumes memory and may hide a slow consumer. Making records smaller improves throughput but may remove context that analysts need. Sharding rings by event class can reduce contention but complicates ordering and joins.`,
+        `The zero-copy reserve path is not always the simplest path. If the record size is hard to know before copying data, output may be easier. If the tool needs durable audit logs, the ring is only the ingress path; user space must persist selected events elsewhere. If privacy policy forbids raw arguments, redaction must happen before records leave trusted boundaries.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `The pattern wins for high-rate, low-latency telemetry where each event can be summarized in a compact schema. System-call monitors, network flow samplers, scheduler profilers, security sensors, container observability agents, and latency probes all fit. The record should be small, quickly computed, and useful without blocking the thing being observed.`,
+        `It also wins when global event order matters. A security investigation may need to know whether a process opened a file before it made a network connection, even if those hooks ran on different CPUs. A shared ring cannot solve every clock problem, but it makes the transport less likely to reorder published records across producers.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `The first failure mode is silent loss. If the program drops when the ring is full but nobody exports the drop counter, the dashboard lies. The second is schema drift. A poller compiled for one record layout may decode garbage after a rolling update unless records carry event ids and versions. The third is oversized payloads. One rare giant record can waste space and increase drop probability for many normal events.`,
+        `Privacy is another failure mode. Paths, arguments, packet bytes, and process names can contain secrets. A good design has a record contract, redaction rules, sampling rules, and access controls before data enters the shared observability backend. Finally, do not treat the ring as durable storage. It is a transport. If the consumer crashes, unconsumed records may be gone.`,
+      ],
+    },
+    {
+      heading: `Study next`,
+      paragraphs: [
+        `Primary sources are the Linux kernel BPF ring buffer documentation at https://www.kernel.org/doc/html/latest/bpf/ringbuf.html, the BPF_MAP_TYPE_RINGBUF reference at https://docs.ebpf.io/linux/map-type/BPF_MAP_TYPE_RINGBUF/, helper references for bpf_ringbuf_reserve, bpf_ringbuf_submit, and bpf_ringbuf_discard, and the libbpf ring_buffer__new reference at https://docs.ebpf.io/ebpf-library/libbpf/userspace/ring_buffer__new/.`,
+        `Study Ring Buffer for the base circular-queue mechanics, eBPF Verifier Register State Case Study for load-time proof, io_uring Submission and Completion Rings for another kernel-user ring pair, NIC RX Ring and NAPI Poll Case Study for packet receive backpressure, Cilium eBPF Datapath Case Study for production BPF use, OpenTelemetry Collector Case Study for export, Metric Label Cardinality Control for downstream cost, and Backpressure and Flow Control for the overload model.`,
       ],
     },
   ],

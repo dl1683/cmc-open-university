@@ -200,41 +200,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An R-tree is a balanced spatial index for rectangles and geometry. Each node stores minimum bounding rectangles for its children. A range query checks which rectangles overlap the query window and prunes the rest.',
-        'The structure matters because one-dimensional indexes do not naturally answer map and geometry questions. B-Trees (How Databases Read) order scalar keys. R-trees organize space, which is why they appear in GIS systems, spatial databases, collision detection, map search, CAD tools, and game engines.',
+        'An R-tree exists because many real queries are about space, not scalar order. A map viewport asks for roads, buildings, parks, and labels that overlap a rectangle. A GIS system asks which parcels intersect a flood zone. A game engine asks which objects might collide. A database B-tree can order one key, but geometry lives in two or more dimensions.',
+        'The data structure stores minimum bounding rectangles, often called MBRs. Leaves point at object boxes. Internal nodes point at child boxes that enclose all boxes below them. A range query compares its window with those boxes and prunes any subtree whose parent box cannot overlap. That single conservative test can skip many exact geometry checks.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The simplest spatial query is a full scan. Store every polygon or object, test its bounding box against the query window, then run an exact predicate on survivors. This is fine for dozens of shapes. It fails when a city map, logistics system, CAD model, or image index has millions of objects and most queries touch only a small region.',
+        'The next attempt is a one-dimensional index on x or y. That can narrow one coordinate range, but it does not preserve two-dimensional overlap. A long road segment may span many x values but be narrow in y. A building can be close in x but far away in y. There is no single sorted order where every rectangle overlap query becomes a clean contiguous range.',
+        'Uniform grids are another reasonable baseline. They work when objects are similar size and evenly distributed. They struggle with mixed scales, dense downtown regions, skinny objects, and sparse empty space. R-trees were designed for dynamic spatial data where the index has to group nearby rectangles without committing to one fixed grid resolution.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is conservative summarization. A parent box may be larger than the exact shapes below it, but it must contain them. That gives search a safe negative test: if the query does not overlap the parent MBR, none of the child objects can overlap the query. The index can discard the whole subtree without knowing the exact geometry inside.',
+        'The positive test is weaker. If the query does overlap a parent MBR, some child might overlap, so the search has to descend. This is why R-tree quality depends on compact boxes and low overlap between siblings. The invariant gives correctness; good packing gives speed.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Leaves store object bounding boxes. Internal nodes store bounding boxes that cover child boxes. Search descends into children whose boxes overlap the query. Insertion chooses the child that needs the least enlargement, then splits nodes that overflow. Split quality matters because overlapping parent boxes force more branches to be searched.',
-        'R-trees are height-balanced like B-trees, but their key is multidimensional. There is no single sorted order that preserves all spatial locality, so the implementation relies on bounding-box heuristics, fanout, packing, and periodic maintenance.',
+        'Leaves store entries such as object id plus object bounding box. Internal nodes store child pointers plus child bounding boxes. A range search starts at the root. For each child whose MBR overlaps the query window, it descends. For each child whose MBR misses the query, it prunes that child and everything below it. At the leaves, the index returns candidate objects, often followed by an exact geometry predicate.',
+        'Insertion descends greedily. At each internal node, it chooses the child whose bounding rectangle needs the smallest enlargement to contain the new object. Ties can be broken by smaller area or fewer entries. When the leaf overflows, the node splits into two groups. The parent receives a new child entry. If the parent overflows, the split can propagate upward, just like a B-tree split.',
+        'The hard part is the split. A bad split creates large parent boxes, large dead space, and heavy sibling overlap. Later queries then have to visit multiple branches at the same level. Classic R-tree variants use different split heuristics, reinsertion strategies, and bulk-loading methods to reduce this overlap.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual proves',
       paragraphs: [
-        'R-tree search is fast when bounding boxes are selective and parent overlap is low. Worst cases can still inspect many nodes, especially for large query windows, skinny overlapping rectangles, or degraded online insertions. Bulk loading can build strong static indexes. Dynamic workloads need careful split heuristics and sometimes rebuilds.',
+        'The search visual proves the pruning invariant. The query window overlaps the west parent box, so the search must inspect that branch. It misses the east parent box, so the shop and depot subtree is impossible. This is the same high-level idea as database indexing, but the proof is geometric containment rather than scalar order.',
+        'The insert visual proves the engineering tax. The chosen child is not chosen because it has the same semantic type. It is chosen because its MBR grows least. When a node overflows, the split tries to keep future boxes compact. If the split creates overlapping parents, future searches lose the ability to prune cleanly.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'R-trees back spatial indexes in databases, GIS tools, map search, geofencing, nearest-neighbor prefilters, graphics selection, collision broad phases, and bounding-box search for documents or images. Many production systems combine an R-tree candidate pass with exact geometry checks.',
+        'The correctness argument is the containment invariant. Every child rectangle is contained by its parent rectangle. If a query rectangle does not overlap the parent, it cannot overlap any child, because every child lies inside the parent. Pruning is therefore safe. The tree may miss performance opportunities, but it should not miss true candidates because of a safe negative box test.',
+        'False positives are allowed. A parent box can overlap the query even when no exact child geometry does. A leaf object box can overlap even when the polygon itself does not. The R-tree is a candidate generator. Exact geometry tests, distance ranking, or collision narrow phases decide the final answer after the index has reduced the search set.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'An R-tree is not a magic nearest-neighbor engine. It is a pruning structure over bounding boxes. Exact geometry predicates, distance calculations, and ranking often happen after candidate retrieval. Another misconception is that any split is fine. Overlap and dead space directly affect query cost.',
+        'R-tree cost is workload-shaped. The tree is height-balanced, so insert and search often feel logarithmic when boxes are compact and sibling overlap is low. The worst case can still visit many nodes. Large query windows, long skinny rectangles, highly overlapping objects, and degraded insertion order can make the tree behave closer to a scan.',
+        'Fanout is a real knob. Wider nodes reduce height and can match disk pages or cache lines, but each visited node has more child boxes to scan. Split heuristics spend more CPU during insertion to reduce query work later. Bulk loading can build excellent static indexes, but dynamic moving objects may need reinsertion, periodic rebuilds, or a different structure.',
+        'Space overhead is the stored hierarchy: child boxes, pointers, ids, and sometimes cached metadata. The index also adds update cost. Moving one object can change a leaf box, enlarge or shrink parent boxes, and force maintenance. R-trees are most attractive when many searches amortize that maintenance.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'R-trees win when the workload asks for spatial candidates from large sets of rectangles or geometry. Spatial databases use them for bounding-box filters before exact predicates. GIS tools use them for map windows, overlays, and geofencing. Game engines and physics systems use related bounding-volume hierarchies for broad-phase collision candidates. CAD and graphics tools use them for selection and viewport queries.',
+        'They are also useful as prefilters for nearest-neighbor and ranking work. The R-tree can quickly find objects whose boxes are plausible, then a later stage computes exact distance, polygon relation, or business ranking. The fit is strongest when queries are local, boxes are compact, and the data has enough spatial locality for parent boxes to prune most branches.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'An R-tree is not a magic nearest-neighbor engine, a perfect geometry engine, or a replacement for exact predicates. It indexes boxes. If a polygon has a large bounding box with a hole, the index can return it for a query inside the hole. That is not an index bug; it is a false candidate that the exact predicate must remove.',
+        'It is also the wrong tool when the spatial distribution defeats bounding boxes. Massive overlap, tiny objects mixed with world-spanning objects, very high dimensions, or adversarial insertion order can destroy selectivity. For static point data, a kd-tree, ball tree, packed Hilbert R-tree, geohash, or space-filling-curve index may fit better. For uniform grids with fast updates, a grid or spatial hash can be simpler.',
+      ],
+    },
+    {
+      heading: 'A worked case',
+      paragraphs: [
+        'Suppose a map viewport overlaps the west parent rectangle but not the east parent rectangle. The search descends into west and skips every object under east. If west contains a road segment and a park, both leaf boxes may be checked. The road box overlaps the viewport; the park may be only a false candidate. The exact geometry test decides the final answer.',
+        'Insertion has the opposite tension. A new cafe near the road can go into the west child with small enlargement, but if that child overflows the split must keep future boxes compact. The index is good when most viewports prune most children. It is poor when every viewport overlaps several parents at every level.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Antonin Guttman, "R-Trees: A Dynamic Index Structure for Spatial Searching" at https://www2.eecs.berkeley.edu/Pubs/TechRpts/1983/ERL-m-83-64.pdf and PostGIS spatial indexing notes at https://postgis.net/workshops/postgis-intro/indexing.html. Study Sweep Line Segment Intersection for geometry overlay, Delaunay Triangulation & Voronoi Dual for nearest-region geometry, B-Trees (How Databases Read), Database Indexing, Binary Search Tree, Graph BFS, and Sharding & Partitioning next.',
+        'Primary sources: Antonin Guttman, "R-Trees: A Dynamic Index Structure for Spatial Searching" at https://www2.eecs.berkeley.edu/Pubs/TechRpts/1983/ERL-m-83-64.pdf and PostGIS spatial indexing notes at https://postgis.net/workshops/postgis-intro/indexing.html. Study B-Trees for height-balanced page-oriented indexes, Database Indexing for candidate filtering, Sweep Line Segment Intersection for geometry overlay, Delaunay Triangulation and Voronoi Dual for nearest-region geometry, Bounding Volume Hierarchy Ray Tracing for another box hierarchy, Quadtree Spatial Index Map Tiles for fixed spatial decomposition, kd-trees for point search, and Sharding and Partitioning for distributing spatial workloads.',
       ],
     },
   ],

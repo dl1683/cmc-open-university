@@ -130,6 +130,21 @@ export const article = {
       heading: `What it is`,
       paragraphs: [
         `Uncertainty quantification teaches a model to return more than a point estimate. The demo separates two doubts. Aleatoric uncertainty is noise in the world, such as sensor readings that scatter even inside the training range. Epistemic uncertainty is missing knowledge, such as readings beyond 5 when all training examples lie between 2 and 5. Calibration & Reliability Diagrams asks whether probabilities are honest on familiar data; uncertainty asks whether the model should answer at all.`,
+        `This matters because a wrong confident answer is often more dangerous than a modest one. A classifier, regressor, recommender, or LLM system can be useful only if the surrounding product knows when to accept, widen the interval, ask for more data, or route to a human. Uncertainty quantification turns confidence into an action policy.`,
+      ],
+    },
+    {
+      heading: `The obvious approach`,
+      paragraphs: [
+        `The obvious approach is to treat the model score as confidence. A softmax probability of 0.99 looks decisive, and a regression point estimate looks clean. The problem is that neural scores can be overconfident under distribution shift, class imbalance, label noise, or adversarial inputs. The number can look precise while the model is outside its experience.`,
+        `Another tempting answer is to set one global threshold. That can be useful, but it mixes two questions: is the model calibrated on familiar data, and is this input familiar enough to trust at all? The first needs calibration. The second needs epistemic uncertainty, out-of-distribution detection, ensembles, conformal methods, or another abstention signal.`,
+      ],
+    },
+    {
+      heading: `Core insight`,
+      paragraphs: [
+        `The core insight is to separate uncertainty by cause. Aleatoric uncertainty is irreducible noise in the data-generating process. More examples can estimate it better but cannot remove it. Epistemic uncertainty is model ignorance. More data, better coverage, or a different model can shrink it.`,
+        `The response changes with the cause. Aleatoric uncertainty calls for wider prediction intervals and risk-aware decisions. Epistemic uncertainty calls for abstention, human review, active learning, or data collection in the unknown region. Treating both as one scalar hides the most important operational choice.`,
       ],
     },
     {
@@ -140,15 +155,39 @@ export const article = {
       ],
     },
     {
+      heading: `What the visual is proving`,
+      paragraphs: [
+        `Read the band as two different doubts sharing one picture. The nonzero width inside the training range is irreducible noise. The widening outside the range is missing knowledge, which should trigger data collection, abstention, or review.`,
+        `Read MC dropout as a small committee made from one network. If repeated passes agree, the model is at least internally stable for that input. If they scatter, the input is outside what training pinned down, and the system should avoid treating the mean as a confident answer.`,
+        `The matrix view is the decision table. Noise in the world and gaps in knowledge require different product responses. The animation is not only showing uncertainty; it is showing why the system should choose different actions for the same-looking error bar depending on its source.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `MC dropout works as a rough epistemic signal because keeping dropout active creates many thinned versions of the same trained network. Where training data constrained the function, those subnetworks tend to agree. Where the input is far from training support, their extrapolations can diverge.`,
+        `Deep ensembles work by a similar committee principle with stronger diversity: independently trained models disagree when the learned function is underdetermined. Conformal prediction works differently. It uses calibration residuals to construct sets or intervals with coverage guarantees under assumptions about exchangeability. These methods answer related but distinct uncertainty questions.`,
+      ],
+    },
+    {
       heading: `Cost and complexity`,
       paragraphs: [
         `MC dropout costs N forward passes through one model. Deep ensembles cost N separately trained models but usually give stronger epistemic signals. Conformal prediction uses a calibration set to return prediction sets with coverage guarantees. These methods complement ROC Curves & AUC and Picking a Threshold with Real Costs because they decide when the score itself is too uncertain to trust. The compute bill is usually acceptable for high-stakes decisions and too expensive for every low-latency request unless batched carefully.`,
+        `The evaluation cost is just as real. You need held-out slices, shifted data, out-of-distribution probes, abstention metrics, and downstream cost curves. A method that raises uncertainty on hard cases is useful only if the product has a better action for those cases.`,
       ],
     },
     {
       heading: `Real-world uses`,
       paragraphs: [
         `Selective prediction wires uncertainty into action: auto-accept low-doubt cases, escalate high-doubt cases, or collect data in unknown regions. Medical triage, lending, industrial inspection, and autonomous systems all need abstention more than bravado. A/B Testing & p-values can then test whether the abstention policy improves outcomes after deployment. The goal is not a timid model; it is a model whose confidence controls the cost of its own mistakes.`,
+        `For LLM systems, the same pattern appears as answer voting, verifier disagreement, citation support checks, retrieval freshness, and human escalation. The system should not ask only "what did the model answer?" It should ask how much independent evidence supports the answer and what to do when support is weak.`,
+      ],
+    },
+    {
+      heading: `What to measure`,
+      paragraphs: [
+        `Measure calibration error, coverage, abstention rate, error rate after abstention, cost per escalation, and performance under distribution shift. For regression, inspect interval coverage by slice. For classification, inspect whether uncertainty rises on ambiguous labels, rare classes, corrupted inputs, and out-of-distribution examples.`,
+        `The best uncertainty method is not the fanciest one. It is the method that lets the product make a better decision. If every high-uncertainty case still receives the same automated action, the uncertainty estimate is decoration.`,
       ],
     },
     {
@@ -163,6 +202,7 @@ export const article = {
         `After this, study probability calibration, thresholding, bandit exploration, and Early-Exit Transformer Layer Skipping. The useful deployment pattern is a dashboard with both gauges: one for whether a familiar score is calibrated, and one for whether the input is familiar enough to score at all.`,
         `For implementation, decide the action before choosing the uncertainty method. A warning banner, a human-review queue, a wider prediction interval, and an active-learning request are different products. The right uncertainty estimate is the one that supports the decision you will actually take.`,
         `Always validate the abstention threshold on held-out data. A model that refuses too often can be as unusable as one that guesses too boldly or slow to a crawl.`,
+        `Uncertainty is useful only when it changes behavior.`,
       ],
     },
   ],

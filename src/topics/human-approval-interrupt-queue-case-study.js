@@ -231,51 +231,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A human approval interrupt queue is the control-plane record that lets an agent pause before sensitive actions, show a reviewer the exact proposed tool call, and resume from serialized run state after approval or rejection. It connects Agent Tool Permission Lattice, Agent Checkpoint Replay Ledger, and Agent Run Trace Span Tree.',
-        'This is not a chat convention. It is a queue of typed interruptions: tool name, parsed args, proposed effect, requester, risk, current state hash, expiration, reviewer, decision, and resume command.',
+        'An autonomous workflow eventually reaches actions where a wrong step is not just a bad answer. It can send money, delete data, change an account, run a shell command, email a customer, or expose private information. A human approval interrupt queue exists for that boundary: the system is allowed to plan the action, but it must pause before the side effect.',
+        'The queue turns approval into a real control-plane state, not a message in a chat transcript. It records the proposed tool call, the exact arguments, the reason review is required, the serialized run state, the reviewer decision, and the command used to resume or reject the run.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is to ask the user a question whenever the model is about to do something risky: "Can I run this?" That is simple to build, but it breaks down as soon as the workflow is asynchronous, multi-step, or operated by a reviewer who is not sitting in the same chat.',
+        'The wall is state. The system has to know exactly which run is paused, which tool call is waiting, which state snapshot the reviewer saw, whether that state is still fresh, and what should happen after either approval or rejection. Without that, approval becomes theater: people click a button, but the system cannot prove what they approved.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Approval should be modeled as an interrupt in a state machine. The agent emits a tool call, policy decides that it cannot execute yet, the runtime records an interrupt, and the run becomes resumable only through a typed approve or reject command.',
+        'That insight separates safety from conversation design. The reviewer is not being asked to trust a summary. They are shown a structured packet: tool name, parsed arguments, target resource, predicted effect, risk reason, state hash, expiration time, and the consequences of reject.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the approval queue view, follow the proposed tool call as it moves from rule evaluation to pause, queue, serialized state, human decision, resume command, and audit span. The important step is not the button; it is the preservation of enough state to resume the original run safely.',
+        'In the policy gates view, read the graph as a routing lattice. Low-risk actions can execute automatically, high-risk or ambiguous actions go to review, and forbidden actions stop. The useful question at each frame is: what evidence would a reviewer need to make this decision without guessing?',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A tool declares whether it needs approval. When the model emits that tool call, the runtime evaluates the rule. If review is required, the run pauses and returns an interruption. The app serializes run state, surfaces the approval packet, collects a decision, and resumes the same run with an approve or reject command.',
-        'The approval record should be bound to state. If a price, account, document version, permission, or user intent changes while the item waits in the queue, the system should revalidate before running the action.',
+        'A production implementation starts with a permission lattice. Read-only tools may be allowed by default. Writes, external messages, payments, code execution, private-data export, and production changes usually require stronger policy. The policy can be static, risk-scored, or context-dependent.',
+        'When the model requests a gated tool, the runtime does not execute it. It creates an interrupt record, serializes the run, stores the proposed call, and publishes a review item. The reviewer can approve, reject, request changes, or let the item expire. Approval resumes the same run from the stored checkpoint. Rejection resumes through a safe branch that explains what was blocked.',
+        'The record should also carry freshness rules. If a price, document version, account permission, inventory count, or user instruction changes while the item waits, the system should force revalidation before executing the tool.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'Approval improves safety but adds latency and reviewer load. A naive queue that asks people about every minor action turns into rubber stamping. A useful queue applies automatic guardrails first, risk scoring second, and human review only where judgment materially changes the decision.',
-        'The hardest design work is the review packet. If reviewers cannot see the exact args, effect, state, policy reason, and reject consequences, they cannot make a meaningful decision.',
+        'It works because the approval is bound to three things at once: the proposed effect, the run state, and the reviewer identity. That gives the system a durable answer to "who approved what, based on which facts, and what happened next?"',
+        'It also works because it makes rejection a first-class path. A rejected action should not leave the run confused. It should produce a safe response, update the trace, preserve the reviewer reason, and give policy owners feedback for future rules.',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'OpenAI Agents SDK human-in-the-loop docs describe pausing agent execution until a person approves or rejects sensitive tool calls, with pending approvals surfaced as interruptions and RunState used to serialize and resume: https://openai.github.io/openai-agents-python/human_in_the_loop/. OpenAI guardrails and human review docs explain that guardrails and human review define when a run should continue, pause, or stop: https://developers.openai.com/api/docs/guides/agents/guardrails-approvals.',
-        'Microsoft Agent Framework tool approval docs show the same pattern: functions can require human approval, responses surface function approval requests, and the caller passes the approval or rejection back in a later run: https://learn.microsoft.com/en-us/agent-framework/agents/tools/tool-approval. LangGraph time travel docs show that interrupt nodes re-trigger during replay and forks: https://docs.langchain.com/oss/python/langgraph/use-time-travel.',
+        'Approval adds latency, queue management, state storage, reviewer load, and product design work. A queue that asks about everything trains people to approve without reading. A queue that asks too rarely leaves dangerous actions on the automatic path.',
+        'The hard part is not the modal. It is the packet. Reviewers need exact arguments, resource identifiers, diffs, policy reason, user-visible effect, expiration, and reject behavior. If those are missing, human review becomes a liability because it creates confidence without comprehension.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Operational checklist',
       paragraphs: [
-        'Approval queues fit refunds, cancellations, payments, data exports, shell commands, code edits, external messages, account changes, and any MCP action that touches sensitive resources. They also fit internal operations where a manager wants batch review before an agent changes production state.',
-        'A good queue also creates training data for policy. Repeated approvals can become automatic rules. Repeated rejections become better guardrails, clearer tool descriptions, or lower autonomy for that path.',
+        'Define the approval object as a durable record. It should include run id, tool call id, tool name, normalized arguments, state hash, requester, reviewer, approval status, expiry, policy rule, decision reason, and final execution result. If any of those are missing, later audit will have to infer what happened.',
+        'Treat time as a risk factor. A queued approval should expire when the facts it relied on may have changed. Resume should recheck permissions, resource version, user intent, and any external value such as price, inventory, or account state before executing the approved side effect.',
+        'Measure reviewer load. Track queue size, age, approval rate, rejection reasons, stale expirations, and repeated approvals for the same policy. Those metrics tell you which gates need automation, clearer packets, or stricter denial.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Testing it',
       paragraphs: [
-        'Do not ask for approval after the side effect. Do not show reviewers a paraphrase when exact arguments matter. Do not resume from stale state. Do not reuse approval across a fork unless the approval scope explicitly allows it.',
-        'Do not hide rejection paths. A rejection is not failure; it is a valid workflow outcome that should produce a safe response, trace span, and policy-learning signal.',
+        'Test approval as a state machine. A gated tool call should pause without side effects, serialize state, create one review item, resume exactly once after approval, and follow a safe path after rejection. Duplicate approvals, expired approvals, and approvals for stale state should not execute the tool.',
+        'Also test audit replay. Given the audit record, an investigator should be able to reconstruct what the reviewer saw, why the action was gated, who approved it, what command resumed the run, and what side effect occurred. If replay needs chat memory or guesswork, the control plane is under-specified.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: OpenAI Agents SDK HITL at https://openai.github.io/openai-agents-python/human_in_the_loop/, OpenAI guardrails and human review at https://developers.openai.com/api/docs/guides/agents/guardrails-approvals, Microsoft Agent Framework approvals at https://learn.microsoft.com/en-us/agent-framework/agents/tools/tool-approval, and LangGraph time travel at https://docs.langchain.com/oss/python/langgraph/use-time-travel. Study Agent Workflow DAG Compiler Case Study, Agent Checkpoint Replay Ledger Case Study, Agent Run Trace Span Tree Case Study, Agent Tool Permission Lattice, OPA Rego Policy Decision Graph, and Prompt Injection Threat Model next.',
+        'This pattern is strongest for rare but consequential actions: refunds, cancellations, payroll changes, data exports, production deploys, shell commands, code edits, account merges, external messages, and agent calls into sensitive MCP tools.',
+        'It is also useful for policy learning. Repeated approvals can become candidates for safe automation. Repeated rejections can become better guardrails, narrower tool schemas, clearer user prompts, or lower autonomy on that path.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when approvals are too broad. "Approve this workflow" is weaker than "approve this exact transfer of $412.18 from account A to vendor B before 3:00 PM." Scope matters because later steps may drift away from what the reviewer understood.',
+        'It also fails when state is stale, when reviewers see paraphrases instead of exact arguments, when approval is requested after the side effect, or when a forked replay reuses an old approval outside its original scope.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'An operations agent is asked to refund a customer and close a support ticket. Reading the ticket history is automatic. Drafting the refund is automatic. Issuing the refund is gated because it moves money. The interrupt packet shows customer id, order id, amount, payment rail, reason, policy match, ticket link, current account status, and the message that will be sent after approval.',
+        'A reviewer approves after checking the order. Before resume, the system revalidates that the order is still refundable and the amount is unchanged. The refund tool runs, the ticket is updated, and the audit span records the reviewer, state hash, approval time, tool arguments, and final result. If the order had changed, the queued item would expire and return to review instead of executing stale work.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary references: OpenAI Agents SDK human-in-the-loop docs, OpenAI guardrails and approvals docs, Microsoft Agent Framework tool approval docs, and LangGraph interrupt or replay documentation. Study Agent Tool Permission Lattice, Agent Checkpoint Replay Ledger, Agent Run Trace Span Tree, OPA Rego Policy Decision Graph, and Prompt Injection Threat Model next.',
       ],
     },
   ],

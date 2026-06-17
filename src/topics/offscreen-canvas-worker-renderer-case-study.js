@@ -206,42 +206,85 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'OffscreenCanvas decouples canvas rendering from the DOM-bound canvas element. A page can transfer rendering control to an OffscreenCanvas and then transfer that object to a worker. The DOM element still occupies the page, but the worker can own the drawing context.',
-        'The data-structure lesson is ownership. A canvas renderer is not copied to another thread. It is moved as a transferable resource, then driven by a message protocol for input, resize, style, and data updates.',
+        'Canvas rendering can compete with input handlers, layout work, app code, and accessibility updates on the main thread. A map, timeline, chart, game, or scientific viewer can make the page feel broken even when the rendering code is technically correct.',
+        'OffscreenCanvas exists to move canvas drawing into a worker while the DOM canvas still occupies its place in the document. The page can keep handling layout, controls, text, focus, and accessibility while the worker owns the pixel pipeline.',
+        'The teaching point is ownership. The renderer is not cloned into another thread. The page transfers control to an OffscreenCanvas, transfers that object to a worker, and then talks to the renderer through an explicit message protocol.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The first answer is to keep drawing on the main thread and hope the loop stays small. That works until pan, zoom, tile decode, layout, and framework updates all want the same frame budget.',
+        'The second wrong answer is to move drawing to a worker but keep sending one draw command per pointer event. That turns message passing into per-frame chat and can waste more time than it saves.',
+        'A third mistake is to assume the worker can read layout. It cannot inspect the DOM or CSSOM. The main thread must measure the canvas size, devicePixelRatio, theme state, and input events, then send the renderer the facts it needs.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The page owns DOM, CSS layout, input, accessibility, and app state. The worker owns pixels and renderer resources after transfer. Messages are the boundary between those responsibilities.',
+        'A good protocol sends state snapshots, not every draw command. The worker stores the latest camera, data, resize, and style state, then renders once per frame. Communication cost remains real, so per-frame messages must stay compact.',
+        'This is the same design discipline as any cross-thread system. Ownership transfer removes shared mutation, but it forces a protocol: initialize, resize, update data, update input state, render, handle context loss, and shut down.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The page creates a normal canvas element, calls transferControlToOffscreen, and posts the OffscreenCanvas to a dedicated worker with a transfer list. The worker receives the canvas, calls getContext, stores incoming state messages, and draws from its own loop.',
-        'Modern dedicated workers also expose requestAnimationFrame when associated with an owner window. That makes worker canvas rendering frame-aligned instead of timer-based. The worker rAF callback still follows the same one-shot rule as window rAF: it must request another callback if it wants another frame.',
+        'The page starts with a visible canvas element. It calls transferControlToOffscreen, then sends the OffscreenCanvas to a worker in the postMessage transfer list. That transfer matters: ownership moves, so the worker can create the rendering context.',
+        'Once the worker owns the OffscreenCanvas, it creates a 2D, WebGL, or WebGPU-backed renderer depending on the application. The main thread no longer issues draw calls. It sends messages such as resize, camera, pointer state, data batches, color theme, and shutdown.',
+        'The worker render loop stores the latest state and draws a snapshot. Dedicated workers can use requestAnimationFrame when associated with an owner window, which lets drawing align with the display loop. The loop still has to request the next frame each time.',
+        'Resize is a protocol, not a DOM read. The main thread measures CSS size and devicePixelRatio, sends width, height, and DPR, and the worker resizes canvas backing buffers and GPU resources explicitly.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'OffscreenCanvas removes draw work from the main thread, but it does not remove communication cost. Pointer events, resize measurements, theme changes, and app state still originate on the main thread. Send compact messages, batch high-frequency input, and let the render loop consume the latest snapshot once per frame.',
-        'The resize path is a common source of bugs. The worker cannot inspect CSS layout. The main thread must send the CSS size and devicePixelRatio, and the worker must resize backing buffers or canvas dimensions explicitly. WebGPU and WebGL paths also need resource recreation when size or format changes.',
+        'The transfer scene proves the ownership break. After transferControlToOffscreen and postMessage with a transfer list, the worker can create the rendering context, and the main thread should stop trying to draw on that canvas.',
+        'The frame-loop scene proves the protocol shape. Pointer and data messages update worker state; the worker rAF loop consumes the latest state once per frame instead of drawing once per incoming message.',
+        'The resize scene proves why layout stays on the main thread. A worker renderer needs explicit size, DPR, and style inputs because it cannot ask the DOM what changed.',
+        'The responsive-map case proves the division of labor. Tile indexes, camera state, and GPU resources can live in the worker, while DOM controls, keyboard focus, text labels, and layout stay on the main thread.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'A map renderer receives pan and zoom input on the main thread, sends camera messages to a worker, and keeps tile data in a quadtree or spatial index inside the worker. The worker renders the latest visible tiles into the OffscreenCanvas. The page can still update controls, text, and accessibility state while the renderer keeps drawing.',
-        'A worse design sends one draw command per pointermove and waits for a response before updating the UI. That turns message passing into per-frame chat. The better design sends input as state, not commands, and lets the worker decide when the next visual frame should be produced.',
+        'It works because rendering and UI management are separated by ownership. The main thread can remain responsive to input and layout while the worker spends time building draw lists, decoding data, or talking to GPU resources.',
+        'It also works because messages can coalesce. If 20 pointer events arrive before the next frame, the worker can draw the latest camera state once. That is much better than drawing 20 redundant frames that the user will never see.',
+        'Transferables make the design practical. Large buffers, MessagePorts, and the OffscreenCanvas itself can move ownership rather than copying every byte. Structured Clone & Transferables is the prerequisite mental model.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Do not assume the worker can access the DOM, CSSOM, or layout. It cannot. Do not transfer the canvas and then keep trying to draw it on the main thread. Do not send huge object graphs every frame. Transfer buffers and images when ownership can move; otherwise keep the per-frame protocol small.',
-        'Do not treat OffscreenCanvas as only a performance switch. It is also an architecture switch. Rendering state, resource lifetime, context loss handling, and resize handling now live behind a thread boundary, so the protocol needs to be explicit.',
+        'The cost is protocol complexity. Rendering state, resource lifetime, resize handling, context loss, input coalescing, and shutdown now cross a thread boundary. The page needs clear message versions and backpressure for data bursts.',
+        'There is also a debugging cost. Bugs can live in main-thread measurement, message ordering, worker state, GPU context setup, or stale data snapshots. Good traces should identify which side owned the state at the time of failure.',
+        'The performance tradeoff is message size. Moving drawing off the main thread helps only if the page does not send huge object graphs every frame. Prefer compact state updates, transfer buffers where ownership makes sense, and let the worker reuse renderer resources.',
+        'There is a product tradeoff too. A worker renderer can keep interaction smooth, but it may make accessibility, testing, screenshots, and fallback rendering more deliberate. Canvas-heavy applications still need semantic DOM around the pixels.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it fits',
+      paragraphs: [
+        'OffscreenCanvas fits maps, timelines, charts, games, scientific viewers, and renderers where pixel work is heavy but the page still needs responsive controls and text. It pairs naturally with spatial indexes, tile caches, transferable buffers, and frame-aligned worker rendering.',
+        'A map renderer is the concrete case: the main thread captures pan and zoom, the worker keeps tile indexes and renderer resources, and each frame paints the latest visible viewport without blocking DOM interaction.',
+        'A data visualization tool is another good fit. The main thread can update filters, legends, and accessible tables while the worker rasterizes dense points, heatmaps, or tiles from the latest snapshot.',
+        'It is less important for simple charts or static canvases where the main thread is already idle. The feature earns its complexity when rendering, decoding, or data processing would otherwise interfere with interaction.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'OffscreenCanvas does not let a worker read the DOM, CSSOM, or layout. The main thread must measure CSS size and devicePixelRatio, send resize messages, and trigger explicit backing-buffer or GPU resource updates.',
+        'It also fails as a simple performance switch. Rendering state, resource lifetime, context loss, resize handling, and protocol versioning now cross a thread boundary. Sending huge object graphs every frame can erase the win.',
+        'Another failure is drawing once per message. Pointermove, wheel, tile, and data events can arrive faster than the display can paint. The worker should update state and let the frame loop decide what to draw.',
+        'A final failure is forgetting accessibility and DOM affordances. Canvas pixels do not replace semantic controls, focus management, labels, keyboard behavior, or screen-reader-visible state.',
+        'Watch context loss and teardown too. A worker renderer needs a clean way to release GPU resources, rebuild after context loss, and ignore late messages after the page has navigated away.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: MDN OffscreenCanvas at https://developer.mozilla.org/en-US/docs/Web/API/OffscreenCanvas, MDN Using Web Workers at https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers, MDN Transferable Objects at https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects, and MDN DedicatedWorkerGlobalScope.requestAnimationFrame at https://developer.mozilla.org/en-US/docs/Web/API/DedicatedWorkerGlobalScope/requestAnimationFrame.',
         'Study Web Workers: A Second Thread, Structured Clone & Transferables, requestAnimationFrame Frame Budget, Dirty Rectangle Damage Tracking, Texture Atlas & Mipmaps, WebGPU Buffer & Bind Group Case Study, WebGPU Swapchain Frame Pacing, Quadtree Spatial Index, and Browser Message Channels & Broadcast Coordination next.',

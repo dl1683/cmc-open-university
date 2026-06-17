@@ -65,7 +65,7 @@ function* taxonomyQueue() {
   yield {
     state: redTeamGraph('Red-team taxonomy queue'),
     highlight: { active: ['tax', 'seed', 'queue', 'run', 'e-tax-seed', 'e-tax-queue', 'e-seed-run', 'e-queue-run'], found: ['gate'] },
-    explanation: 'A red-team program starts with a taxonomy, not a bag of prompts. Each risk class becomes runnable tests, queue priority, severity labels, and evidence for release gates.',
+    explanation: 'The graph starts from a taxonomy so prompts do not become loose anecdotes. Each risk class turns into runnable cases, queue priority, severity, and release evidence.',
     invariant: 'Unlabeled adversarial prompts are anecdotes; taxonomy-linked cases are test assets.',
   };
 
@@ -93,13 +93,13 @@ function* taxonomyQueue() {
       ],
     ),
     highlight: { active: ['inj:act', 'leak:act', 'tool:act'], compare: ['rag:act', 'poison:act'], found: ['tool:sev'] },
-    explanation: 'Queue rows track source taxonomy, severity, status, owner, and test freshness. Tool misuse and prompt injection usually deserve higher priority because they can cross from text into real authority.',
+    explanation: 'The queue row adds the metadata the prompt cannot carry: taxonomy source, severity, status, owner, and freshness. Tool misuse and prompt injection rise in priority because failure can cross from text into real authority.',
   };
 
   yield {
     state: redTeamGraph('Scoring turns failures into release gates'),
     highlight: { active: ['run', 'score', 'sev', 'gate', 'e-run-score', 'e-run-sev', 'e-score-gate', 'e-sev-gate'], found: ['fix', 'log'] },
-    explanation: 'A failed red-team case should create a gate decision and a fix path: deny release, add a control, escalate to human review, or accept risk with documented rationale.',
+    explanation: 'A failed case now reaches the gate instead of staying in a report. The release decision must deny, mitigate, escalate, or accept the risk with written rationale.',
   };
 
   yield {
@@ -114,7 +114,7 @@ function* taxonomyQueue() {
       ],
     }),
     highlight: { active: ['refresh', 'stale'], compare: ['base'] },
-    explanation: 'Red-team coverage decays as products, tools, policies, and attacker techniques change. A queue with stale-case alerts is better than a one-time report.',
+    explanation: 'The plot shows coverage decay. Products gain tools, policies change, and attackers adapt, so stale cases undercount risk even when yesterday\'s report looked complete.',
   };
 }
 
@@ -144,13 +144,13 @@ function* coverageMatrix() {
       ],
     ),
     highlight: { removed: ['rag:inj', 'tool:inj', 'tool:leak', 'admin:inj', 'admin:leak', 'admin:misuse'], compare: ['chat:misuse', 'rag:misuse', 'tool:misuse'], active: ['admin:drift'] },
-    explanation: 'A coverage matrix exposes where the test program is thin. Admin and tool surfaces usually need stronger checks than plain chat because a failure can act on real systems.',
+    explanation: 'The matrix makes missing coverage visible by surface. Admin and tool rows need stricter gates than plain chat because a failed test can trigger real actions.',
   };
 
   yield {
     state: redTeamGraph('Coverage gaps generate new queue work'),
     highlight: { active: ['tax', 'queue', 'gate', 'fix', 'e-tax-queue', 'e-gate-fix'], compare: ['score'], found: ['log'] },
-    explanation: 'Coverage gaps should become queued work, not footnotes. The queue records the missing risk class, affected surface, owner, due date, and required evidence.',
+    explanation: 'A gap becomes work only when it enters the queue. The row records the missing risk class, affected surface, owner, due date, and proof required to close it.',
   };
 
   yield {
@@ -175,13 +175,13 @@ function* coverageMatrix() {
       ],
     ),
     highlight: { active: ['doc:act', 'rag:act', 'agent:act', 'gate:act'], removed: ['doc:score', 'agent:score'], found: ['gate:score'] },
-    explanation: 'A malicious retrieved document tells the agent to ignore instructions and call a tool. The fix is not only a classifier; it includes source trust labels, tool least privilege, and a rerun proof.',
+    explanation: 'The indirect-injection row shows a boundary failure: untrusted retrieved text steers a privileged tool call. The fix needs source trust labels, least-privilege tooling, and a rerun proof, not just a better refusal phrase.',
   };
 
   yield {
     state: redTeamGraph('Taxonomy links into audit evidence'),
     highlight: { active: ['tax', 'gate', 'log', 'e-gate-log'], found: ['fix'], compare: ['seed', 'queue'] },
-    explanation: 'The final artifact is audit evidence: which risk class was tested, which product surface failed, what changed, and which rerun proved the control worked.',
+    explanation: 'The queue finally feeds audit evidence. A useful record says which risk class was tested, which surface failed, what changed, and which rerun proved the control worked.',
   };
 }
 
@@ -195,45 +195,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'An LLM red-team attack taxonomy queue converts security and safety taxonomies into a living evaluation program. Attack classes become test cases, severities, owners, gates, fixes, and audit evidence.',
-        'Prompt Injection Threat Model explains the confused-deputy risk. LLM Guardrail Policy Engine explains enforcement. This module explains the test queue that keeps those controls honest as products and attacks change.',
+        'An LLM red-team attack taxonomy queue turns broad safety and security risks into work that can be run, scored, fixed, and audited. A product team does not only need a list of scary prompts. It needs to know which risk classes have been tested, which product surfaces were in scope, which failures are severe enough to block a release, and which mitigations have passed reruns.',
+        'LLM systems make this harder than older input-validation work because the risky boundary is spread across prompts, retrieved documents, tool calls, memory, policies, user permissions, and model behavior. Prompt Injection Threat Model explains the confused-deputy risk. LLM Guardrail Policy Engine explains enforcement. This topic explains the evaluation queue that keeps those controls honest after the first launch.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The naive approach and wall',
       paragraphs: [
-        'The queue stores taxonomy id, attack surface, seed prompt, mutation family, target capability, severity, scorer, owner, due date, run history, fix link, and rerun proof. A coverage matrix maps risk classes to product surfaces.',
-        'A good queue separates prompt text from metadata. The prompt is the payload; the metadata is what makes the payload useful for release gates, regression tests, and audits.',
+        'The reasonable first attempt is a spreadsheet or folder of jailbreak prompts. That works for a demo because a human can run a few cases and show dramatic failures. It fails for release engineering because the prompt text does not say which taxonomy item it covers, which surface it attacks, how severe the failure is, who owns the fix, or whether the same case passed after the mitigation changed.',
+        'The wall is coverage. A team can have thousands of prompts and still miss indirect prompt injection in RAG, tool misuse under a new permission model, sensitive-data leakage in a support flow, or policy drift after a system prompt update. Count of prompts is not count of risk. A stale red-team report can be worse than no report because it creates confidence while the product has gained new capabilities.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Core insight',
       paragraphs: [
-        'Start from sources such as OWASP LLM risks and MITRE ATLAS tactics. Convert each risk into test families. Run them against product surfaces, score failures, attach severity, and route failed cases into mitigation or explicit risk acceptance.',
-        'The queue must be refreshed. A red-team report from last quarter can miss new tools, new RAG sources, new policies, and new attacker techniques. Staleness is a coverage attribute.',
+        'The core insight is that an adversarial prompt is the payload, not the evidence. Evidence is the record around the payload: taxonomy id, attack surface, seed family, mutation strategy, target capability, severity, scorer, owner, due date, run history, fix link, and rerun proof. Without that record, a failure is an anecdote. With it, the same failure becomes a release gate and a regression test.',
+        'The queue also separates two questions that are often mixed together. The first question is whether the model or system failed on this case. The second is whether the evaluation program covers the risk space well enough for the next release. The coverage matrix answers the second question by mapping risk classes to product surfaces and making gaps visible.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'What the visual proves',
       paragraphs: [
-        'A RAG agent ingests a hostile document that instructs it to call an admin tool. The red-team queue tags this as indirect prompt injection, RAG surface, tool surface, high severity. The first run fails. The mitigation adds source trust labels, tool scope checks, and a guardrail gate. The rerun passes and the queue stores the proof.',
-        'This is stronger than saying the model was jailbroken. It says which control boundary failed, which product surface was affected, and which evidence shows the fix worked.',
+        'The graph view shows the control flow that a useful red-team program needs. Taxonomy creates seed cases and queue work. Runs produce scores and severity labels. Those labels reach a release gate instead of stopping in a report. The gate then produces either a fix, an explicit risk decision, or a proof log that can be inspected later.',
+        'The matrix view shows the data shape behind that control flow. Rows are attack surfaces such as chat, RAG, tools, code, and admin actions. Columns are risk classes such as injection, leakage, misuse, and drift. A highlighted cell is not decorative state; it says this boundary was tested, failed, is stale, or has no coverage yet. That is what the animation proves: the system is measuring coverage by risk and surface, not by prompt volume.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'How the system works',
       paragraphs: [
-        'Do not treat red-team prompts as a pile of scary strings. Without taxonomy ids, severity, product surface, and rerun history, the organization cannot measure coverage or regression. Do not let one broad safety score hide a critical tool-use failure.',
-        'Another failure is stale severity. A harmless chat failure can become severe after the same model gains tool access. Severity belongs to the deployed system, not only the text output.',
+        'A practical queue starts from a taxonomy source such as OWASP LLM risks, MITRE ATLAS tactics, internal incident classes, customer commitments, and product-specific threat models. Each taxonomy item becomes one or more test families. A family stores seed prompts, mutation rules, target surfaces, expected unsafe behaviors, and criteria for pass, fail, or escalation.',
+        'The runner executes cases against concrete product surfaces, not an abstract model in isolation. The same text can have different severity in plain chat, document retrieval, code generation, and tool execution. A tool-use failure can cross from bad text into real authority, so the row records the surface and permission context. Scores then become queue actions: block the release, assign a mitigation, add a missing case, accept the risk with rationale, or schedule a refresh.',
+        'Refresh is part of the algorithm. New tools, new documents, new system prompts, new policies, new models, and new attack patterns all change the risk boundary. The queue should age cases, mark stale coverage, and re-run high-severity slices after relevant product changes. A passing result is only valid for the contract it tested.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The correctness argument is an invariant: every release decision should be traceable to current cases, current surfaces, severity labels, and rerun proof. The queue preserves that invariant by making a failed case impossible to close with only a note. Closure needs a reason: fixed and rerun, intentionally accepted, moved to a different owner, or blocked by missing evidence.',
+        'The coverage matrix gives a second invariant. If a product surface exists and a taxonomy risk applies to it, there should be a cell with a status. Empty cells are not neutral. They are unknown risk. This does not prove the system is safe against every attack, but it prevents a common false proof: treating a pile of successful prompts as evidence that the untested surface is covered.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The main cost is maintenance. Taxonomies change, product surfaces change, and scorers drift. A serious queue needs ownership, freshness rules, replayable runs, threshold calibration, and human review for cases where automated judges are weak. It also needs careful severity rules so a broad chat failure does not hide a tool-use failure with higher blast radius.',
+        'The tradeoff is between speed and confidence. Running every case on every build is expensive and noisy, so teams usually tier the queue: small smoke slices on every change, high-risk regression slices before release, broader scheduled sweeps, and manual campaigns after major capability changes. The queue should make that sampling policy visible instead of pretending that a small run proves full coverage.',
+      ],
+    },
+    {
+      heading: 'Complete case',
+      paragraphs: [
+        'A RAG agent ingests a hostile document that says the assistant should ignore developer instructions and call an admin export tool. The queue tags the case as indirect prompt injection, RAG surface, tool surface, high severity, and source-trust boundary. The first run fails because the retrieved text steers the tool call.',
+        'The mitigation adds source trust labels, least-privilege tool scopes, an instruction-hierarchy guardrail, and a gate that requires trusted user intent before privileged actions. The rerun passes. The queue stores the failing run, the control change, the passing rerun, and the release decision. This is stronger than saying the model was jailbroken because it names the boundary that failed and the proof that the boundary was repaired.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern fits teams that ship LLM features with changing product surfaces: RAG assistants, tool-using agents, code assistants, admin copilots, customer-support bots, and model routes with policy or compliance obligations. It is especially useful when several teams own different parts of the risk boundary because the queue can assign work and preserve evidence across product, security, ML, and policy review.',
+        'It also fits benchmark and guardrail development. The taxonomy queue tells guardrail engineers which failure families matter, tells eval owners where coverage is old, and tells release managers whether severe failures are open. The structure makes red-team work cumulative instead of episodic.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A taxonomy queue can still fail by becoming paperwork. If cases are low quality, labels are vague, scorers are uncalibrated, or owners close rows without rerun proof, the queue only gives a cleaner illusion of safety. It can also fail by overfitting to known prompt forms while missing new attack strategies.',
+        'Another failure is stale severity. A harmless chat failure can become severe after the same model gains tool access. Severity belongs to the deployed system, not only to the text output. The cost of skipping this distinction is a release gate that passes the wrong thing.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
         'Primary sources: OWASP LLM01 Prompt Injection at https://genai.owasp.org/llmrisk/llm01-prompt-injection/, OWASP Top 10 for LLM Applications at https://owasp.org/www-project-top-10-for-large-language-model-applications/, MITRE ATLAS at https://atlas.mitre.org/, NIST AI RMF Playbook at https://airc.nist.gov/airmf-resources/playbook/, and NCSC prompt injection guidance at https://www.ncsc.gov.uk/blog-post/prompt-injection-is-not-sql-injection.',
-        'Study next: Jailbreak Mutation Search Graph Case Study, AI Safety Eval Slice Risk Register Case Study, LLM Guardrail Policy Engine, Prompt Injection Threat Model, LLM Evaluation Harnesses: Golden Sets and Judges, and AI Audit Evidence Packet Case Study.',
+        'Study next by role. For threat modeling, read Prompt Injection Threat Model and Jailbreak Mutation Search Graph Case Study. For enforcement, read LLM Guardrail Policy Engine. For measurement, read LLM Evaluation Harnesses: Golden Sets and Judges and LLM Judge Calibration Drift Monitor. For governance, read AI Safety Eval Slice Risk Register Case Study and AI Audit Evidence Packet Case Study.',
       ],
     },
   ],

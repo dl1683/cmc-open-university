@@ -172,37 +172,105 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why authenticated denial exists',
       paragraphs: [
-        'NSEC3 is the DNSSEC mechanism for authenticated denial of existence using hashed owner-name intervals. It lets an authoritative server prove that a name or type does not exist without returning an unsigned "no". The resolver validates the proof just like it validates positive DNSSEC data.',
-        'RFC 5155 defines NSEC3 hashed authenticated denial of existence at https://www.rfc-editor.org/rfc/rfc5155. It builds on the DNSSEC validation model from RFC 4035 at https://www.rfc-editor.org/rfc/rfc4035.',
+        'DNSSEC signs DNS answers so a resolver can reject forged data. That promise is incomplete unless absence is signed too. An attacker who can forge NXDOMAIN can make a real host look missing, block mail delivery, or hide a service even though the positive records are protected.',
+        'A signed negative answer has to prove a precise fact: this owner name does not exist, or this owner exists but does not have the requested RR type. The resolver must verify that fact from signed zone data instead of trusting the response code.',
+        'NSEC3 is the hashed version of authenticated denial. It keeps the signed gap proof from NSEC, but the sorted chain is built over hashes of owner names instead of literal owner names.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'The obvious approach',
       paragraphs: [
-        'An NSEC3 chain is a sorted cyclic list over hashed owner names. Each record says: this hashed owner name exists, the next hashed owner name is X, and these record types exist at the owner. A missing query is hashed, then the server returns signed records showing the query hash falls between two adjacent hashes.',
-        'For NXDOMAIN, the proof must also rule out wildcard answers that could synthesize a result. For NODATA, the owner name can exist while the requested type does not. The resolver has to interpret exact denial, type denial, wildcard denial, and opt-out flags carefully.',
+        'The first idea is to sign a statement that says "no such name." That is easy to say but hard to scope. DNS does not only ask whether a name exists. It asks whether a name exists at a type, whether a wildcard could synthesize an answer, and whether a delegation changes the authority boundary.',
+        'Classic NSEC gives the missing scope a clean structure. Put all owner names in canonical order. Each signed NSEC record names the next owner and carries a bitmap of record types at the current owner. If the queried name falls between two signed owners, the gap proves nonexistence.',
+        'That design is correct and simple. It also reveals the neighboring names. Repeating negative queries can walk the NSEC chain and enumerate much of the zone.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Where the naive approach breaks',
       paragraphs: [
-        'A client asks for typo.example.com A. The zone is signed with NSEC3. The authoritative server returns no A record, plus NSEC3 records covering the hash of typo.example.com and covering any relevant wildcard candidate. The resolver validates the RRSIGs with the zone DNSKEY, checks that the hash interval actually covers the query, and caches the negative answer using the SOA-derived negative TTL.',
-        'The value over ordinary negative caching is authenticity. DNS Negative Cache & NXDOMAIN explains how absence can be reused. NSEC3 adds a signed proof that the absence was not invented by an attacker or a broken middlebox.',
+        'The problem is not only privacy. A negative DNSSEC answer can be several facts at once. For NXDOMAIN, the resolver needs a closest-encloser proof and a wildcard denial. For NODATA, the resolver needs proof that the owner exists but the requested type is absent. For DS at a delegation, the rules change again.',
+        'Literal NSEC keeps those facts inspectable, but the price is disclosure. NSEC3 reduces direct disclosure by hashing names before ordering them. It does not make predictable names secret. It changes zone walking from reading names directly into collecting hashes and attempting an offline dictionary attack.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'The core idea',
       paragraphs: [
-        'NSEC3 does not make low-entropy names secret. Attackers can still guess likely names, hash them with the public parameters, and compare them with the chain. It primarily prevents easy zone walking where the zone hands out literal next names.',
-        'High iteration counts are not free. They increase work for resolvers and authoritative servers as well as attackers. Opt-out reduces data for delegation-heavy zones, but it adds validation subtleties and can create surprising proof shapes.',
+        'NSEC3 sorts hashed owner names in a cyclic order. Each NSEC3 record commits to three things: this hashed owner exists, the next hashed owner is a specific value, and the type bitmap at the original owner contains these RR types.',
+        'A resolver canonicalizes the query name, applies the zone NSEC3 parameters, and checks whether the query hash is covered by a signed interval. The empty answer is not trusted. The signed interval is the evidence.',
+        'The hash is not the security boundary by itself. The signature is. Hashing changes what the interval reveals; RRSIG validation makes the interval authoritative.',
       ],
     },
     {
-      heading: 'Study next',
+      heading: 'How the proof is built',
       paragraphs: [
-        'Study DNSSEC Chain of Trust Validation first, then DNS Negative Cache & NXDOMAIN, Sparse Merkle Tree Non-Membership, Merkle Tree, Hash Table, and Cache Invalidation & Versioning. The common pattern is authenticated absence: the system must prove not only what is present, but also what cannot be present in a committed set.',
+        'The signer chooses NSEC3 parameters for the zone, hashes each authoritative owner name, sorts the hashes, and writes a next-hashed-owner pointer into each NSEC3 record. The last record points back to the first, so the chain covers the whole hash ring.',
+        'For an existing owner, the type bitmap says which RRsets exist there. If the owner exists but the requested type bit is absent, the response can prove NODATA. If the owner name does not exist, the response needs records that prove the closest existing ancestor, the next closer name that does not exist, and the absence of a matching wildcard when one would matter.',
+        'Every NSEC3 record in a proof must validate under the DNSSEC chain of trust. The resolver also checks that the NSEC3 records use one consistent hash algorithm, iteration count, salt, and flag value shape for the proof it is processing.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a resolver asks for typo.example.com A and the signed zone has no such owner. The authoritative server hashes typo.example.com with the zone parameters, then returns an NSEC3 record whose owner hash and next-hashed-owner field cover that query hash.',
+        'That interval alone is not enough for NXDOMAIN. The resolver also needs to know which existing ancestor is the closest encloser and whether *.example.com, or another relevant wildcard candidate, could have answered. A valid NXDOMAIN denial rules out both the exact name path and wildcard synthesis.',
+        'For a NODATA case, the shape is different. If www.example.com exists but has no AAAA record, the resolver expects an NSEC3 record matching the hash of www.example.com, plus a type bitmap that does not contain AAAA or CNAME in the relevant case.',
+      ],
+    },
+    {
+      heading: 'How to read the visualization',
+      paragraphs: [
+        'In the denial-proof view, start at qname and watch it move through the hash node before it reaches the signed interval. That state change matters because the resolver is no longer comparing literal names. It is comparing the query hash against the zone commit points.',
+        'The prev and next nodes are the denial proof. When they are highlighted together, the animation is showing the covered gap: no signed owner hash can sit between those two values unless the zone signer lied or the signature chain is invalid.',
+        'The wildcard branch is a separate obligation, not decoration. A missing exact name can still receive a synthesized answer from a wildcard, so the proof is unfinished until the wildcard candidate is also ruled out.',
+        'In the hash-tradeoff view, read each matrix row as an operational tax. Hashed intervals reduce direct name disclosure, but iteration count, salt, opt-out, and negative-cache scope decide how expensive and how fragile the deployment becomes.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The invariant is coverage of the sorted hash ring. If the zone signer has signed adjacent hash points H1 and H2, and the query hash falls between them, then the signed zone data commits that no represented owner hash exists in that interval.',
+        'For NODATA, the bitmap is the invariant. The owner is represented, and the signed bitmap lists the RR types present at that owner. If the requested type bit is absent under the DNSSEC signature, the resolver has a signed reason to return no data.',
+        'For wildcard denial, the resolver proves that the candidate wildcard owner is absent or cannot answer. This prevents a malicious server from hiding a valid wildcard response behind a false NXDOMAIN.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'NSEC3 adds signer work, response bytes, resolver hash work, signature validation, and implementation complexity. A negative response can carry multiple NSEC3 records and signatures, so the cost is not the same as a small unsigned NXDOMAIN.',
+        'Current operational guidance is conservative. RFC 9276 updates RFC 5155 and recommends NSEC instead of NSEC3 unless NSEC3 is needed. If NSEC3 is used, the recommended parameters are SHA-1 with zero extra iterations and an empty salt. Extra iterations increase resolver and authoritative-server work and can amplify CPU-exhaustion attacks.',
+        'Negative caching still matters. A validated denial can be cached for the appropriate negative TTL, but the cache entry must stay scoped to the name, type, class, and proof interval that the records actually justify.',
+      ],
+    },
+    {
+      heading: 'Where NSEC3 wins',
+      paragraphs: [
+        'NSEC3 is useful when a signed zone needs authenticated negative answers and direct NSEC zone walking is an unacceptable disclosure. It is most natural for large zones where exposing literal neighboring names is more harmful than the added operational cost.',
+        'Opt-out can help very large delegation-heavy zones avoid signing every unsigned child delegation. That is a registry-scale tool, not a default setting for ordinary zones.',
+        'The deeper lesson is authenticated absence. NSEC3 teaches the same shape used by Merkle non-membership proofs: a system proves absence by showing where the missing item would have to be in an authenticated order.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'NSEC3 is not confidentiality for DNS names. Public, human-guessable labels such as www, mail, login, api, and staging can be hashed and checked offline. If the name itself must remain secret, DNS publication is already the wrong primitive.',
+        'For small zones, static zones, or zones where name disclosure is not a real issue, classic NSEC is simpler and usually easier to operate. The proof is easier to inspect, and the resolver does not pay the NSEC3 hashing path.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'A resolver should reject proofs with bad signatures, unsupported hash algorithms, inconsistent NSEC3 parameters, intervals that do not cover the needed hash, or bitmaps that contradict the denial. Those are not cacheable misses; they are bogus responses or validation failures.',
+        'Opt-out is easy to misunderstand. An opt-out span can cover unsigned delegations without asserting their existence or nonexistence. Treating it like an ordinary full denial can produce the wrong validation result.',
+        'Hash collisions are designed to be highly unlikely, but the protocol has to define behavior. If a nonexistent query hash collides with an existing NSEC3 owner in a way that prevents a valid denial, the authoritative server cannot prove the denial normally.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: RFC 5155, DNSSEC Hashed Authenticated Denial of Existence, at https://www.rfc-editor.org/rfc/rfc5155; RFC 9276, Guidance for NSEC3 Parameter Settings, at https://www.rfc-editor.org/rfc/rfc9276; and RFC 4035, DNSSEC Protocol Modifications, at https://www.rfc-editor.org/rfc/rfc4035.',
+        'Study DNSSEC Chain of Trust Validation for the signature path, DNS Negative Cache & NXDOMAIN for scoped negative reuse, Sparse Merkle Tree Non-Membership for the authenticated-absence pattern, Merkle Tree for signed commitment structure, Hash Table for hash behavior, and Cache Invalidation & Versioning for TTL tradeoffs.',
       ],
     },
   ],

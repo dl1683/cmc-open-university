@@ -191,37 +191,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why selection vectors exist',
       paragraphs: [
-        'A selection vector is an array of row positions that says which rows in a vectorized batch remain active after a filter or filter-like operation. Instead of copying every surviving value out of every column immediately, the engine can carry positions forward and let later operators read through them.',
-        'DuckDB describes Vector as its in-memory execution container and DataChunk as a collection of vectors, with vectorized operators working on fixed-size vectors: https://duckdb.org/docs/current/internals/vector.html. Velox documents dictionary vectors as a way to represent filter results without copying data: https://facebookincubator.github.io/velox/develop/vectors.html. The MonetDB/X100 paper explains the broader vectorized execution lineage: https://www.cidrdb.org/cidr2005/papers/P19.pdf.',
+        'Selection vectors exist because query engines often learn that a row is dead before they need to touch most of its data. A log table may have a timestamp column, a tenant column, a message string, request headers, and a nested payload. A predicate might only need timestamp and tenant. If the engine can reject rows there, it should not copy or decode the wide columns yet.',
+        'The data-structure problem is row identity. A vectorized engine works on a batch of rows at a time, usually a fixed-size chunk. Filtering changes the live set inside that chunk, but the original column vectors still hold the values in stable positions. A selection vector is the small structure that says which positions are still active.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'The obvious approach and its wall',
       paragraphs: [
-        'The structure is small: a count plus an array of integer row ids. But it changes the execution contract. A predicate can produce [1, 2, 4] for a five-row batch; downstream expressions, projections, and join probes then read only positions 1, 2, and 4 from their input vectors.',
-        'Engines often specialize the all-selected and none-selected cases. If every row passes, no selection vector is needed. If no rows pass, the operator can return an empty batch. The middle case is where selection vectors earn their keep.',
+        'The obvious approach is to compact after every filter. Run the predicate, allocate a smaller output vector for each column, copy the surviving values into it, and pass that dense batch downstream. This is easy to reason about. Every later operator sees row 0, row 1, and row 2 as the only surviving rows.',
+        'The wall is memory traffic. Copying cheap fixed-width integers may be fine. Copying strings, nested arrays, map values, compressed pages, or many columns after each predicate can dominate the query. Worse, later predicates or joins may discard those copied rows anyway. The engine pays for a tidy batch before it knows that tidiness has value.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'A query scans a log table with timestamp, tenant_id, severity, message, headers, and JSON payload. The predicate uses only timestamp and tenant_id. A vectorized engine evaluates those narrow columns first, builds a selection vector, and touches message and payload only for surviving rows.',
-        'That is late work avoidance in miniature. The engine is not merely scanning faster; it is refusing to materialize irrelevant values until the data flow proves they matter.',
+        'The core idea is simple: carry positions instead of moving values. A predicate over a five-row batch may produce the position list [1, 2, 4]. Downstream expressions, projections, and join probes loop over those positions and index the original vectors. The batch has logically shrunk, but the payload columns have not moved.',
+        'The invariant is shared row numbering. Position 4 must mean the same logical row in every column in the chunk: timestamp, tenant, message, headers, and payload. As long as that alignment is preserved, one selection vector can describe the live rows for many columns at once.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Selection vectors are not free. Indirection can hurt CPU prefetching, branch predictability, and SIMD density. For dense selections over cheap fixed-width values, compacting may be better. For sparse selections over wide or nested values, carrying indices usually wins.',
-        'The trap is treating selection vectors as an implementation detail. They are the control plane for vectorized execution: they decide which rows remain live without rewriting every column at every operator boundary.',
+        'The filter-pipeline view shows a narrow predicate producing a list of surviving row ids. The failed rows are not copied into a smaller batch. They are absent from the active-position list. Later nodes keep reading from the original vectors through that list, which is the main idea behind late materialization in a compact form.',
+        'The selection-economics view shows why representation choice matters. If every row survives, a special all-rows state may be cheaper than an integer array. If no rows survive, an empty chunk can move forward. If a small middle set survives and the skipped payload is wide, the position list can save large amounts of copying.',
+      ],
+    },
+    {
+      heading: 'Mechanism in a vectorized pipeline',
+      paragraphs: [
+        'A scan operator emits a DataChunk, RecordBatch, or similar container. A predicate evaluates one or more vectors and writes passing row positions into a selection vector. The vector is usually a count plus a small integer buffer. The buffer may be reused across operators to avoid allocation churn.',
+        'Later operators have two choices. They can read through the selection vector, or they can materialize a dense output at a boundary that needs one. Projection, expression evaluation, and hash-table probing often work through the position list. A sink, network exchange, or file writer may decide to compact.',
+        'Systems often keep several forms: no selection because all rows are active, an empty selection because none are active, a flat position list for a subset, and richer dictionary or indirection vectors when row order or duplication changes. DuckDB Vector and DataChunk internals, Velox dictionary vectors, and the MonetDB/X100 lineage are useful references for this family of ideas.',
+      ],
+    },
+    {
+      heading: 'Why it is correct',
+      paragraphs: [
+        'Correctness comes from preserving the mapping between logical rows and physical positions. If the predicate says row position 2 passes, then every column value at position 2 belongs to the same input row. Reading timestamp[2], tenant[2], and payload[2] is valid because the chunk columns share a row index space.',
+        'Composed filters are correct when each filter rewrites the active positions relative to the same base or to the current selected positions in a well-defined way. For example, starting with [1, 2, 4], a second predicate may keep the first and third selected entries, producing [1, 4]. It must not accidentally produce [0, 2] unless those are intended as indexes into the selection vector itself.',
+        'Operators that change order or cardinality must end the old contract. A sort, unnest, join fanout, or aggregation may create output rows that are no longer one-to-one with the original positions. At that boundary, the engine should build a new batch, a dictionary mapping, or another explicit representation.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose a 2048-row log chunk has columns for timestamp, tenant_id, severity, message, headers, and JSON payload. The first predicate checks timestamp. It keeps 612 rows. The second predicate checks tenant_id. It keeps 117 rows. The third predicate checks severity. It keeps 14 rows.',
+        'Immediate compaction after the first predicate would copy every selected value from every column, including message and JSON payload for hundreds of rows that later predicates discard. A selection-vector pipeline rewrites a small position list three times. Only when the query needs message or payload for the 14 final rows does it pay to load or copy those values.',
+        'The win is not just fewer bytes copied. It is also fewer cache lines touched, fewer decompressions, fewer string buffer references, and less pressure on allocators. The engine keeps narrow predicate work narrow.',
+      ],
+    },
+    {
+      heading: 'Cost model',
+      paragraphs: [
+        'A selection vector trades copy cost for index cost. Copying creates dense vectors that are easy to scan and friendly to SIMD. Indexing avoids moving payload data but adds an extra read and may scatter memory access. The right choice depends on selectivity, value width, predicate order, and the next operator.',
+        'Dense selections over cheap primitives may be better compacted. Sparse selections over wide or nested values usually favor positions. For mid-density cases, engines may branch on thresholds: keep a selection vector while the active set is small enough, compact when downstream work will repeatedly scan the same values, or switch to a bitmap when set algebra is the main operation.',
+        'Allocation policy matters too. A selection vector is small, but it can be rewritten on every chunk and every predicate. Reusing buffers, keeping counts separate from capacity, and avoiding per-row object creation are part of making the idea fast in real systems.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Selection vectors win in filter pipelines, late materialization, columnar scans, vectorized expression evaluation, and join probes where early predicates are narrow and selective. They are a natural fit when one cheap column can prevent work on many expensive columns.',
+        'They also help preserve column alignment. One shared position list can apply to every column in the batch. That means projections do not need to rebuild each column after every filter, and expression evaluators can agree on the live rows without each keeping a private copy of the same subset.',
+        'They are especially useful in engines that process fixed-size chunks. The physical chunk can stay stable while the logical live count changes. That keeps operator interfaces regular even when the number of active rows in each chunk varies widely.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'Selection vectors fail when almost every row survives and the extra indirection costs more than compaction. They can also lose when the selected positions are highly scattered and the next operator needs tight streaming over cheap fixed-width values. The saved copies may not repay the weaker locality.',
+        'They are a poor fit for operators that expand, duplicate, or reorder rows unless paired with a richer mapping. Joins can produce fanout. Unnesting can turn one input row into many output rows. Sorting changes order. Aggregation may collapse many rows into one. In those cases, the old position list no longer describes the output relation.',
+        'A subtle bug is stale selection. If an operator keeps a pointer to a mutable selection buffer and another operator rewrites that buffer, later reads can silently use the wrong live set. Clear ownership and lifetime rules matter as much as the integer array itself.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'A practical implementation should model at least four states: all rows active, no rows active, a position list, and a remapping form for duplicate or reordered rows. Treating all of these as one nullable array often leads to confusing branches and slow paths.',
+        'Make the indexing contract explicit. A selection entry can mean a base-row position, or it can mean an index into a prior selection. Both designs can work, but mixing them is a correctness bug. Tests should include chained filters, all-pass filters, zero-pass filters, reordered outputs, and wide columns that must not be touched before materialization.',
+        'Instrumentation should report active count, base count, representation type, and materialization points. Performance regressions often come from a helper that accidentally compacts a wide column early. A small trace showing selected positions beside candidate counts can catch that mistake quickly.',
+      ],
+    },
+    {
+      heading: 'Relationship to nearby structures',
+      paragraphs: [
+        'Selection vectors, bitmaps, and dictionary vectors all describe subsets or remappings, but they serve different access patterns. A selection vector is an ordered list of positions. A bitmap is compact for set operations and dense membership tests. A dictionary vector lets many logical positions refer to shared payload values and can represent duplication.',
+        'Late materialization uses the same idea at a larger scale. Keep cheap identifiers or positions while delaying access to expensive columns. The selection vector is the per-batch control plane that makes that plan concrete inside a vectorized operator pipeline.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study DuckDB Vectorized Execution Case Study, Apache Arrow Columnar Memory Case Study, Velox Unified Execution Engine Case Study, Dictionary Vector Copy Avoidance, Late Materialization Columnar Scan, SQL Join Algorithms Primer, and Parquet Columnar Format Case Study next.',
+        'Study DuckDB Vectorized Execution Case Study, Apache Arrow Columnar Memory Case Study, Velox Unified Execution Engine Case Study, Dictionary Vector Copy Avoidance, Late Materialization Columnar Scan, SQL Join Algorithms Primer, Bitmap Index Compression, and Parquet Columnar Format Case Study next.',
       ],
     },
   ],

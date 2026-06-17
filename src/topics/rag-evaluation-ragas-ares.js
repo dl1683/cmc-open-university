@@ -216,44 +216,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'RAG evaluation measures a retrieval-augmented generation system by layer. A final answer can look fluent while the retriever missed the source, the reranker buried the right chunk, the generator invented a claim, or the judge gave credit for style. The point of RAGAS, ARES, and the RAG Triad is to separate those failure modes so teams know what to fix.',
-        'This is the measurement companion to RAG Pipeline, Multi-Index RAG, Cross-Encoder Reranker, Multimodal RAG & ColPali Case Study, and LLM Evaluation Harnesses. Architecture without evals only produces plausible demos. A serious RAG system needs held-out questions, known supporting evidence, component metrics, LLM Judge Calibration & Drift Monitor, and slice reporting.',
+        `RAG evaluation exists because a retrieval-augmented answer can fail in several places while still sounding plausible. The retriever may miss the needed source. The ranker may bury it below irrelevant chunks. The generator may ignore the source and invent a claim. The answer may be faithful to the context but not to the user's question. A single "good answer" score cannot tell the team which part to fix.`,
+        `RAGAS, ARES, and the RAG Triad are useful because they turn that blended judgment into component questions. RAGAS popularized reference-free metrics such as context precision, context recall, faithfulness, and response or answer relevance. ARES evaluates context relevance, answer faithfulness, and answer relevance with synthetic data, lightweight judges, and a small human-labeled set. The RAG Triad frames the same pressure as context relevance, groundedness, and answer relevance.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The obvious approach is to sample a few answers, ask a human whether they look right, and track a thumbs-up rate in production. That is not useless. It catches embarrassing failures and gives product teams a rough sense of whether users are satisfied. The problem is that it mixes retrieval quality, answer writing, citation behavior, user intent, and judge taste into one bucket.`,
+        `Another common approach is exact match against reference answers. That works for closed tasks with short answers, but many RAG systems answer policy, support, medical, legal, engineering, or enterprise-knowledge questions where several phrasings can be correct and a fluent answer can be dangerously unsupported. A model can match the reference theme while citing nothing, or cite the right passage while answering the wrong question.`,
+        `The failure is diagnosis and overfitting. If the final score drops after an embedding-model upgrade, the team needs to know whether recall fell, precision fell, answer style changed, or the judge drifted. Reusing the same visible examples for every prompt, chunking, and reranking change also turns the eval set into training data. A development win can disappear on fresh user questions and high-risk slices.`,
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        `The core insight is to evaluate the RAG pipeline at the same boundaries where the system can be changed. Retrieval metrics ask whether the needed evidence entered the context. Ranking metrics ask whether useful evidence appeared high enough to matter. Grounding metrics ask whether generated claims are supported by retrieved evidence. Relevance metrics ask whether the answer addressed the question.`,
+        `That decomposition turns scores into engineering actions. Low context recall points toward query rewriting, corpus coverage, embedding quality, index freshness, or hybrid retrieval. Low context precision points toward deduplication, filters, reranking, top-k tuning, and context packing. Low faithfulness points toward claim extraction, citation constraints, answer planning, or generation model behavior. Low answer relevance points toward intent classification and response structure.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A RAG eval case stores the user question, retrieved contexts, generated answer, expected facts or reference answer when available, and metadata such as domain, corpus version, retriever version, top-k, model, and risk slice. The scorer then asks separate questions: did retrieval find the needed facts, were the useful chunks ranked high, did the answer use only supported claims, and did it answer the user question?',
-        'RAGAS introduced reference-free metrics for RAG pipelines, including context precision, context recall, faithfulness, and answer relevancy: https://arxiv.org/abs/2309.15217. The RAGAS docs define context precision as ranking relevant chunks above irrelevant ones: https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/context_precision/, and context recall as recovering needed relevant information: https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/context_recall/.',
+        `A serious eval case stores the user question, retrieved chunks, chunk ranks, generated answer, citations, expected supporting facts when available, corpus version, retriever version, top-k, reranker version, model, prompt, and risk slice. The scorer then asks separate questions over the same record. Did the retrieved context contain the needed evidence? Were relevant chunks ranked above irrelevant chunks? Are answer claims supported by the retrieved context? Did the answer respond to the user's actual request?`,
+        `RAGAS can run many of these checks with LLM-based or reference-free metrics. ARES adds a different pattern: generate synthetic training data, fine-tune lightweight judges for component judgments, and use a smaller human-labeled set with prediction-powered inference to estimate evaluation results. The lesson is not that one framework is enough. The lesson is that an evaluation suite needs reusable cases, explicit metric definitions, calibration against human labels, and separate development and holdout queues.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual proves',
       paragraphs: [
-        'RAG evaluation is expensive because it can require retrieval replay, generator calls, judge calls, synthetic data, human labels, and repeated runs across prompts, models, indexes, and rerankers. It is still cheaper than shipping blind. Use cheap deterministic checks first, then judge calls for ambiguous quality dimensions, then human audit for high-stakes slices.',
-        'ARES takes another route: it generates synthetic training data, fine-tunes lightweight judges, and uses a small set of human annotations with prediction-powered inference to evaluate context relevance, answer faithfulness, and answer relevance: https://arxiv.org/abs/2311.09476. The Stanford FutureData implementation is at https://github.com/stanford-futuredata/ARES.',
+        `The graph view proves that evaluation is not attached only to the final answer. It sits beside retrieval, ranking, generation, claim extraction, and judging. A failure at an earlier layer constrains every later layer. A faithful generator cannot quote evidence that never entered the context window, and a high-quality retriever still cannot guarantee a grounded answer if generation ignores the evidence.`,
+        `The top-k plot proves the recall-precision trade. Adding chunks usually gives the answerer more chances to see the right fact, but it also adds distractors, stale policy, duplicate passages, and token cost. The diagnosis table proves why the metric matrix should point to a fix. Low recall, low precision, low faithfulness, and low answer relevance are different failures, not four names for bad output.`,
       ],
     },
     {
-      heading: 'Complete case study: policy assistant regression',
+      heading: 'Why it works',
       paragraphs: [
-        'A policy assistant ships a new embedding model and improves average answer helpfulness. Users still report wrong refund answers. Layered RAG evals reveal the split: context recall improved because the new model finds more semantically similar chunks, but context precision fell because near-duplicate outdated policy chunks now crowd the top-k. Faithfulness also fell because the generator cites the old chunk when the current chunk is present but lower-ranked.',
-        'The fix is not "make the prompt stricter." The likely fixes are corpus tombstones, freshness filters, Reciprocal Rank Fusion, Maximal Marginal Relevance, and reranker training. Then the team reruns the dev set, checks the sealed holdout, and monitors production for low-score contexts and unsupported claims.',
+        `Layered evaluation works because each component has a partial contract. The retriever's contract is to return enough relevant evidence. The ranker's contract is to order useful evidence before noise. The generator's contract is to answer with claims supported by the context. The judge's contract is to measure the intended property rather than reward fluency. When those contracts are scored separately, the system can fail loudly at the boundary that caused the regression.`,
+        `Holdout discipline works for the same reason it works in ordinary machine learning. A development set supports rapid iteration. A holdout set estimates whether changes generalize. Production failure queues keep the benchmark from freezing around yesterday's mistakes. Slice reporting protects rare but important cases, such as low-resource languages, long documents, conflicting policies, tables, scanned PDFs, or regulated advice.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Do not collapse RAG quality into one score. High answer relevance can hide unsupported claims. High context recall can hide noisy context stuffing. High faithfulness can still answer the wrong question. Do not assume LLM judges are ground truth; they have bias and variance and should be calibrated against human labels. Do not repeatedly tune on the holdout set.',
-        'Multimodal RAG adds more failure surfaces. A page may be retrieved correctly while the wrong region is cited. A table may be visually present but cell extraction fails. Adaptive systems such as Self-RAG add another surface: the model can decide not to retrieve when evidence was required. For those systems, track retrieval necessity, page recall, region grounding, modality attribution, and answer faithfulness separately.',
+        `RAG evaluation is expensive because it can replay retrieval, regenerate answers, call one or more judges, sample humans, synthesize questions, and run across many corpus and prompt versions. The cost should be staged. Deterministic checks catch broken citations, empty contexts, stale corpus versions, and schema errors cheaply. Judge calls handle ambiguous quality judgments. Human labels calibrate the judges and protect high-stakes slices.`,
+        `The tradeoff is measurement noise. LLM judges have variance, position bias, verbosity bias, and domain blind spots. Synthetic questions can be too easy or too close to the corpus. Human labels can disagree because the policy itself is ambiguous. A good evaluation suite reports confidence, sample counts, slice sizes, and known judge weaknesses instead of pretending that a score with two decimal places is ground truth.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: RAGAS at https://arxiv.org/abs/2309.15217, RAGAS metrics at https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/, ARES at https://arxiv.org/abs/2311.09476, ARES ACL paper at https://aclanthology.org/2024.naacl-long.20/, ARES implementation at https://github.com/stanford-futuredata/ARES, and the TruLens RAG Triad at https://www.trulens.org/getting_started/core_concepts/rag_triad/. Study RAG Pipeline, Multi-Index RAG, RAG Claim Verification Support Ledger, ANN Recall-Latency Pareto Ledger, Cross-Encoder Reranker, Multimodal RAG & ColPali Case Study, Self-RAG: Adaptive Retrieval and Critique, LLM Evaluation Harnesses, LLM Judge Calibration & Drift Monitor, Benchmark Variance & Model Selection, and Data Leakage & Contamination next.',
+        `Layered RAG evals win in systems with multiple knobs: chunking, embedding model, sparse retrieval, dense retrieval, hybrid fusion, reranking, context packing, prompt templates, generation models, citation rules, and safety filters. If a policy assistant regresses after an embedding upgrade, component metrics can show that recall improved but precision fell because outdated near-duplicates moved into the top-k. The fix is then corpus tombstones, freshness filters, reranking, or deduplication, not a vague instruction to the generator.`,
+        `They also win when teams need release gates. A deployment can require no holdout regression on faithfulness, no drop in recall for critical slices, no increase in unsupported claims, and acceptable p95 latency and judge cost. That gate is more useful than a single average score because it blocks changes that improve common easy questions while harming rare dangerous ones.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The largest failure is collapsing everything back into one score. High answer relevance can hide unsupported claims. High context recall can hide context stuffing. High faithfulness can still answer the wrong question if the retrieved context was irrelevant. Another failure is judge laundering: a team treats the LLM judge as truth because it is cheaper than labels. Judges should be audited, calibrated, and periodically challenged with adversarial and fresh production examples.`,
+        `Multimodal and adaptive RAG add more surfaces. A page can be retrieved while the wrong region is cited. A table can be visible in a PDF while cell extraction fails. A Self-RAG-style system can incorrectly decide not to retrieve. Those systems need page recall, region grounding, modality attribution, retrieval necessity, and answer faithfulness as separate checks.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study RAG Pipeline for the basic retrieval-generation flow, ANN Recall-Latency Pareto Ledger for retriever operating points, Cross-Encoder Reranker for precision control, Reciprocal Rank Fusion for hybrid retrieval, RAG Claim Verification Support Ledger for claim-level grounding, Query Expansion HyDE RAG Fusion for recall repair, Self-RAG Adaptive Retrieval and Critique for retrieval decisions, LLM Judge Calibration and Drift Monitor for evaluator reliability, and Benchmark Variance and Model Selection for confidence intervals and release gates.`,
       ],
     },
   ],

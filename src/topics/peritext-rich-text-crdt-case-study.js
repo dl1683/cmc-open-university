@@ -56,7 +56,7 @@ function* formatMerge() {
       ],
     ),
     highlight: { active: ['alice:the', 'alice:fox', 'bob:fox', 'bob:jumped'], found: ['merge:the', 'merge:fox', 'merge:jumped'] },
-    explanation: 'Peritext starts from user intent, not from a serialization trick. If Alice bolds "The fox" while Bob bolds "fox jumped", the intended merged result is the whole sentence bold.',
+    explanation: 'This step starts with intent. Alice and Bob create overlapping formatting ranges, and the useful merge is not a byte trick; it is the union of two bold intentions over stable text positions.',
     invariant: 'Rich-text merge must preserve text order and formatting intent separately.',
   };
 
@@ -80,7 +80,7 @@ function* formatMerge() {
       ],
     ),
     highlight: { compare: ['merged:before', 'merged:fox', 'merged:after'], active: ['alice:before', 'alice:after', 'bob:before', 'bob:after'] },
-    explanation: 'The Peritext article shows that encoding rich text as Markdown inside a plain text CRDT can interleave control characters. The merged character stream converges, but the rendered formatting can betray both authors.',
+    explanation: 'Markdown markers are ordinary characters to a plain text CRDT. They may converge byte-for-byte while the formatting they imply becomes ambiguous or wrong. Rich text needs mark semantics, not hidden punctuation races.',
   };
 
   yield {
@@ -102,7 +102,7 @@ function* formatMerge() {
       ],
     ),
     highlight: { found: ['boldEnd:commonEditor'], compare: ['linkEnd:commonEditor', 'commentEnd:commonEditor'] },
-    explanation: 'Peritext treats marks differently at boundaries. Bold and italic often grow when text is inserted at an edge. Links and comments usually should not grow, because extending the URL or annotation changes meaning.',
+    explanation: 'Boundary behavior is part of the data model. New text at the edge of bold often should inherit bold; new text at the edge of a link or comment usually should not extend that annotation. One generic range rule cannot capture all mark types.',
   };
 
   yield {
@@ -139,7 +139,7 @@ function* spanAnchors() {
       ],
     }, { title: 'Formatting spans anchor to CRDT positions' }),
     highlight: { active: ['m1'], found: ['c1', 'c2', 'c3'], compare: ['s', 'e'] },
-    explanation: 'Peritext stores text with an underlying sequence CRDT, then represents formatting as mark operations whose start and end refer to positions around CRDT character IDs.',
+    explanation: 'The graph shows the two-layer design. The sequence CRDT owns character identity and order. Peritext adds mark operations whose start and end anchor around those stable character positions.',
     invariant: 'A mark is metadata over stable positions, not hidden text inserted into the character stream.',
   };
 
@@ -163,7 +163,7 @@ function* spanAnchors() {
       ],
     ),
     highlight: { active: ['op18:kind', 'op18:range'], compare: ['op31:effect'] },
-    explanation: 'The paper describes rich formatting as operations over an append-only history. Rendering derives the visible document by applying text operations and active formatting spans in a deterministic order.',
+    explanation: 'Marks live in history as operations, not as one mutable HTML string. Rendering is a deterministic projection: take the sequence, apply add/remove mark operations, and compute the active styles for each visible span.',
   };
 
   yield {
@@ -212,7 +212,7 @@ function* spanAnchors() {
       ],
     ),
     highlight: { active: ['sequence:stores', 'marks:stores'], compare: ['gc:cost'] },
-    explanation: 'A production implementation needs indexes over ranges, not just a theoretical merge function. Interval Tree and Segment Tree ideas reappear when the editor asks which marks cover this visible span.',
+    explanation: 'This table is the systems cost. Once marks are ranges, the editor repeatedly asks which marks cover the visible span. Interval indexes, segment trees, and incremental render caches become practical infrastructure, not academic extras.',
   };
 }
 
@@ -236,7 +236,7 @@ function* editorPipeline() {
       ],
     }, { title: 'Editor integration is a pipeline' }),
     highlight: { active: ['tx', 'ops', 'crdt'], found: ['patch', 'view'] },
-    explanation: 'The Peritext prototype integrates with ProseMirror. Editor transactions become CRDT input operations; CRDT changes emit patches; patches become editor updates.',
+    explanation: 'The pipeline is the integration boundary. Editor transactions are translated into CRDT operations; CRDT changes emit patches; patches update the editor view. Keeping this boundary clean prevents the algorithm core from becoming the whole editor.',
     invariant: 'The CRDT core should not become the whole editor.',
   };
 
@@ -287,7 +287,7 @@ function* editorPipeline() {
       ],
     ),
     highlight: { compare: ['blocks:status', 'diffs:status'], active: ['schema:engineering', 'undo:engineering'] },
-    explanation: 'The paper explicitly focuses on inline formatting and says more work is needed for asynchronous collaboration features such as version visualization. The honest lesson is a boundary: convergence core first, product workflow around it.',
+    explanation: 'This step names what Peritext does not solve by itself. Inline mark convergence is the core. Tables, review UI, branch comparison, undo policy, permissions, and schema validation still need product-level data structures.',
   };
 
   yield {
@@ -315,44 +315,78 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Peritext is a CRDT algorithm for collaborative rich-text editing. Plain sequence CRDTs already let replicas insert and delete characters without a central lock, but rich text adds another dimension: bold, italic, links, comments, colors, and other annotations apply over ranges. If those ranges are encoded as ordinary hidden characters or Markdown markers, concurrent edits can converge to the same bytes while rendering the wrong formatting.',
-        'The useful mental model is two-layered. A Sequence CRDT owns the order and identity of text elements. Peritext adds formatting operations whose spans anchor to stable CRDT positions around those elements. The rendered editor document is derived from the text sequence plus active marks, rather than stored as one mutable HTML or Markdown string.',
+        'Collaborative text editing is hard even before formatting appears. A sequence CRDT can let Alice and Bob insert and delete characters offline, exchange operations later, and converge on the same character order. That solves the plain-text layer. Real editors need more. Users bold phrases, create links, attach comments, color spans, paste styled fragments, and expect those marks to survive concurrent editing.',
+        'Peritext exists because rich text is not just plain text with prettier rendering. A document can converge as bytes while the user-visible formatting is wrong. If Alice bolds The fox and Bob bolds fox jumped, the merged document should usually preserve the union of their formatting intent. Treating that intent as punctuation or HTML inside the character stream gives the CRDT the wrong object to merge.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach',
       paragraphs: [
-        'Peritext starts by analyzing examples of author intent. If Alice bolds "The fox" while Bob concurrently bolds "fox jumped", the desirable merge is that all three words become bold. Markdown markers in a plain text CRDT can interleave and accidentally unbold the overlap. Hidden start/end control characters have similar boundary anomalies. Peritext avoids that by representing formatting as operations over ranges.',
-        'A mark operation records the type of mark, an operation id, and start/end positions such as before or after a stable character id. Applying operations builds internal document state. Rendering sweeps the text sequence and marks to produce the editor view. Different mark types can have different boundary behavior: bold and italic often extend when typing at their edges, while links and comments usually should not automatically grow.',
+        'The obvious approach is to encode rich text as Markdown, HTML, or hidden control characters inside a plain text CRDT. Bold becomes a pair of marker characters. A link becomes inline syntax or a tag. A comment anchor becomes a hidden token. This is attractive because the editor can reuse the same sequence machinery for everything.',
+        'That approach works for simple, single-user serialization. It fails as a merge model. Markers are ordinary characters to the CRDT, so concurrent formatting operations can interleave in ways that converge byte-for-byte while expressing neither user intention. The data structure preserved the string and lost the semantic range. The wall is not rendering; it is that formatting intent needs identity, anchors, and boundary rules of its own.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Wall',
       paragraphs: [
-        'Peritext buys intention preservation with metadata. The underlying sequence CRDT stores element ids, causal structure, and deletion state. The rich-text layer stores add/remove mark operations and range boundaries. Rendering may need efficient lookup of active marks over the visible span, which connects naturally to Interval Tree, Segment Tree, and editor piece indexing ideas.',
-        'The hard cost is not only asymptotic. A real editor needs low-latency typing, incremental patches, stable cursor behavior, undo, copy-paste, schema validation, compaction, sync transport, and permission checks. If every keystroke forces a full document render, the merge algorithm can be correct and still unusable.',
+        'The first wall is overlap. Rich-text marks are intervals over a changing sequence, and intervals overlap constantly. Bold can overlap a link. A comment can cover part of a bold span. A deletion can remove text inside a mark while leaving the mark meaningful around the remaining text. A plain start index and end index are unstable because concurrent edits move positions.',
+        'The second wall is boundary behavior. New text inserted at the end of a bold phrase often should inherit bold because the user is continuing emphasis. New text inserted at the end of a link usually should not extend the URL. New text at the edge of a comment often should sit outside the annotation. One generic range rule cannot express those different product semantics.',
+        'The third wall is editor integration. A correct merge core is not a full editor. The product still needs local typing latency, selection state, undo, schema validation, comments with bodies, permissions, copy-paste policy, block structure, persistence, and sync. Peritext solves the inline mark convergence problem; it does not erase the surrounding application data structures.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core Insight',
       paragraphs: [
-        'Consider a local-first notes app. Each paragraph has a fast local text buffer for typing, a sequence CRDT for replicated ordering, and a Peritext-style mark log for inline formatting. Alice edits offline on a train, bolds a phrase, and adds a comment. Bob concurrently inserts a sentence and links a term. When the devices sync, their text operations and mark operations are merged in any delivery order. Both replicas derive the same final view, and the result tries to preserve the visible intent of both edits.',
-        'The product architecture should keep layers separate. The editor UI emits transactions. A translation layer turns them into CRDT input operations. The CRDT log persists and syncs compact updates. A renderer maps CRDT patches back into the local editor. Authorization and document sharing must sit outside the merge algorithm; a correct CRDT should never be asked to merge unauthorized private text into another user\'s context.',
+        'Peritext separates character order from formatting intent. A sequence CRDT owns stable character identities and order. Mark operations live in their own append-only history and anchor before or after those stable positions. Rendering is a deterministic projection from text plus marks into the visible editor view.',
+        'That separation changes the merge problem. The text layer answers which characters exist and in what order. The mark layer answers which semantic ranges are active over those characters. Because marks are not hidden text, the system can merge overlapping bold, links, comments, and removals without asking punctuation characters to represent user intent.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism',
       paragraphs: [
-        'The first misconception is that convergence equals user intent. A CRDT can guarantee all replicas agree while still agreeing on a bad rendering; an Operational Transformation system can also converge while transforming a range in a way users did not mean. Rich text needs a model of formatting behavior, not only a conflict-free byte sequence or a correct-looking position shift. The second misconception is that Peritext replaces local text data structures. It does not. Gap Buffer Text Editor, Piece Table Text Buffer, and Text Rope Data Structure still matter for local editing speed, undo, and large documents.',
-        'The third trap is treating inline formatting as the whole problem. The Peritext paper focuses on inline marks within a paragraph and explicitly leaves broader collaboration workflows open. Block elements, tables, comments with mutable bodies, branch review UI, conflict surfacing, permissions, and history visualization still need product and data-structure design.',
+        'A character in the underlying sequence has an identity, often derived from an operation id or logical timestamp. Text operations insert or delete identities, and the sequence CRDT provides a deterministic order even when operations arrive in different orders on different replicas. Peritext adds mark operations that name a mark type, a value if needed, and a start and end anchor relative to character identities.',
+        'Anchors matter because they are stable under concurrent insertion. A mark can start before one character identity and end after another. If new text arrives at an edge, the mark type can define whether that boundary is inclusive or exclusive. Bold can choose behavior that feels like continuing emphasis. A link can choose behavior that avoids accidentally extending the clickable URL.',
+        'Rendering is a sweep over the visible sequence and the mark operations. The renderer computes active marks for each span, resolves additions and removals, and emits editor patches. For performance, a serious implementation does not rescan the whole document on every keypress. It builds interval indexes, segment structures, or incremental render caches over the visible ranges.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Visual Proof',
       paragraphs: [
-        'Primary sources: Ink & Switch Peritext article at https://www.inkandswitch.com/peritext/, Peritext PACM HCI PDF at https://www.inkandswitch.com/peritext/static/cscw-publication.pdf, ACM DOI at https://doi.org/10.1145/3555644, Peritext prototype repository at https://github.com/inkandswitch/peritext, and Loro rich-text CRDT discussion at https://loro.dev/blog/loro-richtext. Study Sequence CRDTs for Collaborative Text, Operational Transformation Collaborative Editing Case Study, Local-First Sync Engine Case Study, Collaborative Awareness Presence CRDT, Collaborative Undo/Redo Intention Stack, CRDTs, Logical Clocks, Interval Tree, Segment Tree, Piece Table Text Buffer, Text Rope Data Structure, and Cloudflare Durable Objects Case Study next.',
+        'The overlapping-bold table proves that semantic intent and byte serialization are different. Alice bolds one range, Bob bolds an overlapping range, and the merged intent is a union over stable text positions. The Markdown-as-text table shows the counterexample: marker characters can interleave and still converge as text while the rendered style becomes ambiguous or wrong.',
+        'The boundary table proves that a mark is more than two numbers. Insert after bold, insert after link, and insert after comment are all edge cases with different desired behavior. A data model that cannot represent per-mark boundary semantics will push those decisions into ad hoc editor code, where replicas can diverge or users can see surprising formatting.',
+        'The span-anchor view proves the two-layer structure. The sequence stores character identities. A mark operation points to anchors around those identities. The rendering sweep proves the projection: the stored document is not one mutable HTML string. It is text plus mark history plus deterministic rendering rules.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The correctness argument starts with convergence of the underlying sequence CRDT. If all replicas eventually receive the same text operations, they derive the same ordered set of character identities. Peritext then applies the same mark operations to the same identities. Since anchors refer to identities rather than mutable offsets, concurrent insertions do not change what an operation originally pointed at.',
+        'Deterministic rendering completes the argument. Given the same sequence, same mark log, and same boundary rules, replicas compute the same active marks for each visible span. Rich-text correctness is not that every user always likes the result. It is that the system preserves expressed intent as operations and gives all replicas the same rules for projecting that intent into a document.',
+      ],
+    },
+    {
+      heading: 'Cost and Tradeoffs',
+      paragraphs: [
+        'The tax is metadata. A plain text buffer stores characters. A sequence CRDT stores characters plus identities, causal metadata, and tombstones or compaction state. Peritext adds mark operations, anchors, add/remove histories, boundary semantics, and render indexes. Document size, edit history, and mark density all increase pressure on memory and rendering.',
+        'The dominant operation in an editor is often not merge; it is keeping typing fast. Each keystroke may need to update the local buffer, produce CRDT operations, adjust active marks, emit view patches, and preserve selection. If the renderer recomputes every mark over the whole document, the CRDT can be correct and the product can still feel broken. Incremental indexes are not optional polish for large documents.',
+        'Compaction is difficult because old operations can carry semantic meaning. Removing tombstones or squashing mark history must remain causally safe for replicas that have not yet seen every operation. Undo is also hard. A user expects undo to reverse intent, not merely delete the last received operation from the global log. Collaborative undo needs its own intention model.',
+      ],
+    },
+    {
+      heading: 'Uses and Failure Modes',
+      paragraphs: [
+        'Peritext-style models fit local-first notes, collaborative documents, comments, design tools, code notebooks, and annotation-heavy knowledge bases. The fit is strongest when inline marks are product data. A comment, link, highlight, or suggestion is not decoration; it has identity, permissions, history, and user intent.',
+        'It is the wrong abstraction for plain logs, append-only chat, or documents where formatting can be regenerated from a source format after edits. If users do not collaboratively edit overlapping rich spans, a simpler model may be enough. Operational transformation, server-authoritative editors, or block-level CRDTs may be better depending on latency, product semantics, and deployment constraints.',
+        'The failure modes are semantic leaks between layers. Markdown markers can corrupt formatting intent. Mutable offsets can point at the wrong text after concurrent insertions. One-size-fits-all boundary rules can extend links or comments unexpectedly. Missing render indexes can make typing slow. Treating Peritext as a whole editor can leave schema, permissions, comments, block layout, presence, and storage unsolved.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Primary sources: Ink and Switch Peritext article at https://www.inkandswitch.com/peritext/, Peritext PACM HCI PDF at https://www.inkandswitch.com/peritext/static/cscw-publication.pdf, ACM DOI at https://doi.org/10.1145/3555644, Peritext prototype repository at https://github.com/inkandswitch/peritext, and Loro rich-text CRDT discussion at https://loro.dev/blog/loro-richtext.',
+        'Study Sequence CRDTs for Collaborative Text for the underlying order layer. Study CRDTs and Logical Clocks for convergence and causality. Study Interval Tree and Segment Tree for active-mark queries. Study Piece Table Text Buffer and Text Rope Data Structure for local editing performance. Study Operational Transformation Collaborative Editing Case Study for the main alternative tradition, Local-First Sync Engine Case Study for product integration, Collaborative Awareness Presence CRDT for cursors, and Collaborative Undo/Redo Intention Stack for the hard recovery path.',
       ],
     },
   ],

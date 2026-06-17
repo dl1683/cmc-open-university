@@ -200,30 +200,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Ingress and Gateway API are Kubernetes edge-routing models. They map external HTTP or HTTPS traffic to Services through host, path, listener, TLS, and backend references. The API object is not the data plane by itself; a controller must translate it into proxy, cloud load-balancer, or service-mesh configuration.',
-        'The official Ingress documentation says Ingress exposes HTTP and HTTPS routes from outside the cluster to Services and notes that the Kubernetes project recommends Gateway API because Ingress is frozen: https://kubernetes.io/docs/concepts/services-networking/ingress/. The Ingress controller page explains that you may deploy multiple controllers and select one with ingressClassName: https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/. The Gateway API page describes Gateway API as the successor to Ingress and notes that it is installed as CRDs implemented by selected controllers: https://kubernetes.io/docs/concepts/services-networking/gateway/.',
+        'A Kubernetes Service gives stable access inside the cluster. It does not decide which public hostname should terminate TLS, which URL path should reach which application, or which team is allowed to attach a route to a shared edge listener.',
+        'Ingress and Gateway API exist to make edge routing declarative. They store the desired HTTP or HTTPS route graph in Kubernetes objects. A controller turns that graph into NGINX, Envoy, cloud load-balancer, or service-mesh configuration and writes status back into the API.',
+        'The educational point is that edge routing is not just a list of rules. It is a graph of references, ownership boundaries, status conditions, and data-plane programming. When traffic fails, the fastest operator is usually the one who can walk that graph without guessing.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The baseline approach',
       paragraphs: [
-        'The route structure is a directed graph. The request enters through an external load balancer or listener. It matches a host rule, path rule, header rule, or listener. The selected route points to a backend Service, which points to EndpointSlices, which point to ready Pods. TLS secrets, class references, ownership rules, and status conditions hang off the same graph.',
-        'Ingress compresses much of that graph into one object. Gateway API decomposes it into GatewayClass, Gateway, listener, and Route objects, making ownership and attachment explicit. That decomposition is a data-structure choice: more references and conditions, but less hidden coupling between infrastructure and application teams.',
+        'The simple approach is to let each team edit the edge proxy or create its own load balancer. That works for one service. It breaks when many teams share hostnames, certificates, listeners, and route precedence.',
+        'Kubernetes also loses observability when the edge lives outside the API. A manifest can say the app exists, but the cluster cannot tell whether the public route was accepted, rejected, shadowed, or still waiting for a controller.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The wall',
       paragraphs: [
-        'A retail cluster exposes shop.example.com/cart and shop.example.com/orders. The infrastructure team owns the public Gateway, listener, wildcard certificate, and controller. The cart team owns an HTTPRoute for /cart to cart-svc. The orders team owns an HTTPRoute for /orders to orders-svc. The controller marks routes Accepted only if hostnames, listener permissions, and backend references are valid.',
-        'When a route fails, the debugging path follows the graph: DNS to load balancer, listener to route, route match to backend Service, Service to EndpointSlices, EndpointSlices to ready Pods, and controller status back to the API.',
+        'The edge is a shared data structure. Hostnames must be unique or intentionally wildcarded. Paths have precedence. TLS secrets expire or move. Backends may have no ready endpoints. Two teams can accidentally claim the same listener.',
+        'Ingress solves the first version by putting host and path rules in one Kubernetes object. Its wall is ownership and extensibility. It mixes infrastructure and application concerns, and the Kubernetes project has frozen the Ingress API. Gateway API was designed to split those concerns across roles.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The structure is a route DAG. A request enters through DNS and a load balancer, reaches a listener, matches host and path rules, selects a backend Service, then follows that Service to EndpointSlices and ready Pods.',
+        'Ingress compresses much of that graph into IngressClass, Ingress rules, TLS secrets, backend references, and status. Gateway API expands it into GatewayClass, Gateway, listener, HTTPRoute, parent reference, backend reference, and conditions.',
+        'The graph has two kinds of edges. Routing edges describe where traffic can go. Ownership and attachment edges describe who is allowed to attach routes to infrastructure. Gateway API makes those attachment edges explicit.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'An Ingress controller watches Ingress objects for its class. It resolves TLS secrets, host rules, path rules, and backend Services. If the references are valid, it programs the data plane and updates status with the edge address or implementation-specific conditions.',
+        'A Gateway controller starts one layer earlier. GatewayClass selects the implementation. Gateway defines listeners such as HTTPS on port 443. HTTPRoutes attach to those listeners through parent references, then point to backend Services. The controller validates attachment, programs the data plane, and records accepted or rejected conditions.',
+        'At request time, the proxy does not reread YAML. It uses the programmed route table: listener, TLS context, hostname match, path or header match, backend cluster, and endpoint set.',
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        'A retail cluster serves shop.example.com. The platform team owns the Gateway, the public address, and the certificate. The cart team owns an HTTPRoute for /cart. The orders team owns an HTTPRoute for /orders.',
+        'The route graph lets the platform team keep listener and TLS control while application teams ship route changes. Status conditions tell the cart team whether its route attached, whether the backend Service exists, and whether the controller accepted the configuration.',
+        'This is better than sharing one handwritten proxy file. The cart team can change cart routes without owning certificate rotation. The platform team can rotate the listener without rewriting every service route. The controller becomes the compiler from Kubernetes route objects to the actual edge configuration.',
+      ],
+    },
+    {
+      heading: 'Why it is reliable',
+      paragraphs: [
+        'The reliability argument is reconciliation plus status. The Kubernetes object is desired state, not the data plane. A controller repeatedly observes the route graph, resolves references, programs the proxy, and writes back what happened.',
+        'A route should not be considered live just because the object exists. It is live when the responsible controller has accepted it and the data plane has been programmed. Gateway conditions make that state easier to inspect than a pile of proxy config.',
+        'Gateway API improves shared-cluster reliability by making ownership boundaries first-class. Infrastructure owners control Gateways and listeners. Route owners attach only where allowed. That prevents every application team from needing write access to the whole edge.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost is controller and data-plane complexity. Every route change must be validated, translated, pushed to the proxy or load balancer, and reflected in status. That creates propagation delay between applying a manifest and serving traffic.',
+        'More explicit models create more objects. Gateway API is clearer for multi-team routing, but it asks operators to manage GatewayClass, Gateway, listener policy, Route objects, allowed attachment, and sometimes cross-namespace reference policy.',
+        'Proxy behavior can dominate the user-visible result. Some controllers reload configuration. Some push incremental updates. Some depend on cloud-provider provisioning. The Kubernetes API stores the graph, but the implementation decides how fast and safely traffic changes.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'Ingress is still useful for simple HTTP routing where one team owns the route and the controller behavior is already understood. Gateway API is a better fit when teams share edge infrastructure, when listener ownership matters, or when route status needs to explain why attachment failed.',
+        'Neither API fixes a broken backend. If traffic fails, walk the graph backward: client DNS, public load balancer, listener, TLS secret, route match, Service, EndpointSlice, ready Pod, and controller status.',
+        'The APIs also do not standardize every traffic policy an organization might want. Retries, rate limits, auth, header mutation, canary rollout, and mesh integration may require implementation-specific policy resources or additional Gateway API extension points.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The common failures are wrong class, missing controller, missing TLS secret, host or path shadowing, Service without ready endpoints, and status that never updates.',
+        'Gateway API adds attachment failures. A Route can point at a Gateway listener that does not allow it. A backend in another namespace may need explicit permission. A route can exist but remain rejected because the graph edge is not allowed.',
+        'Operational failures sit outside the object model: stale DNS, cloud load balancer provisioning delays, proxy reload mistakes, certificate rotation errors, and network policy blocking traffic after the route has selected a backend.',
+      ],
+    },
+    {
+      heading: 'Animation notes',
+      paragraphs: [
+        'The Ingress view shows how a route is assembled from references: class, host, path, backend Service, EndpointSlice, and status. A manifest exists before the public route is actually usable; the controller closes that loop.',
+        'The Gateway view separates infrastructure ownership from application route ownership. The important edge is attachment: a Route must be allowed to attach to a listener before backend routing matters. Status conditions are the inspection surface for that decision.',
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        'Build runbooks around graph traversal. For a 404, inspect host and path matching before backend health. For a 503, inspect Service and EndpointSlices. For a TLS failure, inspect listener, certificate secret, DNS, and load-balancer address. For a rejected Gateway route, inspect parent references and allowed attachment policy.',
+        'Treat status as part of deployment validation. Applying YAML is not enough. A release gate should check that the controller accepted the route, programmed the address, and sees healthy backends before shifting traffic or declaring the rollout complete.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study Envoy xDS Service Mesh because many controllers program Envoy-like resources. Study Kubernetes Service and EndpointSlice Traffic for the backend half of the graph. Study Trie and Patricia Trie for host/path matching. Study Feature Flag Control Plane and Flagger Canary Progressive Delivery for safe edge-route rollout.',
+        'Primary sources: Kubernetes Ingress at https://kubernetes.io/docs/concepts/services-networking/ingress/, Ingress controllers at https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/, and Gateway API at https://kubernetes.io/docs/concepts/services-networking/gateway/.',
+        'Study Envoy xDS Service Mesh because many controllers program Envoy-like resources, Kubernetes Service and EndpointSlice Traffic for the backend half of the graph, Trie and Patricia Trie for host/path matching, Feature Flag Control Plane for controlled route changes, and Flagger Progressive Delivery Canary for safe edge rollout.',
       ],
     },
   ],

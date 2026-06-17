@@ -209,45 +209,89 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Apache Flink checkpointing is the fault-tolerance mechanism for stateful stream processing. It periodically records operator state and source positions so a job can recover after failure with consistent semantics.',
-        'This case study extends Kafka Log Case Study, Google Dataflow Model Case Study, MillWheel Streaming Case Study, RocksDB LSM Case Study, Backpressure, and Two-Phase Commit. It focuses on the operational machinery behind stateful streaming guarantees.',
-        'The central idea is a consistent distributed snapshot without stopping the whole pipeline. Barriers travel inside the data stream, so the system can mark a logical cut while normal records continue flowing around that coordination protocol.',
+        'Flink checkpointing exists because stateful streaming jobs are long-running programs, not one-shot scripts. A fraud job may keep per-card windows for months. A CDC enrichment job may remember join state. A feature pipeline may update keyed aggregates continuously. If a task manager dies, the job cannot restart from empty memory and pretend nothing happened.',
+        'The first requirement is simple to state: after failure, the job should resume from a consistent point. The operator state, timers, and source positions must describe the same logical stream cut. If state is from 10:05 but Kafka offsets are from 10:02, replay will double count. If offsets are from 10:05 but state is from 10:02, records are lost. Fault tolerance is the agreement between state and input progress.',
+        'The second requirement is harder: the pipeline should keep running while snapshots are taken. Stopping the whole job for every backup would destroy the low-latency reason to use streaming in the first place. Flink uses checkpoint barriers to mark consistent cuts inside the stream, so state can be snapshotted while records continue to flow.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The coordinator injects checkpoint barriers into sources. Barriers flow with records through the job graph. When operators observe the barrier, they snapshot keyed or operator state to durable storage and forward the barrier. Source offsets are part of the checkpoint.',
-        'After a failure, Flink restores operator state from the latest completed checkpoint and replays sources from the recorded positions. If the source is durable and replayable, the restored job can continue from the same logical stream cut.',
+        'The obvious approach is periodic local backup. Each operator writes its local state to disk every minute. If a task fails, reload the newest backup and keep going. This works only if local state is the whole story. A streaming job also has records in flight, source offsets, timers, and downstream effects. Local backup alone cannot say which records were already included in the state.',
+        'Another reasonable approach is to rely on the source log. If the source is Kafka, just replay from an earlier offset after failure. Replay solves missing input, but it does not solve state consistency. Replaying too far without restoring matching state duplicates effects. Restoring state without replaying enough misses records. The source and state need one shared boundary.',
+        'The wall is distributed snapshot consistency. A Flink job graph has many operators running in parallel, often with multiple input channels. At any moment, some records have reached one operator but not another. Some state updates are complete, while related downstream outputs are still in buffers. A checkpoint must cut through this moving graph so every included state update agrees with the included source positions.',
+        'Flink solves that wall by putting markers in the data stream itself. A barrier says: records before this marker belong to checkpoint N; records after it belong to the next checkpoint. Operators use the marker to know exactly which state belongs in the snapshot.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight',
       paragraphs: [
-        'Checkpointing adds IO, coordination, storage, and latency costs. Large RocksDB state, slow checkpoint storage, skewed keys, and backpressure can make checkpoints slow or unstable. Unaligned checkpoints can help under backpressure by snapshotting in-flight buffers, but they increase checkpoint size.',
-        'Exactly-once state inside Flink is not automatically exactly-once side effects outside Flink. Sinks need idempotent writes, transactions, or two-phase commit protocols that align external commits with checkpoint completion.',
-        'Incremental checkpoints reduce repeated state upload, but they add lifecycle complexity around shared files and cleanup. Savepoints, checkpoints, and externalized checkpoints also serve different operational jobs, so teams need to distinguish failure recovery from planned migration.',
+        'The core insight is a consistent cut through a live dataflow graph. A checkpoint is not just a copy of memory. It is a snapshot of operator state, timers, connector state, and source positions that all correspond to the same logical boundary in the stream.',
+        'Checkpoint barriers make that boundary visible without stopping the job. Sources inject barriers. Barriers travel with records. When an operator receives the barrier for a checkpoint, it snapshots the state that reflects records before that barrier. After all required operators finish their snapshots, the checkpoint becomes complete and can be used for recovery.',
+        'This is the same broad idea as distributed snapshot algorithms, adapted to streaming execution. The stream itself carries the control message. The data plane and recovery protocol share the same channels, so the runtime can reason about which records happened before the checkpoint and which happened after it.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism',
       paragraphs: [
-        'Flink checkpoints support fraud detection, session windows, feature pipelines, streaming joins, alerting, CDC enrichment, and continuously updated aggregations where state must survive task and machine failures.',
-        'A complete case study is a Kafka-to-database fraud pipeline. Kafka offsets and per-card window state are checkpointed together. The sink precommits output and commits only when the checkpoint completes, so recovery can replay without duplicating final alerts.',
+        'A checkpoint starts when the coordinator tells sources to inject a barrier for checkpoint N. A source records its position, such as a Kafka offset, and sends the barrier downstream. Records before the barrier are part of the pre-checkpoint stream. Records after the barrier are not.',
+        'A one-input operator has a direct job. It processes records until it sees the barrier, snapshots its keyed state or operator state, forwards the barrier, and continues. State may live on the heap or in a state backend such as RocksDB. The snapshot is written to checkpoint storage, which should be a durable and highly available store for production jobs.',
+        'A multi-input operator has to align barriers in the common aligned mode. If the barrier arrives on one input but not another, the operator must prevent post-barrier records on the early input from mixing with pre-barrier records on the late input. Alignment preserves the consistent cut. Under backpressure, this waiting can make checkpoint duration grow.',
+        'Unaligned checkpoints change the tradeoff. Instead of waiting for all channels to align cleanly, Flink can include in-flight buffered data in the checkpoint. Barriers make progress even when channels are backed up, but the checkpoint contains more bytes and recovery has more channel state to restore. This is a latency and storage trade, not a free improvement.',
+        'After failure, Flink restores the latest completed checkpoint. Operators load their state, sources seek back to the recorded positions, and the job reprocesses records after the checkpoint boundary. The completed checkpoint is the rewind point. Any work after it may be repeated, so sinks must be compatible with replay.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Checkpoint interval is not just a reliability knob; it affects IO load, recovery point objective, backpressure, and sink transaction lifetime. A completed checkpoint also requires durable storage, not just local task memory. Monitoring checkpoint duration and alignment time is part of running Flink.',
+        'Consider a Kafka-to-database fraud pipeline. The source reads card transactions from Kafka. A keyed operator maintains a rolling ten-minute window per card. A sink writes alerts to an external database. The job cannot lose state after a machine failure, and it cannot write duplicate final alerts if Kafka records are replayed.',
+        'Checkpoint 41 begins. The Kafka source records offsets and emits a barrier. The keyed window operator processes all records before the barrier, updates per-card state, snapshots that state, and forwards the barrier. The sink receives the barrier and precommits its transaction for records before checkpoint 41. When every participating task reports success, the coordinator marks checkpoint 41 complete and notifies the sink that it can commit.',
+        'Now a task fails after checkpoint 41 completes but before checkpoint 42 completes. Flink restores state from checkpoint 41 and seeks Kafka back to the offsets in checkpoint 41. Records processed after checkpoint 41 are replayed. The window state before checkpoint 41 is not recomputed from empty memory; it is restored. The sink must ensure records after checkpoint 41 do not become duplicate committed alerts. Transactional or idempotent sink design is what extends the guarantee outside Flink.',
+        'If the same job is under heavy backpressure, aligned checkpoint barriers may take too long to reach all operators. Enabling unaligned checkpoints can keep checkpointing from timing out by snapshotting in-flight buffers. The recovery point is still consistent, but the checkpoint may be larger and restore may need to replay buffered channel data as part of recovery.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: Apache Flink checkpointing documentation at https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/fault-tolerance/checkpointing/, Flink exactly-once overview at https://flink.apache.org/2018/02/28/an-overview-of-end-to-end-exactly-once-processing-in-apache-flink-with-apache-kafka-too/, and the Flink paper at https://asterios.katsifodimos.com/assets/publications/flink-deb.pdf. Study Kafka Log Case Study, MillWheel Streaming Case Study, Two-Phase Commit, RocksDB LSM Case Study, and Backpressure next.',
+        'The correctness argument is the barrier invariant. For checkpoint N, each operator snapshots the state produced by records before the checkpoint barrier and excludes records after it. With aligned checkpoints, multi-input operators wait until the boundary is known on all inputs, so the snapshot does not mix pre-checkpoint state from one channel with post-checkpoint state from another.',
+        'Source replay completes the invariant. A snapshot without source positions is only a backup. A source position without state is only a log offset. Together they say: this is the state after processing all records up to this position and before processing later records. Recovery restores that pair and replays from the boundary.',
+        'End-to-end exactly-once needs one more invariant at the sink. Flink can make internal state consistent with replay, but external systems need their own commit protocol. A two-phase commit sink precommits output during the checkpoint and commits only after the checkpoint succeeds. An idempotent sink uses deterministic keys so repeated writes collapse to one effect. An at-least-once sink writes immediately and may duplicate after recovery.',
+        'This is why checkpointing is a composition claim. Source replay, operator state restore, timers, and sink effects must agree. If any one part cannot honor the boundary, the pipeline guarantee weakens at that part.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Checkpointing adds IO, CPU, storage, coordination, and sometimes latency. The job writes state snapshots to durable storage. Large keyed state can dominate checkpoint duration. Slow object storage or file systems can turn checkpointing into the bottleneck. If checkpoints time out, the job may run without fresh recovery points and then recover from an older boundary after failure.',
+        'The interval is a real design choice. Short intervals reduce recovery work because less post-checkpoint data must be replayed, but they increase snapshot frequency and sink transaction churn. Long intervals reduce checkpoint overhead, but they increase recovery time and potential replay volume. There is no universally correct value. It depends on state size, input rate, sink behavior, and recovery objectives.',
+        'Incremental checkpoints reduce repeated upload for large state backends by storing changes since prior checkpoints. They can make large RocksDB state practical, but they add lifecycle complexity. Shared checkpoint files need careful cleanup. Operators must distinguish checkpoints used for automatic recovery from savepoints used for planned upgrades or migration.',
+        'Backpressure changes the cost model. With aligned checkpoints, barriers can be delayed behind full buffers, so checkpoint duration reflects runtime congestion. Unaligned checkpoints reduce that delay by including buffered records in checkpoint state, but they increase checkpoint size and can make recovery heavier. Choosing between aligned and unaligned modes is choosing where to pay.',
+        'Sinks often set the real limit. A two-phase commit sink may hold external transactions open until checkpoints complete. If checkpoints are slow, transactions live longer. Some external systems do not support the needed commit or abort behavior. In those cases, teams must use idempotent keys, accept at-least-once output, or change the sink.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'Flink checkpointing wins in stateful streaming jobs with replayable sources and meaningful recovery requirements. Fraud detection, alerting, session windows, streaming joins, CDC enrichment, continuously updated aggregates, and online feature computation all fit. The common pattern is keyed state that must survive worker and machine failure while records continue arriving.',
+        'It is less useful for stateless pipelines where replay from the source is enough, for one-off batch jobs where failure can be handled by rerunning the job, or for external side effects that cannot be made replay-safe. It also does not replace database transactions. If the main correctness boundary is inside an OLTP database, a stream checkpoint cannot make the database commit protocol disappear.',
+        'The common misconception is that enabling checkpoints automatically gives exactly-once everything. It gives Flink a consistent recovery boundary for its own managed state and compatible connectors. End-to-end semantics depend on source replay and sink behavior. Another misconception is that more frequent checkpoints are always safer. They may overload storage, lengthen backpressure, or keep sink transactions open too often.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The barrier-snapshot view shows the checkpoint boundary traveling through the graph. The barrier is not data for the user program. It is a control marker that lets each operator decide which state belongs to the same snapshot as the source positions.',
+        'The aligned-flow matrix shows why multiple inputs are hard. A fast input can deliver a barrier before a slow input. Waiting preserves the cut, but it may buffer records and expose backpressure. The recovery matrix shows why both halves are required: load state and replay sources from the matching boundary.',
+        'The sink view is the important caution. A checkpoint can restore Flink state, but an external output has already affected another system. Exactly-once output requires a transaction, an idempotent write, or another protocol that coordinates with checkpoint completion.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Apache Flink checkpointing documentation at https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/datastream/fault-tolerance/checkpointing/, Flink exactly-once overview at https://flink.apache.org/2018/02/28/an-overview-of-end-to-end-exactly-once-processing-in-apache-flink-with-apache-kafka-too/, and the Flink paper at https://asterios.katsifodimos.com/assets/publications/flink-deb.pdf.',
+        'Study Kafka Log Case Study next to understand replayable source offsets. Study MillWheel Streaming Case Study to compare another approach to stateful streaming, timers, and delivery semantics. Study Two-Phase Commit for sink protocols that coordinate external commits with checkpoint success. Study RocksDB LSM Case Study because Flink keyed state often lives in an LSM-backed state backend. Study Backpressure & Flow Control to understand why checkpoint barriers slow down when channels are congested. Study Google Dataflow Model Case Study for event time, windows, and triggers above the checkpointing layer.',
       ],
     },
   ],

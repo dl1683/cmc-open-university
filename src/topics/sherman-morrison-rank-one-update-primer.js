@@ -320,45 +320,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem: one small matrix change, one expensive inverse',
       paragraphs: [
-        'Sherman-Morrison is the rank-one inverse update formula. If a square matrix A is invertible and you already know A inverse, then after changing A by an outer product u vT, the new inverse can be computed by correcting the old inverse. The denominator 1 + vT A^-1 u must be nonzero.',
-        'The point is not that inverses are good API design. The point is that many streaming algorithms maintain a matrix of accumulated evidence, and each new observation adds one outer product. The update lets them avoid recomputing a dense inverse from scratch after every row.',
+        'Many numerical systems maintain a matrix that changes a little at a time. A recommender receives one new user interaction. A recursive least-squares model receives one new training row. A sensitivity analysis changes one component of a linear system. The matrix is not rebuilt from nothing; it is the old matrix plus a structured edit.',
+        'The expensive object is often the inverse or, more carefully, the ability to solve systems with the matrix. If a dense `n by n` matrix changes and the program recomputes a fresh inverse, the work is cubic. That may be acceptable for an occasional offline refit. It is a poor hot-path design when updates arrive continuously and the matrix dimension is moderate.',
+        'Sherman-Morrison answers a narrow question: if `A` is invertible, `A^-1` is already known, and the update is one outer product `u v^T`, can the inverse of `A + u v^T` be obtained by correcting the old inverse? Yes, as long as the scalar denominator `1 + v^T A^-1 u` is not zero. The formula does not make all inverse maintenance wise, but it explains why many online algorithms can update state in quadratic time instead of cubic time.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach and its wall',
       paragraphs: [
-        'The formula is (A + u vT)^-1 = A^-1 - (A^-1 u vT A^-1) / (1 + vT A^-1 u). Read it as a correction. A^-1 u is how the old inverse sees the new column direction. vT A^-1 is how the old inverse sees the new row direction. The denominator says whether the update preserves invertibility and how large the correction must be.',
-        'For the common ridge-regression update, u and v are both the new feature vector x, so A <- A + x xT. The inverse update becomes P <- P - (P x xT P) / (1 + xT P x). That is the algebra behind recursive least squares and the confidence state in LinUCB.',
+        'The simplest implementation is to store `A`, apply the update, and recompute `A^-1` after every change. This is easy to reason about. It is also wasteful. A single outer product changes the matrix in only one direction, but a fresh dense inverse treats the entire matrix as unknown again.',
+        'A better implementation often avoids explicit inverses entirely and keeps a factorization such as Cholesky, QR, or LU. That is usually the right default for numerical linear algebra. Sherman-Morrison is still important because it exposes the structure of the update and gives a cheap inverse-state correction when the algorithm specifically needs repeated inverse-vector products or uncertainty scores such as `x^T A^-1 x`.',
+        'The wall is not only asymptotic cost. Long-running services need predictable latency, auditability, and fallback behavior. A model that stalls for a full refactor on every event cannot serve a high-rate stream. A model that blindly applies an unstable inverse update can drift until scores are wrong. The practical design problem is to use cheap updates when they are healthy and rebuild from a stable representation when they are not.',
       ],
     },
     {
-      heading: 'Cost and data structures',
+      heading: 'Core insight: the inverse can be repaired',
       paragraphs: [
-        'A fresh dense inverse is O(n^3). A rank-one correction is O(n^2) after the old inverse is available, because it is built from matrix-vector products and an outer product. The data structures are the old inverse P, the update vectors u and v, the scalar denominator, and the correction matrix.',
-        'In an online model, keep A for auditability, P = A^-1 for fast scoring, b for reward-weighted feature sums, and theta = P b for the current coefficients. In practice you also keep residual checks, condition estimates, and a replay path that can rebuild P from A or from logs.',
+        'The identity is `(A + u v^T)^-1 = A^-1 - (A^-1 u v^T A^-1) / (1 + v^T A^-1 u)`. The old inverse appears on both sides of the correction. The vector `A^-1 u` is the updated column direction as seen through the old system. The row `v^T A^-1` is the updated row direction as seen through the old system. Their outer product forms a rank-one correction to the inverse.',
+        'The denominator is the guardrail. If `1 + v^T A^-1 u = 0`, the updated matrix is singular and the inverse does not exist. If the denominator is merely tiny, the inverse exists in exact algebra but the numerical correction can be huge. That is why serious implementations monitor the denominator and do not treat the formula as a magic incantation.',
+        'For symmetric positive-definite updates in ridge regression, the common case is `u = x` and `v = x`, so the matrix changes by `x x^T`. If `P = A^-1`, the update becomes `P <- P - (P x x^T P) / (1 + x^T P x)`. The scalar `x^T P x` also has meaning: it measures how uncertain or under-covered the current matrix is in direction `x`. A row in a well-known direction changes the inverse less than a row in a poorly covered direction.',
       ],
     },
     {
-      heading: 'Complete case study: online least squares',
+      heading: 'Why it works',
       paragraphs: [
-        'A streaming regression service receives examples (x, r). It maintains A = lambda I + sum x xT and b = sum r x. Each new row adds x xT to A and r x to b. Sherman-Morrison updates P = A^-1 in place, and theta = P b gives the latest ridge estimate. This is useful when the model must adapt quickly and n is small enough that storing P is reasonable.',
-        'LinUCB Personalized News Case Study is the recommender version. Each article or action carries its own A, P, and b. The mean score uses xT P b, while the exploration bonus uses sqrt(xT P x). Without the inverse update, scoring and updating many actions under heavy traffic would require repeated solves or expensive refactors.',
+        'The rank-one update changes the matrix in only one outer-product direction. Sherman-Morrison exploits that narrow change: it asks how the old inverse responds to u and v, then rescales the correction by the scalar amount of feedback between those directions.',
+        'The denominator is the safety check. If one plus v^T A^{-1} u is near zero, the update is close to making the new matrix singular. In that case the cheap correction is not a harmless shortcut; the system needs a more stable solve or a full refactorization.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'A small worked example',
       paragraphs: [
-        'The formula is exact algebra, not automatic numerical safety. If the denominator is near zero, the correction can explode. If the matrix is ill-conditioned, repeated updates accumulate roundoff. If the matrix is sparse, storing the full inverse may destroy sparsity. If updates arrive in large batches, a direct factorized solve may be simpler and faster on modern hardware.',
-        'The professional pattern is hybrid: fast rank-one updates on the hot path, periodic Cholesky or QR rebuilds in the background, and residual audits that compare A P against the identity. Sherman-Morrison is a tool for controlled small changes, not a license to ignore numerical linear algebra.',
+        'Take `A = [[3, 1], [1, 2]]`. Its inverse is `(1 / 5) [[2, -1], [-1, 3]]`, or `[[0.4, -0.2], [-0.2, 0.6]]`. Let `u = [1, 2]^T` and `v = [2, 1]^T`. The update `u v^T` is `[[2, 1], [4, 2]]`, so the new matrix is `[[5, 2], [5, 4]]`.',
+        'Sherman-Morrison reuses the old inverse. Compute `P u = [0, 1]^T`. Compute `v^T P = [0.6, 0.2]`. The denominator is `1 + v^T P u = 1 + 0.2 = 1.2`, not zero. The correction is `(P u)(v^T P) / 1.2`, a rank-one matrix. Subtract that correction from `P` and the result is the inverse of the updated matrix.',
+        'The exact arithmetic is less important than the shape of the work. The update uses matrix-vector products, an outer product, and one scalar division. It does not perform a full elimination or factorization from scratch. For dimension two the difference is tiny. For dimension one thousand, repeated rank-one updates can be the difference between a viable online method and an offline batch method.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Online least squares and bandits',
       paragraphs: [
-        'Primary sources: Sherman and Morrison, Adjustment of an Inverse Matrix Corresponding to a Change in One Element of a Given Matrix, Project Euclid record at https://projecteuclid.org/journals/annals-of-mathematical-statistics/volume-21/issue-1/Adjustment-of-an-Inverse-Matrix-Corresponding-to-a-Change-in/10.1214/aoms/1177729893.short; Hager, Updating the Inverse of a Matrix, SIAM Review at https://epubs.siam.org/doi/10.1137/1031049; MIT OCW lecture on low-rank changes at https://ocw.mit.edu/courses/18-065-matrix-methods-in-data-analysis-signal-processing-and-machine-learning-spring-2018/resources/lecture-14-low-rank-changes-in-a-and-its-inverse/; and Georgia Tech recursive least-squares notes at https://mdav.ece.gatech.edu/ece-6250-fall2019/notes/21-notes-6250-f19.pdf.',
-        'Study next: LinUCB Personalized News Case Study, Kalman Filter Sensor Fusion Case Study, Gaussian Process Bayesian Optimization Primer, Regularization, Matrix Completion & Recommenders, SVD & Low-Rank Approximation, Eigenvalues & Eigenvectors, and any online-learning topic where one new row should update a model without a full retrain.',
+        'Recursive least squares maintains `A = lambda I + sum x x^T` and `b = sum r x`, where `x` is a feature vector and `r` is an observed reward or target. The coefficient vector is `theta = A^-1 b`. When a new example arrives, `A` receives one new outer product and `b` receives one new vector. If `P = A^-1` is maintained with Sherman-Morrison, `theta = P b` can be refreshed without solving the normal equations from scratch.',
+        'This is useful in systems where the model must adapt while serving traffic: calibration, pricing, online ranking, small contextual bandits, and control systems with slowly changing observations. The dimension must still be reasonable because storing a dense inverse costs `O(n^2)` memory. Sherman-Morrison is not a solution for million-feature sparse text models unless the surrounding algorithm has a low-dimensional representation.',
+        'LinUCB is a good mental model. Each action can keep its own matrix `A_a`, inverse `P_a`, and reward vector `b_a`. The predicted mean for a context `x` uses `x^T P_a b_a`. The exploration bonus uses `sqrt(x^T P_a x)`. That bonus is cheap only if the inverse state or a comparable solve path is readily available. The same update that learns from the reward also shrinks uncertainty in the observed direction.',
+      ],
+    },
+    {
+      heading: 'Where it wins, where it fails',
+      paragraphs: [
+        'Sherman-Morrison wins when updates are truly rank one, matrices are small or medium dense objects, the old inverse is already maintained for a reason, and the hot path needs low latency. It is especially attractive when many updates arrive between full refits and the application can tolerate a controlled approximation window before the next stable rebuild.',
+        'It fails when the update is not low rank, when many rows arrive as a batch, when the matrix is ill-conditioned, when the denominator approaches zero, or when sparsity matters more than inverse access. A sparse matrix can have a dense inverse; explicitly storing `A^-1` may destroy the memory advantage that made the original problem tractable. On modern hardware, a batched factorized solve can also outperform a chain of small scalar-heavy updates.',
+        'The most common misconception is that maintaining an inverse is the same as solving a numerical problem well. In many production systems, the correct design is to maintain a factorization, apply rank-one updates to that factorization, and compute solves as needed. Sherman-Morrison remains valuable as algebra, as a performance tool in selected designs, and as the conceptual basis for several online-learning updates.',
+      ],
+    },
+    {
+      heading: 'Operational checks and what to study next',
+      paragraphs: [
+        'A robust implementation tracks more than the formula. Monitor the denominator, the condition estimate of `A`, the norm of the correction, symmetry drift when the matrix should remain symmetric, and residual checks such as the distance between `A P` and the identity. Keep a replayable log or an accumulated matrix so a background job can rebuild the inverse from a stable factorization. Decide in advance what threshold triggers a refit.',
+        'Also watch product-level signals. If a bandit policy changes abruptly after a single observation, the update may be too large or the regularization too weak. If confidence bonuses stop shrinking in frequently observed directions, the inverse state may be stale or corrupted. If latency spikes during refits, the hybrid schedule needs work.',
+        'Study matrix-vector multiplication, outer products, Cholesky factorization, QR factorization, ridge regression, recursive least squares, Kalman filters, Gaussian-process updates, contextual bandits, and the Woodbury matrix identity. Woodbury is the natural next step: it generalizes Sherman-Morrison from rank-one updates to low-rank updates, which is exactly what appears when a small batch of rows arrives at once.',
       ],
     },
   ],

@@ -195,43 +195,71 @@ export const article = {
     {
       heading: 'What it is',
       paragraphs: [
-        'EAGLE is a speculative decoding method that drafts future computation at the feature level. Instead of only using a small token-level draft model, it predicts second-to-top-layer features and then verifies a token draft tree with the target model.',
-        'This module complements Speculative Decoding Acceptance Ledger and Multi-Token Decoding. It explains the feature payload, token-shift conditioning, dynamic draft tree, confidence calibration, and target verification ledger.',
+        'EAGLE is a speculative decoding method for large language model serving. It tries to reduce the number of expensive target-model decoding iterations by proposing several future tokens at once, then asking the target model to verify those proposals. The final output still depends on target verification. The draft is a way to save time, not a permission to let a weaker model change the answer contract.',
+        'The distinctive idea in EAGLE is to draft at the feature level. Instead of using only a small token-level draft model, EAGLE predicts hidden features near the top of the target model and then converts those features into token candidates. Later versions use dynamic draft trees, where branch width and depth depend on confidence for the current prefix. The case study is valuable because it connects model internals, tree data structures, calibration, and serving economics in one mechanism.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The EAGLE runtime stores target-model features, shifted token inputs, draft-model outputs, candidate token nodes, branch confidence, dynamic tree shape, verifier results, accepted-token spans, and calibration residuals.',
-        'The dynamic tree is the most operationally important structure. It maps confidence and expected cost to a branch budget. That lets the serving system spend target verification on branches likely to be accepted for this specific context.',
+        'The obvious way to speed up decoding is to train a small draft model that predicts future tokens and let the target model verify them. This works when the small model is cheap and its proposals agree with the target often enough. The wall is acceptance decay. The first proposed token may be accepted frequently, the second less often, and deeper proposals may be mostly wasted. A wide draft tree can become expensive noise if most branches fail verification.',
+        'A pure token draft also has a modeling problem. Tokens are discrete and uncertain, especially several positions ahead. Once a draft makes an early wrong token choice, later token predictions live in the wrong future. A serving system then pays to verify branches that were unlikely to match the target in the first place. Better hardware kernels cannot fix a bad proposal distribution. The useful question becomes: what representation gives the draft model enough structure to predict several future steps without losing the target contract?',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The core insight',
       paragraphs: [
-        'The target model produces a hidden feature state. EAGLE uses that feature state and a token sequence advanced by one step to predict future features. Those features are projected into candidate tokens, arranged into a tree, and verified by the target model.',
-        'EAGLE-2 adds context-aware dynamic draft trees. A static tree assumes acceptance depends mostly on position. A dynamic tree uses draft confidence to allocate more branches where this prefix looks predictable and fewer branches where it looks uncertain.',
+        'EAGLE treats hidden features as a more informative drafting space than raw future tokens alone. A near-top hidden state already contains a compressed representation of the target model computation for the prefix. If a lightweight draft module can extrapolate future features from that state and the shifted token sequence, it may preserve more of the target model structure than a separate token-only model. The proposal is still approximate, but it is approximate in a space shaped by the target.',
+        'The second insight is that draft trees should be budgeted by confidence. A fixed tree assumes every prefix deserves the same speculative effort. Real traffic is not like that. Boilerplate code, repeated phrasing, and low-temperature completions may support deeper drafts. Ambiguous reasoning, tool-call boundaries, or high-temperature chat may not. EAGLE-2 turns confidence into a runtime control signal so the system spends verification work where acceptance is plausible.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core data structures',
       paragraphs: [
-        'A math-answer workload alternates between predictable calculation phrases and uncertain unit conversions. A static tree verifies too many weak branches. A dynamic EAGLE tree gives more budget to high-confidence calculation continuations and prunes low-confidence unit branches before target verification.',
-        'The ledger stores predicted confidence, actual acceptance, rejected branch depth, and latency. Over time, those records tell the controller whether the feature draft model is calibrated for math, code, chat, or tool-call traffic.',
+        'An EAGLE runtime needs several linked records. The feature payload stores the target model hidden state, the shifted token inputs used for conditioning, and the draft model outputs for future positions. The token projection record turns predicted features into candidate tokens. The draft tree stores candidate nodes, parent links, depth, probability or confidence, and pruning status. The verifier record stores which nodes the target accepted, where rejection happened, and which accepted tokens may be appended to the target state.',
+        'The dynamic tree is the central data structure. It is not just a visual tree. It is a budget allocation table. Each branch has expected benefit, expected verification cost, and calibration history. High-confidence cheap branches stay. Low-confidence expensive branches are pruned. A serving implementation also needs a KV state ledger so accepted tokens advance the target cache correctly while rejected branches leave no trace in the committed sequence.',
       ],
     },
     {
-      heading: 'Failure modes',
+      heading: 'Mechanism step by step',
       paragraphs: [
-        'Feature drafting can lose if calibration drifts, if the draft model is weak on a domain, if dynamic tree construction is too expensive, or if the serving system reports token throughput without tail latency. It also needs careful KV handoff after accepted tokens.',
-        'A dynamic tree should be auditable. If a branch was dropped because confidence was low, the ledger should say so. Otherwise teams cannot tell whether failures came from draft quality, verifier cost, or routing policy.',
+        'At a decoding step, the target model has already processed the prefix and produced internal features. EAGLE uses a feature from near the top of the target model, along with token information shifted forward, as input to a draft module. The draft module predicts future features. Those predicted features are projected through token heads to form candidate continuations. The continuations are arranged into a tree rather than a single chain because several futures may be plausible.',
+        'The target model then verifies the candidate tree. In greedy decoding, verification checks whether the candidate tokens match what the target would choose. In sampling settings, the acceptance logic must preserve the target distribution. Accepted tokens are committed, target KV state advances, and rejected branches are discarded. The runtime logs depth, branch width, confidence, accepted length, verifier time, and fallback behavior. The speedup comes only from accepted tokens per expensive target pass after subtracting draft and tree overhead.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary sources: EAGLE at https://arxiv.org/abs/2401.15077, EAGLE-2 at https://arxiv.org/abs/2406.16858, speculative decoding at https://arxiv.org/abs/2211.17192, vLLM speculative decoding at https://docs.vllm.ai/en/stable/features/speculative_decoding/, and NVIDIA Triton speculative decoding at https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/tutorials/Feature_Guide/Speculative_Decoding/README.html.',
-        'Study next: Speculative Decoding Runtime Controller Case Study, Medusa Tree Attention Candidate Mask Case Study, Lookahead Decoding N-Gram Pool Case Study, Speculative Decoding Acceptance Ledger, Calibration Curves, Threshold Optimization, and Transformer Inference Roofline.',
+        'EAGLE works when feature-level extrapolation creates better proposals than a cheap token-only draft at similar cost. Hidden features carry contextual structure learned by the target model, so a draft module operating in that space can sometimes keep deeper positions useful. The target verification step protects correctness: a bad draft wastes work, but it should not silently change the output when the acceptance contract is implemented correctly.',
+        'Dynamic trees work because acceptance is not uniform. If confidence is calibrated, the runtime can search a smaller but more valuable proposal set. That matters for serving because target verification is not free. A branch that will almost certainly fail is worse than no branch: it consumes memory bandwidth, attention work, scheduling space, and latency budget. Confidence-aware pruning turns speculative decoding from a fixed algorithm into a controller.',
+      ],
+    },
+    {
+      heading: 'Where it is useful',
+      paragraphs: [
+        'EAGLE-style drafting is useful in workloads where the target model is expensive, decode length is significant, and future text has enough predictability for proposals to be accepted. Code completion, boilerplate-heavy generation, template-like business writing, low-temperature assistants, and repeated reasoning phrases are natural candidates. It is also useful as a curriculum example because it exposes the interaction between model representation and systems throughput.',
+        'It is less attractive when prompts are short and prefill dominates latency, when output is very stochastic, when batch scheduling already saturates the hardware, or when the draft module creates deployment complexity larger than the expected gain. A team should not evaluate it only with tokens per second on a friendly benchmark. It must be measured under real batching, cache layout, model variants, temperature settings, and tail-latency goals.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'Feature drafting can fail through calibration drift. A branch that looked high confidence during training may be weak on a new domain, new temperature, new prompt format, or new target checkpoint. It can also fail through tree overhead: building, sorting, masking, and verifying a dynamic tree can erase the savings if the implementation is not tight. The method may look good in accepted tokens per pass while p95 latency gets worse.',
+        'It also carries coupling risk. The draft module depends on feature shapes and target-model internals. Changing the target checkpoint, quantization mode, tensor-parallel layout, or serving engine may require retesting the draft path. KV handoff is correctness-critical. If accepted tokens do not update the target state exactly as ordinary decoding would, the system can produce subtle divergence. The verifier is the guardrail, but the state transition still has to be engineered correctly.',
+      ],
+    },
+    {
+      heading: 'Operational and evaluation signals',
+      paragraphs: [
+        'Track accepted tokens per verification pass, acceptance by depth, branch survival rate, confidence calibration error, draft overhead, verifier overhead, target iterations saved, p50 and p95 latency, throughput under batch load, memory overhead, fallback rate, and domain slices. Separate greedy, low-temperature, high-temperature, code, chat, and tool-call traffic. A single average can hide the fact that one slice speeds up while another burns latency.',
+        'The best evaluation includes an acceptance ledger. For each request, log tree shape, confidence, accepted prefix length, rejected branch, committed KV range, and reason for fallback. Then compare ordinary decoding and EAGLE decoding under the same target model and sampling contract. If the method claims lossless serving, test output equivalence or distribution preservation directly rather than assuming verification makes every implementation correct.',
+      ],
+    },
+    {
+      heading: 'What to study next',
+      paragraphs: [
+        'Study speculative decoding, Medusa, lookahead decoding, multi-token decoding, transformer KV caches, tree attention, calibration curves, threshold optimization, and transformer inference roofline models. The EAGLE papers are the primary source for feature-level drafting and dynamic draft trees. Serving documentation from engines such as vLLM and Triton is useful for seeing how speculative paths interact with production batching and cache management.',
+        'For data structures, focus on trees, masks, append-only ledgers, matrices, priority queues, and controller state. EAGLE is not only a model trick. It is a lesson in how an approximate proposal structure can be made useful by a verifier, a confidence model, and careful operational accounting.',
       ],
     },
   ],

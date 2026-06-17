@@ -247,51 +247,101 @@ export const article = {
   ],
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An alert correlation fingerprint index is the data structure that sits between a stream of firing alerts and the incident record shown to responders. It canonicalizes labels, computes stable fingerprints, deduplicates repeats, groups related symptoms, attaches evidence, and routes one actionable incident to an owner.',
-        'The point is not to hide alerts. The point is to preserve evidence while reducing notification load. A responder should see fewer pages but more context: user impact, correlated logs, traces, deployment events, topology edges, ownership, and a clear reason for every grouping decision.',
+        'Production systems rarely fail with one clean signal. A checkout regression can trigger p99 latency burn, 5xx errors, pod restarts, database wait traces, repeated log templates, deploy warnings, and customer-support reports. If every symptom becomes its own page, responders spend the first minutes sorting noise instead of repairing user impact.',
+        'An alert correlation fingerprint index exists to turn that flood into a smaller set of incident candidates without throwing away evidence. It canonicalizes labels, computes stable fingerprints, deduplicates repeats, groups related symptoms, attaches logs and traces, and routes the incident to the team most likely to own the failing service.',
+        'The word index matters. This is not just a notification filter. It is a live data structure that remembers active fingerprints, freshness windows, grouping decisions, ownership, and evidence links. It should reduce pages while preserving the facts needed for diagnosis, audit, and post-incident learning.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The core structures are a canonical label dictionary, a fingerprint hash map, a TTL wheel for expiring inactive groups, a grouping table or union-find for related symptoms, an ownership map for routing, and an append-only evidence ledger. Each alert becomes a row keyed by canonical service, environment, region, route, alert family, severity, and SLO class.',
-        'OpenTelemetry semantic conventions exist because telemetry needs common names across codebases and platforms: https://opentelemetry.io/docs/concepts/semantic-conventions/. The same lesson applies to alert correlation. If one service uses `service.name`, another uses `app`, and a third encodes the service in a log message, the fingerprint index has to normalize them before grouping can be trusted.',
+        'The obvious approach is to group alerts by the labels they already carry. Same service, same environment, same severity, same page. That works while the system is small and every emitter uses the same vocabulary.',
+        'The wall is label reality. Metrics might use `service.name=checkout`, logs might say `app=checkout-api`, traces might identify a route, Kubernetes events might name a pod, and a deploy event might know only a version. If the index groups raw labels directly, it creates false splits, false joins, and pages the wrong team.',
+        'A second wall appears when teams treat every repeated alert as a separate incident or every nearby alert as the same incident. Exact repeats need deduplication. Related but different symptoms need grouping. Independent incidents need separation. A useful correlation system has to make all three decisions and explain them later.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Alert correlation is a data-normalization problem before it is a prediction problem. The index must map telemetry from metrics, logs, traces, deploys, and topology into a shared vocabulary before it can decide what belongs together. Stable correlation starts with stable labels.',
+        'The fingerprint key should contain fields that define the operational identity of a symptom: service, environment, region, route or dependency, alert family, SLO class, and sometimes version or shard. Volatile fields such as pod name, host id, request id, span id, and full URL usually belong in evidence rather than in the top-level key.',
+        'The second insight is that deduplication and grouping are different operations. Deduplication says this event is another copy of the same alert. Grouping says different symptoms probably belong to one incident. Mixing those ideas is how correlation tools become both noisy and opaque.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'The fingerprint-index view puts canonicalization in the center on purpose. Metrics, logs, traces, deploys, and topology all flow through label normalization before the fingerprint index or grouping bucket can make a decision. The visual model teaches that bad labels cannot be fixed by a clever hash.',
+        'The canonical fingerprint table shows which fields become grouping keys and which fields stay as attached evidence. Checkout latency, HTTP 500s, and pod crashes can share a service-level fingerprint, while a hot node may remain supporting evidence or a separate infrastructure incident depending on ownership and impact.',
+        'The noise-compression view separates raw alerts, dedup keys, and incident records. A healthy system compresses repeated notifications without hiding the symptoms that explain the incident. The goal is one useful page with a timeline and evidence, not a small graph that discards context.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The ingestion path normalizes every incoming alert, computes a fingerprint, checks the active hash map, updates counters and last-seen time, attaches evidence links, and then decides whether the alert is a duplicate, a related symptom, a separate incident, or an urgency signal. The grouping decision should be visible inside the incident.',
-        'Prometheus Alertmanager already teaches the operational primitives: grouping, deduplication, silences, inhibition, receiver routing, and notification timing: https://prometheus.io/docs/alerting/latest/alertmanager/. A fingerprint index generalizes those primitives across metrics, logs, traces, deploy metadata, paging systems, and AIOps correlation logic.',
+        'The ingestion path normalizes each event into canonical fields. A metric alert, log template, trace span, deployment event, and topology update should all be able to answer the same core questions: which service, which environment, which region, which route or dependency, which owner, which version, and what kind of symptom?',
+        'The fingerprint hash map stores active dedup records by stable keys. Each record tracks first seen time, last seen time, count, severity changes, current state, and links to raw events. A TTL wheel or expiration queue closes records that have gone quiet. A rate counter can detect a sudden surge without opening a new incident for every copy.',
+        'Grouping uses a separate structure. A grouping table or union-find can connect related fingerprints when topology, time window, SLO impact, dependency edges, deploy evidence, or manual responder action says they belong to the same incident. The owner map routes the incident, and an append-only evidence ledger preserves the raw links for audit.',
+        'A good incident record exposes its compression decisions. It should say which alerts were deduplicated, which symptoms were grouped, which signals were split into another incident, which signal made the incident page-worthy, and which owner rule selected the route.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Why it works',
       paragraphs: [
-        'Checkout p99 latency breaches an SLO. Five minutes later, 5xx alerts fire. Logs show the same timeout template. Traces show slow database spans. A deploy event shows version 42 rolled out to the same region. The index should keep the SLO burn as the lead symptom, deduplicate repeated alerts, group log and trace evidence, attach the deployment as a candidate cause, and route the incident to checkout on-call.',
-        'PagerDuty documents the same operational idea through deduplication keys: events with the same dedup key can be merged into a single alert or incident record: https://support.pagerduty.com/main/docs/event-management. A local fingerprint index gives teams control over what that dedup key means and which evidence is retained.',
+        'It works because most alert floods contain repeated structure. The same service, route, error family, and time window appear again and again under different emitters. A stable fingerprint catches exact repeats, while evidence-aware grouping attaches related symptoms without pretending they are identical.',
+        'It also works because ownership is separated from arrival order. The first alert to fire may come from a node, database, synthetic monitor, or generic platform check. The incident should route through service and topology metadata, not through whichever symptom happened to page first.',
+        'The main invariant is evidence preservation. Compression may reduce notifications, but it must not delete the raw facts that explain the compression. If a responder cannot see why an alert was suppressed or why two fingerprints were joined, the system has removed information at the point where trust is most needed.',
       ],
     },
     {
-      heading: 'Tradeoffs',
+      heading: 'Worked example',
       paragraphs: [
-        'High compression reduces noise but risks hiding distinct incidents. Low compression preserves every symptom but pushes cognitive load onto responders. The best middle ground uses user-visible SLOs as the lead signal, topology as grouping context, and evidence links as audit material.',
-        'The index should measure raw alerts, unique fingerprints, incidents opened, alerts per incident, suppressed alerts, false groups, false splits, route corrections, time to acknowledge, and time to mitigate. Those metrics reveal whether correlation is improving incident quality or only reducing page count.',
+        'Checkout p99 latency breaches an SLO in `us-east`. Three minutes later, 5xx alerts fire for the same route. Logs show a repeated payment-timeout template. Traces show slow database waits. A deploy event says version 42 rolled out to checkout in the same region. Kubernetes also reports pod restarts.',
+        'The index normalizes the sources into one vocabulary. `service.name=checkout`, `app=checkout-api`, and a route-level trace tag all become the same canonical service and route. Pod names, span ids, and individual request ids stay in evidence links. The SLO burn becomes the lead symptom because it represents user impact.',
+        'Repeated 5xx events deduplicate under one fingerprint. The log template and trace waits join the incident as evidence. The deploy becomes a candidate cause because it shares service, region, and time window. Pod restarts are attached as supporting symptoms unless topology says the node problem is owned by a different team. The result is one page with an explanation, not six unrelated pages.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Implementation guidance',
       paragraphs: [
-        'The common failure is putting volatile labels in the fingerprint. Pod names, host ids, request ids, and dynamic shard ids can create a new fingerprint for every copy of the same problem. Keep volatile fields as evidence unless they truly define ownership or impact.',
-        'A second failure is making grouping a black box. If responders cannot see why alerts were joined, they will distrust the tool or accept bad joins. The incident should show the fingerprint, grouping features, evidence links, suppressed alerts, and any manual corrections.',
+        'Start by writing the label contract. Define canonical service, environment, region, route, dependency, alert family, severity, owner, version, and SLO fields. Add adapters from each telemetry source into that contract. Treat missing fields and conflicting fields as first-class quality signals rather than silent defaults.',
+        'Keep volatile values out of the main fingerprint unless they define impact or ownership. Pod, host, request, span, and full path values can explode cardinality. Store them as evidence with counts and examples. Use normalization rules for routes, error names, and log templates so one issue does not become hundreds of keys.',
+        'Make every automated join reversible or at least reviewable. Store the rule, features, timestamps, source events, and confidence or reason. Let responders split an incident, merge incidents, correct ownership, and close with a reason. Feed those actions back into rule tuning and label cleanup.',
+        'Build guardrails for paging. Lead with user-visible SLO burn or clear customer impact. Use inhibition carefully so a broad service incident can suppress child symptoms without deleting them. Escalate when a grouped incident crosses severity, duration, or blast-radius thresholds.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'High compression reduces page load but can hide distinct incidents. Low compression preserves separation but pushes sorting work onto humans during the worst minutes of an outage. The practical middle ground is to lead with user-visible SLO impact, use topology and time as grouping context, and keep evidence visible.',
+        'The index creates operational debt. Label dictionaries drift, ownership maps go stale, TTL windows need tuning, deploy metadata has gaps, and grouping rules need feedback. A correlation layer without maintenance becomes another source of noise.',
+        'Measure the shape of the stream. Track raw alerts, unique fingerprints, incidents opened, alerts per incident, suppressed alerts, false groups, false splits, route corrections, manual merges, time to acknowledge, time to mitigate, and incidents where responders ignored the suggested grouping.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins when services emit many symptoms for one user-facing failure: microservice dependency chains, regional regressions, deploy-induced errors, noisy Kubernetes restarts, repeated synthetic-check failures, and incidents where logs and traces carry the useful context.',
+        'It is especially valuable when responders need one incident page with a timeline: SLO burn first, then correlated traces, log templates, topology edges, deploy events, suppressed child alerts, and ownership. That is a different product from a list of alerts.',
+        'It also helps platform teams improve telemetry quality. False splits reveal missing or inconsistent labels. False joins reveal overly broad keys. Route corrections reveal stale ownership. The index becomes a feedback loop for the observability data model.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'It fails when volatile labels enter the fingerprint. Pod names, host ids, request ids, dynamic shard ids, and full URLs can create a new group for every copy of the same problem. Keep those fields as evidence unless they truly define impact or ownership.',
+        'It fails when grouping becomes a black box. If responders cannot see why two alerts were joined, they either distrust the system or accept bad joins. The incident record should expose fingerprints, grouping features, evidence links, suppressed alerts, manual corrections, and close reasons.',
+        'It also fails when correlation is treated as root-cause detection. A grouped incident can suggest candidate causes, but it does not prove causality by itself. A deploy in the same window, a trace bottleneck, or a topology edge is evidence to investigate, not a verdict.',
+        'Finally, it fails under poor ownership data. A perfect fingerprint still pages the wrong people if the service catalog is stale. Correlation depends on the operational graph around the alert stream.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'Study AIOps Incident Response, Alertmanager Routing & Inhibition Tree, SLO Error Budget Burn Rate Alert, Metric Label Cardinality Control, Log Template Drain Parser, Metric Exemplars Trace Correlation, Distributed Tracing, and Incident Causal Candidate Graph next.',
+        'Study OpenTelemetry semantic conventions, Prometheus Alertmanager grouping and inhibition, PagerDuty event orchestration, and Google SRE guidance on SLO alerting. Then study metric label cardinality control, log template parsing, trace exemplars, service catalogs, ownership maps, and topology graphs.',
+        'The next practical exercise is to design a fingerprint key for one service. Write five raw events from metrics, logs, traces, deploys, and Kubernetes. Normalize them into canonical fields. Decide which values enter the fingerprint, which stay as evidence, which symptoms deduplicate, and which symptoms group into one incident.',
       ],
     },
   ],

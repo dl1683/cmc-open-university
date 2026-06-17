@@ -56,7 +56,7 @@ function* clippingAndNoise() {
       ],
     ),
     highlight: { active: ['outlier:raw'], found: ['outlier:clipped'], compare: ['a:clipped', 'b:clipped', 'c:clipped'] },
-    explanation: 'DP-SGD starts by computing gradients per training example, not only for the whole minibatch. Every example is clipped to a maximum norm C. That bound is the privacy lever: one record cannot push the update arbitrarily far.',
+    explanation: 'Read the rows as individual records before averaging. DP-SGD must compute per-example gradients so the outlier can be clipped; if clipping happens only after averaging, one record has already had too much influence.',
     invariant: 'The contribution of one example is bounded before averaging.',
   };
 
@@ -100,7 +100,7 @@ function* clippingAndNoise() {
       ],
     ),
     highlight: { active: ['noise:x', 'noise:y'], found: ['sent:x', 'sent:y'], compare: ['signal:meaning'] },
-    explanation: 'After averaging clipped gradients, DP-SGD adds calibrated noise. The optimizer sees a noisy estimate of the training direction. The privacy guarantee comes from making neighboring datasets produce similar output distributions.',
+    explanation: 'After averaging clipped gradients, DP-SGD adds calibrated noise. The optimizer still moves, but it sees a noisy direction so neighboring datasets are harder to distinguish from the final model.',
   };
 
   yield {
@@ -192,7 +192,7 @@ function* privacyAccounting() {
       ],
     ),
     highlight: { active: ['r100:gain'], removed: ['r1000:privacy'], compare: ['r1:privacy'] },
-    explanation: 'Every private training step spends privacy budget. Accountants track how sampling, clipping, noise, and repeated rounds compose. The model may keep improving after the privacy budget says to stop.',
+    explanation: 'Every private training step spends privacy budget. Accountants track how sampling, clipping, noise, and repeated rounds compose. The model may keep improving after the ledger says the release should stop.',
   };
 
   yield {
@@ -230,43 +230,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'Differential Privacy SGD is stochastic gradient descent redesigned so a single training example has bounded influence on the final model. The core move is per-example clipping followed by calibrated noise. Clip first so one example cannot dominate the update; add noise so neighboring datasets induce similar output distributions.',
-        'This page is the missing privacy primer behind Federated Learning & Secure Aggregation. Federated learning keeps raw data decentralized, secure aggregation hides individual updates from the server, and DP-SGD limits how much any one participant can affect the learned model.',
+        `Ordinary stochastic gradient descent was designed to find useful patterns, not to limit what a trained model reveals about the people who supplied the data. If one patient record, chat message, location trace, or user action can noticeably change the model, then an attacker may be able to test whether that record was present. Membership inference, training-data extraction, and memorization are all symptoms of the same basic problem: training turns private examples into public parameters.`,
+        `A naive privacy plan is to hide the raw data and release only the model. That helps against direct database access, but it does not answer the machine-learning question. The model is a compressed consequence of the data. If a rare example creates a large gradient, and that gradient repeatedly steers training, the final parameters can still carry a detectable trace. Federated learning keeps data on devices, and secure aggregation hides individual updates from the server, but neither automatically limits how much one participant can affect the final model. Differential Privacy SGD, or DP-SGD, adds that missing influence bound.`,
+        `The goal is not secrecy by obscurity. Differential privacy is a formal promise about neighboring datasets: train on dataset D, train on dataset D prime that differs in one person, and the distributions over released models should be close. An observer should not become much more confident that the person was included after seeing the output. DP-SGD is the training algorithm that makes this kind of promise plausible for gradient-based models.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive wall',
       paragraphs: [
-        'A DP-SGD step samples a minibatch, computes each example gradient separately, clips each gradient to norm C, averages the clipped gradients, adds Gaussian noise, and applies the optimizer update. The accountant records how much privacy loss this randomized step consumes. Repeating the step composes privacy loss over training.',
-        'The guarantee is not that the model never changes when one record changes. The guarantee is distributional: the final model should be nearly as likely under dataset D as under neighboring dataset D prime. Epsilon measures privacy loss; lower epsilon is stronger privacy. Delta allows a small failure probability in approximate differential privacy.',
+        `The simplest way to train privately seems to be: compute the average minibatch gradient, add noise, and continue. That fails because the average may already be dominated by one example. Suppose three examples have gradient norm near 1 and one rare example has norm 80. If you average first, the rare example has already moved the batch direction. Adding noise afterward hides the average imperfectly, but it does not repair the unbounded sensitivity of the computation.`,
+        `Sensitivity is the maximum amount the output can change when one record changes. Differential privacy needs bounded sensitivity before noise can be calibrated. If a single example can create an arbitrarily large update, no fixed amount of useful noise can hide its presence. You either add so much noise that learning collapses, or you release a model whose privacy claim depends on hope rather than mathematics.`,
+        `This is why DP-SGD computes per-example gradients. In ordinary deep learning frameworks, a batch gradient is often produced directly because that is efficient. DP-SGD needs the gradient for each example separately so each contribution can be clipped before averaging. This is a real systems cost, but it is the step that turns privacy from a slogan into an auditable mechanism.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'DP-SGD costs accuracy, compute, memory, and iteration speed. Per-example gradients are more expensive than ordinary batch gradients. Clipping biases large gradients. Noise lowers signal-to-noise ratio, especially for small batches or rare groups. Privacy accounting can force early stopping even when validation metrics are still improving.',
-        'The parameters interact. Clip norm controls sensitivity. Noise multiplier controls privacy strength. Sampling rate affects amplification. Number of steps controls composition. Batch Size Scaling matters because larger batches can improve signal averaging, but they also change sampling and optimization behavior.',
+        `The visual model starts with individual rows because DP-SGD is about bounding individual influence before aggregation. The outlier gradient is the important case. It is not ignored, but it is projected back to the clipping radius so one record cannot dominate the batch update.`,
+        `The second view teaches the privacy ledger. Lower epsilon is stronger privacy, but it normally costs accuracy because the optimizer receives a noisier signal. The composition table is the release warning: privacy loss accumulates across rounds, hyperparameter trials, checkpoints, and repeated releases. A private training run is not only an optimizer loop; it is an accounting process.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Core insight and mechanism',
       paragraphs: [
-        'DP-SGD is used or studied for training on sensitive text, telemetry, medical data, mobile data, user logs, and privacy-sensitive personalization. It is also important for evaluating whether large models memorize training records. In production, it is often combined with secure aggregation, access controls, data retention limits, red-team audits, and slice-level evaluation.',
+        `The core insight is that useful learning can continue after each record's influence has been bounded and hidden inside calibrated randomness. The invariant is local: before gradients are averaged, every example contributes at most the clip norm C. Once that sensitivity bound exists, the Gaussian mechanism and privacy accountant can reason about how much one person might have changed the released model.`,
+        `A DP-SGD step has five parts. First, sample a minibatch, usually with randomness that the privacy accountant understands. Second, compute one gradient per example. Third, clip each gradient to a norm bound C. If a gradient already has norm below C, keep it. If it is larger, scale it down so its norm is exactly C. Fourth, average the clipped gradients and add Gaussian noise whose scale is tied to C and the noise multiplier. Fifth, apply the optimizer update and record the privacy cost.`,
+        `Clipping creates the bound. Noise creates uncertainty. Accounting tracks how uncertainty degrades over repeated training. The order matters. Clip before average; otherwise one record can influence the average too much. Add noise after averaging; otherwise the optimizer receives one noisy contribution per example rather than a controlled noisy estimate of the batch update. Account every step; otherwise many small releases can add up to a large privacy leak.`,
+        `The animation's clipping view follows this logic. The outlier gradient is not discarded. It still contributes in the same direction, but only up to the allowed norm. That is an important distinction: DP-SGD is not outlier removal. It is bounded participation. The noisy-update table then shows why the optimizer still learns. The clipped average carries signal from the batch, while the Gaussian noise makes nearby datasets harder to distinguish.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Differential privacy is not encryption, anonymization, or access control. It limits influence on outputs. It does not guarantee fairness, robustness, or truthfulness. A private model can still be biased. A private model can still be attacked with poisoned inputs. A private model can still perform badly on minority slices if evaluation only reports global averages.',
-        'Another misconception is that privacy is a one-time switch. Epsilon is spent across training runs, hyperparameter searches, repeated releases, and sometimes user-level aggregation. A serious deployment needs a privacy budget policy, not only a training flag.',
+        `Differential privacy is a statement about distributions, not about identical models. Training is randomized through minibatch sampling and added noise. If Alice is in the dataset, there is a distribution over possible final models. If Alice is removed, there is another distribution. DP asks that these two distributions remain close enough that seeing one sampled model does not reveal much about which dataset was used.`,
+        `Epsilon measures the maximum privacy loss in the comparison. Smaller epsilon means the two output distributions are closer and the privacy promise is stronger. Delta allows a small probability of exceptional failure in approximate differential privacy. Neither number is meaningful without the training details that produced it: sampling rate, noise multiplier, clipping norm, number of steps, and the accountant method.`,
+        `Subsampling helps because any one record is not used in every step. Clipping helps because, when a record is used, its effect is bounded. Noise helps because a bounded change can be hidden by a calibrated random perturbation. Composition is the hard part: every step reveals a little information, and privacy loss accumulates. A model may keep improving after the privacy budget says the release should stop. In a serious deployment, the accountant is a release gate, not a chart for decoration.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Costs and tuning tradeoffs',
       paragraphs: [
-        'Primary sources: Deep Learning with Differential Privacy at https://arxiv.org/abs/1607.00133, The Algorithmic Foundations of Differential Privacy at https://www.cis.upenn.edu/~aaroth/Papers/privacybook.pdf, Federated Averaging at https://arxiv.org/abs/1602.05629, and Practical Secure Aggregation at https://eprint.iacr.org/2017/281. Study Gradient Descent, Batch Size Scaling, Federated Learning & Secure Aggregation, Data Leakage, Membership Inference Shadow Model Case Study, Model Inversion Confidence Attack, LLM Training Data Extraction, PII Redaction Token Span Pipeline, and Uncertainty: Teaching Models to Say "I Don\'t Know" next.',
+        `The clip norm C controls how much any one example can say before noise is added. Too small a C crushes useful gradients and biases training. Too large a C weakens the sensitivity bound and requires more noise. Practitioners often inspect gradient norm distributions, tune C on public or held-out data, and watch whether minority or rare examples are being clipped more aggressively than common examples.`,
+        `The noise multiplier controls privacy strength. More noise usually lowers epsilon, but it also lowers the signal-to-noise ratio of the update. Larger batches can help average signal before noise is added, but they change optimization and sampling behavior. More training steps can improve accuracy, but they spend more privacy budget. There is no free privacy setting. The real tuning problem is a frontier: privacy budget on one axis, model utility on the other.`,
+        `Evaluation should report both. A DP model with a vague "privacy-preserving" label is not enough. Report epsilon, delta, accountant assumptions, clipping norm, noise multiplier, sampling rate, training steps, task metrics, and slice metrics. Then test the model for memorization and membership leakage anyway. Differential privacy is a formal upper bound under stated assumptions; empirical attacks are still useful because implementations, preprocessing, repeated releases, and data pipelines often violate tidy assumptions.`,
+      ],
+    },
+    {
+      heading: 'Where it wins and where it is used',
+      paragraphs: [
+        `DP-SGD is most natural when examples are sensitive and the trained model will be shared, queried, or reused. Medical prediction, mobile keyboard models, telemetry, user-behavior modeling, location data, private text, and personalization all create this shape. The method is also important for large-model safety research because it gives a concrete way to discuss memorization rather than merely hoping a model will not repeat private records.`,
+        `It often appears with other privacy layers. Federated learning moves training to devices. Secure aggregation hides individual device updates from the coordinator. Access control limits who can trigger training and read artifacts. Data retention policies limit how long raw examples exist. DP-SGD limits the influence of any one example on the released model. These layers answer different threats, so replacing one with another usually leaves a gap.`,
+        `The mechanism can operate at different units of privacy. Example-level DP bounds one row. User-level DP bounds all records from one user, which is usually what people expect but is harder because one user may contribute many examples. Event-level privacy may be acceptable for telemetry but weak for sensitive personal histories. Always name the protected unit. Without that, the epsilon number is easy to overstate.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `Build the pipeline so privacy accounting is automatic, not a spreadsheet after training. The code that samples batches, clips gradients, adds noise, counts steps, and releases checkpoints should feed the same accountant. If engineers can run extra experiments or publish intermediate models outside the ledger, the formal guarantee no longer describes the real release process.`,
+        `Treat per-example gradients as a performance requirement. They often increase memory use and reduce throughput compared with ordinary SGD. Use libraries that implement vectorized per-example gradients, ghost clipping, or microbatching carefully, and verify that clipping is mathematically equivalent to clipping each example before the batch average.`,
+        `Document the protected unit and the threat model. Example-level privacy, user-level privacy, cross-device federated training, and central DP on a server are different commitments. A release note should say what unit is protected, which data was private, which data was public, what accountant was used, and what outputs count as releases.`,
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        `DP-SGD can fail by being too weak or too expensive. Weak settings produce impressive accuracy and a large epsilon that offers little practical comfort. Strong settings may make the model unusable, especially on small datasets, rare classes, long-tail language, or groups whose gradients are already noisy. Privacy can also redistribute error: the global metric may look acceptable while small slices lose recall because their signal is clipped or drowned by noise.`,
+        `It does not solve fairness, poisoning, truthfulness, or access control. A private model can be biased. A private model can learn a poisoned correlation. A private model can still be deployed in an unsafe product. DP-SGD narrows one channel of leakage: the influence of an individual training unit on the released model. Treat it as a precise tool, not a general certificate of responsible AI.`,
+        `It also complicates experimentation. Hyperparameter search can spend privacy budget if it repeatedly uses private data. Releasing multiple checkpoints, leaderboards, or model variants can compose privacy loss. Choosing the best run after looking at private validation results can leak information unless that selection is accounted for. The clean training-loop diagram is only the beginning; the whole release process needs a privacy ledger.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study Gradient Descent first so the update rule is familiar, then Batch Size Scaling to understand signal averaging, Federated Learning and Secure Aggregation to separate privacy layers, and Membership Inference Shadow Model Case Study to see the attack DP-SGD is designed to constrain. The original paper "Deep Learning with Differential Privacy" introduced the modern recipe. "The Algorithmic Foundations of Differential Privacy" gives the theory. Practical work should add implementation audits, slice evaluation, and memorization tests before claiming a model is safe to release.`,
       ],
     },
   ],

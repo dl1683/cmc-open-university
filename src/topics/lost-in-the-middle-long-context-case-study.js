@@ -74,7 +74,7 @@ function* positionBias() {
       ],
     }),
     highlight: { active: ['accuracy', 'trough'], compare: ['wish'] },
-    explanation: 'Lost in the Middle is the long-context failure where the same relevant evidence is easier to use near the beginning or end of a prompt than in the middle. The context window is large enough; the model just does not use all positions equally well.',
+    explanation: 'The ideal line is flat, but the measured curve dips in the middle. That means the same evidence can be easier to use near the beginning or end of a prompt than in the middle. The context window is large enough; position still changes recall.',
   };
 
   yield {
@@ -113,7 +113,7 @@ function* positionBias() {
   yield {
     state: promptGraph('Edge placement can hide a broken long-context system', 'tail'),
     highlight: { active: ['tail', 'model', 'verdict', 'e-tail-model', 'e-model-verdict'], removed: ['mid'], compare: ['lead'] },
-    explanation: 'If a product always puts key evidence at the end, it may look stronger than it really is. If a benchmark always places needles at convenient positions, it can overestimate long-context ability.',
+    explanation: 'The removed middle needle is the warning. If a product or benchmark always puts key evidence near an easy edge position, it may look stronger than it is on real layouts where important spans are buried among distractors.',
   };
 }
 
@@ -205,10 +205,25 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
         'Lost in the Middle is a long-context failure mode: a language model may answer correctly when relevant evidence appears near the beginning or end of its context, but miss the same evidence when it appears in the middle. The point is not that the context window is too small. The point is that usable recall can be position-dependent even inside the advertised window.',
         'The TACL paper "Lost in the Middle" tested multi-document question answering and key-value retrieval while moving relevant information to different positions in the input. It found that performance often peaks near the beginning or end and drops when the relevant item is in the middle: https://aclanthology.org/2024.tacl-1.9/ and https://arxiv.org/abs/2307.03172. The accompanying repository includes data and experiment scripts: https://github.com/nelson-liu/lost-in-the-middle.',
+        'The topic exists because long-context products are easy to misread. A 128K or 1M token window is an input capacity claim. It is not a guarantee that the model will use every span equally well, preserve every dependency, or retrieve buried evidence under pressure.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is to put the whole corpus into the prompt and ask the model to answer. That feels attractive because it avoids retrieval engineering, chunking decisions, and source selection. It also gives demos a simple story: everything is in context.',
+        'The wall is that context is not a uniform database scan. Primacy, recency, position encodings, attention competition, instruction placement, and distractor similarity can all shape what the model uses. The relevant clause may be present in the prompt and still functionally absent from the answer.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Long context is capacity, not guaranteed recall. The system must prove that evidence remains usable as length, insertion position, chunk order, and distractor similarity change. A single successful needle test at an easy position does not establish that proof.',
+        'This shifts the design question. Instead of asking "can the model fit the document?" ask "can the system reliably find, foreground, quote, and reason over the evidence that matters?" That system may still use long context, but it uses it with retrieval, packing, citation, and evaluation discipline.',
       ],
     },
     {
@@ -216,6 +231,14 @@ export const article = {
       paragraphs: [
         'Long context is easy to oversell. A 128K or 1M token window is a storage budget, not a promise that every token is used equally well. Attention Mechanism shows that every query scores against keys, but the model still has to decide which keys matter. Positional Encoding determines how order enters the geometry. KV Cache makes serving long prompts possible, but it does not make the model robust to distractors, stale instructions, or buried evidence.',
         'This matters for legal review, medical records, research agents, incident response, codebase analysis, and any workflow where a tiny clause in a large document can change the answer. If evaluation only checks convenient document orders, a system can appear reliable while failing on realistic layouts. If prompt engineering always places citations near the end, teams may confuse template luck with long-context understanding.',
+        'The failure is especially dangerous because it is silent. The model can produce a fluent answer that cites the wrong section or omits a buried exception. Without a source ledger, the user may not know whether the answer came from the decisive evidence or from nearby distractors.',
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        'The mechanism is not one bug. It is a stack effect. Attention scores compete across many similar spans. Position representations have to extrapolate or generalize over long distances. Instruction templates may privilege early policy and late recency. Retrieval order can place important chunks between noisy neighbors. The model has learned many tasks where beginnings and endings carry high signal.',
+        'Needle-in-a-haystack tests make the mechanism visible by holding the question fixed and moving the answer span. If accuracy changes only because the answer moved, the context window is not behaving like an order-invariant memory store.',
       ],
     },
     {
@@ -223,6 +246,7 @@ export const article = {
       paragraphs: [
         'Needle-in-a-haystack tests insert a relevant fact into a long body of distractor text and ask the model to retrieve it. They are valuable because they sweep context length and insertion position. But simple needles often share literal words with the question, so a model can exploit string-like matching. That is useful for basic recall, but it can overstate the ability to connect semantically related evidence.',
         'NoLiMa extends this idea by minimizing lexical overlap between the question and the needle, forcing the model to infer latent associations instead of matching exact words. Its arXiv abstract reports that 11 evaluated models fell below 50 percent of their strong short-context baselines at 32K tokens, and even strong models degraded under longer contexts: https://arxiv.org/abs/2502.05167. The official code and results are at https://github.com/adobe-research/NoLiMa.',
+        'A serious benchmark grid varies context length, evidence position, distractor similarity, answer type, question wording, chunk order, and whether the relevant evidence appears once or multiple times. It should also check citation fidelity, because a correct-looking final answer can be unsupported or supported by the wrong span.',
       ],
     },
     {
@@ -230,6 +254,7 @@ export const article = {
       paragraphs: [
         'A contract-review assistant receives a 120-page vendor agreement and must answer whether customer data may be used to train vendor models. The key clause is not in the data-processing addendum; it is a middle-page carveout under "service improvement." A naive long-context system sends the whole contract to the model and asks for an answer. It works when the clause is near the end in a test fixture, then fails when a real contract places it in the middle between unrelated security exhibits.',
         'A stronger system treats the problem as retrieval plus verification. It chunks the contract, indexes definitions and obligations, retrieves candidate spans for "training," "improvement," "analytics," "model," and defined terms, reranks candidate clauses, quotes the exact span, and then asks the model to reason over a compact pack. The final answer cites the clause and preserves uncertainty if the retrieved span conflicts with another section. Multi-Index RAG, Maximal Marginal Relevance, RAG Context Packing Token Budget, Cross-Encoder Reranker, Agent Memory & Context Engineering Case Study, and RAG Evaluation all become practical tools, not optional extras.',
+        'The article-grade lesson is that long context does not remove information architecture. It moves the burden. You still need document structure, term expansion, retrieval quality, ordering choices, and an answer format that exposes which evidence controlled the conclusion.',
       ],
     },
     {
@@ -237,6 +262,14 @@ export const article = {
       paragraphs: [
         'Mitigations include retrieval before reasoning, reranking, quote extraction, evidence grouping, recency-safe prompt templates, source ledgers, and evaluation grids that vary length, insertion position, distractor similarity, chunk order, and question wording. RAG is not magic: U-NIAH reports that retrieval noise and reverse chunk ordering can degrade performance, while RAG can still mitigate lost-in-the-middle for smaller models in controlled settings: https://arxiv.org/abs/2503.00353.',
         'The important test is not "can the model answer one needle prompt?" It is "does accuracy stay stable as the answer moves, context grows, distractors become semantically similar, and the question stops sharing literal terms with the evidence?" If not, use long context as one ingredient in a larger system: retrieve, compress, isolate, cite, and audit.',
+        'The main limit is that every mitigation has its own failure mode. Retrieval can miss the decisive span. Reranking can prefer fluent distractors. Compression can drop qualifiers. Quote-first prompting can overfit to snippets and lose global context. The goal is not to replace one fragile trick with another; it is to make each step inspectable.',
+      ],
+    },
+    {
+      heading: 'Animation notes',
+      paragraphs: [
+        'The position-bias plot compares an ideal flat line with a measured trough. A flat line would mean evidence position does not matter. The trough means the same evidence is less usable when buried in the middle. The prompt graph turns that into a concrete system shape: the question is stable while the needle moves.',
+        'The benchmark view separates literal recall from semantic recall. Literal needles are useful sanity checks. Latent needles and position sweeps expose whether the model can connect meaning across a long context. The RAG frame shows why a smaller, better-packed context can outperform a giant prompt that buries the answer.',
       ],
     },
     {

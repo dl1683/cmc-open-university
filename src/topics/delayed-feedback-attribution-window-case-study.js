@@ -249,38 +249,112 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Problem',
       paragraphs: [
-        'Delayed feedback is the problem where the label arrives after the prediction. Ads, recommendations, fraud, notifications, and conversion optimization all have this shape. An impression happens now; a click may arrive later; a purchase may arrive much later. Treating every unclicked impression as immediately negative trains false negatives into the model.',
-        'The core data structure is a stateful streaming join. Store pending predictions in a map keyed by impression id, click id, user id plus timestamp, or another attribution key. Keep an expiry index ordered by attribution deadline. When feedback arrives inside the window, emit a positive. When the window closes with no feedback, emit a negative. Late events go to a declared correction path.',
+        'Many prediction systems act before the label exists. An ad server shows an impression now, a recommender ranks a feed now, a notification system sends a message now, and the user response may arrive seconds, minutes, hours, or days later. If the learner treats every missing response as a negative label immediately, it trains on false negatives.',
+        'Delayed feedback is therefore not just an analytics inconvenience. It is a data-structure and streaming-systems problem. The system must remember predictions, match later feedback to the right prediction, decide when enough time has passed, emit labels in a reproducible order, and handle late corrections without corrupting training data or offline evaluation.',
+      ],
+    },
+    {
+      heading: 'Naive approach',
+      paragraphs: [
+        'The easiest approach is immediate labeling: if a click or conversion has not arrived by the time the training job reads the impression, emit label 0. This gives fresh training data and a simple pipeline. It also quietly says that "not yet observed" means "will never happen", which is usually false.',
+        'The opposite easy approach is to wait until all possible outcomes have arrived. That gives cleaner labels for long-horizon events such as purchases, cancellations, chargebacks, fraud reviews, or subscription renewals. But it makes the model stale, grows unbounded pending state, and may delay learning until the product has already changed.',
+        'A third naive approach is to join by processing time. If the click arrives within thirty minutes of the impression record being processed, count it. That fails when records are delayed, replayed, backfilled, or processed in a different region. The same historical data can produce different labels depending on pipeline timing.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is that freshness, correctness, and bounded memory pull in different directions. Short windows keep the model current but create false negatives for slow responders. Long windows reduce false negatives but delay learning and keep more impressions in memory. Infinite windows are impossible for an online system.',
+        'There is also leakage. Offline evaluation can accidentally use labels that would not have been known at prediction time. Online learning can train on a negative just before the positive arrives. Backfills can mutate old labels without recording what changed. If event time, processing time, and model update time are mixed casually, the training set becomes unreplayable.',
+        'Late feedback adds a policy choice. A click that arrives after the nominal window can be ignored, side-output, used to correct a previous negative, or reserved for a slower model. All of those choices can be valid. The failure is making no choice and letting late events disappear silently.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Keep each prediction in pending state until the attribution policy can make a defensible decision. A pending map finds the impression or decision that a later feedback event refers to. An expiry heap, time wheel, or ordered state store finds pending items whose window has closed. A dedupe set prevents repeated feedback events from producing repeated positives. An append-only output log makes every emitted label replayable.',
+        'The key contract is simple: do not train a negative until the positive event had a fair chance to arrive according to event time, watermark progress, attribution window, and grace period. A missing label is not a negative label until the windowing policy finalizes it.',
+        'The contract also separates provisional truth from final truth. A fast online learner may consume provisional labels, but the system should know which labels can still be corrected. A slower evaluation or batch-training path may wait for a longer window and treat the result as final.',
+      ],
+    },
+    {
+      heading: 'Mechanics',
+      paragraphs: [
+        'When an impression or decision event arrives, the join operator stores a record keyed by a stable identifier such as impression_id, request_id, user_id plus candidate_id, or experiment exposure id. The record includes event time, model version, feature snapshot pointer, predicted score, treatment, and an expiry timestamp equal to event time plus the attribution window.',
+        'When feedback arrives, the operator looks up the pending record. If the feedback event time is inside the attribution window and the event has not already been counted, it emits a positive label and removes or marks the pending item. If multiple feedback events can happen, the policy may keep the record open for additional outcomes or aggregate them into a value.',
+        'When the watermark passes the expiry timestamp plus grace, the operator finalizes unmatched pending records as negatives. The watermark is a promise about event-time progress, not merely wall-clock time. It says the stream has advanced far enough that earlier events are unlikely or no longer accepted on the main path.',
+        'Late feedback goes to a declared path. Some systems write correction events that reverse a previous negative and add a positive. Some systems send the late record to a side output for monitoring. Some systems backfill offline training data while keeping online learning fixed. The right choice depends on product semantics and model tolerance for label revisions.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The join uses event time, not just processing time. Watermarks tell the operator how far event time has advanced. Grace periods tell it how long to tolerate out-of-order records. The pending map answers "does this click match an open impression?" The expiry heap answers "which impressions are old enough to finalize as negatives?" The output log makes labels replayable.',
-        'This is adjacent to point-in-time feature joins. A feature join asks which feature values existed at prediction time. A delayed-label join asks when the outcome became knowable. Both are leakage problems in time: using future information inflates offline metrics, while closing the window too early creates biased labels.',
+        'A practical pipeline has four state structures. The pending map answers "is there an open prediction for this feedback?" The expiry index answers "which predictions are old enough to close?" The dedupe store answers "has this feedback already been applied?" The output log answers "what label did the system emit, and why?"',
+        'Event time controls label eligibility. Processing time controls resource cleanup and operational alerts. Model update time controls what the learner has already consumed. Keeping those clocks separate is what makes the pipeline auditable. A replay over the same event-time stream and policy should produce the same labels, even if the replay runs faster or slower than production.',
+        'The join can run in a streaming engine, a database-backed worker, or a feature-store pipeline. The same logic applies: insert pending prediction, match feedback, finalize expired pending records, and write immutable label decisions. Exactly-once systems make this easier, but idempotent keys and append-only correction records are still needed because retries and duplicates happen.',
       ],
     },
     {
-      heading: 'Complete case study: click labels for FTRL',
+      heading: 'Why it works',
       paragraphs: [
-        'An online CTR learner predicts p(click) for each impression and logs impression_id, ad_id, user segment, feature vector hash, prediction time, and model version. The click stream arrives later with impression_id and click time. A stateful join emits positive labels for matching clicks inside a 30-minute attribution window and emits negatives after the watermark passes the window plus grace period.',
-        'The resulting label stream trains FTRL-Proximal Online CTR Case Study. Progressive validation predicts before update, and the label join must preserve that order. If the serving system is a contextual bandit, Contextual Bandit Logged Policy Evaluation Case Study adds one more invariant: reward joins must preserve the same event ids and policy versions used by the propensity log, or off-policy evaluation will weight the wrong labels.',
+        'The method works because it turns uncertainty into explicit state. Before the window closes, the system does not know whether missing feedback means no response or delayed response. After the event-time window and grace policy close, the system has a bounded rule for converting missing feedback into a negative.',
+        'It also makes online and offline data comparable. The label is not "whatever was in the database when the query ran." The label is the result of a policy with a window, a watermark rule, a dedupe rule, and a late-event rule. That policy can be versioned, replayed, audited, and used to explain why a specific impression became positive, negative, provisional, or corrected.',
+        'The output log is part of correctness. If a late conversion changes the truth, the system should not overwrite the past without evidence. A correction event preserves both decisions: the original negative was reasonable under the short window, and the later positive became known later. Downstream learners can decide which stream they are allowed to consume.',
       ],
     },
     {
-      heading: 'Complete case study: conversion windows',
+      heading: 'Worked example',
       paragraphs: [
-        'Conversion modeling stretches the same design. A user clicks an ad, then may buy within hours or days. Advertising attribution papers describe post-click attribution and conversion windows: a conversion is credited only if it occurs within the configured window. That creates a freshness-truth tradeoff. Waiting thirty days gives more complete labels but makes online learning stale; training earlier requires correction or delayed-feedback modeling.',
-        'A mature pipeline separates provisional labels from final labels. It can train a fast model on short-window labels, backfill a slower model on complete labels, or emit correction events that subtract prior negatives and add positives. The correct choice depends on product latency, event delay distribution, and whether the model can safely handle label revisions.',
+        'Consider an ad click model with a thirty-minute attribution window and five-minute grace. At 10:00:00, the system serves impression 17 and stores it in pending state with expiry 10:30:00. The record includes model version m42 and the feature hash used for the prediction. At 10:08:12, a click event with impression_id 17 arrives. The join finds the pending record, verifies the click time is inside the window, emits label 1, and records the matched click id in the dedupe set.',
+        'Now consider impression 18 at 10:01:00. No click arrives. When the event-time watermark passes 10:36:00, the expiry index says impression 18 can be closed. The system emits label 0, removes the pending record, and logs the reason: window expired after watermark plus grace. If a click for impression 18 arrives at 10:40:00 event time, it is late relative to the policy. It can become a correction, a side-output metric, or an offline-only backfill, but it should not be silently folded into the original stream without a policy version change.',
+        'For purchase conversion, the same shape uses a longer window. A click at 10:08 may lead to a purchase two days later. A short-window CTR learner can update quickly from clicks. A conversion-value model may wait longer, use survival-style delayed-feedback modeling, or train from corrected labels after enough time has passed.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'What the animation teaches',
       paragraphs: [
-        'Do not equate missing feedback with negative feedback until the attribution policy says so. Do not mix event time and processing time without recording which one controls the window. Do not silently drop late positives if they are common. Do not mutate old labels without a replayable correction log. And do not compare models trained under different attribution windows as if the labels were the same dataset.',
-        'Primary sources: Apache Flink timely stream processing and watermarks at https://nightlies.apache.org/flink/flink-docs-stable/docs/concepts/time/, Confluent Kafka Streams window grace-period docs at https://docs.confluent.io/platform/current/streams/concepts.html, Apache Kafka Streams join semantics at https://kafka.apache.org/41/streams/developer-guide/dsl-api/, Google Ad Click Prediction at https://research.google.com/pubs/archive/41159.pdf, delayed feedback attribution paper at https://wnzhang.net/share/rtb-papers/delayed-feedback.pdf, and Databricks point-in-time feature joins at https://docs.databricks.com/aws/en/machine-learning/feature-store/time-series. Study FTRL-Proximal Online CTR Case Study, Contextual Bandit Logged Policy Evaluation Case Study, Streaming Watermarks, Point-in-Time Feature Join Index, Feature Store, Message Queues, Hash Table, and Binary Heap next.',
+        'The "label join" view shows the main path: impression, pending map, feedback join, label emission, and learner update. The pending map is not optional bookkeeping. It is the place where the system remembers that a decision has not yet become training data.',
+        'The "late feedback" view shows why a single fixed join is not enough. Watermark progress closes windows, grace absorbs bounded disorder, and late records follow a separate correction or backfill path. The freshness curve and truth curve show the central tradeoff: fresher labels arrive sooner, but complete labels require waiting.',
+        'The highlighted table rows represent policy decisions, not mere pipeline stages. When a record moves from waiting to positive, negative, late, or duplicate, the system is making a claim that downstream training and evaluation will inherit.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The main cost is state. Pending records must remain available until the attribution policy closes them, so memory or state-store size scales with event rate times window length. Longer windows also increase recovery time, checkpoint size, and the amount of state that can be affected by a replay or bug fix.',
+        'The second cost is latency. A model trained only on final labels learns more slowly. A model trained on provisional labels learns quickly but may learn biased negatives. Some teams solve this with two streams: fast provisional learning for responsiveness and slower final learning for evaluation, calibration, and periodic retraining.',
+        'The third cost is complexity. Corrections require idempotent label identifiers, versioned policies, downstream consumers that can subtract or supersede old labels, and metrics that show how often labels change after first emission. Without that machinery, correction support can create more confusion than benefit.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'This pattern wins in ads, recommendations, notifications, search ranking, contextual bandits, fraud review, lead scoring, subscription churn, and any decision system where the action is immediate but the outcome is delayed. It is especially important when the learner updates online, because the order of prediction, label arrival, and model update changes future predictions.',
+        'It also wins when offline evaluation must mirror online reality. Point-in-time feature joins prevent feature leakage; delayed-feedback windows prevent label leakage. Together they let a team answer a precise question: what would this model have known at the time it made the prediction?',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The design fails when identifiers are unstable or ambiguous. If a feedback event cannot be linked to exactly one eligible prediction, the system may double count, miss positives, or assign credit to the wrong model version. Attribution rules for multi-touch journeys, cross-device users, and repeated exposures need explicit product semantics.',
+        'It fails when the window is chosen by convenience rather than delay distribution. A five-minute window may be fine for clicks and terrible for purchases. A thirty-day window may be fine for batch conversion modeling and useless for an online ranker that must adapt today.',
+        'It also fails when teams compare datasets built with different policies. A model trained under a one-hour window and a model trained under a seven-day window are not learning from the same label definition. Report the policy version with every metric.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Common bugs include using processing time instead of event time, finalizing negatives before the watermark proves the window is closed, forgetting dedupe, letting retries emit duplicate labels, deleting pending state before checkpointing the output, and joining feedback to the latest model version rather than the model version that made the prediction.',
+        'Operational failures include state-store growth after a downstream outage, a watermark stuck behind one slow partition, sudden late-event spikes after mobile clients reconnect, clock skew in event producers, schema changes that drop the attribution key, and replay jobs that accidentally use a newer policy. Good dashboards show pending count by age, window-close rate, late-feedback rate, correction rate, duplicate rate, and label drift by policy version.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary references include Apache Flink event time and watermarks, Kafka Streams window and grace-period semantics, papers on delayed feedback in ad prediction, and point-in-time feature-join documentation from feature-store systems. Read them with the same question in mind: what information was legally knowable when the model acted?',
+        'Inside this curriculum, study FTRL-Proximal Online CTR Case Study for online learning, Contextual Bandit Logged Policy Evaluation for counterfactual logging, Streaming Watermarks for event-time progress, Point-in-Time Feature Join Index for feature leakage prevention, Feature Store for training-serving consistency, Hash Table for pending maps, Binary Heap or Hierarchical Timing Wheel for expirations, and Message Queues for replayable event delivery.',
       ],
     },
   ],

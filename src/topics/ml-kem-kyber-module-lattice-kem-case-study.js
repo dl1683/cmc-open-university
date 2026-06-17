@@ -207,11 +207,99 @@ export function* run(input) {
 
 export const article = {
   sections: [
-    { heading: 'What it is', paragraphs: ['ML-KEM is the NIST-standardized module-lattice key-encapsulation mechanism derived from CRYSTALS-Kyber. It lets two parties establish a shared secret over a public channel.', 'The data structures are module-lattice vectors and matrices over polynomial rings, compact seeds, ciphertext byte arrays, shared-secret derivation state, and decapsulation checks.'] },
-    { heading: 'How it works', paragraphs: ['Key generation creates a public key and private key. Encapsulation uses the public key and randomness to produce a ciphertext plus a shared secret. Decapsulation uses the private key to recover the same shared secret or safely produce a pseudorandom fallback on invalid ciphertext.', 'The efficient algebra is built from NTT Polynomial Multiplication: fixed-size polynomial vectors, modular reductions, compression, and packing.'] },
-    { heading: 'Cost and complexity', paragraphs: ['Compared with classical elliptic-curve key exchange, ML-KEM changes byte sizes and implementation risk. Parameter choice affects public-key size, ciphertext size, CPU cost, and security strength. Migration also needs hybrid negotiation, interoperability tests, and side-channel review.'] },
-    { heading: 'Complete case study', paragraphs: ['A TLS deployment offers a hybrid key exchange during migration. The server records the classical group, ML-KEM parameter set, public-key size, ciphertext size, decapsulation result path, handshake fragmentation, latency, and library version. Failures are sliced by client family and network middlebox.', 'The key engineering rule is to treat decapsulation failure handling as sensitive. An observable difference between valid and invalid ciphertext paths can create attack surface.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not call ML-KEM a general encryption algorithm. It establishes shared secrets. Do not ignore the FIPS publication planning notes and errata spreadsheets. Do not benchmark only CPU time while ignoring bytes on the wire and implementation side channels.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: NIST FIPS 203 at https://csrc.nist.gov/pubs/fips/203/final and CRYSTALS-Kyber specification at https://pq-crystals.org/kyber/data/kyber-specification-round3-20210804.pdf. Study NTT Polynomial Multiplication Primer, Binary Exponentiation, ML-DSA Dilithium Rejection Sampling Case Study, SLH-DSA SPHINCS+ Hypertree Signature Case Study, and Shamir Secret Sharing next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        `A network protocol needs a way for two parties to create the same secret while every byte on the wire is visible to an observer. Classical systems usually solve that with Diffie-Hellman over finite fields or elliptic curves. Those systems are compact and fast, but their security depends on algebraic problems that a large enough fault-tolerant quantum computer would threaten. Post-quantum key establishment asks for a replacement whose public information can be recorded today without becoming easy to break later.`,
+        `ML-KEM is the standardized module-lattice key-encapsulation mechanism derived from CRYSTALS-Kyber. It is a KEM, not a bulk encryption mode. One party publishes a public key. Another party uses that public key to encapsulate a fresh shared secret into a ciphertext. The private-key holder decapsulates that ciphertext and derives the same shared secret. A protocol then feeds the secret into key derivation, symmetric encryption, and authentication.`,
+        `That division of labor matters. ML-KEM does not sign certificates, encrypt files directly, or replace AES. It fills the key-establishment slot in a larger protocol. The surrounding protocol is still responsible for authenticating identities, binding transcript context, deriving traffic keys, rotating secrets, and deciding whether to combine ML-KEM with a classical exchange during migration.`,
+      ],
+    },
+    {
+      heading: 'Why the obvious approach fails',
+      paragraphs: [
+        `The naive migration story is to find an elliptic-curve Diffie-Hellman call and swap in a post-quantum function. That misses the shape of the primitive. ECDH computes a shared value from two long-term or ephemeral public keys. A KEM has key generation, encapsulation, decapsulation, ciphertext transport, and carefully specified failure behavior. The wire format and the API contract are different.`,
+        `A second tempting answer is to use a general public-key encryption scheme and encrypt a random session key. Modern KEMs are more disciplined than that. They specify how randomness is derived, how ciphertexts are checked, how shared secrets are bound to the ciphertext and public key, and what must happen when decapsulation receives malformed input. The invalid-ciphertext path is part of the cryptographic design, not an error-handling afterthought.`,
+        `The deployment problem is also larger than replacing math. Public keys and ciphertexts are bigger than classical elliptic-curve values. Handshakes may fragment. Certificate chains, middleboxes, hardware accelerators, FIPS-validated modules, telemetry, and retry logic all need to tolerate the new byte sizes and failure modes. A correct primitive can still be deployed incorrectly if the system around it assumes classical sizes and classical API behavior.`,
+      ],
+    },
+    {
+      heading: 'The KEM contract',
+      paragraphs: [
+        `Key generation produces a public key and a secret key. The public key is distributed to peers. The secret key stays private and contains the material needed to decapsulate ciphertexts safely. Encapsulation takes the public key and fresh randomness, outputs a ciphertext, and returns a shared secret to the sender. Decapsulation takes the secret key and ciphertext, then returns the shared secret that the sender should have computed.`,
+        `The ciphertext is not the final secret. It is the transport object that lets the private-key holder derive the secret. The shared secret should be treated as input to a key schedule, not as a raw traffic key dropped directly into an encryption mode. Production protocols also bind the KEM result to transcript hashes, algorithm identifiers, peer authentication, and sometimes a classical secret in hybrid deployments.`,
+        `This contract is useful because it isolates a hard public-key problem from the rest of the secure channel. Once both sides have the same high-entropy secret, well-understood symmetric tools can protect bulk data. That keeps the expensive post-quantum operation at the handshake boundary instead of using lattice operations for every application byte.`,
+      ],
+    },
+    {
+      heading: 'The module-lattice objects',
+      paragraphs: [
+        `ML-KEM works over vectors of polynomials with coefficients modulo an integer. The parameter k controls the module dimension: larger parameter sets use larger vectors and provide higher security margins at higher byte and CPU cost. A public matrix A is expanded from a compact seed. Secret vectors and error vectors are sampled with small coefficients. The public key contains structured data derived from multiplying A by the secret and adding small noise.`,
+        `A useful mental model is noisy linear algebra. The public information exposes a relationship that is easy to compute when the small secret is known, but believed hard to invert without it. The noise is not accidental; it is what turns a simple linear equation into a lattice problem. The matrix is public, the vector t is public, and the secret and noise stay private.`,
+        `The arithmetic is not implemented as slow generic matrix multiplication. The polynomials have fixed degree and fixed moduli, so implementations use number-theoretic transforms, precomputed constants, compact packing, and constant-time operations. The phrase module lattice names the mathematical structure, but the engineering artifact is a byte-stable pipeline of sampling, polynomial multiplication, compression, hashing, and verification.`,
+      ],
+    },
+    {
+      heading: 'Core mechanism',
+      paragraphs: [
+        `During encapsulation, the sender derives coins, computes polynomial-vector products against the public key, compresses intermediate values, and emits a ciphertext. The sender also derives a shared secret from the encapsulation process. During decapsulation, the receiver uses the secret key to reconstruct the message encoded by the ciphertext, recomputes what the ciphertext should have been, and checks whether the received bytes match the expected result.`,
+        `That recomputation step is central. It turns a public-key encryption style construction into a chosen-ciphertext secure KEM. If the ciphertext is valid, decapsulation returns the same shared secret as encapsulation. If the ciphertext is invalid, decapsulation must return a safe fallback value derived in a way that does not reveal the validity decision through timing, error codes, logs, or network behavior.`,
+        `Compression is part of the design because wire size matters. ML-KEM ciphertexts and public keys are large enough that every byte affects handshakes, packets, and certificates. Compression also means implementations must be exact. Rounding rules, packing order, endianness, and parameter identifiers are interoperability details, not cosmetic serialization choices.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `The security claim rests on the hardness of recovering small secrets from noisy module-lattice structure. Legitimate parties know secret material that lets them reconcile the encapsulated value. An attacker sees the public key, ciphertext, and algorithm identifiers, but should not be able to recover the same shared secret or distinguish it from random under the intended assumptions.`,
+        `Lexically, the scheme looks like a sequence of hashes and polynomial operations. Conceptually, it is combining two ideas. First, module-lattice algebra gives a compact, fast public-key foundation believed to resist known quantum attacks better than the classical groups used by ECDH. Second, the KEM transform wraps that foundation so malformed ciphertexts do not become a decryption oracle.`,
+        `The important invariant is not merely that honest encapsulation and honest decapsulation agree. The stronger invariant is that attackers cannot use the decapsulation endpoint to learn which malformed inputs were close to valid, which branch the implementation took, or what secret-dependent arithmetic looked like inside the branch. Constant-time behavior and uniform failure handling are therefore part of the reason it works in real systems.`,
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        `Imagine a client connecting to a server that has published an ML-KEM-768 public key. The client samples encapsulation randomness, uses the public key to compute a ciphertext, and immediately derives a shared secret. The client sends the ciphertext in the handshake. The server uses its secret key to decapsulate the ciphertext and derives the same shared secret. Both sides feed that secret, plus the handshake transcript, into a key schedule.`,
+        `Now suppose a network attacker changes one byte of the ciphertext. The server should not throw a visibly different protocol error that says invalid ML-KEM ciphertext. It should perform the specified decapsulation path, use the safe fallback behavior when verification fails, and let the surrounding protocol fail in a way that does not reveal secret-dependent details. From the outside, invalid input must not become an oracle.`,
+        `In a hybrid handshake, the same example includes a classical exchange as well. The key schedule combines the classical shared secret and the ML-KEM shared secret. That does not make either primitive magic, but it gives migration deployments defense in depth while post-quantum implementations, certificates, accelerators, and operational playbooks mature.`,
+      ],
+    },
+    {
+      heading: 'Implementation guidance',
+      paragraphs: [
+        `Use a vetted implementation rather than translating formulas by hand. The difficult parts are not only the polynomial multiplications. Sampling distributions, rejection behavior, NTT constants, compression, packing, hash domain separation, secret-key layout, and constant-time comparison all need to match the standard exactly. A tiny serialization mismatch can produce rare interop failures that look like network flakiness.`,
+        `Treat parameter selection as an explicit engineering decision. ML-KEM-512, ML-KEM-768, and ML-KEM-1024 trade security level against size and cost. A service should know which parameter appears in each protocol surface, how it is negotiated, how downgrade resistance is enforced, and how metrics distinguish parameter mismatch from malformed input and from ordinary transport failure.`,
+        `Keep secrets out of branch conditions, cache-dependent table lookups, panic messages, structured logs, and tracing fields. Decapsulation should have one observable shape. Invalid ciphertexts should be tested intentionally, including random bytes, truncated ciphertexts, wrong parameter lengths, corrupted public keys, and repeated values. The test oracle should check both correctness and the absence of distinct failure surfaces exposed to remote peers.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `A production rollout should measure bytes on the wire, CPU time, memory allocation, certificate size, handshake fragmentation, retry rate, and middlebox behavior. Post-quantum migration is partly a cryptography change and partly a systems change. The new keys and ciphertexts can interact with old packet assumptions, old load balancers, old observability limits, and old latency budgets.`,
+        `A useful deployment ledger records the parameter set, implementation version, FIPS or library status, public-key fingerprint, ciphertext length, negotiated algorithm identifier, hybrid composition rule, and invalid-ciphertext policy. That ledger is not paperwork. It is how an operator answers whether two endpoints are actually using the expected primitive and whether a reported failure is cryptographic, transport-level, or configuration-level.`,
+        `Hybrid mode should be designed deliberately. Combining a classical and post-quantum secret is not the same as running two independent handshakes and hoping they compose. The transcript, algorithm identifiers, public keys, ciphertext, and both shared secrets must be bound by the protocol's key schedule so downgrade and substitution attacks do not move the connection onto weaker assumptions.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `The first failure mode is conceptual: using ML-KEM as if it were encryption, a signature scheme, a password hash, or a symmetric cipher. It is a key-establishment primitive. Bulk data still belongs to symmetric encryption. Authentication still needs certificates, signatures, or another identity mechanism. Storage encryption still needs a key-management design around the secret.`,
+        `The second failure mode is leaky decapsulation. Different timing, different alert codes, different retry behavior, different log lines, or different cleanup paths for invalid ciphertexts can expose information the construction is supposed to hide. This is why a constant-time comparison helper is not enough by itself; the whole endpoint behavior must avoid validity-dependent signals.`,
+        `The third failure mode is deployment drift. One side upgrades parameter sets before the other. A library changes packing details. A certificate chain grows past an old limit. A benchmark reports arithmetic throughput but ignores fragmentation and handshake retries. A test suite covers only happy-path ciphertexts. These are ordinary systems bugs, but in a KEM rollout they can become security and availability incidents.`,
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        `ML-KEM matters most at protocol boundaries where long-lived confidentiality is at stake. TLS-style handshakes, VPNs, service mesh channels, device provisioning, and encrypted messaging all need a plan for recorded traffic that may be attacked later. Even when a system is not ready for post-quantum-only operation, hybrid key establishment can let teams exercise the code paths and operational assumptions.`,
+        `It also matters as a case study in algorithm deployment. The mathematical object is a module-lattice KEM, but the shipped system is a negotiation rule, a byte format, a constant-time implementation, a telemetry story, a parameter policy, and a recovery plan for bad releases. The security boundary is the whole path from public key generation to shared-secret use.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources to keep nearby are NIST FIPS 203 at https://csrc.nist.gov/pubs/fips/203/final and the CRYSTALS-Kyber specification at https://pq-crystals.org/kyber/data/kyber-specification-round3-20210804.pdf. Read them for exact parameter definitions, byte formats, and security framing rather than treating this article as an implementation spec.`,
+        `Within this curriculum, study NTT Polynomial Multiplication to understand the fast polynomial products, Hash Functions and Key Derivation to understand how shared secrets become traffic keys, Constant-Time Programming to reason about decapsulation behavior, ML-DSA for the lattice signature counterpart, SLH-DSA for a hash-based signature alternative, and Shamir Secret Sharing for a very different way to split and reconstruct secrets.`,
+      ],
+    },
   ],
 };

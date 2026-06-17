@@ -201,41 +201,50 @@ export function* run(input) {
   else throw new InputError('Pick a WebGPU swapchain view.');
 }
 
-export const article = {
+const legacyArticle = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A WebGPU canvas render loop is the browser-facing version of a swapchain. The app configures a GPUCanvasContext, obtains a current texture for each frame, records commands that render into it, submits those commands to the GPU queue, and then the browser compositor presents the result.',
-        'The data-structure lesson is timeline ownership. JavaScript owns command recording, WebGPU owns validated resources and queue submission, the GPU executes later, and the compositor owns presentation cadence. Smooth rendering depends on keeping those timelines fed without letting them drift too far apart.',
+        'A renderer cannot draw directly to the screen whenever it wants. The browser compositor owns presentation cadence, the GPU executes queued work later, and JavaScript runs on its own event loop. A WebGPU present loop exists to connect those timelines without tearing, stale targets, or unbounded latency.',
+        'A WebGPU canvas render loop configures a GPUCanvasContext, obtains a current texture for each frame, records commands that render into it, submits those commands to the GPU queue, and lets the browser compositor present the result.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The tempting wrong answer',
+      paragraphs: [
+        'The easy mistake is to cache the current texture view and reuse it. That breaks the ownership model. getCurrentTexture gives a presentable image for this frame, not a permanent render target.',
+        'The other mistake is to maximize frames in flight without thinking about input age. Extra buffering can keep the GPU busy, but it can also display older input. Frame pacing is the trade between throughput and latency, not just a higher frame counter.',
+      ],
+    },
+    {
+      heading: 'Core model',
       paragraphs: [
         'The canvas context is configured with a GPUDevice and canvas texture format, commonly navigator.gpu.getPreferredCanvasFormat. During a frame, getCurrentTexture returns the next GPUTexture that will be composited into the document. The render pass uses a view of that texture as a color attachment.',
-        'This current texture should be treated as a per-frame presentation target. Render graph code may create many transient textures for depth, G-buffer, bloom, or postprocessing, but the final pass writes to the current canvas texture before queue submission.',
+        'The invariant is per-frame ownership. Acquire the current texture inside the frame, record commands that use it, submit those commands, and stop treating that view as app-owned. Render graph code may create many transient textures for depth, G-buffer, bloom, or postprocessing, but the final pass writes to the current canvas texture.',
+        'The WebGPU API separates command recording from GPU execution. That helps validation and portability, but readback and synchronization stay explicit. If the CPU asks for results too soon, it can stall behind the GPU queue. If it records against stale frame resources, validation or visual bugs follow.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Legacy visual note',
       paragraphs: [
-        'Frame pacing is not only GPU speed. A long JavaScript task can delay command recording. Too many CPU-prepared frames can increase input latency. Too few in-flight frames can leave the GPU idle. Resize and format changes require reconfiguration and recreation of dependent resources.',
-        'The WebGPU API deliberately separates command recording from GPU execution. That helps validation and portability, but it also means readback and synchronization are explicit. If the CPU asks for results too soon, it can stall behind the GPU queue. If it records against stale frame resources, validation or visual bugs follow.',
+        'In the present-loop view, follow ownership: rAF opens the CPU frame, getCurrentTexture acquires the present target, the encoder records a pass into its view, queue.submit moves work to the GPU timeline, and the compositor presents later. The current texture should appear only inside that frame path.',
+        'In the in-flight view, the images show why buffering helps and why it costs latency. One image can be displayed while another is rendered. More frames in flight can smooth throughput, but each extra queued frame can be one more frame of input delay. The interesting question is not just "did the GPU stay busy?" but "how old is the input in the frame the user sees?"',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Where it wins and fails',
       paragraphs: [
-        'A browser 3D viewer starts rAF, updates camera state, asks the render graph for this frame, obtains the current canvas texture, records geometry, lighting, postprocessing, and UI passes, then submits one command buffer. The final pass writes into the current texture. The compositor later blends that canvas with the rest of the page.',
-        'On resize, the main page sends the new size to the renderer, the canvas context is reconfigured, depth and intermediate attachments are recreated, and cached pass descriptors are refreshed. The case connects OffscreenCanvas Worker Renderer, requestAnimationFrame Frame Budget, Render Graph Framegraph Resource Lifetimes, Texture Atlas & Mipmaps, and Depth Buffer Z-Test.',
+        'This model wins in browser 3D viewers, games, simulation tools, and GPU dashboards where the final frame is a resource graph ending at the canvas target. A viewer can start rAF, update camera state, obtain the current texture, record geometry, lighting, postprocessing, and UI passes, submit one command buffer, and let the compositor blend the canvas with the page.',
+        'It fails when a long JavaScript task misses the frame budget, when unlimited queued frames increase input latency, when resize does not recreate depth and intermediate attachments, when readback stalls the CPU behind the GPU, or when getCurrentTexture is treated as a general texture allocator.',
+        'WebGPU hides platform swapchain details, but not the rule: acquire a presentation target, render before release, pace CPU and GPU work, rebuild size-dependent resources when the surface changes, and keep latency visible.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Practical guidance',
       paragraphs: [
-        'Do not cache a current texture view and reuse it across frames. Do not treat getCurrentTexture as a general texture allocator. Do not ignore preferred canvas format unless you have a measured reason. Do not queue unlimited frames just because JavaScript can record commands faster than the GPU consumes them.',
-        'Do not assume WebGPU hides all swapchain thinking. It abstracts platform details, but the conceptual rules remain: acquire a presentation target, render before release, pace CPU and GPU work, rebuild size-dependent resources when the surface changes, and keep latency visible.',
+        'Treat frame resources as per-size and per-frame. Recreate depth textures, intermediate attachments, and cached views when canvas size or devicePixelRatio changes; acquire the current texture inside the frame that records commands for it.',
+        'Measure CPU frame time, GPU queue time, dropped frames, and input-to-present latency separately. A renderer can hit high throughput while feeling sluggish if it lets too many frames queue ahead of user input.',
       ],
     },
     {
@@ -243,6 +252,121 @@ export const article = {
       paragraphs: [
         'Primary sources: WebGPU specification at https://www.w3.org/TR/webgpu/, MDN GPUCanvasContext.configure at https://developer.mozilla.org/en-US/docs/Web/API/GPUCanvasContext/configure, MDN GPUCanvasContext.getCurrentTexture at https://developer.mozilla.org/en-US/docs/Web/API/GPUCanvasContext/getCurrentTexture, and Vulkan WSI swapchain documentation at https://docs.vulkan.org/spec/latest/chapters/VK_KHR_surface/wsi.html.',
         'Study WebGPU Buffer & Bind Group Case Study first, then requestAnimationFrame Frame Budget, OffscreenCanvas Worker Renderer, Render Graph Framegraph Resource Lifetimes, Texture Atlas & Mipmaps, Depth Buffer Z-Test, Deferred G-Buffer, Browser Rendering, and Dirty Rectangle Damage Tracking next.',
+      ],
+    },
+  ],
+};
+
+export const article = {
+  sections: [
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'WebGPU frame pacing exists because rendering is not just drawing as fast as possible. The browser, GPU, display refresh, command submission, swapchain texture, and JavaScript event loop all have to line up well enough that frames arrive steadily.',
+        'A page can have high average FPS and still feel bad if frame times stutter. Frame pacing is about consistent delivery: acquire the current texture, encode work, submit commands, present, and return to the next frame without building an unstable backlog.',
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        'The obvious approach is to render whenever JavaScript can run. That ignores display cadence. It can waste GPU work, fight browser scheduling, and create uneven frame intervals.',
+        'Another tempting approach is to pack as much work as possible into every frame. That may improve visual detail in still moments, but it risks missing the frame budget under load. Real-time rendering needs budget discipline.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'A WebGPU frame is a pipeline of CPU and GPU work. JavaScript prepares resources and command buffers. The GPU executes submitted commands. The swapchain provides a texture for the next presented image. requestAnimationFrame aligns work with the browser paint loop.',
+        'Frame pacing means managing this pipeline so CPU preparation, GPU execution, and presentation do not drift apart. Too little buffering leaves the GPU idle. Too much queued work increases latency and makes input feel delayed.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'Each frame typically begins in a requestAnimationFrame callback. The app updates simulation state, gets the current canvas texture, creates or reuses render passes, encodes commands, submits them to the queue, and returns control to the browser.',
+        'The swapchain texture is not a permanent render target. It is the current presentation target. The application should acquire it for the frame, render into it or resolve into it, and avoid retaining stale views across frames.',
+        'Resource uploads, pipeline creation, bind group churn, and readbacks can disturb pacing. Strong renderers pre-create stable pipelines, reuse buffers, batch uploads, and avoid synchronous GPU-to-CPU dependencies in the frame path.',
+      ],
+    },
+    {
+      heading: 'What the visual is proving',
+      paragraphs: [
+        'The frame timeline proves that CPU time and GPU time are separate but coupled. A frame can miss because JavaScript ran too long, because GPU work exceeded budget, or because the app created a synchronization point that forced waiting.',
+        'The queue view proves why backlog matters. Submitting many frames of work can keep the GPU busy, but it also means the displayed frame may reflect old input. Smoothness and responsiveness are related but not identical goals.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'requestAnimationFrame works because it gives the browser a chance to schedule visual work near the next paint. It is not a guarantee of GPU completion, but it is the right place for frame-driven updates.',
+        'WebGPU command buffers work because encoding and execution are separated. JavaScript records commands, submits them, and lets the GPU run asynchronously. That separation enables throughput, but it also means the app must avoid accidental synchronization.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'The main tradeoff is latency versus utilization. More buffering can hide CPU or GPU variation and improve throughput. Less buffering can reduce input latency but risks idle time or missed frames if work is bursty.',
+        'Another tradeoff is visual quality versus frame budget. Dynamic resolution, level of detail, culling, temporal reuse, and workload shedding are all ways to keep frame time stable when the scene gets expensive.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Good frame pacing wins in games, simulations, editors, 3D product views, maps, video effects, charts, and any WebGPU app where user input and visual feedback must feel connected.',
+        'It is also useful for non-game GPU tools. Compute-heavy visualizations still need pacing so progress, interaction, and display updates do not block behind long GPU dispatches or readbacks.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure is blocking the main thread. Expensive JavaScript, layout work, asset parsing, or synchronous loops can miss the frame before WebGPU gets a chance to submit commands.',
+        'The second failure is GPU readback in the frame loop. Waiting for GPU results on the CPU can stall both sides of the pipeline. Readbacks should be delayed, batched, or moved off the critical visual path.',
+        'The third failure is resource churn. Creating pipelines, large buffers, textures, or bind groups every frame can add CPU overhead and driver pressure. Stable resources are part of pacing.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Measure CPU frame time, GPU frame time, queue depth, dropped frames, and input-to-photon latency separately. Average FPS alone hides the difference between steady 16 ms frames and visible stutter.',
+        'Pre-create pipelines and layouts. Reuse buffers where possible. Use requestAnimationFrame for the frame loop. Keep expensive asset work out of the hot path. Treat readback as asynchronous evidence, not as a value needed immediately.',
+        'Have a degradation plan: lower resolution, reduce samples, skip optional effects, cull more aggressively, or slow simulation quality before the app misses many frames in a row.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A 60 Hz display gives roughly 16.7 ms per frame. If JavaScript spends 8 ms updating scene state and command encoding, and the GPU spends 12 ms rendering, the app may already be in trouble even though neither number looks huge alone.',
+        'If the app queues multiple frames, the GPU may stay busy and average throughput may improve, but input latency can rise. The user moves the mouse, yet the displayed frame reflects commands encoded before that input. Smooth throughput is not the same as responsive interaction.',
+        'A frame capture should therefore separate CPU preparation, GPU execution, presentation wait, and input age. Once those lanes are visible, the repair becomes concrete: reduce draw work, move CPU work, reuse resources, or change buffering.',
+      ],
+    },
+    {
+      heading: 'How to choose fixes',
+      paragraphs: [
+        'If CPU frame time is high, look for JavaScript loops, resource creation, layout interaction, and command encoding overhead. If GPU time is high, reduce render passes, resolution, shader cost, overdraw, or texture bandwidth.',
+        'If frame time is spiky rather than consistently high, look for asset uploads, garbage collection, shader compilation, pipeline creation, or occasional readbacks. Stutter often comes from rare work on the hot path rather than from the normal frame.',
+        'If input feels delayed while FPS looks good, inspect queued frames and buffering. The system may be optimized for throughput while carrying too much old work. Latency-sensitive tools should prefer bounded queues and timely cancellation of obsolete frames.',
+      ],
+    },
+    {
+      heading: 'What to watch in production',
+      paragraphs: [
+        'Production frame pacing problems often arrive as user complaints before they arrive as clean metrics. Someone says the app feels sticky, blurry, or uneven. The right response is to capture frame timelines, input age, queue depth, and dropped-frame clusters rather than arguing from average FPS.',
+        'Watch rare work on the critical path: shader compilation, texture upload, garbage collection, resize handling, visibility changes, and device loss recovery. A renderer that is perfect in a synthetic loop can still stutter when the product loads assets, opens panels, or changes data sets.',
+        'The product decision is also important. Some visual quality should degrade automatically, but not all of it. A design tool may prefer lower preview resolution during interaction and full quality when idle. A simulation may prefer slower time steps over incorrect state. Pacing policy should match the user promise.',
+      ],
+    },
+    {
+      heading: 'Common misconception',
+      paragraphs: [
+        'The misconception is that WebGPU performance is only a shader problem. Shaders matter, but the visible experience is the whole pipeline: JavaScript scheduling, command encoding, resource lifetime, queueing, GPU execution, presentation, and input freshness.',
+        'A fast shader inside a badly paced frame loop can still feel poor. The user experiences time, not isolated throughput numbers.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study requestAnimationFrame, WebGPU Buffer and Bind Group, Event Loop, GPU Command Queue, Tail Latency, Triple Buffering, and Browser Rendering. A useful exercise is to add an intentional CPU stall and an intentional GPU-heavy pass, then learn to distinguish them in a frame trace.',
       ],
     },
   ],

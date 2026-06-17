@@ -197,38 +197,123 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Terminal-Bench is a benchmark family for agents operating in command-line environments. The educational value is broader than one leaderboard: terminal tasks expose whether an agent can plan through setup, inspect state, execute commands, create artifacts, and satisfy a verifier over a long horizon.',
-        'This belongs next to Agent Harness Portability Audit because the command line is a different agent-computer interface from a repo-only patch harness. It also belongs next to Execution-as-a-Service Verifier Economy Case Study because terminal tasks are only meaningful when the environment and checker are reproducible.',
+        `Many agent benchmarks ask whether a model can answer a question, choose an option, or patch a file. Terminal work asks a harder operational question: can an agent use a real shell over time, inspect an unfamiliar environment, run commands, repair setup, create artifacts, keep budget, and satisfy an external verifier?`,
+        `Terminal-Bench exists because the command line is a different interface from chat. A final answer can sound correct while the filesystem is unchanged, a service is not running, or a generated artifact is missing. Terminal tasks force the agent's claims to meet executable state.`,
+        `The Terminal-Bench 2.0 paper frames this as long-horizon, realistic work in terminal environments, with tasks that include a unique environment, human-written solution, and tests for verification. The important lesson for data-structure students is that the benchmark is not one prompt. It is a composed system with manifests, sandboxes, command ledgers, artifacts, budgets, verifiers, scores, and audit traces.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'Why final-answer grading fails',
       paragraphs: [
-        'A serious terminal task uses a task manifest, sandbox image digest, initial filesystem snapshot, environment variable policy, command trace ledger, artifact ledger, budget record, verifier script, score record, and failure taxonomy. These are the durable objects behind the benchmark.',
-        'The command trace should include cwd, command, exit status, stdout and stderr digests, elapsed time, environment deltas, created files, and policy events. The artifact ledger should hash files and store just enough metadata to reproduce the score without keeping unsafe or oversized byproducts.',
+        `The naive benchmark design is a prompt that says "use the terminal and solve the task," followed by a final response. That records what the agent claims, not what it did. For terminal work, the answer is usually not a sentence. The answer is a changed repository, a running service, a generated file, a trained model checkpoint, a fixed configuration, or a passing test suite.`,
+        `A second naive design is to run a hidden checker but discard the trace. That gives a score, yet it hides the path. If the agent fails, the evaluator cannot tell whether it never found the project, installed the wrong dependency, used the wrong command flag, timed out during compilation, or stopped early after a partial fix.`,
+        `Long-horizon tasks need process evidence. The trace is not decoration. It is the data structure that connects the task, environment state, agent actions, produced artifacts, verifier result, and final score. Without it, a benchmark cannot teach developers what failed or help researchers compare agent strategies.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The benchmark object',
       paragraphs: [
-        'The harness starts from a clean image and task manifest. The agent interacts through shell commands. Each command updates the trace ledger. When the agent stops or budget expires, verifier tests inspect the filesystem, services, outputs, or metrics and emit a score with proof.',
-        'Long-horizon terminal tasks are hard because errors compound. A wrong directory, missing dependency, stale service, hidden test fixture, or early final answer can invalidate a later step. The trace is therefore part of the label: it explains why a task failed, not only that it failed.',
+        `A terminal-agent benchmark is a structured object. The task manifest states the goal, the success criteria, the starting files, the allowed tools, the budget, and the expected outputs. The environment image provides the initial operating system, packages, user permissions, and repository state. The evaluation runner mediates the agent's shell interaction and records what happened.`,
+        `The command ledger stores each command, working directory, exit status, time cost, output summary, and sometimes policy events such as network access or file limits. The artifact ledger records files, logs, model outputs, server state, or other durable products the task cares about. The verifier inspects the final environment and emits a result with evidence.`,
+        `This object has to be reproducible. Floating package indexes, live network services, unpinned images, hidden state, and vague output rules can turn the benchmark into a lottery. A hard task is valuable; an unstable task is noise.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core mechanism',
       paragraphs: [
-        'A task asks the agent to fix and launch a small web service. The manifest pins the container, setup script, ports, time budget, expected response contract, and verifier. The agent reads logs, patches configuration, installs dependencies, starts the service, and writes a result file. The verifier curls endpoints, checks status codes, hashes artifacts, and records final proof.',
-        'A weak benchmark would ask for a prose answer. A strong terminal benchmark measures whether the agent changed the world inside the sandbox in the intended way.',
+        `The shell is the action space, and the verifier is the label. The agent observes text, runs commands, reads and writes files, starts processes, and decides when to stop. The runner turns those actions into a trace. The verifier then checks the environment without trusting the agent's final prose.`,
+        `This changes the evaluation problem. In a multiple-choice benchmark, the model's answer is the output. In a terminal benchmark, the output is an environment state. A good runner must therefore preserve state transitions, not just messages. It must know what command ran, where it ran, what it changed, and whether the final state satisfies the task contract.`,
+        `The benchmark becomes a small operating system around the agent. It needs isolation for safety, budgets for cost control, logging for auditability, and deterministic verification for scoring. Those are systems concerns, not just prompt concerns.`,
       ],
     },
     {
-      heading: 'Pitfalls and sources',
+      heading: 'What the views show',
       paragraphs: [
-        'Do not let benchmark data leak into training corpora. Do not let tasks depend on floating package indexes or live network state unless that is the explicit skill under test. Do not grade only the final answer if the real goal is a filesystem or service state. Do not hide timeout and retry budget; those are part of the benchmark.',
-        'Primary sources: Terminal-Bench paper at https://arxiv.org/abs/2601.11868, Terminal-Bench site at https://www.tbench.ai/, Terminal-Bench GitHub at https://github.com/harbor-framework/terminal-bench, SWE-agent at https://arxiv.org/abs/2405.15793, and CWM at https://arxiv.org/abs/2510.02387. Study Agent Harness Portability Audit, Computer-Use Agent Harness Loop Case Study, Executable Repository Image Build Cache Case Study, Distributed Tracing, Process Reward Models & Verifier Search, and Agent Run Trace Span Tree next.',
+        `The terminal-task-graph view treats the benchmark as a state machine. The manifest defines success, the image defines the starting state, the agent changes the sandbox through commands, and artifacts record the resulting filesystem or service state. The verifier is the external judge.`,
+        `The verifier-runner view focuses on evidence. A good checker does not merely say pass or fail; it can point to files, hashes, HTTP responses, metrics, logs, or policy decisions. That evidence makes failures actionable instead of merely disappointing.`,
+        `The plot emphasizes horizon length. Each extra setup step, diagnosis step, compile step, retry, and cleanup step gives the agent another chance to lose context or spend budget. Long-horizon evaluation measures planning under state, not just local command selection.`,
+      ],
+    },
+    {
+      heading: 'Manifest design',
+      paragraphs: [
+        `The manifest is the benchmark contract. It should name the goal in plain language, define what success means, specify setup, name the relevant output artifacts, set budgets, and point to the verifier. If the manifest is ambiguous, the benchmark may test guesswork instead of capability.`,
+        `A good manifest separates user-facing instructions from hidden evaluation logic. The agent should know enough to solve the task honestly, but the verifier can still check edge cases and shortcuts. The manifest should also state constraints: no network, limited runtime, fixed ports, required filenames, allowed dependencies, or security boundaries.`,
+        `Budgets are part of the task. A model that solves a task after unlimited retries is not equivalent to a model that solves it within a practical time and token budget. Terminal-Bench-style tasks expose whether the agent can allocate effort, not just eventually discover a solution.`,
+      ],
+    },
+    {
+      heading: 'Sandbox and environment',
+      paragraphs: [
+        `The sandbox makes the task executable and repeatable. It pins the starting filesystem, packages, permissions, and process model. It also protects the host system from untrusted commands. A terminal benchmark that cannot be replayed is hard to trust because a changed dependency or missing package can change the score.`,
+        `Isolation also clarifies responsibility. If the task image is complete and deterministic, failure belongs more clearly to the agent or the task specification. If the image drifts, the agent may be punished for external state it cannot control.`,
+        `Network policy matters. Some tasks should allow internet access because the real workflow requires it. Others should forbid it to preserve determinism and prevent data leakage. The important point is that network behavior is an explicit part of the benchmark, not an accident.`,
+      ],
+    },
+    {
+      heading: 'Command and artifact ledgers',
+      paragraphs: [
+        `The command ledger is a chronological record of action. At minimum it should preserve command text, working directory, exit status, and enough output to understand what happened. Stronger harnesses also capture elapsed time, output digests, truncated logs, file changes, and policy events.`,
+        `The artifact ledger records durable results. A task may care about a patched source file, a generated report, a trained model file, a service log, a compiled binary, or a JSON result. Artifacts let the verifier check state directly and let humans audit what the agent produced.`,
+        `These ledgers separate capability from luck. Two agents may both fail, but one may fail after diagnosing the right service and hitting a dependency lock issue, while another never leaves the wrong directory. That distinction matters for benchmark design, model training, and product debugging.`,
+      ],
+    },
+    {
+      heading: 'Verifier design',
+      paragraphs: [
+        `The verifier should grade effects, not confidence. It can run tests, inspect files, hash outputs, query a service, check metrics, parse logs, enforce security policy, or compare a generated artifact to a rubric encoded in code. The key property is that the verifier observes the environment outside the model's final answer.`,
+        `A verifier also needs shortcut defense. If the task is to implement a function, the verifier should not only check that one public example passes. If the task is to start a service, it should check the intended behavior, not just that some process is listening on a port. If the task is to produce a file, it should check content, not only existence.`,
+        `Verifier evidence should be stored with the score. A binary pass/fail result is useful for a leaderboard, but evidence is useful for engineering. The best failure reports say what was missing, what command output mattered, which assertion failed, and which artifact was inspected.`,
+      ],
+    },
+    {
+      heading: 'Worked service example',
+      paragraphs: [
+        `Consider a task that asks the agent to repair and run a small API service. The manifest pins the image, repository path, setup command, expected port, time budget, response contract, and output file. The initial service fails because configuration and dependency state are inconsistent.`,
+        `A capable agent inspects the tree, reads logs, runs the failing command, identifies the configuration issue, patches the right file, installs or uses pinned dependencies, starts the service, and writes the required result artifact. The important output is not the agent saying "fixed." The output is a running service and files that satisfy the verifier.`,
+        `The verifier can curl endpoints, check status codes, parse response bodies, inspect logs for forbidden errors, hash the output file, and record the proof packet. If the agent starts the wrong service, hardcodes a response, writes the artifact in the wrong path, or stops before the server is actually reachable, the verifier should catch it.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `This evaluation style works because it closes the loop between action and state. The agent may reason in language, but its score comes from observable effects. That makes terminal benchmarks closer to real operations work than answer-only exams.`,
+        `It also creates analyzable traces. Developers can see whether failure came from navigation, dependency resolution, command syntax, stale assumptions, test misunderstanding, budget exhaustion, or premature stopping. Those categories point to different fixes in model behavior and runner design.`,
+        `Finally, it rewards persistence with verification. A strong terminal agent does not merely edit and hope. It checks its own work, runs local tests when appropriate, reads errors, and keeps moving until the external verifier is likely to pass or the budget is exhausted.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `Navigation failure is basic but common. The agent runs commands in the wrong directory, edits the wrong copy of a file, or loses track of generated outputs. A trace with working directories makes this visible.`,
+        `Dependency failure appears when the environment image is incomplete, package versions float, installs take too long, or the agent chooses an incompatible toolchain. Pinned images and lockfiles reduce benchmark noise, while logs show whether the agent handled the failure well.`,
+        `State failure appears when processes are stale, services are already running, environment variables differ from assumptions, or files created by one command are not used later. Long-horizon agents need explicit state checking because the shell does not preserve a clean mental model for them.`,
+        `Verifier failure appears when the checker is weak, overfit, flaky, or misaligned with the manifest. A benchmark with weak tests can be gamed or accidentally passed. A benchmark with flaky tests punishes correct work. Both cases corrupt the score.`,
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        `When designing a terminal task, make the desired final state concrete. Name required files, service behavior, metrics, ports, or command outputs. Pin the environment. Keep setup deterministic. Decide whether network access is part of the skill or a source of drift.`,
+        `When running agents, preserve enough trace to debug failures without storing unnecessary secrets. Capture command text, cwd, exit status, output snippets, timing, artifact paths, and verifier evidence. Store budgets and stop reasons so early termination can be distinguished from incorrect work.`,
+        `When interpreting scores, separate model capability from benchmark-environment quality. Low solve rate may mean tasks are hard, agents are weak, verifiers are strict, images are brittle, or budgets are unrealistic. The trace is what lets you tell those explanations apart.`,
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        `Terminal evaluation matters for software maintenance, scientific computing, data pipelines, security exercises, infrastructure repair, and codebase onboarding. These are domains where success is a working environment, not a persuasive paragraph.`,
+        `It also matters for product work on autonomous agents. A user does not only need an agent that can suggest commands. They need an agent that can carry state, notice failures, repair its plan, validate output, and stop with evidence.`,
+        `For curriculum purposes, Terminal-Bench is a systems case study. The interesting data structures are not arrays and heaps; they are manifests, traces, ledgers, sandboxes, budget records, and verifier result objects. Those structures turn messy terminal activity into an evaluable experiment.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources: Terminal-Bench paper at https://arxiv.org/abs/2601.11868, Terminal-Bench site at https://www.tbench.ai/, Terminal-Bench GitHub at https://github.com/harbor-framework/terminal-bench, SWE-agent at https://arxiv.org/abs/2405.15793, and CWM at https://arxiv.org/abs/2510.02387.`,
+        `Study the agent-portability audit module for environment contracts, Computer-Use Agent Runtime Loop Case Study for action-observation loops, Executable Repository Image Build Cache Case Study for reproducible setup, Distributed Tracing for span structure, Process Reward Models & Verifier Search for feedback beyond final labels, and Agent Run Trace Span Tree for trace analysis.`,
       ],
     },
   ],

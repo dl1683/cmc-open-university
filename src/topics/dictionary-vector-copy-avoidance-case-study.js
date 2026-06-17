@@ -190,31 +190,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A dictionary vector represents a logical column as indices into another vector. It is a copy-avoidance structure: filtering, sorting, unnesting, and join fanout can produce a new logical order without materializing all values into a new flat buffer.',
-        'Velox documents dictionary vectors as a base vector plus an indices buffer, used for duplicate-heavy values, filters, sorting, joins, and unnesting: https://facebookincubator.github.io/velox/develop/vectors.html. Apache Arrow defines dictionary-encoded layout in its columnar format: https://arrow.apache.org/docs/format/Columnar.html#dictionary-encoded-layout. Parquet defines dictionary encoding for storage pages at https://parquet.apache.org/docs/file-format/data-pages/encodings/.',
+        'Dictionary vectors exist because query operators often reorder, filter, or repeat rows without changing the underlying values. Copying wide strings, nested objects, maps, arrays, or repeated join payloads into a new flat vector can dominate execution time even when the logical operation is simple.',
+        'The practical problem is representing a new logical column shape while keeping expensive values shared. A filter might keep rows 0, 4, and 9. A sort might reorder the same values. A join might repeat one probe row twenty times. In all three cases, the logical output is new, but the value payload does not need to be copied immediately.',
+        'This is an execution-engine idea, not just a storage-compression trick. A storage dictionary reduces file size by replacing repeated values with codes. An execution dictionary lets live operators pass around a logical vector backed by existing memory.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The structure has a base vector, an index buffer, logical length, null handling, and sometimes nested wrappers. Logical row i reads base[index[i]]. If two logical rows point to the same base index, the value is reused. If the index order is sorted or filtered, the base remains unchanged.',
-        'Dictionary vectors are related to selection vectors but richer. A selection vector usually carries active row positions. A dictionary vector turns those positions into a logical vector object that can pass through expression evaluation, joins, and output operators.',
+        'The obvious approach is to materialize a new output vector after every filter, sort, unnest, or join. That gives each logical row its own physical slot.',
+        'The wall is fanout and payload width. A join can repeat one probe row many times, and each repeat might include several wide columns. Copying the payload on every repeat wastes memory bandwidth.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'A dictionary vector is a base vector plus an index buffer. Logical row i reads base[index[i]]. The index buffer can repeat, reorder, or filter rows while the base values remain unchanged.',
+        'It is related to a selection vector but richer. A selection vector carries live positions; a dictionary vector presents those positions as a logical vector that can flow through more operators. The operator sees a column with length N, but the physical payload can still live in a smaller or older base vector.',
+        'The same index buffer can be shared by many columns. That matters for joins: if row 3 fans out into rows 10, 11, and 12 of the result, every probe-side column can use the same index buffer to preserve row alignment without duplicating payloads.',
+      ],
+    },
+    {
+      heading: 'What the diagram emphasizes',
+      paragraphs: [
+        'In the dictionary-wrap view, read the base vector as the expensive payload and the index buffer as the new logical order. When two logical rows point to the same base index, the value is repeated in the result without being copied. The null bitmap and expression node show the extra bookkeeping a real engine must preserve.',
+        'In the join-fanout view, focus on the output index buffer. A probe row with multiple build-side matches appears multiple times by index. That is the whole trick: fanout grows the logical result while the probe-side columns remain shared until a boundary forces materialization.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The structure has a base vector, index buffer, logical length, null handling, and sometimes nested wrappers. To read logical row i, load j = indices[i], then read base[j]. If the wrapper has its own nulls, the engine combines wrapper nulls with base nulls according to its vector contract.',
+        'Operators can either understand the dictionary directly or peel it. If an expression is independent of row order, the engine can run the expression on base values once and wrap the result with the same indices. If an operator needs contiguous values or performs random writes, it may flatten the dictionary into a normal vector.',
+        'Velox documents dictionary vectors as a base vector plus indices: https://facebookincubator.github.io/velox/develop/vectors.html. Apache Arrow defines dictionary-encoded layout: https://arrow.apache.org/docs/format/Columnar.html#dictionary-encoded-layout. Parquet defines dictionary encoding for storage pages: https://parquet.apache.org/docs/file-format/data-pages/encodings/.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because logical row identity does not require physical value duplication. The index buffer is enough to map each logical row to a stable base value.',
+        'Correctness depends on preserving null semantics, row order, and index alignment across every wrapped column. If dictionaries stack too deeply, engines may peel or flatten them.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'The cost is indirection. Dictionary lookup can hurt SIMD density, prefetching, and branch behavior. If the base indices are scattered, each logical row can become a cache miss. Nested dictionary wrappers can multiply the problem if the engine does not compose or flatten index buffers.',
+        'The payoff is largest for wide, nested, repeated, or high-fanout values where copying would be more expensive than one extra index lookup. It is weaker for fixed-width primitive columns where copying a tight contiguous vector may be faster than chasing indices.',
+        'A good engine treats dictionary use as a physical plan choice. It keeps dictionaries when sharing saves memory traffic, peels them when expression reuse is possible, and flattens them when downstream operators need dense contiguous memory.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Dictionary vectors win in joins with fanout, filtered wide columns, sorted views, unnests, repeated constants, and engines that can pass encoded vectors between operators.',
+        'They are especially useful when several output columns share the same index buffer.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'They fail when the values are cheap, the selection is dense, or downstream operators cannot understand dictionary wrappers and immediately flatten them.',
+        'They also fail when identity gets confused. A dictionary wrapper must preserve row order, index alignment across columns, and null semantics. A shared index buffer is powerful only if every wrapped column agrees about what logical row i means.',
+        'Storage dictionary encoding and execution dictionary vectors are related but not identical. Parquet dictionary pages reduce file size; execution dictionaries reshape live query data. Conflating the two leads to bad mental models and sometimes bad system designs.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
         'A hash join probes a build table and finds multiple matches for some probe rows. Instead of copying every probe-side string, JSON object, and nested list for each emitted match, the engine builds an index buffer such as [0, 0, 2, 3, 3, 3] and wraps the probe columns. Output rows repeat logically while storage stays shared.',
-        'If later operators can peel shared dictionaries, they can run expressions over the base vector once and remap results through the dictionary. That is why dictionary support is a real execution-engine feature rather than a compression afterthought.',
+        'Now add an expression after the join, such as upper(customer_name). If customer_name is a probe-side column and the dictionary repeats probe row 3 three times, the engine can compute upper(customer_name) once for base row 3 and preserve the dictionary wrapper. That avoids repeating the same string transformation across fanout.',
+        'At the final output boundary, the system may need to serialize rows into a network buffer or file format. That is where late materialization can finally flatten the dictionary. The win came from delaying the copy until it was truly needed.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Implementation guidance',
       paragraphs: [
-        'Dictionary vectors can stack, and stacked indirection can become expensive. Engines often flatten or peel dictionaries when the indirect cost exceeds the copy savings. Correct null handling is also subtle: nulls can come from the dictionary wrapper, the base vector, or both.',
-        'Storage dictionary encoding and execution dictionary vectors are related but not identical. Parquet dictionary pages reduce file size and scan work; execution dictionaries represent logical reshaping during a running query.',
+        'Track encoding state as part of the vector API. Operators should know whether a column is flat, constant, dictionary wrapped, lazy, or nested, and they should declare which encodings they can consume without flattening. Hidden flattening turns a copy-avoidance design into an accidental copy machine.',
+        'Compose dictionaries when possible. If a filter creates indices into a dictionary that already points to a base vector, the engine can often build one composed index buffer instead of stacking wrappers forever. That reduces pointer chasing and keeps row identity easier to reason about.',
+        'Measure both memory bytes saved and CPU time spent on indirection. A dictionary over a huge string column may be excellent; a dictionary over a dense int32 column may slow the query. The right choice depends on payload width, index locality, fanout, and downstream support.',
       ],
     },
     {

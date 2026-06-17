@@ -71,13 +71,13 @@ function* passKFrontier() {
   yield {
     state: reasoningGraph('Base policy has wider reasoning support'),
     highlight: { active: ['prompt', 'base', 'pathA', 'pathB', 'pathC', 'pathD', 'e-base-a', 'e-base-d'], compare: ['rl'] },
-    explanation: 'Before RLVR, the base model may sample many reasoning paths. Some are wrong, some are weak, and some rare paths solve problems that a narrow policy will almost never reach.',
+    explanation: 'The base node fans out to several reasoning paths. That breadth is messy because some paths are wrong, but it is also valuable because rare correct paths can still be sampled when k is large.',
   };
 
   yield {
     state: reasoningGraph('RLVR concentrates probability on rewarded paths', { narrow: true }),
     highlight: { active: ['rl', 'pathA', 'reward', 'pass1', 'e-rl-a', 'e-pathA-reward', 'e-reward-pass1'], compare: ['pathD'] },
-    explanation: 'RLVR can improve pass@1 by making the model more likely to sample paths that received verifiable rewards. That is valuable, but it is not the same claim as expanding the model ability frontier.',
+    explanation: 'RLVR shifts probability toward the rewarded path, so the first sample is more likely to be correct. The dim rare-good path is the warning: concentrating probability can improve sampling efficiency while shrinking the set of reachable solutions.',
     invariant: 'Sampling efficiency and capability coverage are different metrics.',
   };
 
@@ -93,7 +93,7 @@ function* passKFrontier() {
       ],
     }),
     highlight: { active: ['rl', 'cross'], compare: ['base'] },
-    explanation: 'The conceptual curve matches the diagnostic concern in recent RLVR papers: the trained model can win at small k while the base model wins at large k because the base still explores more distinct solution paths.',
+    explanation: 'Read the crossing point carefully. RLVR wins when only a few samples are allowed, but the base curve wins at large k because wider support keeps finding distinct correct paths. That is a coverage claim, not just an accuracy claim.',
   };
 
   yield {
@@ -119,7 +119,7 @@ function* passKFrontier() {
       ],
     ),
     highlight: { active: ['p1:asks', 'pk:asks', 'ent:asks', 'sup:asks'], compare: ['p1:risk'] },
-    explanation: 'A good RLVR report separates first-sample success, large-budget coverage, majority-vote behavior, entropy, and support. Reporting only pass@1 hides exploration collapse.',
+    explanation: 'Each row asks a different question. Pass@1 measures the head of the distribution, pass@k measures reachable coverage, majority vote measures answer concentration, entropy measures breadth, and support tracks which paths disappeared.',
   };
 }
 
@@ -127,7 +127,7 @@ function* coverageLedger() {
   yield {
     state: reasoningGraph('Coverage audit compares base and RLVR path sets'),
     highlight: { active: ['base', 'rl', 'pathA', 'pathD', 'passk', 'audit'], compare: ['pass1'] },
-    explanation: 'The audit asks which problems and paths remain reachable after training. A path can be low probability and still matter if it solves a rare task family.',
+    explanation: 'The audit compares the base and RLVR path sets, not only their top answers. A low-probability path still matters when it is the only route through a rare task slice.',
   };
 
   yield {
@@ -153,7 +153,7 @@ function* coverageLedger() {
       ],
     ),
     highlight: { active: ['base:value', 'rl:value', 'lost:value'], found: ['lost:action'] },
-    explanation: 'Each row records a task slice, base-model large-k coverage, RLVR large-k coverage, lost correct paths, gained correct paths, and the rescue action if the loss matters.',
+    explanation: 'This schema turns coverage into reviewable evidence. For each slice, record large-k coverage before and after RLVR, which correct paths were lost or gained, and what rescue action restores important support.',
     invariant: 'Do not call a narrower policy smarter until you measure what it stopped sampling.',
   };
 
@@ -169,7 +169,7 @@ function* coverageLedger() {
       ],
     }),
     highlight: { active: ['ent', 'gate'], compare: ['p1'] },
-    explanation: 'Entropy falling while pass@1 rises is not automatically bad. It is a trigger to check whether the model is pruning wrong paths or also pruning rare correct paths.',
+    explanation: 'The plot is a release alarm, not a verdict. Falling entropy can mean useful pruning, but when it falls while pass@1 rises, check whether rare correct paths are being pruned with the wrong ones.',
   };
 
   yield {
@@ -195,7 +195,7 @@ function* coverageLedger() {
       ],
     ),
     highlight: { active: ['p1:must', 'pk:must', 'slice:must'], found: ['cost:must'] },
-    explanation: 'Ship a reasoning-RL policy only when pass@1 improves without unacceptable pass@k or slice coverage loss, and when the added tokens and verifier costs fit the serving budget.',
+    explanation: 'The gate separates product value from coverage debt. Ship only when first-sample gains do not hide unacceptable pass@k, majority-vote, slice, or cost regressions.',
   };
 }
 
@@ -209,42 +209,80 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'RLVR, reinforcement learning with verifiable rewards, can make a language model more likely to emit correct reasoning traces on tasks where answers are automatically checkable. The subtle risk is that the trained policy may concentrate probability mass on rewarded paths while losing broader solution coverage.',
-        'The paper Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model? reports the diagnostic pattern directly: RLVR-trained models can outperform base models at small k while base models outperform at large pass@k, suggesting improved sampling efficiency but narrower reasoning coverage: https://arxiv.org/abs/2504.13837.',
+        'RLVR means reinforcement learning with verifiable rewards. It is used when a model can produce an answer and an automatic checker can decide whether the answer is correct. Math, code, theorem proving, and structured tool tasks are natural fits. If the verifier is reliable, the reward is cleaner than a vague preference label. The model can sample reasoning traces, receive a reward, and shift probability toward traces that pass.',
+        'This case study exists because that shift can be misunderstood. A model can become better at producing a correct first answer while becoming worse at covering the full set of correct solution strategies. Pass@1 can rise while pass@k flattens or falls relative to the base model. That is not a contradiction. It means the policy became more concentrated.',
+        'The distinction matters for reasoning systems. A product user may care most about the first answer. A research team may care whether the model still contains broad problem-solving support. An agent system may care whether self-consistency, verifier search, or fallback sampling can still discover rare correct paths. RLVR can improve sampling efficiency, but efficiency is not the same as expanded capability.',
+      ],
+    },
+    {
+      heading: 'The naive approach',
+      paragraphs: [
+        'The naive evaluation is to report pass@1 before and after RLVR. If the trained model answers more prompts correctly on the first sample, the report says the model learned to reason better. This is tempting because pass@1 is easy to explain, cheap to measure, and close to the experience of a user who asks once and expects one answer.',
+        'The problem is that pass@1 only measures the head of the sampling distribution. It does not measure how much correct reasoning remains in the tail. A base model might assign moderate probability to several strategies: one algebraic, one geometric, one brute-force, one rare but robust. RLVR might push most of the probability mass onto the strategy that the verifier rewarded most often. The first sample improves. The rare strategy may almost disappear.',
+        'A second naive move is to treat pass@k as a pure product metric. It is not. Most users do not want 256 completions. Pass@k is better understood as a diagnostic for reachable support. If a correct solution appears somewhere among many samples, the model still has that solution in its policy support. If it no longer appears even with large k, the training process may have pruned it away.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The core insight is to separate sampling efficiency from capability coverage. Sampling efficiency asks how likely the model is to give a good answer under a small budget. Capability coverage asks what correct paths remain reachable when the budget is large enough to explore. RLVR can improve the first while damaging the second.',
+        'A helpful mental model is probability mass over reasoning paths. The base policy has a distribution over many traces. Some are wrong. Some are redundant. Some are rare but important. RLVR changes the distribution by rewarding traces that pass the verifier. That can clean up weak behavior, but it can also collapse diversity when the reward favors one narrow route or when training repeatedly samples from the same successful region.',
+        'This is why a coverage ledger is the right data structure. For each task slice, record base pass@1, base pass@k, RLVR pass@1, RLVR pass@k, majority vote, entropy, distinct correct paths, lost correct paths, gained correct paths, and serving cost. The ledger prevents one aggregate number from hiding three different claims: first-answer quality, large-budget support, and robustness under voting or search.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The right data structure is a coverage ledger over sampled reasoning paths. For each task slice, record base pass@1, base pass@k, RLVR pass@1, RLVR pass@k, majority vote, entropy, lost correct paths, gained correct paths, and serving cost. That separates three claims that are often collapsed: first-sample accuracy, large-budget capability coverage, and answer robustness under voting.',
-        'DeepSeek-R1 is an important companion case study because it shows the useful side of RLVR: verifiable rewards can improve math and code reasoning, especially when combined with cold-start data, rejection sampling, and distillation: https://arxiv.org/abs/2501.12948. The coverage warning does not say RLVR is useless; it says the claim must be measured at more than one sampling budget.',
+        'An RLVR loop starts with a base model and a task distribution. The model samples completions. A verifier checks the final answer, unit test, proof condition, or other automatically checkable outcome. The training algorithm increases probability for rewarded traces and decreases probability for unrewarded traces, often with constraints that keep the policy from moving too far from the starting model.',
+        'The verifier is powerful because it gives clear feedback at scale. It is also narrow. It may check the final answer without checking whether the reasoning was robust. It may reward one style of solution more often because that style is easier to verify. It may miss alternate correct forms. It may create incentives for shortcutting, formatting games, or brittle traces that pass the current checker but fail nearby tasks.',
+        'The evaluation should therefore sample at several budgets. At k = 1, measure first-sample accuracy. At small k, measure whether the model became easier to use with light sampling. At large k, measure whether broad correct support remains. Majority vote checks whether the distribution has a stable answer mode. Entropy and distinct-path counts check whether the model is becoming narrower. Slice metrics check whether rare task families were harmed.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'What the visual is proving',
       paragraphs: [
-        'Large-k evaluation is expensive because it samples many completions and often runs verifiers. That expense is the point. If the product relies on reasoning breadth, rare task families, or self-consistency, a pass@1-only report can green-light a model that is faster to be confidently wrong outside the reward-supported region.',
-        'The operational tradeoff is policy entropy. Lower entropy can reduce wasted samples and improve user-facing accuracy. Too much collapse can erase rare correct strategies. Release gates should include entropy, path diversity, large-k coverage, and slice-level regressions, not only aggregate benchmark gains.',
+        'The first graph proves that the base model can have wider reasoning support. The base node fans out into several paths. Some are wrong, but some rare paths are correct. The RLVR node shifts mass toward the rewarded path. That is useful when the rewarded path is reliable, but the dim rare-good path is the warning: probability concentration can make a correct route hard to sample.',
+        'The pass@k plot proves that curves can cross. RLVR can win at low k because its head is stronger. The base model can win at high k because its tail still contains more distinct correct paths. If a report only shows pass@1, it hides the crossing. If it only shows large-k coverage, it may understate a real user-facing gain. Both metrics are needed because they answer different questions.',
+        'The coverage-ledger view proves the release invariant. A narrower policy should not be called more capable until the team measures what it stopped sampling. The entropy plot is not a verdict by itself. Falling entropy can mean useful pruning. It becomes an alarm when entropy falls, pass@1 rises, and slice-level pass@k or distinct-path coverage drops in important areas.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'This matters for math, code, theorem proving, tool-use agents, and any workflow where a verifier rewards only a subset of useful behavior. It also matters for distillation: a distilled student may acquire paths from a stronger teacher, while RLVR on a smaller base may mostly reweight paths already present in that smaller model.',
+        'The coverage method works because it treats the model as a distribution, not as a single deterministic solver. A sampled answer is one draw from that distribution. Training changes the distribution. Evaluating several k values lets you see whether training moved probability mass in a healthy way or simply packed it into a smaller region.',
+        'Pass@k is useful because it estimates whether at least one correct answer remains reachable under repeated independent samples. It is not perfect. Samples may be correlated, decoders may produce near duplicates, and a high pass@k can still be too expensive to serve. But as a diagnostic, it exposes support that pass@1 cannot see.',
+        'The ledger adds the missing qualitative layer. Two models can have the same pass@k and very different path sets. One may solve a task three ways. Another may solve it one way with many paraphrases. Recording distinct reasoning families, verifier outcomes, and task slices makes the coverage claim reviewable instead of rhetorical.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Cost and tradeoffs',
       paragraphs: [
-        'Do not equate pass@1 gain with new reasoning ability. Do not equate pass@k with deployed utility either; a user normally does not want 256 samples. Use pass@k as a diagnostic for support and exploration, then decide the serving policy separately. Recent pass@k analysis also warns that pass@k is better treated as an exploration diagnostic than as a direct optimization objective: https://arxiv.org/abs/2511.16231.',
+        'Large-k evaluation is expensive. It requires many completions per task, and each completion may need a verifier, unit test, symbolic checker, sandbox, or judge. It also generates storage and review costs because useful coverage analysis needs traces, not only final answers. That expense is the price of seeing the tail.',
+        'Lower entropy can be good when RLVR removes junk paths and makes correct answers cheaper to sample. It becomes risky when the narrower policy loses rare correct strategies. Strong KL constraints, entropy bonuses, rejection sampling, distillation, and verifier design all move this tradeoff; none removes the need to measure coverage.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Real uses',
       paragraphs: [
-        'Sources: RLVR coverage paper at https://arxiv.org/abs/2504.13837, DeepSeek-R1 at https://arxiv.org/abs/2501.12948, and Pass@k Metric for RLVR at https://arxiv.org/abs/2511.16231. Study DeepSeek-R1: GRPO and RLVR, Process Reward Models & Verifier Search, Self-Consistency Reasoning Vote, Tree of Thoughts, and RL Experiment Reproducibility Ledger next.',
+        'This diagnostic matters for math models, code models, theorem provers, agents that call tools, automated repair systems, and benchmark training pipelines. Any place with a verifier can benefit from RLVR, and any place with a verifier can accidentally overfit to what the verifier sees.',
+        'In code, a model may learn test-passing patterns that improve first attempts but lose alternative algorithms that generalize to hidden cases. In math, it may overuse a common template and stop sampling rare transformations. In tool-use agents, it may learn the shortest verified path while losing fallback behavior needed when an API changes. In theorem proving, it may concentrate on tactics rewarded by the current proof environment while dropping exploratory paths that matter for harder statements.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The first failure mode is reward hacking. If the verifier is too shallow, the model can learn to satisfy the checker without learning the intended reasoning. The second is path duplication. A large-k sample set can look diverse while containing many surface variants of the same reasoning path. The third is slice collapse, where aggregate pass@1 improves but rare task families lose support.',
+        'The fourth failure mode is confusing majority vote with truth. Majority vote can become stronger after RLVR because the model repeats one answer more often. That is helpful when the answer is correct and harmful when the model becomes confidently wrong. The fifth is prompt or decoder dependence. A coverage claim measured with one temperature, top-p setting, or prompt format may not hold under another serving policy.',
+        'The fix is not to reject RLVR. The fix is to evaluate it honestly. Measure pass@1, pass@k, entropy, majority vote, distinct correct paths, and slices. Keep examples of lost and gained paths. Decide whether lost support matters for the product. Then tune training, verifier design, sampling, and release gates around the actual risk.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study DeepSeek-R1: GRPO and RLVR for the useful side of verifier-driven training. Then study Process Reward Models and Verifier Search, Self-Consistency Reasoning Vote, Tree of Thoughts, Best-of-N Sampling, Beam Search, and RL Experiment Reproducibility Ledger. The common thread is search over reasoning paths under a budget.',
+        'For primary reading, start with Does Reinforcement Learning Really Incentivize Reasoning Capacity in LLMs Beyond the Base Model? at https://arxiv.org/abs/2504.13837 and DeepSeek-R1 at https://arxiv.org/abs/2501.12948. When reading any RLVR result, keep the same questions open: what did pass@1 do, what did large-k coverage do, what paths were lost, what paths were gained, and what verifier incentives shaped the movement?',
       ],
     },
   ],

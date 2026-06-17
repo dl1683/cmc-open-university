@@ -252,44 +252,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why This Exists`,
       paragraphs: [
-        'An eertree, also called a palindromic tree, is an online data structure for all distinct palindromic substrings of a string. Each non-root node represents one palindrome. Edges represent wrapping an existing palindrome with the same character on both sides, and suffix links connect a palindrome to its longest proper palindromic suffix.',
-        'The structure has two special roots: one with length -1 and one with length 0. The odd root makes single-character palindromes fall out uniformly, while the empty root anchors even-length palindromes. This two-root trick is what makes the online construction clean instead of full of boundary cases.',
+        `An eertree exists because palindrome questions are more specific than general substring questions. A program may need the distinct palindromes in a text, the current longest palindromic suffix after every append, occurrence counts, or a compact view of how palindromes nest inside each other.`,
+        `A suffix array, suffix tree, or suffix automaton can support many substring queries, but palindromes are not first-class in those structures. The eertree makes each distinct palindrome a node, so palindrome inventory becomes the main state rather than a derived calculation.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `Naive Baseline and Wall`,
       paragraphs: [
-        'Maintain a pointer to the longest palindromic suffix of the current prefix. When a new character arrives, try to wrap that suffix with the new character. If the character before the suffix does not match, follow suffix links to shorter palindromic suffixes until one can be wrapped. If the wrapped palindrome already has an edge, reuse it; otherwise create a new node and set its suffix link.',
-        'For ababa, the structure creates nodes a, b, aba, bab, and ababa. The suffix-link chain for ababa is ababa -> aba -> a -> empty. That chain is useful for fallback during construction and for later palindrome queries such as longest palindromic suffix, occurrence propagation, and nested palindrome analysis.',
+        `The baseline is to enumerate substrings and test whether each one reads the same forward and backward. Dynamic programming improves the test reuse, and Manacher's algorithm can find longest palindrome radii in linear time for a finished string.`,
+        `The wall is online distinctness. After appending one character, only palindromic suffixes of the previous prefix can become new palindromes by being wrapped with that character. A structure that cannot jump through those suffixes either rescans too much or fails to maintain the distinct-palindrome graph as the stream grows.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Core Insight and Invariant`,
       paragraphs: [
-        'The eertree has O(n) nodes because a string of length n has at most n distinct non-empty palindromic substrings. Construction is online and linear up to alphabet-map costs: with hash maps or fixed arrays for outgoing character edges, each append is amortized efficient. Space is O(number of distinct palindromes plus edges and suffix links).',
-        'This is different from storing every palindromic occurrence. A string can have many repeated palindrome occurrences, but the eertree stores each distinct palindrome once. Occurrence counts can be accumulated on nodes and propagated through suffix links after construction.',
+        `Store each distinct palindrome as one node. A suffix link points from a palindrome to its longest proper palindromic suffix. When a character arrives, start at the current longest palindromic suffix and follow suffix links until the new character can wrap that palindrome on both sides.`,
+        `The invariant is one node per distinct non-empty palindrome, plus two artificial roots of length -1 and length 0. Each append creates at most one new node: the longest new palindromic suffix. All shorter palindromic suffixes already existed earlier.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Imagine a telemetry job scanning product IDs, DNA bases, or normalized text and tracking palindrome structure as data arrives. The eertree updates after each character, exposes the current longest palindromic suffix, increments occurrence counters, and creates a node only when a new distinct palindrome appears. Downstream dashboards can show distinct palindrome growth, repeated palindromic motifs, or sudden changes in the distribution.',
-        'A simpler algorithm such as Manacher finds palindromic radii in one finished string, but it does not maintain a reusable graph of distinct palindromes and suffix links. A suffix automaton stores all substrings, but palindromes are not first-class. Eertree is specialized: it gives palindrome questions the direct representation they deserve.',
+        `In the online insertions view, watch last as the current longest palindromic suffix. For ababa, appending a after abab extends bab into ababa. If an extension fails, the suffix-link frame shows the recovery path: try the next shorter palindromic suffix, not an arbitrary substring.`,
+        `In the roots and suffix links view, separate extension edges from suffix links. Extension edges build larger palindromes by wrapping a known palindrome with matching characters. Suffix links move downward through proper palindromic suffixes. In the palindrome analytics view, the same nodes become an inventory for counts, longest suffix tracking, and query answers.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Mechanics`,
       paragraphs: [
-        'Do not use eertree for arbitrary mutable text unless you are ready for much harder dynamic variants or rebuilds. The standard structure is naturally append-online. For text editors, Rope, Piece Table, Gap Buffer, and Sequence CRDTs solve different update problems.',
-        'Also do not confuse distinct palindromes with occurrences. The node count answers distinct inventory; occurrence counts need extra bookkeeping. Finally, suffix links are not suffix-array links. They move between palindromic suffixes only, which is exactly why the structure is small and targeted.',
+        `The structure starts with two roots. The length -1 root is an odd-length sentinel that lets a single character be treated as c + root + c. The length 0 root represents the empty palindrome and anchors even-length palindromes. Each real node stores its palindrome length, outgoing character-extension edges, a suffix link, and optional counters.`,
+        `To append character c at position i, take the current last node and test whether the character just before that palindrome is also c. If yes, the palindrome can be wrapped. If not, follow suffix links and try again. Once a wrap candidate is found, either reuse the existing c edge or create a new node and compute its suffix link by continuing the same fallback search from the candidate's suffix link.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Correctness`,
       paragraphs: [
-        'Primary sources: Rubinchik and Shur, "EERTREE: An Efficient Data Structure for Processing Palindromes in Strings", at https://arxiv.org/abs/1506.04862 and PDF at https://arxiv.org/pdf/1506.04862. For dynamic extensions, see Double-Ended Palindromic Trees at https://arxiv.org/abs/2210.02292. Study KMP Prefix Function and Aho-Corasick Automaton for fallback-link intuition, Suffix Automaton for all-substring structure, Suffix Array & LCP and FM-Index for static full-text indexing, and Text Rope Data Structure for the mutable-text contrast.',
+        `Only a suffix of the previous prefix can become a new palindrome ending at the newly appended character. More specifically, it must be a palindromic suffix, because wrapping a non-palindrome cannot produce a palindrome. Suffix links enumerate exactly those palindromic suffix candidates from longest to shortest.`,
+        `If the longest successful wrap already has an outgoing edge for c, the resulting palindrome has been seen before. If it does not, that wrapped palindrome is the unique new distinct palindrome introduced by this append. Any shorter palindromic suffix ending at the new character also appeared as a palindrome earlier, because it occurs inside the newly formed longest suffix or was found by the fallback chain.`,
+      ],
+    },
+    {
+      heading: `Cost and Tradeoffs`,
+      paragraphs: [
+        `A string of length n has at most n distinct non-empty palindromic substrings, so the eertree has O(n) real nodes. With suitable transition maps, online construction is O(n) amortized time plus alphabet lookup costs. Space is O(n) nodes, suffix links, counters, and extension edges.`,
+        `The structure stores distinct palindromes, not every occurrence as a separate object. Occurrence counting is an added layer: increment the node for the longest suffix on each append, then propagate counts from longer palindromes through suffix links to shorter palindromic suffixes after construction or in a carefully maintained online variant.`,
+      ],
+    },
+    {
+      heading: `Implementation checklist`,
+      paragraphs: [
+        `Keep the two artificial roots explicit. The length -1 root is not a real palindrome, but it makes the first character extension work without special cases. The length 0 root is the empty palindrome and anchors even-length cases. Removing these sentinels usually creates more conditionals and more bugs.`,
+        `Store enough source information to test extension. Each node length tells the algorithm which character position must match the newly appended character. The current last pointer tells where to begin the suffix-link search. Transition maps should be chosen for the alphabet size: arrays for small alphabets, maps for large or sparse alphabets.`,
+        `If occurrence counts matter, decide when counts are final. Online increments record how often each node is the longest suffix at an append step. To count all occurrences, propagate counts from longer nodes to their suffix links after construction, or maintain an online equivalent carefully.`,
+      ],
+    },
+    {
+      heading: `Testing it`,
+      paragraphs: [
+        `For small strings, compare the eertree node set against a brute-force set of palindromic substrings. Test repeated characters such as aaaaa, alternating strings such as ababa, strings with no long palindromes, and mixed alphabets. The node count should never exceed the string length.`,
+        `Also test suffix-link chains. Every suffix link from a real node should point to a shorter palindrome that is a proper suffix of the source palindrome, and repeated suffix-link traversal should eventually reach the empty root. Those tests catch wrong fallback logic even when distinct counts look plausible.`,
+      ],
+    },
+    {
+      heading: `Worked Example`,
+      paragraphs: [
+        `Build ababa one character at a time. After a, the node a is created. After ab, b is created. After aba, last is b; appending a wraps b into aba. After abab, appending b wraps a into bab. After ababa, appending a wraps bab into ababa.`,
+        `The suffix links expose the nesting: ababa links to aba, which links to a, which links to the empty root. That chain is not just decorative. It is the exact sequence the insertion logic would use if a future appended character failed to extend the current longest palindromic suffix.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `Eertree wins for append-only or batched strings where palindrome inventory matters: text streams, product or transaction IDs, DNA bases, motif analysis, distinct-palindrome counting, longest palindromic suffix tracking, and analytics over repeated palindromic structure.`,
+        `It is especially useful when answers are needed after each append. The current last pointer gives the longest palindromic suffix immediately, and the node set gives the distinct-palindrome inventory without recomputing over the whole prefix.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `The standard eertree is not a general mutable text-editor index. Middle insertions and deletions break the append-only construction order and usually require advanced double-ended or dynamic variants, a rope-like outer structure, or rebuilds.`,
+        `It is also easy to overread the structure. It does not replace suffix arrays or FM-indexes for arbitrary substring search. Its suffix links are not suffix-array positions; they move only among palindromic suffixes. Distinct palindrome count and occurrence count are related but not the same question.`,
+      ],
+    },
+    {
+      heading: `Sources and Study Next`,
+      paragraphs: [
+        `Primary source: Rubinchik and Shur, "EERTREE: An Efficient Data Structure for Processing Palindromes in Strings", at https://arxiv.org/abs/1506.04862. For dynamic extensions, see "Double-Ended Palindromic Trees" at https://arxiv.org/abs/2210.02292.`,
+        `Study KMP Prefix Function and Aho-Corasick Automaton for fallback-link intuition, Suffix Automaton for compact all-substring state, Suffix Array & LCP and FM-Index for static full-text indexing, Manacher's Algorithm for longest-palindrome radii, and Text Rope Data Structure for the mutable-text contrast.`,
       ],
     },
   ],

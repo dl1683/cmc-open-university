@@ -247,51 +247,95 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'An LLM evaluation harness is a repeatable way to score an LLM model, prompt, retrieval pipeline, agent, or full application against cases that matter. The goal is not to imitate conventional unit tests for every concept in this educational repo. The useful artifact is an eval case: a replayable task with input, context, expected behavior, metadata, scorer, and trace.',
-        'OpenAI describes evals as tests that check whether model outputs meet specified style and content criteria: https://developers.openai.com/api/docs/guides/evals. OpenAI Evals provides a framework and registry for evaluating LLMs and systems built with LLMs: https://github.com/openai/evals. EleutherAI lm-evaluation-harness is a widely used framework for few-shot language-model benchmark evaluation: https://github.com/EleutherAI/lm-evaluation-harness.',
+        'LLM systems do not only return exact values. They summarize, retrieve, call tools, write explanations, refuse unsafe requests, cite sources, ask clarifying questions, and sometimes take many steps before producing an answer. A normal unit test can check a parser or function. An LLM evaluation suite has to check behavior under uncertainty.',
+        'The useful artifact is an eval case: a replayable task with the input, relevant context, expected behavior, scorer, metadata, trace, and risk slice. A good case is not just a prompt and a score. It is enough evidence to rerun the system and understand why it passed or failed.',
+        'The evaluation system is the machinery around those cases: runners, model or prompt variants, retrieval snapshots, tool traces, scorers, judge prompts, score matrices, and release gates.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and its wall',
+      paragraphs: [
+        'The obvious approach is to read a handful of outputs and decide whether the new prompt feels better. That is useful during early exploration, but it is not a regression gate. Humans remember the examples they just fixed, miss rare slices, and overvalue polished wording.',
+        'The second naive approach is one blended benchmark score. That can hide the failure that matters. A model can improve average helpfulness while getting worse on safety refusals, rare entities, citation support, latency, cost, or tool-use correctness.',
+        'The wall is that LLM quality is multidimensional. The eval suite must preserve slices and traces, not collapse everything into one comforting number.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'In the golden-set view, follow production traces into curated cases, then into the runner. The important data structure is the case record: input, context, expected behavior, tags, and enough trace material to reproduce the decision.',
+        'The holdout node is there to remind you that evals wear out. A visible development set helps engineers improve the system. A sealed holdout checks whether those improvements generalize beyond the examples everyone has been staring at.',
+        'In the judge-rubric view, watch how the candidate answer, reference material, rubric, judge score, rationale, and human audit fit together. The judge is not truth. It is another model producing evidence that needs calibration.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A harness stores cases in a structured format. Each case may include the user task, retrieved documents, tool trace, expected facts, disallowed behavior, labels, and slices such as domain, risk, language, customer type, or attack family. A runner replays those cases through candidate systems. Scorers compute exact match, schema validity, citation support, faithfulness, latency, cost, refusal quality, rubric score, or pairwise preference. The result is a score matrix, not one magic number.',
-        'RAG Evaluation: RAGAS, ARES, and the RAG Triad is the specialized version for retrieval-augmented systems. It splits retrieval recall, context precision, groundedness, and answer relevance so teams can see whether the index, reranker, generator, or judge failed.',
-        'Golden sets are curated and visible enough for development. Holdouts are sealed and used sparingly. This mirrors Cross-Validation & Honest Evaluation and Data Leakage & Contamination: if teams tune every prompt against the final eval set, the eval stops measuring generalization. For agents, traces are crucial because a correct final answer can hide unsafe tool use, excessive retries, or missing evidence.',
+        'An eval system stores structured cases. A case may include the user task, retrieved documents, tool trace, expected facts, disallowed behavior, reference answer, rubric, labels, and slices such as domain, risk, language, customer type, or attack family.',
+        'A runner replays each case through candidate systems: old model, new model, old prompt, new prompt, changed retriever, changed tool policy, or changed agent loop. Scorers then measure exact match, schema validity, citation support, groundedness, latency, cost, refusal quality, rubric score, or pairwise preference.',
+        'The output should be a score matrix. Rows are cases or slices. Columns are dimensions and variants. A release gate should be able to block on a critical regression even when the average score improves.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The case is the primary data structure. The judge, model, and prompt can all change, but the case preserves what behavior the system was supposed to exhibit and why.',
+        'The trace is the second key structure. For a RAG system, it records retrieved sources and citations. For an agent, it records tool calls, observations, costs, retries, and final answer. Without the trace, a pass may hide unsafe or expensive behavior.',
+        'The score is the third structure, and it must stay sliced. An overall score is a dashboard summary, not the evidence needed to ship a change.',
       ],
     },
     {
       heading: 'Judges and rubrics',
       paragraphs: [
-        'LLM-as-a-judge is useful when output quality is open-ended. The judge receives the case, candidate answer, reference material, and rubric, then returns a score and rationale. A survey on LLM-as-a-judge frames the field around what to judge, how to judge, and how to benchmark judges: https://arxiv.org/html/2411.15594v6. The practical rule is to treat the judge as another model with bias, variance, and calibration problems.',
-        'Rubric design matters. A vague judge prompt rewards style. A good rubric names criteria: factual correctness, answer completeness, citation support, policy compliance, concision, tool-use correctness, and when to abstain. Use human audit on high-impact slices and periodically compare judge decisions to human labels.',
+        'LLM-as-a-judge is useful when output quality is open-ended. The judge receives the case, candidate answer, reference material, and rubric, then returns a score and rationale. That is appropriate for qualities like completeness, helpfulness, faithfulness, tone, and refusal quality.',
+        'Rubric design matters. A vague judge prompt rewards style. A useful rubric names criteria: factual correctness, answer completeness, citation support, policy compliance, concision, tool-use correctness, and when to abstain.',
+        'Judges need calibration. They can prefer verbosity, familiar wording, their own model family, or the answer shown first. Keep anchor cases, compare judge scores with human labels, randomize answer order for pairwise tests, and audit high-stakes slices.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A support copilot is upgraded to a cheaper faster model. The average helpfulness score rises. The latency and cost columns improve. But the safety slice for refund-policy edge cases drops from 97% to 90%. A single blended score would hide the regression; a sliced score matrix blocks the rollout.',
+        'The team opens the failed cases and sees that the new model answers confidently when the retrieved policy document is missing. The fix is not only a prompt tweak. The evaluation runner needs a groundedness scorer, a retrieval-miss slice, and a gate that requires abstention when the context does not support the answer.',
       ],
     },
     {
       heading: 'Cost and complexity',
       paragraphs: [
-        'Eval cost is shaped by case count, model calls per case, judge calls, retrieval replay, tool simulation, human labels, and repeated runs across variants. Cheap property checks should run first. Expensive judge calls and human review should focus on changed or risky slices. Benchmark Variance & Model Selection still applies: report confidence intervals, slice counts, model versions, prompt versions, and cost per task when the conclusion matters.',
-        'The harness also needs versioning. Store case version, prompt version, retrieval index version, model version, scorer version, and random seed when sampling is involved. Without those fields, a score cannot be reproduced or compared fairly after the system changes. AI Engineering Stack: Five Parts Primer places this in the wider system: evaluation is one moving part beside data, model, compute, and serving.',
+        'Eval cost is shaped by case count, model calls per case, judge calls, retrieval replay, tool simulation, human labels, and repeated runs across variants. Cheap deterministic checks should run first. Expensive judge calls and human review should focus on changed or risky slices.',
+        'The eval system also needs versioning. Store case version, prompt version, retrieval index version, model version, scorer version, judge version, tool simulator version, and random seed when sampling is involved. Without those fields, a score cannot be reproduced or compared fairly.',
+        'Benchmark variance still applies. Report slice counts, confidence intervals where appropriate, and cost per task when using evals to make product or vendor decisions.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Operating rules',
       paragraphs: [
-        'LLM eval harnesses are used for model upgrades, prompt changes, RAG Pipeline changes, tool-call migrations, safety-policy changes, agent-loop updates, customer-support copilots, legal research assistants, code agents, summarizers, classifiers, and extraction systems. HELM is the research-scale version of this idea: it evaluates many models across scenarios and metrics for transparency, not only accuracy: https://arxiv.org/abs/2211.09110 and https://crfm.stanford.edu/helm/.',
+        'Keep the suite close to production. Add cases from real failures, customer escalations, red-team prompts, tool-call mistakes, citation errors, and policy disputes. Tag each case by risk and product surface so a regression can be routed to the right owner.',
+        'Separate exploration from release gates. Engineers need visible cases for debugging, but shipping decisions need protected cases that were not tuned directly. When a protected case becomes a teaching example, mark it as visible and replace it with fresh holdout coverage.',
+        'Review failures as artifacts, not anecdotes. A failed case should show input, context, output, trace, scorer result, judge rationale when used, and owner decision. That makes the suite a curriculum for the product team as well as a gate for code changes.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins',
       paragraphs: [
-        'The first trap is treating an LLM judge as ground truth. It is a noisy evaluator with preferences and blind spots. The second trap is averaging away important slices. A model can improve average helpfulness while getting worse on policy edges, rare entities, adversarial prompts, or expensive tool traces. The third trap is eval overfitting: once the team has seen a case too many times, it becomes training data.',
-        'A good eval suite is therefore layered: exact checks where possible, rubric judges where useful, human review where stakes justify it, and a steady stream of fresh cases from production failures. The suite should explain regressions, not only announce them.',
+        'LLM eval suites win for model upgrades, prompt migrations, RAG changes, tool-call policies, agent-loop changes, safety-policy updates, support copilots, legal research assistants, code agents, summarizers, classifiers, and extraction systems.',
+        'They are especially useful when the team has recurring production failures. A good suite turns failures into durable cases so the same mistake cannot quietly return.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when the cases are toy examples disconnected from real usage. It fails when the judge is treated as ground truth. It fails when scores are averaged across slices that have different risk.',
+        'It also fails when teams overfit the development set. Once engineers tune against the same cases repeatedly, those cases stop measuring generalization. Keep a holdout, add fresh cases, and mark which cases have become visible training material.',
+        'The suite should explain regressions, not only announce them. If a failing score cannot be traced back to input, context, output, scorer, and rationale, the evaluation system is not yet an engineering tool.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary and official sources: OpenAI evals guide at https://developers.openai.com/api/docs/guides/evals, OpenAI Evals repository at https://github.com/openai/evals, EleutherAI lm-evaluation-harness at https://github.com/EleutherAI/lm-evaluation-harness, HELM paper at https://arxiv.org/abs/2211.09110, Stanford HELM at https://crfm.stanford.edu/helm/, and LLM-as-a-Judge survey at https://arxiv.org/html/2411.15594v6. Study Human Evaluation Labeling Queue Case Study, LLM Judge Calibration & Drift Monitor, LLM Model Rollout Shadow Canary Ledger, Benchmark Variance & Model Selection, Cross-Validation & Honest Evaluation, Data Leakage & Contamination, Calibration & Reliability Diagrams, Agentic AI Patterns: Planning, Tools, Memory, Prompt Injection Threat Model, AI Audit Evidence Packet Case Study, and Multi-Index RAG next.',
+        'Primary and official sources: OpenAI evals guide at https://developers.openai.com/api/docs/guides/evals, OpenAI Evals repository at https://github.com/openai/evals, HELM paper at https://arxiv.org/abs/2211.09110, Stanford HELM at https://crfm.stanford.edu/helm/, and LLM-as-a-Judge survey at https://arxiv.org/html/2411.15594v6. Study Human Evaluation Labeling Queue Case Study, LLM Judge Calibration & Drift Monitor, LLM Model Rollout Shadow Canary Ledger, Benchmark Variance & Model Selection, Cross-Validation & Honest Evaluation, Data Leakage & Contamination, Calibration & Reliability Diagrams, Agentic AI Patterns: Planning, Tools, Memory, Prompt Injection Threat Model, AI Audit Evidence Packet Case Study, and Multi-Index RAG next.',
       ],
     },
   ],

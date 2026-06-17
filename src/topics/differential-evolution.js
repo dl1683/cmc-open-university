@@ -245,42 +245,71 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Differential Evolution is a population-based optimizer for problems where the score is available but gradients are not. Instead of moving one point downhill, it keeps a population of candidate vectors. For each target vector, it samples other members, forms a difference vector, scales that difference, adds it to a base vector, crosses the result with the target, evaluates the trial, and keeps whichever candidate scores better.',
-        'The central formula is simple: mutant = a + F * (b - c). The difference b - c is not symbolic biology; it is a search direction extracted from the current population. If candidates are spread out, steps are larger. If the population has narrowed around a basin, steps shrink. That is why DE often behaves well on black-box numerical optimization without requiring hand-written derivatives.',
+        `Differential Evolution exists for numeric optimization problems where the only reliable operation is "try this vector and score it." The objective may be a simulator, a lab measurement, a model query, a compiler benchmark, a controller rollout, or a black-box loss. It may be noisy, discontinuous, nonconvex, or unavailable as a formula. Gradient descent wants derivatives. Grid search wants a small number of dimensions. Differential Evolution asks for something weaker: bounded parameters and enough budget to evaluate a population of candidates.`,
+        `The method is useful because many real design problems expose a score long before they expose a smooth landscape. Tune five PID gains. Choose ten simulation constants. Search a small adversarial perturbation. Calibrate a model where each run returns an error number. In these settings, the question is not "what is the exact derivative?" It is "how can the candidates teach each other where useful steps might be?" Differential Evolution answers by turning differences between population members into new moves.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The reasonable first attempt',
       paragraphs: [
-        'A DE generation has three practical moves. Mutation creates a mutant vector from existing population members. Crossover chooses which coordinates come from the target and which come from the mutant, creating a trial vector. Selection evaluates the trial and replaces the target only if the trial is better. This greedy replacement makes progress easy to understand: each population slot is either preserved or improved under the objective.',
-        'The algorithm connects directly to Evolutionary Search, Hyperparameter Search, Neural Architecture Search, and One-Pixel Attack Case Study. In the one-pixel attack, a candidate vector is x, y, red, green, and blue; the black-box classifier supplies the fitness score. In systems work, the same pattern can tune policy parameters, simulator knobs, or non-differentiable latency/quality tradeoffs.',
+        `The first attempt is often random search. Pick vectors inside the bounds, evaluate them, keep the best. This is honest and sometimes surprisingly strong because it makes few assumptions. Its wall is that it throws away geometry. If one candidate is better than another, random search does not learn a direction, a scale, or which coordinates might move together. As dimensions increase, most samples miss the interesting region unless the evaluation budget grows painfully.`,
+        `The second attempt is local noise around the current best candidate. That uses more information, but it introduces a new problem: the mutation scale has to be lucky. Too small and the search crawls inside one basin. Too large and it jumps over useful structure. A single fixed scale is especially weak when different coordinates have different sensitivity. Gradient methods are still the right tool when gradients are cheap and meaningful. Differential Evolution is for the cases where the evaluator returns only a score and the search still needs structured exploration.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core insight',
       paragraphs: [
-        'The cost is dominated by objective evaluations. If a population has P candidates and runs for G generations, the loop performs about P * G score calls, plus cheap vector arithmetic. That is fine when an evaluation is milliseconds and painful when each evaluation means training a model. DE also struggles as dimensionality grows unless the budget, population size, bounds, and mutation strategy are chosen carefully.',
-        'The knobs matter. F controls the mutation scale. The crossover rate controls how aggressively the mutant rewrites coordinates. Population size trades exploration against cost. Bounds and repair rules decide what happens when a vector leaves the legal domain. A serious experiment reports seeds, budgets, baselines, and variance rather than one lucky curve.',
+        `The core move is the differential mutation: mutant = a + F * (b - c). The vector b - c is a direction and scale borrowed from the current population. If the population is spread out, differences are large and exploration is wider. If the population has clustered, differences shrink and search becomes more local. The algorithm does not need a hand-designed step size for every coordinate; the population supplies candidate moves from its own geometry.`,
+        `Differential Evolution then uses crossover and greedy selection. Crossover mixes the target vector with the mutant vector, producing a trial that changes some coordinates while preserving others. Selection evaluates the trial and replaces the target only if the trial is at least as good under the objective. That makes each population slot a small tournament between the old candidate and a structured variation. The algorithm never accepts a nice story over a measured score.`,
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Mechanism',
       paragraphs: [
-        'DE appears in engineering design, parameter estimation, simulation calibration, adversarial machine learning, robotics, signal processing, operations research, and AutoML-style searches. Its appeal is not that it is the mathematically purest optimizer. Its appeal is that many real systems expose a score function long before they expose a useful gradient. If you can call the evaluator and the candidate is a bounded vector, DE is often a defensible baseline.',
+        `A generation starts by choosing a target candidate. The algorithm samples other distinct population members to play the roles of base and difference vectors. In the common DE/rand/1/bin strategy, it builds one mutant from a random base plus one scaled difference. Other strategies use the current best candidate, multiple differences, or different crossover rules, but the basic structure remains: create a plausible alternative from population relationships.`,
+        `After mutation, binomial crossover decides coordinate by coordinate whether the trial inherits from the target or the mutant. At least one coordinate must come from the mutant so the trial is not identical to the target. Bounds are enforced by clipping, resampling, reflection, or a problem-specific repair rule. The objective evaluates the trial. If the problem is minimization and the trial score is lower, the trial replaces the target in the next population; otherwise the target survives. Repeat this for every population member and many generations.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the visual proves',
       paragraphs: [
-        'Do not use DE just because a problem feels mysterious. If gradients are cheap and reliable, Gradient Descent and its variants will often scale better. Do not compare DE to weak baselines with a much larger evaluation budget. Do not confuse black-box success with causal understanding: DE can find a high-scoring candidate without explaining why the system behaved that way. Pair it with diagnostics, ablations, and domain constraints.',
+        `The mutation view proves that the method is not blind noise. The arrow b - c is a concrete vector between two existing candidates. Scaling it by F and adding it to a base point creates a move whose magnitude reflects population diversity. The target is not overwritten by that move. Crossover makes a trial, and selection requires measured improvement before replacement. The visual separates exploration, recombination, and acceptance.`,
+        `The black-box attack view proves the same idea in a less abstract setting. The candidate vector is the editable object, such as a pixel location and color. The model confidence is just the score function. The best-so-far curve shows query budget being converted into better candidates, but it also shows why a single successful run is not enough evidence. A lucky curve may depend on seed, budget, bounds, and target choice. The visual supports the sober reading: Differential Evolution is a budgeted search process, not a guarantee of global discovery.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why it works',
       paragraphs: [
-        'Primary source: Storn and Price, Differential Evolution, at https://doi.org/10.1023/A:1008202821328. The original technical report is mirrored at https://www1.icsi.berkeley.edu/~storn/TR-95-012.pdf. For an applied black-box attack, read One Pixel Attack for Fooling Deep Neural Networks at https://arxiv.org/abs/1710.08864. For a production-grade implementation reference, see SciPy differential_evolution at https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html. Study Evolutionary Search, One-Pixel Attack Case Study, Hyperparameter Search, Neural Architecture Search, and Gradient Descent next.',
+        `Differential Evolution has no universal correctness proof that says it will find the global optimum quickly on every landscape. Its justification is behavioral. Population differences adapt step scale to the current search distribution. Crossover can test partial coordinate changes without discarding the entire target. Greedy selection keeps each slot from getting worse under the measured objective. Together, these rules create a simple pressure: preserve good candidates, perturb them using live population geometry, and keep changes that score better.`,
+        `That pressure is enough to be useful on many rough landscapes because it avoids two extremes. It is less wasteful than independent random sampling because it reuses population structure. It is less brittle than a local hill climber because multiple candidates explore multiple regions at once, and differences can jump between basins. Still, "works well often" is not the same as "proves optimal." Serious use treats Differential Evolution as an empirical optimizer that must be compared against baselines under the same evaluation budget.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        `The cost is dominated by objective evaluations. With population size P and generation count G, the loop performs roughly P * G trial evaluations after initialization. Vector arithmetic is usually cheap; the evaluator is the bill. If each score call is a millisecond simulation, the method is easy to run. If each score call trains a model, drives a robot, or queries a paid service, the budget becomes the algorithm's central constraint.`,
+        `The knobs matter. F controls mutation scale. The crossover rate controls how aggressively mutant coordinates enter the trial. Population size trades diversity against evaluation cost. Bounds and repair rules shape the search more than many users admit. High-dimensional problems often need larger populations or domain-specific structure because random coordinate mixing becomes inefficient. Noisy objectives may require repeated evaluations or robust selection, which multiplies cost. Parallel hardware helps because population evaluations are often independent, but parallelism does not reduce the number of scores required for evidence.`,
+      ],
+    },
+    {
+      heading: 'Uses and failure modes',
+      paragraphs: [
+        `Differential Evolution appears in engineering design, simulation calibration, parameter estimation, signal processing, operations research, robotics, adversarial machine learning, and AutoML-style searches. It is a good fit when candidates are real-valued vectors with meaningful bounds, gradients are unavailable or unreliable, and evaluation is expensive enough that random wandering is wasteful but cheap enough that a population can be tested. The One Pixel Attack is a memorable example because the candidate vector is tiny and the classifier can be queried as a black box.`,
+        `It fails when used as a default substitute for thinking. If gradients are cheap and reliable, gradient methods often scale better. If the problem is mostly discrete or constrained by complex validity rules, naive vector mutation may generate many illegal candidates unless repair is carefully designed. If the objective is noisy, greedy replacement can prefer lucky measurements. If the evaluation budget is uneven across methods, comparisons become misleading. Differential Evolution can find a high-scoring candidate without explaining causality, so results should be paired with diagnostics, ablations, and domain review.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Primary sources are Storn and Price's Differential Evolution paper, the original technical report, SciPy's differential_evolution documentation for implementation details, and the One Pixel Attack paper for an applied black-box search example. Study Evolutionary Search first for the broader population-based pattern. Then read Gradient Descent to understand the tool Differential Evolution is often compared against, One-Pixel Attack Case Study for a compact adversarial use case, Hyperparameter Search and Neural Architecture Search for evaluation-budget discipline, and Bayesian Optimization for a contrasting black-box optimizer that builds a surrogate model instead of relying only on population differences.`,
+      ],
+    },
+    {
+      heading: 'Sources',
+      paragraphs: [
+        `The original paper is Storn and Price, Differential Evolution, at https://doi.org/10.1023/A:1008202821328. The earlier technical report is mirrored at https://www1.icsi.berkeley.edu/~storn/TR-95-012.pdf. A practical implementation reference is SciPy's documentation at https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.differential_evolution.html. The black-box attack example is One Pixel Attack for Fooling Deep Neural Networks at https://arxiv.org/abs/1710.08864.`,
       ],
     },
   ],

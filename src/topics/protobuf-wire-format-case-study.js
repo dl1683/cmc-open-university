@@ -186,10 +186,25 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
+        'Protocol Buffers exists because distributed systems need payloads that are smaller and more explicit than JSON while still surviving schema evolution. A raw positional binary record is compact but brittle. A fully self-describing record is easy to inspect but repeats field names and types constantly.',
         'The Protocol Buffers wire format is a compact tag-value encoding. Each field writes a tag that combines field number and wire type, followed by the encoded value. The schema is not repeated as field names in every message; generated code uses field numbers to interpret bytes.',
         'This is why Protobuf is small and evolvable. Field numbers are the stable identity, wire types let parsers skip unknown fields, and varints make small integers and lengths cheap.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and its wall',
+      paragraphs: [
+        'The obvious self-describing format is to write field names and values together, as JSON does. That is readable but repetitive. The opposite extreme is to write raw values in order, which is compact but brittle when fields are added or removed.',
+        'Protobuf splits the difference. It writes numeric field identities and wire types, not names. That keeps payloads small while preserving enough structure for old readers to skip fields they do not understand.',
+      ],
+    },
+    {
+      heading: 'Mechanism',
+      paragraphs: [
+        'In the tag-value view, split every byte sequence into three questions: what field number is this, what wire type says how to read it, and how many bytes does the value consume? That is the whole parser loop.',
+        'In the unknown-field view, focus on what the old parser can know without the new schema. It cannot know the semantic field name, but the wire type tells it how to skip the bytes and continue decoding known fields.',
       ],
     },
     {
@@ -197,6 +212,20 @@ export const article = {
       paragraphs: [
         'A tag is encoded as a varint: field_number << 3 OR wire_type. Wire type 0 is varint, type 1 is 64-bit fixed, type 2 is length-delimited, and type 5 is 32-bit fixed. Length-delimited values cover strings, bytes, embedded messages, and packed repeated numeric fields.',
         'A parser reads tag, splits number and type, decodes or skips the value, and repeats. Unknown fields can be skipped because the wire type carries enough length information for the parser to move to the next field.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'Field number is the durable identity. Names are source-code convenience. A rename can be compatible because the wire number stays the same; reusing a number can be dangerous because old bytes now point at a different meaning.',
+        'Wire type is the skip contract. Even without schema meaning, a parser can consume the correct number of bytes and continue. That is the mechanism behind forward-compatible unknown fields.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'Protobuf works because it separates durable wire identity from source-code names. The bytes carry field numbers and wire types. The schema maps those numbers back to generated fields. That means the payload can stay compact while the code remains typed.',
+        'The skip rule is what makes evolution practical. An old parser can see field 7, learn enough from the wire type to consume it, and continue reading field 1 or field 2 afterward. It does not have to understand the new business meaning to avoid corrupting the rest of the message.',
       ],
     },
     {
@@ -209,6 +238,45 @@ export const article = {
       heading: 'Cost and complexity',
       paragraphs: [
         'The wire format optimizes size and evolution, but debugging requires schemas or byte-level tooling. Field order is not the data model. Missing fields, default values, unknown field retention, packed repeated fields, and language-specific runtime behavior can all matter in migrations.',
+        'Schema discipline is part of the data structure. Reserve retired field numbers, avoid changing wire type under the same number, be careful with oneof migrations, and roll out producers and consumers in an order that old binaries can tolerate.',
+      ],
+    },
+    {
+      heading: 'Where it wins / Where it fails',
+      paragraphs: [
+        'Protobuf wins for service APIs, event streams, mobile clients, and storage formats where small binary payloads and schema evolution matter more than human-readable bytes.',
+        'It fails when teams treat generated classes as the whole contract. Compatibility depends on reserved numbers, default semantics, unknown-field policy, oneof changes, and rollout discipline across producers and consumers.',
+        'It is also a poor fit when humans need to inspect payloads without tools, when schemas are unavailable, or when ad hoc data exploration matters more than compact transport.',
+      ],
+    },
+    {
+      heading: 'Operational failure modes',
+      paragraphs: [
+        'The most common failure is field-number reuse. A field that once meant `account_id` cannot later mean `region_id` just because the source name was deleted. Old stored bytes, old producers, and old consumers may still exist. Reserve retired numbers and names so the mistake becomes impossible in code review.',
+        'Another failure is assuming all languages preserve unknown fields identically. Some runtimes keep them, some drop them in common workflows, and JSON transcoding may erase details the binary format would have preserved. Schema evolution has to be tested across the actual languages and gateways in the system.',
+        'Finally, packed repeated fields, oneof migrations, enum defaults, and signed integer encodings can surprise teams that only inspect generated classes. The wire format is the contract. Generated code is a convenience layer over that contract.',
+      ],
+    },
+    {
+      heading: 'Debugging checklist',
+      paragraphs: [
+        'When a protobuf payload looks wrong, start from bytes, not from the generated object. Walk the stream tag by tag: decode the tag varint, split field number and wire type, decode or skip the value, then repeat. This makes schema mismatches visible quickly because the byte stream will reveal which field number actually appeared.',
+        'Then compare the producer schema, consumer schema, registry schema, and deployed binary versions. Many protobuf incidents are rollout incidents: one service writes a field the next service can skip, but a gateway, JSON bridge, old mobile client, or analytics job makes a different compatibility assumption.',
+        'Keep golden payloads for migrations. A small set of known bytes decoded by old and new binaries is often more useful than a large generated-code test suite that never inspects wire compatibility directly.',
+      ],
+    },
+    {
+      heading: 'Rule of thumb',
+      paragraphs: [
+        'Treat a protobuf schema like a public database migration, not like a private class definition. Field numbers, wire types, defaults, enum behavior, and oneof shape can all outlive the source file that introduced them.',
+        'A safe change is one that old readers, new readers, old writers, new writers, gateways, and stored bytes can all survive. The wire format is designed to make that possible, but it does not make schema discipline optional.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'For message { id: 150, name: "Ada" }, field 1 with wire type 0 writes tag 0x08 and varint value 0x96 0x01. Field 2 with wire type 2 writes tag 0x12, then length 0x03, then the UTF-8 bytes for Ada. The bytes are compact because id and name are not written as strings.',
+        'If a future producer adds field 7, an old consumer reads the tag, sees a known wire type, skips that value, and continues. If the team reuses field 7 later for a different meaning, old stored bytes can become ambiguous. Field numbers are therefore durable public API, not implementation details.',
       ],
     },
     {

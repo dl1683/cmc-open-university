@@ -280,43 +280,96 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The five-part AI engineering stack is a diagnostic map: data, model, compute, evaluation, and serving. It is deliberately simple because it forces the right question: which part of the system is actually constraining progress? A model upgrade does not fix stale labels, a bad proxy metric, GPU memory pressure, training-serving skew, or p99 latency.',
-        'The local learning notes frame constraints as the curriculum. GPU memory, latency, flaky data, cost, label delay, and deployment friction are not distractions from AI engineering; they are where engineering judgment forms. This primer makes that judgment explicit and links each part to deeper topics in the repo.',
+        'AI systems are easy to discuss as if the model is the system. That hides most engineering failures. Stale labels, bad joins, weak evals, GPU memory pressure, p99 latency, serving cost, and rollback gaps can dominate model choice.',
+        'The five-part AI engineering stack is a diagnostic map: data, model, compute, evaluation, and serving. It exists to force the right question: which part is actually constraining progress?',
+      ],
+    },
+    {
+      heading: 'The tempting wrong answer',
+      paragraphs: [
+        'The wrong answer is to reach for a larger model whenever quality is bad. More model can be the most expensive way to avoid the real bottleneck: missing labels, leakage, a bad proxy metric, retrieval errors, a serving timeout, or an evaluation set that no longer represents the task.',
+        'Another wrong answer is to treat infrastructure as separate from AI work. GPU memory, latency, flaky data, cost, delayed labels, and deployment friction are not distractions from AI engineering. They are the curriculum.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'Data is rows, labels, sources, timestamps, ownership, and leakage boundaries. Model is function family, loss, weights, calibration, and failure slices. Compute is training time, memory, accelerators, kernels, batching, and budget. Evaluation is the proxy trusted before launch: held-out sets, golden cases, rubrics, confidence intervals, and human audit. Serving is the runtime path: API, p99, cache, feature lookups, rollback, cost, monitoring, and feedback into future data.',
+        'The loop matters. Serving decisions change user behavior and future data. Evaluation cases can get overfit. Compute limits push smaller models or better features. Data quality can dominate architecture. A mature team moves around the loop intentionally instead of treating training as the whole job.',
+      ],
+    },
+    {
+      heading: 'How to use the map',
+      paragraphs: [
+        'The five-part map is a routing table for debugging. A loss plateau points toward data, labels, baseline model behavior, and objective shape. An OOM points toward model size, sequence length, batch size, activation storage, optimizer state, or KV cache. An online drop after offline improvement points toward feature skew, delayed labels, traffic slices, and serving code.',
+        'The constraint-triage view is the method: start from the symptom, split it across the five parts, choose the smallest reversible intervention, and rerun the same measurement.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Data is the rows, labels, sources, timestamps, ownership, and leakage boundary. Model is the function family, loss, weights, calibration, and failure slices. Compute is training time, memory, accelerators, kernels, batching, and budget. Evaluation is the proxy you trust before launch: held-out sets, golden cases, rubrics, confidence intervals, and human audit. Serving is the runtime path: API, p99, cache, feature lookups, rollback, cost, monitoring, and feedback into future data.',
-        'The loop matters. Serving decisions change user behavior and therefore future data. Evaluation cases can get overfit. Compute limits push smaller models or better features. Data quality can dominate model choice. A mature team moves around the loop intentionally instead of treating training as the whole job.',
+        'Start with the symptom, not the preferred solution. If quality is low, inspect data coverage, label quality, baseline behavior, calibration, and failure slices before assuming the architecture is too small. If training is slow, inspect sequence length, batch size, memory, kernel efficiency, and checkpointing before buying more hardware.',
+        'Then choose the smallest reversible intervention. Clean one bad slice, add one baseline, refresh one evaluation set, profile one hot path, or canary one serving change. The stack is useful because it turns vague "model is bad" discussion into a sequence of evidence-producing moves.',
       ],
     },
     {
-      heading: 'Diagnostic workflow',
+      heading: 'Why it works',
       paragraphs: [
-        'Start from the symptom. If the loss plateaus, inspect data slices, labels, baseline model behavior, and objective shape. If memory fails, inspect model size, sequence length, batch size, activation storage, optimizer state, and inference KV cache. If offline metrics rise but online metrics drop, inspect feature skew, delayed labels, traffic slices, and serving code. If p99 latency rises, inspect batching, cache misses, model route, retrieval, and tail amplification.',
-        'Then choose the smallest reversible move. Add a data audit before retraining. Add a simple baseline before changing architecture. Profile memory before buying GPUs. Add a slice eval before trusting an average. Canary a serving change before full rollout. This is the engineering version of scientific method: isolate one bottleneck, change one thing, measure again.',
+        'The map works because AI outcomes are coupled systems outcomes. A model trained on stale or leaking data can look strong offline and fail online. A model with good offline metrics can lose value if p99 latency makes users abandon the workflow. A serving cache can change the data distribution that future training sees.',
+        'Separating the five parts prevents premature optimization. It lets a team ask whether the bottleneck is information, function class, compute budget, measurement, or runtime delivery. Each answer implies a different intervention and a different proof of improvement.',
       ],
     },
     {
-      heading: 'Case studies and sources',
+      heading: 'Complete case study',
       paragraphs: [
-        'Google Rules of Machine Learning emphasizes robust end-to-end pipelines, simple first models, metrics, and infrastructure before complex algorithms: https://developers.google.com/machine-learning/guides/rules-of-ml. That aligns with the five-part map: a reliable pipeline teaches more than a fashionable model that cannot be debugged.',
-        'TFX describes production ML as an end-to-end pipeline with components for scalable ML tasks and deployment: https://www.tensorflow.org/tfx. The ML Test Score paper frames production readiness around testing and monitoring needs, not only model accuracy: https://research.google/pubs/the-ml-test-score-a-rubric-for-ml-production-readiness-and-technical-debt-reduction/. Hidden Technical Debt in Machine Learning Systems warns that ML adds system-level maintenance risks beyond ordinary code: https://research.google/pubs/hidden-technical-debt-in-machine-learning-systems/.',
+        'A support-ticket classifier performs well in a notebook and poorly after launch. A model-first team tries a larger architecture. A stack-first team traces the failure: new product lines are missing from the training data, the eval set overrepresents old tickets, and the serving path uses a stale feature snapshot.',
+        'The fix is not one grand rewrite. Refresh the data slice, add golden cases for the new product line, repair point-in-time feature lookup, rerun calibration, and canary the updated model. Only after those changes should the team decide whether a larger model is needed.',
+        'The same method works for generative systems. If a RAG assistant hallucinates, the stack map asks separate questions: did retrieval find the right source, did the model ignore it, did the evaluation reward fluency over support, did context packing drop the key passage, or did serving use a stale index? Each answer sends work to a different team.',
       ],
     },
     {
-      heading: 'Common failure patterns',
+      heading: 'Where it wins',
       paragraphs: [
-        'A data failure looks like leakage, stale labels, missing negatives, bad joins, drift, or an unrepresentative training slice. A model failure looks like overfit, underfit, miscalibration, brittle slices, shortcut learning, or a loss that optimizes the wrong behavior. A compute failure looks like OOM, slow iteration, expensive inference, memory bandwidth limits, or low utilization. An eval failure looks like a bad proxy, benchmark overfit, missing slices, or high variance. A serving failure looks like p99 latency, cost blowups, cache errors, stale features, rollback gaps, or user feedback loops.',
+        'This map helps curriculum builders, managers, MLEs, researchers, and product teams talk about the same system without collapsing everything into model quality. It gives each role a better first question: what changed, what failed, what evidence proves it, and what is the smallest move worth trying?',
+        'Google Rules of Machine Learning, TFX, the ML Test Score paper, and Hidden Technical Debt in ML Systems all point in the same direction: robust end-to-end pipelines, simple baselines, testing, monitoring, and infrastructure matter before clever algorithms can be trusted.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'The map is a diagnostic aid, not a substitute for measurement. A data failure can look like model underfit. A serving failure can look like model drift. An eval failure can make a bad model look good. The point is to route investigation, not to label the incident from a distance.',
+        'The common failure patterns are concrete: leakage, stale labels, missing negatives, bad joins, overfit, miscalibration, OOM, slow iteration, bad proxy metrics, benchmark overfit, p99 latency, stale features, cache errors, and rollback gaps.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'For data, track freshness, coverage, join correctness, leakage checks, label delay, and slice balance. For models, track baseline deltas, calibration, failure clusters, and regression slices. For compute, track cost per run, memory headroom, utilization, and iteration time.',
+        'For evaluation, track benchmark age, human disagreement, confidence intervals, and production correlation. For serving, track p99, error rate, cost per task, rollback time, cache hit rate, feature freshness, and drift by traffic slice. These signals make the five-part map measurable instead of decorative.',
+        'Governance also belongs here. Each part needs an owner, an artifact, and a rollback story. Data has lineage and contracts. Models have checkpoints and cards. Compute has budgets. Evaluation has score packets. Serving has deploy records and incidents. Without ownership, the five-part map becomes a diagram nobody can execute.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'The AI engineering stack is a way to avoid wasting time. It says: do not solve a data problem with a bigger model, an evaluation problem with more training, or a serving problem with a new loss function.',
+        'For course design, make students diagnose failures through all five parts before proposing a fix. That habit is more valuable than memorizing tool names because the tools change while the failure modes repeat.',
+      ],
+    },
+    {
+      heading: 'Curriculum path',
+      paragraphs: [
+        'A useful course can use the five parts as the spine. Start with data because every downstream choice inherits its defects. Move to simple models and baselines so students learn what signal exists before adding complexity. Add compute only when the experiment loop is understood.',
+        'Then teach evaluation as a discipline, not a scoreboard. Students should learn slice analysis, leakage checks, confidence intervals, and production correlation. Finish with serving because deployment turns a model into a user-facing system with p99, rollback, monitoring, and cost.',
+        'The article should leave readers with a habit: when something fails, name the stack part, name the evidence, and name the smallest reversible change. That is the difference between AI engineering and cargo-cult model swapping.',
       ],
     },
     {
       heading: 'Study next',
       paragraphs: [
-        'For data, study Feature Store, Point-in-Time Feature Join Index, Training-Serving Skew Replay Diff, and Data Leakage & Contamination. For models, study Loss Landscapes, Calibration Curves, Benchmark Variance & Model Selection, Scaling as Local Optimum Case Study, and Regularization. For compute, study Activation Checkpointing, ZeRO Optimizer, Transformer Inference Roofline, and LLM Inference Cost Stack. For evaluation, study Cross-Validation, A/B Testing, LLM Evaluation Harness, RAG Evaluation, and AI Audit Evidence Packet Case Study. For serving, study Tail Latency, Feature Flag Control Plane, Distributed Tracing, Semantic Cache for LLMs, and On-Device LLM Inference Cost Crossover.',
+        'For data, study Feature Store, Point-in-Time Feature Join Index, Training-Serving Skew Replay Diff, and Data Leakage & Contamination. For models, study Loss Landscapes, Calibration Curves, Benchmark Variance & Model Selection, Scaling as Local Optimum Case Study, and Regularization. For compute, study Activation Checkpointing, ZeRO Optimizer, Transformer Inference Roofline, and LLM Inference Cost Stack. For evaluation, study Cross-Validation, A/B Testing, LLM Evaluation Runners, RAG Evaluation, and AI Audit Evidence Packet Case Study. For serving, study Tail Latency, Feature Flag Control Plane, Distributed Tracing, Semantic Cache for LLMs, and On-Device LLM Inference Cost Crossover.',
       ],
     },
   ],

@@ -223,34 +223,111 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'UTF-8 is a variable-length byte encoding for Unicode scalar values. ASCII bytes 00..7F encode themselves. Non-ASCII characters use lead bytes followed by one to three continuation bytes. A decoder is a small state machine: classify the byte, update the expected continuation count, accumulate payload bits, validate the final scalar value, then emit.',
-        'This matters because nearly every text format in the repo sits on top of UTF-8 or a compatible byte stream. Before a parser can trust quotes, commas, braces, identifiers, or log text, it needs a clear boundary between valid characters and malformed bytes.',
+        'Programs move text as bytes. Users expect those bytes to become characters. Protocols, databases, logs, signatures, search indexes, and parsers need all layers to agree on the same answer: which byte strings are valid text and which Unicode scalar values they mean.',
+        'UTF-8 exists because it can encode all Unicode scalar values while preserving ASCII as single bytes. That makes old ASCII-oriented formats practical: commas, quotes, slashes, braces, brackets, tabs, and line breaks keep their byte values. A parser can still find syntax bytes without understanding every human language.',
+        'The decoder DFA is the small state machine that keeps this promise honest. It accepts valid byte sequences, emits scalar values, and rejects malformed input early. Without that shared boundary, one layer can treat a byte string as harmless while another layer later turns it into a different character stream.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'The decoder classifies bytes by high-bit pattern and range. ASCII emits immediately. A legal two-byte lead such as C2..DF requires one continuation byte. A three-byte lead requires two. A four-byte lead requires three. Continuation bytes must be 80..BF and must arrive only when the decoder is waiting for them.',
-        'Strict validation also checks semantic constraints: no overlong encodings, no surrogate halves, and no scalar values above U+10FFFF. Those checks prevent multiple byte spellings for the same character and keep later parsers from disagreeing about what the text means.',
+        'The obvious approach is to treat each byte as a character. That works for pure ASCII demos because bytes 00 through 7F map directly to the same code points. It fails as soon as text contains characters outside ASCII, because one character can take two, three, or four bytes.',
+        'A second tempting approach is to accept whatever a loose decoder returns. That breaks when a stream contains orphan continuation bytes, truncated sequences, overlong encodings, surrogate halves, or values above the Unicode maximum. The decoder may produce replacement characters, drop bytes, or accept spellings that strict UTF-8 forbids.',
+        'The wall is disagreement between layers. A filter might reject a slash byte, a later decoder might accept an overlong slash spelling, and an application might route the request as if the slash had always been there. Strict decoding makes invalid byte strings fail before higher-level grammar or security logic runs.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The Core Insight',
       paragraphs: [
-        'The bytes E2 82 AC decode to U+20AC. E2 is a three-byte lead, so the decoder expects two continuation bytes and seeds the accumulator. 82 and AC contribute six payload bits each. When the remaining count reaches zero, the accumulated value is checked against the valid range and emitted.',
-        'The bytes C0 AF must be rejected. They are an overlong way to spell slash, which should be the one-byte ASCII value 2F. A filter that rejects literal slash but accepts overlong slash can be bypassed if a later layer decodes the bytes loosely.',
+        'UTF-8 decoding is an obligation tracker. An ASCII byte has no obligation and emits immediately. A legal lead byte creates an obligation to see one, two, or three continuation bytes. Each continuation byte must arrive in the right state, contribute six payload bits, and reduce the remaining obligation.',
+        'The decoder emits only when the obligation reaches zero and the assembled scalar value is legal. If a byte arrives that cannot satisfy the current obligation, the byte stream is malformed at that point. It is not an alternate spelling or a strange character.',
+        'The invariant is that the decoder is always in one of two broad modes: ready for a new character, or waiting for a known number of continuation bytes with known range constraints. Every byte either moves the machine to the next valid state, emits a scalar, or rejects the stream.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'How the Visual Model Teaches It',
       paragraphs: [
-        'Decoding is O(n) over bytes and uses constant state: current accumulator, remaining continuation count, and validation bounds. The hard part is not asymptotic cost; it is rejecting every malformed corner consistently across libraries, protocols, logs, databases, and security filters.',
+        'The byte classes view starts at classification because UTF-8 is shaped by high bits. ASCII emits immediately. Continuation bytes are legal only after a lead byte. C2..DF starts a two-byte sequence. E0..EF starts a three-byte sequence. F0..F4 starts a four-byte sequence. Illegal lead ranges reject.',
+        'The E2 82 AC table shows why only small state is needed. E2 creates a need for two continuation bytes. 82 satisfies one obligation and contributes payload bits. AC satisfies the last obligation. The accumulator becomes U+20AC, and the decoder can emit without buffering the rest of the string.',
+        'The malformed input view teaches early rejection. A continuation byte at the start fails because no lead byte requested it. C0 AF fails because it is an overlong spelling. ED A0 80 fails because it encodes a surrogate half. F4 90 80 80 fails because it is beyond U+10FFFF.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How It Works',
+      paragraphs: [
+        'A decoder keeps a small amount of state: the current accumulator, how many continuation bytes remain, and sometimes lower or upper bounds needed to reject overlong and out-of-range sequences. ASCII bytes 00..7F emit directly. Continuation bytes 80..BF contribute payload bits only when the decoder is waiting for them.',
+        'Lead bytes decide the sequence length and seed the accumulator. C2..DF starts a two-byte sequence. E0..EF starts a three-byte sequence. F0..F4 starts a four-byte sequence. C0, C1, and F5..FF are illegal in modern UTF-8. They either create overlong forms or values outside the Unicode scalar range.',
+        'Boundary checks do more than count bytes. E0 has a tighter first-continuation lower bound to prevent overlong three-byte encodings. ED has an upper bound to reject surrogate halves. F0 and F4 have bounds that keep four-byte values within U+10000 through U+10FFFF. A strict decoder checks byte shape and scalar legality.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The DFA works because every byte class has a limited set of legal next states. A continuation byte cannot start a character. A lead byte cannot appear while the decoder is still waiting for continuation bytes. End of input cannot arrive while the remaining count is nonzero. These rules make malformed input fail as soon as the stream proves it cannot be valid UTF-8.',
+        'ASCII compatibility also matters. UTF-8 never hides an ASCII delimiter inside a multibyte sequence. If a JSON tokenizer scans for quote, colon, comma, brace, or bracket bytes, those bytes mean themselves. Non-ASCII text uses bytes with the high bit set and cannot impersonate ASCII syntax.',
+        'The scalar-value check keeps UTF-8 tied to Unicode, not just to bit patterns. Surrogate halves are used internally by UTF-16 and are not Unicode scalar values. Values past U+10FFFF are outside the Unicode range. Accepting them would create strings that other correct systems must reject.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'The bytes E2 82 AC decode to U+20AC, the euro sign. E2 is a three-byte lead, so the decoder expects two continuation bytes and seeds the accumulator with the lead payload. 82 is a continuation byte, so it contributes six bits and leaves one continuation still required. AC contributes the last six bits. The count reaches zero, the scalar passes validation, and the decoder emits U+20AC.',
+        'The bytes 41 E2 82 AC 0A decode as ASCII A, then U+20AC, then newline. The decoder does not need to know that the stream is a whole line. It can emit A immediately, keep two bytes of state while decoding the euro sign, then emit newline immediately. That streaming property is why UTF-8 works well for files, sockets, and parsers.',
+        'The bytes C0 AF must be rejected. They are an overlong way to spell slash, which is already 2F in ASCII. If a filter rejects literal slash but a later layer accepts C0 AF as slash, the system has two interpretations of the same input. Strict UTF-8 validation closes that gap.',
+      ],
+    },
+    {
+      heading: 'Malformed Cases',
+      paragraphs: [
+        'An orphan continuation byte such as 80 fails in the ready state because no lead byte created an obligation. A truncated sequence such as E2 82 fails at end of input because one continuation byte is still required. A lead byte inside an unfinished sequence fails because the machine was expecting continuation, not a new character.',
+        'Overlong encodings are invalid even if they could be decoded into a familiar character. UTF-8 has one shortest spelling for each scalar value. Allowing longer spellings makes filters, path checks, database keys, and signatures disagree about whether two byte strings represent the same text.',
+        'Surrogate halves and out-of-range values are invalid for a different reason: they are not Unicode scalar values. ED A0 80 represents a surrogate half. F4 90 80 80 crosses above U+10FFFF. A strict decoder rejects both even though their byte prefixes may look structurally plausible.',
+      ],
+    },
+    {
+      heading: 'Decoder Policies',
+      paragraphs: [
+        'Strict mode rejects malformed input. It is the right default at protocol boundaries, authentication paths, database keys, signed payloads, parsers, and any place where accepting ambiguous text can change meaning or security behavior.',
+        'Replacement mode emits U+FFFD for malformed byte sequences. It is useful for display, editors, logs, and recovery tools where showing damaged text is better than failing the whole document. Replacement should be a deliberate display policy, not a hidden parser behavior.',
+        'Ignore mode drops bad bytes, and lax mode accepts illegal variants. Both are dangerous for structured input because they erase evidence. If one layer drops or accepts bytes that another layer rejects, the system loses one stable interpretation of text.',
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        'The algorithm is cheap: O(n) over bytes and constant memory. It streams naturally because the decoder needs only the current state, accumulator, and remaining count. It does not need the whole string before producing output.',
+        'The complexity is in correctness at the boundaries. A production decoder must get every illegal range, truncation case, overlong case, surrogate range, and maximum-code-point check right. Small mistakes become interoperability or security bugs.',
+        'The other tradeoff is where validation happens. Validating once at input boundaries simplifies downstream parsers, but internal systems still need to preserve the invariant that strings remain valid. If code mixes raw bytes and decoded strings freely, the same ambiguity can reenter later.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Strict UTF-8 validation wins at protocol boundaries, file ingestion, JSON and CSV parsing, database keys, log pipelines, signatures, search indexes, URL handling, and any place where downstream code needs one stable interpretation of text.',
+        'It is especially useful before parsers that care about ASCII delimiters. Once decoding has accepted the stream, a tokenizer can reason about characters and syntax without also handling malformed byte spellings.',
+        'It also wins in streaming systems. A socket reader, log tailer, or incremental parser can validate as bytes arrive, emit complete scalar values, and report the exact position where malformed input first becomes undeniable.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'A UTF-8 decoder does not solve Unicode normalization, confusable characters, locale-specific casing, grapheme clusters, sorting, search matching, or display width. Two valid strings can still look similar or compare differently depending on higher-level text rules.',
+        'It also cannot repair hostile input for a protocol. Replacement mode is useful for display, but accepting a message after replacing malformed bytes can change meaning. Validation and recovery should be separate decisions.',
+        'It does not prove that text is safe for a particular grammar. A byte stream can be valid UTF-8 and still contain dangerous SQL, misleading identifiers, mixed-script spoofing, or control characters that a later layer must handle.',
+      ],
+    },
+    {
+      heading: 'Implementation Guidance',
+      paragraphs: [
+        'Use a well-tested decoder from the platform when possible. UTF-8 is small enough to explain but easy to get subtly wrong. If you implement it yourself, write tests for ASCII, each legal sequence length, boundaries around E0, ED, F0, and F4, orphan continuation bytes, truncation, overlong forms, surrogates, and values above U+10FFFF.',
+        'Keep byte validation separate from higher-level text policy. First decide whether the bytes are valid UTF-8. Then decide whether to normalize, reject control characters, compare case-insensitively, split grapheme clusters, or defend against confusables. Those are separate layers with different rules.',
+        'For streaming APIs, expose enough state to report incomplete sequences at end of input. A decoder that processes chunks must remember pending continuation obligations across chunk boundaries, but it must reject if the final chunk ends before those obligations are satisfied.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary source: RFC 3629, UTF-8, at https://www.rfc-editor.org/rfc/rfc3629. Study CSV Parser State Machine, JSON Parser Stack, Parser Design Patterns Primer, Finite State Machines, WebAssembly Linear Memory, Byte Latent Transformer, and Tokenization (BPE) next.',
       ],

@@ -1,6 +1,5 @@
-// Influence functions: saliency asked which FEATURES drove a verdict;
-// this page asks which TRAINING EXAMPLES taught it. On our 10-email
-// dataset we can answer exactly — delete each example, retrain, measure.
+// Influence functions: saliency asks which features drove a verdict; this
+// page asks which training examples taught it.
 
 import { plotState, matrixState, InputError } from '../core/state.js';
 
@@ -8,7 +7,7 @@ export const topic = {
   id: 'influence-functions',
   title: 'Influence: Which Training Data Did This?',
   category: 'AI & ML',
-  summary: 'Delete one training example, retrain, watch the prediction move — exact influence, and the mislabeled point it catches.',
+  summary: 'Delete one training example, retrain, watch the prediction move â€” exact influence, and the mislabeled point it catches.',
   controls: [
     { id: 'view', label: 'Trace', type: 'select', options: ['which examples taught this verdict', 'hunting the mislabeled point'], defaultValue: 'which examples taught this verdict' },
   ],
@@ -66,7 +65,7 @@ function* whoTaught() {
       ],
     }),
     highlight: { active: ['test'], visited: ['boundary'] },
-    explanation: `A new email arrives — 3 exclamation marks, 2.5 average caps words — and the trained filter says ${(pFull * 100).toFixed(0)}% spam. Saliency Maps and LIME would now interrogate the input FEATURES. This page asks the other question: which of the ten TRAINING examples are responsible for this verdict? Whose past testimony convicted this email? On a 10-point dataset we can afford the gold-standard answer — no approximations: delete one example, retrain from scratch (the module really does it, 200 epochs each), and measure how the verdict moves. That measured movement is the example's exact LEAVE-ONE-OUT INFLUENCE.`,
+    explanation: `The plot fixes the verdict to explain: this new email scores ${(pFull * 100).toFixed(0)}% spam. Instead of asking which input feature mattered, influence asks which training examples made this verdict likely.`,
   };
 
   const influences = DATA.map((d, i) => {
@@ -78,7 +77,7 @@ function* whoTaught() {
     state: matrixState({
       title: `Leave-one-out: how p(spam) = ${(pFull * 100).toFixed(1)}% moves when each example vanishes`,
       rows: sorted.map(({ d, i }) => ({ id: `r${i}`, label: labelOf(d) })),
-      columns: [{ id: 'dp', label: 'Δp when removed' }],
+      columns: [{ id: 'dp', label: 'Î”p when removed' }],
       values: sorted.map(({ dp }) => [dp]),
       format: (v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%`,
     }),
@@ -86,8 +85,8 @@ function* whoTaught() {
       removed: [`r${sorted[0].i}:dp`, `r${sorted[1].i}:dp`],
       found: [`r${sorted[sorted.length - 1].i}:dp`, `r${sorted[sorted.length - 2].i}:dp`],
     },
-    explanation: `Ten retrainings, ten verdicts on the same email — the full influence ledger, sorted. Remove the spam example (2,3) and the prediction drops ${(sorted[0].dp * 100).toFixed(1)} points; remove (5,1) and it drops ${(sorted[1].dp * 100).toFixed(1)}. Those two examples are doing the prosecuting. On the defense side, the ham examples (1,2) and (3,1) prop the verdict UP by ~+5.8 points each — remove either and the boundary relaxes toward "spam". And six of the ten examples barely register at ±1 point: most of the training set is dead weight for THIS verdict.`,
-    invariant: 'Exact influence: Δ prediction after deleting one example and fully retraining — the definition, not an estimate.',
+    explanation: `The ledger is exact leave-one-out influence. Delete one training example, retrain, and measure how this email's spam score moves. Boundary examples change the verdict most; deep interior examples barely move it.`,
+    invariant: 'Exact influence: Î” prediction after deleting one example and fully retraining â€” the definition, not an estimate.',
   };
 
   yield {
@@ -103,7 +102,7 @@ function* whoTaught() {
       compare: influences.filter((f) => Math.abs(f.dp) > 0.05).map((f) => `d${f.i}`),
       visited: influences.filter((f) => Math.abs(f.dp) <= 0.01).map((f) => `d${f.i}`),
     },
-    explanation: 'Now place the influences back on the map and the geometry speaks: every influential example hugs the BOUNDARY; every example deep in safe territory scores ≈ 0. It makes sense — the boundary is the only thing the verdict depends on, and deep points could move a mile without bending it. You have met this idea wearing other costumes: support vectors in SVMs ARE the influential points; Focal Loss reweights by difficulty, and difficulty lives at the boundary; active learning asks to label exactly these points. A model is its borderline cases — influence just measures that literally.',
+    explanation: 'Placing influence back on the scatter makes the geometry visible. Examples near the boundary bend the verdict; examples deep in safe territory have almost zero influence on this test point.',
   };
 
   yield {
@@ -119,7 +118,7 @@ function* whoTaught() {
       format: (v) => ['', 'n retrainings', 'gold standard, impossible at scale', 'one Hessian solve (Koh & Liang 2017)', 'approximation strains on deep non-convex nets', 'gradient dot-products along training', 'cheaper, noisier'][v],
     }),
     highlight: { active: ['inf:cost'] },
-    explanation: 'Our luxury was n = 10; retraining GPT once per training document is not a plan. INFLUENCE FUNCTIONS (Koh & Liang, 2017) approximate the deletion without performing it — a second-order Taylor argument: how much would the optimum shift if this example\'s loss were down-weighted? — at the price of a Hessian inverse and shakier guarantees on deep non-convex models. TracIn instead dot-products the test gradient with each example\'s training gradients. The applications are bigger than curiosity: DATA VALUATION (what is this document worth to the model? — the question behind training-data markets and copyright suits), debugging ("the model is weird about X — which data taught it?"), and the second view\'s specialty: finding poisoned or mislabeled examples by what their deletion fixes.',
+    explanation: 'Exact deletion is the gold standard and the scaling wall. Influence functions approximate the effect with second-order geometry; TracIn uses gradient dot-products. Both trade exactness for avoiding one retraining per example.',
   };
 }
 
@@ -136,7 +135,7 @@ function* mislabelHunt() {
       ],
     }),
     highlight: { removed: ['bad'], visited: ['boundary'] },
-    explanation: 'A new labeled email arrives from the annotation pipeline: one exclamation mark, one caps word — the gentlest message imaginable — labeled SPAM. It is almost certainly a labeling mistake (a fat-fingered click, a confused annotator, or worse: deliberate poisoning), sitting deep in ham territory, quietly dragging the boundary toward it every epoch. In a 100k-example dataset, how would you ever FIND it? Answer: ask what the validation set thinks of each example\'s absence.',
+    explanation: 'The highlighted point is suspicious because it sits deep in ham territory but is labeled spam. Influence turns that suspicion into a test: remove each example and ask whether clean validation loss improves.',
   };
 
   const valBase = meanLoss(fullBad, DATA);
@@ -153,7 +152,7 @@ function* mislabelHunt() {
       format: (v) => v.toFixed(3),
     }),
     highlight: { found: [`h${hunts[0].i}:val`], compare: [`h${hunts[1].i}:val`] },
-    explanation: `Run the same deletion experiment, but score each removal by the model's loss on trustworthy validation data. The verdict is unambiguous: deleting the suspicious (1,1)-spam example IMPROVES the loss from ${valBase.toFixed(3)} to ${hunts[0].val.toFixed(3)} — a 42% drop — while deleting any LEGITIMATE example makes things worse or flat (the runner-up barely moves it). An example whose absence makes the model BETTER is an example teaching falsehoods. No human re-review of 100k labels; the arithmetic points its finger.`,
+    explanation: `The deletion score now uses clean validation loss. Removing the suspicious point improves loss from ${valBase.toFixed(3)} to ${hunts[0].val.toFixed(3)}; removing legitimate examples is worse or flat. A point whose absence helps is teaching the model the wrong thing.`,
     invariant: 'A training example is suspect exactly when removing it improves held-out loss.',
   };
 
@@ -168,10 +167,10 @@ function* mislabelHunt() {
       ],
       columns: [{ id: 'note', label: '' }],
       values: [[1], [2], [3], [4]],
-      format: (v) => ['', 'memorized points: high self-influence, no support', 'arithmetic shortlists, humans confirm', 'never silently — log the change', 'Cross-Validation discipline applies'][v],
+      format: (v) => ['', 'memorized points: high self-influence, no support', 'arithmetic shortlists, humans confirm', 'never silently â€” log the change', 'Cross-Validation discipline applies'][v],
     }),
     highlight: { active: ['rank:note'] },
-    explanation: 'The production workflow this powers — used to clean benchmark datasets (label errors were found in ImageNet and MNIST test sets this way) and to audit poisoned data. A related fingerprint needs no test point at all: SELF-INFLUENCE — how much an example\'s own prediction depends on its own presence. Mislabeled and memorized points score high (nothing else supports them; the model must memorize them individually — the same pathological points Focal Loss accidentally amplifies). The closing symmetry of the explanation trilogy: Saliency asks the input, LIME asks the function, influence asks the data — and a verdict you cannot trace to features, behavior, AND training data is a verdict you do not understand yet.',
+    explanation: 'The workflow ranks likely label errors before human review. Self-influence is the related signal: examples that only the model itself supports often indicate memorization, poison, or mislabeled data.',
   };
 }
 
@@ -185,39 +184,87 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: `Why this exists`,
       paragraphs: [
-        `Influence functions answer a question the other explanations do not: which training examples taught this verdict? Saliency maps ask which FEATURES drove the prediction; LIME asks how the FUNCTION behaves locally; influence asks which TRAINING DATA is responsible. On the ten-email spam filter in this visualization, the answer is exact: delete one example, retrain, and measure the verdict shift. That shift is the example's LEAVE-ONE-OUT INFLUENCE. It is expensive (retrain ten times for ten examples), but the gold-standard ground truth is worth it on small problems. The principle remains: an example's influence is how much the verdict would shift if that example vanished.`,
+        `Feature explanations answer one question: which parts of this input pushed the prediction? Influence asks a different question: which training examples made the model behave this way? That question matters when a model gives a strange verdict, memorizes a bad example, repeats copyrighted material, or appears to have learned from poisoned data.`,
+        `This article starts with the exact version because it is easy to trust. Delete one training example, retrain the model, and measure how the target prediction or validation loss changes. That counterfactual change is leave-one-out influence. It is expensive, but it gives the ground truth that scalable approximations are trying to imitate.`,
       ],
     },
     {
-      heading: `How it works`,
+      heading: `The naive explanation`,
       paragraphs: [
-        `Train once on all ten emails, measure the test verdict. Train nine more times, each dropping a different example, and measure the new verdicts. The difference is the influence. The spam (2,3) and (5,1) hugging the decision boundary cause drops of 13.5% and 11.6% respectively. The ham examples (1,2) and (3,1) near the boundary pull it toward ham, swinging verdicts up by ~5.8% each. But examples deep in ham territory barely register: ±1% or less. The pattern is clear: influence concentrates at the boundary. This makes support vector machines concrete — only the support vectors (boundary points) shape the decision boundary. Focal Loss reweights hard examples the same way: prioritizing the examples most likely to move the boundary. Influence just measures that pull numerically.`,
+        `The naive explanation is to inspect the final weights or the features in the test input. For the toy spam classifier, that means staring at exclamation marks, all-caps words, and the learned decision boundary. That can explain the local geometry, but it cannot tell you which training emails pulled the boundary into that position.`,
+        `Another naive approach is to sort examples by similarity to the test point. Similarity can be useful, but it is not influence. A nearby example may have little effect if many other examples support the same region. A farther boundary example may matter more because removing it changes the fitted separator. Influence is about counterfactual training impact, not just distance.`,
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: `Core insight`,
       paragraphs: [
-        `Exact leave-one-out requires n retrainings for n examples — impossible at scale. On 10 points it is fine; on ImageNet with 1.4 million examples it is infeasible. Koh and Liang (2017) introduced INFLUENCE FUNCTIONS: approximate deletion using a Hessian-vector product (second-order Taylor). Cost drops from n retrainings to one Hessian solve, though the approximation frays on deep non-convex nets. TracIn (Pruthi et al., 2020) sidesteps the Hessian: dot-product test gradient against each training gradient accumulated over training steps. Noisier, cheaper, and practical at scale. The spectrum: exact LOO (gold, impossible at scale), influence functions (Hessian-based, shaky on deep nets), TracIn (gradient dot-products, cheaper), and data Shapley (game-theoretic, expensive but clean).`,
+        `The core idea is deletion. Train on the full dataset and record the target quantity: a test probability, a logit, a loss, or a validation score. Then remove one training example, retrain from the remaining data, and measure the same target again. The difference is that example's exact leave-one-out influence on the target.`,
+        `The sign matters. If removing an example lowers the spam probability for the test email, that example was supporting the spam verdict. If removing it raises the spam probability, that example was pushing against the verdict. If nothing changes, the example was not influential for this particular target, even if it is useful elsewhere in the dataset.`,
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: `How the toy system works`,
       paragraphs: [
-        `DATA VALUATION: what is this training example worth? Influence answers it quantitatively for pricing and labeling prioritization. COPYRIGHT ATTRIBUTION: if a generative model echoes copyrighted work, influence identifies which training examples shaped it — evidence for legal disputes. POISONING AUDITS: detect adversarial examples in crowd-sourced training data by their outsized influence. LABEL DEBUGGING: an example labeled spam at (1,1) sits deep in ham territory; removing it improves validation loss from 0.222 to 0.129 — a 42% drop. An example whose removal improves the model teaches falsehoods. ImageNet and MNIST researchers found label errors using this method. The arithmetic does the human review at scale.`,
+        `The visualization uses a tiny logistic-regression spam classifier. Each email has two features: exclamation marks and all-caps words. The model learns a linear boundary that separates spam-labeled examples from ham-labeled examples. A new email lands near that boundary, so the page asks which training points made its spam score high or low.`,
+        `Because there are only ten examples, the page can do the exact thing: retrain once per deletion. That is not how large systems usually run influence, but it is the right teaching move. It shows the definition before introducing approximation. Boundary examples move the verdict most because they help decide where the separator must sit.`,
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: `What the visual proves`,
       paragraphs: [
-        `High influence does not mean high quality; a mislabeled boundary example has huge influence but teaches wrong. Conversely, a correct example deep in safe territory has zero influence but is not useless. SELF-INFLUENCE — how much an example's own prediction depends on its own presence — is a separate fingerprint: mislabeled and memorized points score very high (nothing else supports them). Another trap: approximations are not exact on deep networks. When high stakes demand precision (copyright disputes), exact LOO on a held-out proxy set is safer. Finally, influence measures training-time impact, not test-time robustness; a low-influence example could still break the model on adversarial test inputs.`,
+        `The first view proves that influence is target-specific. The same training set can contain examples that strongly affect one test email and barely affect another. The ledger orders examples by how much the chosen spam probability changes after deletion, so the explanation is about this verdict, not a global ranking of data quality.`,
+        `The second view proves the debugging use case. A point labeled spam sits deep in ham territory. Geometry makes it suspicious, but deletion makes the argument testable. Remove each example, retrain, and score against clean validation data. If removing one example improves held-out loss, that example is a candidate for review because its presence was teaching the model the wrong pattern.`,
+      ],
+    },
+    {
+      heading: `Why it works`,
+      paragraphs: [
+        `Influence works because training is an optimization process over data. Each example contributes gradients that pull the parameters toward lower loss on that example. If an example sits near a decision boundary or conflicts with nearby labels, its gradient can have a large effect on the fitted parameters. Deleting it changes the optimum, which changes predictions.`,
+        `Classical influence functions approximate that deletion without fully retraining. They use second-order local geometry: how would the optimum move if the weight of one training example were reduced slightly? The Hessian describes curvature around the optimum, and the example gradient describes the direction of pressure. This is the mathematical bridge from exact deletion to scalable estimation.`,
+      ],
+    },
+    {
+      heading: `Scaling up`,
+      paragraphs: [
+        `Exact leave-one-out costs one retraining per candidate example. That is fine for ten emails and impossible for millions of images, documents, or code files. Scalable influence methods trade exactness for cheaper estimates. Koh and Liang's influence functions use Hessian-vector products. TracIn uses gradient dot-products across saved training checkpoints. Data Shapley estimates value by averaging contributions across many subsets.`,
+        `Each method answers a related but not identical question. Exact deletion is the gold standard for a stated target. Influence functions estimate infinitesimal upweighting or downweighting around a trained optimum. TracIn measures gradient alignment through the training path. Data Shapley is a game-theoretic value measure. The right tool depends on whether you need debugging, attribution, data valuation, or triage.`,
+      ],
+    },
+    {
+      heading: `Costs and tradeoffs`,
+      paragraphs: [
+        `The biggest cost is computation. Exact leave-one-out retraining scales poorly. Hessian-based methods can be hard to run on large deep networks and can be unstable when the loss surface is non-convex or the model is not near a clean optimum. Gradient-dot-product methods are cheaper but depend on checkpoint selection and can be noisy.`,
+        `The second cost is interpretation. Influence is always tied to a target: one test point, one loss, one validation set, or one metric. A point with low influence on one verdict may still matter for coverage. A point with high influence may be a valuable rare example or a harmful mislabel. Influence ranks candidates; it does not replace human review or clean evaluation.`,
+      ],
+    },
+    {
+      heading: `Where it wins`,
+      paragraphs: [
+        `Influence is valuable for label debugging. Rank examples whose removal improves clean validation loss, review the top slice, then relabel or remove confirmed errors. It is also useful for poisoning audits because malicious or inconsistent points often have outsized effects on specific behaviors. In active learning, influence can help identify examples that would change a boundary if labeled correctly.`,
+        `It also supports data valuation and attribution. If a model's output appears to depend heavily on a small cluster of training examples, influence can guide audits, dataset licensing discussions, or removal requests. In high-stakes settings, the approximate score should be treated as a lead, and any final claim should be checked with exact retraining on a smaller proxy or controlled subset when possible.`,
+      ],
+    },
+    {
+      heading: `Failure modes`,
+      paragraphs: [
+        `High influence does not mean high quality. A mislabeled boundary example can be extremely influential because it pulls the model the wrong way. A rare but correct example can also be highly influential because the dataset has little else like it. Removing high-influence data blindly can erase important minority cases.`,
+        `Low influence does not mean useless. Deep interior examples may not affect one boundary point but still stabilize the class distribution, help calibration, or matter for a different target. Approximate influence can also fail on large non-convex models, models trained with heavy regularization, nondeterministic pipelines, or data augmentation. Always validate the proposed change on clean held-out data.`,
+      ],
+    },
+    {
+      heading: `Practical workflow`,
+      paragraphs: [
+        `Start by choosing the target. Are you explaining one bad prediction, lowering clean validation loss, finding mislabeled examples, auditing a suspected poison set, or valuing a data source? Then compute an influence ranking suitable for the scale. Use exact leave-one-out for small datasets or small candidate pools. Use approximations for large triage.`,
+        `Review the top-ranked examples with humans or stronger checks. Record whether each example is wrong, rare, duplicated, poisoned, or merely hard. Retrain after fixing or removing confirmed problems. Compare against clean validation and slice metrics. The loop is not complete until the model improves on held-out data without damaging important subgroups.`,
       ],
     },
     {
       heading: `Study next`,
       paragraphs: [
-        `Influence is the third question of the explanation trilogy: Saliency Maps & Feature Attribution ask the features, LIME: Explaining Black Boxes Locally asks the function, and influence asks the data. When you build a classifier, study Logistic Regression to understand decision boundary geometry. Validate with Cross-Validation & Honest Evaluation: if influence identifies a mislabel and you remove it, does validation improve? And to see influence at work in training, study Focal Loss & Hard Examples, which reweights by boundary difficulty — the same principle applied during training instead of postmortem.`,
+        `Influence is the data-side member of the explanation family. Study Saliency Maps & Feature Attribution for feature-level explanations, LIME: Explaining Black Boxes Locally for local function behavior, Logistic Regression for the geometry in this visualization, Cross-Validation & Honest Evaluation for the clean validation discipline, Focal Loss & Hard Examples for boundary-focused training, Active Learning Query Strategies, Data Shapley Valuation, Poisoning Attack Threat Model, and Dataset Deduplication Pipeline.`,
+        `Primary sources worth reading are Understanding Black-box Predictions via Influence Functions at https://arxiv.org/abs/1703.04730, Estimating Training Data Influence by Tracing Gradient Descent at https://arxiv.org/abs/2002.08484, Data Shapley at https://arxiv.org/abs/1904.02868, and Representer Point Selection for Explaining Deep Neural Networks at https://arxiv.org/abs/1811.09720.`,
       ],
     },
   ],

@@ -212,45 +212,94 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'Prefill/decode disaggregation is a modern LLM serving architecture that separates the prompt-processing phase from the token-generation phase. Prefill consumes a full prompt and builds the KV Cache. Decode uses that cache to stream one new token at a time. The two phases have different resource shapes, so systems such as DistServe, Splitwise, and Mooncake split them across separate pools or even separate hardware classes.',
-        'DistServe states the core problem directly: colocating prefill and decode causes interference and couples resource allocation for two phases with different latency metrics. The paper optimizes goodput under time-to-first-token and time-per-output-token constraints: https://arxiv.org/abs/2401.09670. The OSDI paper PDF is available from USENIX at https://www.usenix.org/system/files/osdi24-zhong-yinmin.pdf.',
+        "Autoregressive LLM serving looks like one request from the outside, but the runtime sees two different workloads. Prefill reads the full prompt, runs a large forward pass over many input tokens, and creates the KV cache for those tokens. Decode then uses that cache to generate one new token at a time. The first phase is a burst. The second phase is a long loop.",
+        "Those phases put pressure on different resources and different user-facing metrics. Prefill dominates time to first token, often called TTFT. Decode dominates time per output token, often called TPOT. A chat product needs the first token to appear quickly and the stream to keep moving after that. Prefill/decode disaggregation exists because one mixed GPU pool can make those goals fight each other.",
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        "The reasonable first design is colocated serving. Put requests in a queue, batch them, and let each GPU worker handle prefill and decode together. This is simple to deploy and can be the right answer for short prompts, short outputs, small clusters, or networks that cannot move KV state cheaply.",
+        "Colocation also keeps ownership simple. The worker that computes the prompt owns the cache and streams the answer. There is no distributed handoff, no cache-transfer protocol, and no extra scheduler boundary. Many serving systems begin here because the architecture matches the request lifecycle that application engineers see.",
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        "The wall appears when prompt bursts and streaming loops share the same scarce devices. A long prompt can occupy compute and delay first tokens for other users. A large decode batch can keep cache state resident and make prefill wait. The cluster has to choose one batching policy, one parallelism plan, and one placement strategy for two resource shapes.",
+        "Raw throughput hides this failure. A server can report many tokens per second while users see slow first tokens or uneven streams. Goodput is stricter: it counts work that meets the latency contracts. DistServe frames the issue this way by separating TTFT and TPOT constraints. The serving objective is not just more tokens. It is more useful requests inside both latency budgets.",
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        "The core insight is to split the request at the KV cache boundary. Send prompt computation to a prefill pool. Move or expose the produced KV state. Then let a decode pool own the token-generation loop. The phases still form one logical request, but the cluster can size and schedule them as different workloads.",
+        "The invariant is exact state handoff. Decode cannot resume from raw text alone without recomputing the prompt. It needs the right KV blocks for the right model weights, tokenizer behavior, adapter state, positional scheme, and request prefix. Disaggregation is useful only when moving that state costs less than the interference removed by separating the phases.",
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'A router admits a request and sends its prompt to a prefill worker. The prefill worker runs the prompt forward pass and produces KV state for every prompt token. That state is transferred to a decode worker, which owns the streaming loop. The decode worker repeatedly reads model weights and the prompt KV state, appends one token, and updates the cache.',
-        'The architecture only pays off if the cluster handles KV transfer intelligently. KV Cache Transfer Fabric Case Study zooms into that missing layer: block IDs, producer and consumer roles, async connectors, RDMA read/write choices, staged buffers, cleanup acknowledgements, and congestion gates. DistServe places prefill and decode workers according to cluster bandwidth. Splitwise describes phase splitting as a way to assign prompt computation and token generation to machines suited to their different compute, memory, cost, and power characteristics: https://arxiv.org/abs/2311.18677. Microsoft Research summarizes the same phase-splitting motivation in its Splitwise blog: https://www.microsoft.com/en-us/research/blog/splitwise-improves-gpu-usage-by-splitting-llm-inference-phases/.',
+        "A request enters a router with a prompt, generation parameters, and SLO context. The router chooses a prefill worker based on queue depth, prompt length, prefix-cache hits, model placement, and bandwidth to possible decode workers. The prefill worker runs the prompt forward pass and materializes KV blocks for every prompt token.",
+        "After prefill, the system transfers KV blocks, registers them in a shared KV store, or makes them remotely readable by the selected decode worker. The decode worker then enters the token loop: read weights and KV, sample or select the next token, append new KV, stream the token, and repeat until stop. The split turns one request into a stateful pipeline.",
       ],
     },
     {
-      heading: 'Complete case study: long-context chatbot serving',
+      heading: 'Why it works',
       paragraphs: [
-        'Mooncake, the serving platform behind Kimi, pushes the idea further by making KV cache the center of the architecture. It separates prefill and decoding clusters and uses underutilized CPU, DRAM, SSD, and NIC resources to build a disaggregated KV cache pool. The FAST 2025 page describes Mooncake as a KVCache-centric disaggregated architecture for serving an LLM chatbot: https://www.usenix.org/conference/fast25/presentation/qin.',
-        'This is the production-systems lesson: long-context LLM serving is not only matrix multiplication. It is state placement. A long prompt creates a large KV object. If that object is expensive to recompute, the cluster should preserve, transfer, reuse, or evict it deliberately. Prefix Caching & RadixAttention handles reuse inside a server; Mooncake-style designs treat KV as a distributed memory tier.',
+        "It works when the phase split creates more scheduling freedom than it costs in communication. Prefill workers can be tuned for prompt bursts, larger prompt batches, tensor parallelism, or newer compute-heavy accelerators. Decode workers can be tuned for memory bandwidth, cache residency, long-lived streams, and stable per-token cadence. The scheduler no longer has to pretend those are the same problem.",
+        "The proof sketch is a systems tradeoff, not an algorithm theorem. If the decode worker receives the same KV state that a colocated worker would have held locally, generation semantics are preserved. If the network path, cache lookup, and queueing delay are smaller than the saved interference, TTFT, TPOT, or goodput improves. If they are larger, the split is a regression.",
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Cost and behavior',
       paragraphs: [
-        'Disaggregation introduces a new cost ledger. It can reduce prefill/decode interference, raise goodput, and let each phase use a better hardware or parallelism plan. It also adds KV transfer latency, routing complexity, cache consistency questions, network placement, overload control, and more failure modes. Chunked Prefill Token Budget Scheduler is the simpler local alternative when one pool can still meet the SLO: split long prompt work into bounded chunks before reaching for a remote P/D architecture.',
-        'The practical metrics are phase-specific. TTFT measures queueing plus prefill. TPOT measures the decode loop. Goodput counts only requests that satisfy those SLOs. Network bytes per transferred KV block, cache hit rate, pool utilization, admission rejection rate, and p99 by workload slice become first-class serving metrics.',
+        "The new cost is KV movement. KV cache size grows with layers, hidden dimensions, heads, precision, and prompt length. Long-context prompts make the handoff heavier. Compression, quantized KV, shared memory, RDMA, NVLink, cache locality, and prefix reuse can change the break-even point, but none remove the basic fact: state must cross a boundary.",
+        "The scheduler also becomes a control plane. It must track phase queues, bandwidth, cache placement, worker health, SLO classes, prompt length estimates, output length estimates, and overload policy. Autoscaling one pool without the other can move the bottleneck rather than fix it. A healthy disaggregated system reports TTFT, prefill queue time, KV transfer time, decode queue time, TPOT, and stream gap percentiles separately.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Worked example',
       paragraphs: [
-        'Do not split phases just because the architecture is fashionable. If prompts are short, outputs are short, network bandwidth is limited, or the cluster is small, colocated serving may be simpler and faster. Do not optimize raw throughput while violating TTFT or TPOT. Do not ignore failure recovery: if a decode worker loses the transferred KV state, the system needs a recompute, retry, or rejection policy.',
-        'Do not confuse this with PagedAttention. PagedAttention manages KV memory blocks inside an inference runtime. Prefill/decode disaggregation decides where phases run and how KV state moves between workers. In a serious serving stack, both layers can appear together.',
+        "Consider two requests arriving together. One user sends a 20,000-token document and asks for a short summary. Another sends a short chat prompt and expects a long answer. In a colocated pool, the long prompt can delay decode work, and the long stream can keep cache state resident while new prompts wait.",
+        "In a disaggregated cluster, the router sends the document prompt to a prefill pool sized for large prompt bursts. When prefill finishes, the KV state moves to a decode pool. The short chat prompt may use a different prefill worker and then join a decode worker optimized for steady streaming. The system can protect first-token latency and stream cadence separately instead of letting one mixed queue decide both.",
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        "This design matters most in large LLM services with mixed prompt lengths, long output streams, strict interactive latency, high cluster cost, and enough network bandwidth to move state efficiently. DistServe emphasizes goodput under TTFT and TPOT. Splitwise emphasizes matching each phase to hardware with different compute, memory, cost, and power characteristics. Mooncake pushes KV cache into the center of the architecture for long-context chatbot workloads.",
+        "It also matters when prefix caching and cache reuse are common. A system that can find, place, and reuse existing KV blocks may avoid some prompt work entirely. In that world, routing is not just load balancing. It is a decision about where state already lives, how expensive it is to move, and which worker can meet the next phase's latency target.",
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        "Do not split phases just because a paper architecture does it. If prompts are short, outputs are short, traffic is modest, or the network is weak, colocated serving with continuous batching, paged KV memory management, and chunked prefill may be simpler and faster. The extra boundary can add latency, increase tail risk, and make debugging harder.",
+        "Disaggregation fails when state placement is wrong. A decode worker that waits on remote KV cannot stream smoothly. A prefill pool that overproduces KV faster than decode can consume it creates memory pressure. A failed decode worker needs retry, recompute, or rejection policy. A cache eviction bug can turn a normal request into a silent wrong-state hazard unless identity checks are strict.",
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        "Treat KV as a named resource. Give every cache block an identity that binds model, revision, adapter, tokenizer assumptions, request prefix, position encoding, precision, and ownership state. Record where it lives, how long it may live, whether it can be shared, and what happens if the consumer disappears.",
+        "Make overload explicit. Long prompts can fill prefill queues. Long generations can fill decode capacity. The router needs admission control, downgrade rules, early rejection, or backpressure before queues destroy latency for everyone. Dashboards should separate prefill saturation from decode saturation so operators do not add the wrong kind of capacity.",
+      ],
+    },
+    {
+      heading: 'Relationship to nearby topics',
+      paragraphs: [
+        "PagedAttention and paged KV managers solve memory layout inside a serving runtime. Prefix caching and RadixAttention solve reuse across shared prefixes. Continuous batching solves how many active sequences can advance together. Chunked prefill limits how much prompt work can block decode on a shared worker. Prefill/decode disaggregation is the cluster-level decision about where phases run and how state crosses between them.",
+        "The ideas compose. A disaggregated service may still use PagedAttention inside each worker, prefix caching before prefill, chunked prefill for fairness, and an SLO-aware router across pools. The dangerous mistake is to treat any one mechanism as the whole serving system.",
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: DistServe at https://arxiv.org/abs/2401.09670 and https://www.usenix.org/system/files/osdi24-zhong-yinmin.pdf, Splitwise at https://arxiv.org/abs/2311.18677, Microsoft Splitwise blog at https://www.microsoft.com/en-us/research/blog/splitwise-improves-gpu-usage-by-splitting-llm-inference-phases/, Mooncake at https://arxiv.org/abs/2407.00079, USENIX FAST Mooncake page at https://www.usenix.org/conference/fast25/presentation/qin, Mooncake GitHub at https://github.com/kvcache-ai/Mooncake/, and vLLM/PagedAttention at https://arxiv.org/abs/2309.06180.',
-        'Study Transformer Inference Roofline, LLM Continuous Batching, Chunked Prefill Token Budget Scheduler, LLM Serving: PagedAttention, Prefix Caching & RadixAttention, KV Cache, KV Cache Transfer Fabric Case Study, Tail Latency & p99 Thinking, Load Balancer, LLM Inference Cost Stack Case Study, and LLM Inference Scaling Playbook next.',
+        "Primary sources: DistServe at https://arxiv.org/abs/2401.09670, Splitwise at https://arxiv.org/abs/2311.18677, Mooncake at https://arxiv.org/abs/2407.00079, the USENIX FAST 2025 Mooncake page at https://www.usenix.org/conference/fast25/presentation/qin, and PagedAttention at https://arxiv.org/abs/2309.06180.",
+        "Study Transformer Inference Roofline first for the compute and memory bottlenecks. Then study Chunked Prefill Token Budget Scheduler, Prefix Caching RadixAttention, SLO-Aware LLM Request Router, Tail Latency, GPU Memory Pool Fragmentation Ledger, and Heterogeneous AI Compute Workload Router.",
       ],
     },
   ],

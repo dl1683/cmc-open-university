@@ -176,31 +176,98 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A Kubernetes Deployment manages rollout state for stateless workloads. A rolling update gradually replaces Pods from an old ReplicaSet with Pods from a new ReplicaSet while preserving configured availability and surge limits.',
-        'The Deployment concept page documents rolling updates, maxSurge, maxUnavailable, minReadySeconds, progressDeadlineSeconds, pause, resume, rollback, and rollout status: https://kubernetes.io/docs/concepts/workloads/controllers/deployment/. The Deployment API reference defines strategy.rollingUpdate.maxSurge and maxUnavailable along with status fields and conditions: https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/deployment-v1/.',
+        'A stateless service needs to change versions without disappearing. Deleting all old Pods and then creating new ones is simple, but it creates downtime. Creating too many new Pods can overload the cluster, exhaust quota, or overwhelm downstream dependencies.',
+        'A Kubernetes Deployment rolling update is the controller state machine that walks between those extremes. It replaces old ReplicaSet Pods with new ReplicaSet Pods while respecting availability, surge, readiness, and progress constraints. The topic looks simple because the YAML is short. The control problem is not short.',
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The main structures are the Deployment spec, old ReplicaSet, new ReplicaSet, desired replica count, maxSurge cap, maxUnavailable floor, Pod readiness state, minReadySeconds timer, revision history, and status conditions. Together they form a state machine over replica counts and availability.',
-        'A rollout controller does not simply delete old Pods and create new ones. It changes two ReplicaSet sizes while checking availability. Status conditions expose Progressing, Available, and failure reasons so humans and automation can decide whether to wait, pause, or roll back.',
+        'The obvious release method is to create version two, point traffic at it, and delete version one. That works only when capacity is abundant, startup is instant, both versions are compatible, and no user request notices the switch. Production services usually violate at least one of those assumptions.',
+        'The other obvious method is to replace Pods one by one by hand. That is safer than a big bang, but it is not repeatable. Humans are bad at maintaining exact counters under pressure. Kubernetes turns the rollout into a reconciliation loop over ReplicaSets, Pods, readiness, and status conditions.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The rollout is a bounded counter problem. The controller changes two ReplicaSet sizes: scale the new one up and the old one down. maxSurge caps extra Pods above desired count. maxUnavailable caps how many desired Pods may be unavailable.',
+        'Readiness turns Pod creation into a gate. A Pod that exists but is not ready does not count as available. minReadySeconds can require it to stay ready before the rollout trusts it.',
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        'Inspect a rolling update as two ReplicaSets sharing one availability budget. The new ReplicaSet wants more replicas. The old ReplicaSet wants fewer. The Deployment controller moves the counters only when doing so respects maxSurge, maxUnavailable, readiness, and progress deadline.',
+        'The important state is desired replicas, updated replicas, ready replicas, available replicas, unavailable replicas, old ReplicaSet count, new ReplicaSet count, observed generation, rollout condition, and progress reason. If those fields are not visible, a rollout failure becomes a vague story about Pods instead of a state-machine problem.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'With five desired replicas, maxSurge 1, and maxUnavailable 1, the controller may create one extra v2 Pod. Once it becomes available, the controller can remove one v1 Pod. The process repeats until all available Pods are v2.',
+        'If the new Pods never become ready, available count stops improving. progressDeadlineSeconds lets the controller mark the rollout failed. Rollback is another desired-state change: point the Deployment back to a previous template and walk the same state machine again.',
+        'The Deployment does not route traffic directly. Services, EndpointSlices, kube-proxy or a service mesh, probes, and application behavior determine what users experience. The rollout controller supplies bounded replacement. It does not prove that the new version is semantically correct.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The controller never needs to understand application internals. It relies on the Deployment spec, ReplicaSet counts, Pod readiness, and status conditions. If those signals are honest, the rollout preserves the configured availability envelope.',
+        'The invariant is that desired availability and surge constraints are checked before each scale step. That is why a bad readiness probe can break the rollout: the controller is only as good as the readiness signal.',
+        'This is a useful algorithmic lesson. The Deployment controller is not doing magic. It repeatedly compares desired rollout state with observed cluster state and takes the next legal transition. The safety comes from explicit counters and gates, not from hope that Pods start in a nice order.',
+      ],
+    },
+    {
+      heading: 'Where it wins and fails',
+      paragraphs: [
+        'Rolling updates work well for stateless services whose old and new versions can coexist behind the same Service. They are simple, observable, and reversible.',
+        'They are weak for schema-incompatible releases, stateful members, warmup-heavy services, and changes that need traffic analysis before full rollout. Canary or blue-green delivery may be safer when version compatibility is uncertain.',
+        'They also fail when readiness is treated as a port-open check. A Pod can accept TCP connections while caches are cold, migrations are incomplete, background workers are missing, or feature flags are inconsistent. Readiness should represent service participation, not mere process existence.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'maxSurge buys speed and safety by spending extra capacity. maxUnavailable saves capacity but accepts fewer available replicas during rollout. minReadySeconds protects against Pods that become ready briefly and fail moments later, but it slows releases. progressDeadlineSeconds detects stuck rollouts, but it cannot tell whether the business behavior is correct.',
+        'The most expensive hidden tradeoff is version compatibility. A rolling update puts old and new Pods behind the same Service for part of the release. APIs, database schema, caches, message formats, and feature flags must tolerate that overlap. If they cannot, the controller can preserve Pod availability while the application breaks.',
       ],
     },
     {
       heading: 'Complete case study',
       paragraphs: [
-        'A web Deployment has five desired replicas, maxSurge 1, and maxUnavailable 1. During rollout, the controller may create one extra v2 Pod, wait until it becomes available, then scale down one v1 Pod. That repeats until all five available Pods are v2. If readiness never passes and progressDeadlineSeconds expires, the rollout reports failure; the operator can inspect events and roll back to the previous ReplicaSet.',
-        'The task guide for updating Deployments without downtime covers triggering, monitoring, pausing, resuming, configuring strategy parameters, and rollback: https://kubernetes.io/docs/tasks/run-application/update-deployment-rolling/.',
+        'A payment API runs five replicas. The team releases v2 with maxSurge 1 and maxUnavailable 1. The controller creates one v2 Pod, waits for readiness and minReadySeconds, then scales down one v1 Pod. During the rollout the Service sees a mixed pool, so v1 and v2 must both handle the same request and schema shape.',
+        'If v2 has a bad readiness probe that reports ready before cache warmup, traffic reaches cold Pods and p99 spikes. If v2 never becomes ready, updated replicas rise but available replicas do not, and the progress deadline eventually marks the Deployment as failed. A rollback changes the template back and lets the same controller walk toward the previous ReplicaSet.',
+        'Now add a database migration. If v2 writes a column that v1 cannot read, the rolling update becomes unsafe even if every Pod is ready. The correct release sequence is expand schema, deploy code that tolerates both shapes, backfill if needed, switch behavior, then contract schema later. The Deployment controller cannot infer that contract. The release plan has to encode it.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Failure diagnosis',
       paragraphs: [
-        'Rollout success is not just image pull success. Readiness probes, minReadySeconds, quota, scheduling, PodDisruptionBudgets, and application warmup can all stall progress. A too-low maxUnavailable can make rollout slow; a too-high maxSurge can overload dependencies.',
-        'Study next: Kubernetes HPA Recommendation Ring for scale changes during traffic, PodDisruptionBudget Eviction Budget for availability during voluntary disruption, ResourceQuota and LimitRange Admission for quota failures, and Flagger Progressive Delivery Canary for traffic-gated rollout automation.',
+        'When a rollout stalls, start with the state machine rather than the logs. Did the new ReplicaSet scale up? Did Pods schedule? Did images pull? Did containers start? Did readiness pass? Did minReadySeconds elapse? Did the controller observe the latest generation? Each question maps to a specific field or event.',
+        'When a rollout succeeds but users suffer, the problem is often outside the Deployment controller. Check endpoint distribution, p99 by version, cold-start behavior, dependency errors, schema compatibility, and feature flags. The controller can say the infrastructure transition completed; it cannot say the product release was good.',
+      ],
+    },
+    {
+      heading: 'Operational signals',
+      paragraphs: [
+        'Track Deployment conditions, observed generation, updated replicas, available replicas, unavailable replicas, old ReplicaSet count, new ReplicaSet count, readiness failures, image pull failures, probe latency, startup time, endpoint churn, p99 by version, and error rate by version.',
+        'A serious rollout dashboard should show which gate is blocking progress. Waiting for image pull, waiting for readiness, waiting for minReadySeconds, blocked by quota, failing progress deadline, and healthy but slow replacement are different states. Treating them as one generic rollout spinner wastes operator time.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'A rolling update is a constrained state machine over ReplicaSet counters. maxSurge, maxUnavailable, readiness, and progress deadline define which transition is legal next. The controller can maintain the envelope only if the probes and compatibility assumptions are honest.',
+        'For course design, teach this after reconciliation loops and before canary delivery. Students should understand that Kubernetes can safely move infrastructure state, but application correctness still depends on version compatibility, probes, and runtime signals.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Kubernetes Deployment concepts at https://kubernetes.io/docs/concepts/workloads/controllers/deployment/, Deployment API reference at https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/deployment-v1/, and the rolling update task guide at https://kubernetes.io/docs/tasks/run-application/update-deployment-rolling/.',
+        'Study Kubernetes HPA Recommendation Ring for scale changes during traffic, PodDisruptionBudget Eviction Budget for availability during voluntary disruption, ResourceQuota and LimitRange Admission for quota failures, StatefulSet Ordinal Rollout for identity-sensitive workloads, and Flagger Progressive Delivery Canary for traffic-gated rollout automation.',
       ],
     },
   ],

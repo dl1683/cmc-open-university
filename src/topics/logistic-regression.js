@@ -153,40 +153,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: `What it is`,
+      heading: 'Why this exists',
       paragraphs: [
-        `Logistic Regression is a linear classifier that returns a score you can interpret as a probability once it has been checked. The model takes a weighted sum, z = w1*x1 + w2*x2 + b, and passes it through the sigmoid curve so negative evidence moves toward 0, positive evidence moves toward 1, and z = 0 means 0.5. The visualization uses ten emails with two features: exclamation marks and ALL-CAPS words. Spam points cluster toward the upper right, ham toward the lower left, and the learned line is the p = 0.5 boundary.`,
+        'Logistic regression exists because many decisions need a probability score, not just a label. A fraud system, ad click model, spam filter, medical triage tool, or churn model needs to rank cases by risk, choose thresholds, explain feature effects, and calibrate confidence. A hard yes/no rule is usually too crude.',
+        'The model is intentionally simple. It computes a weighted sum of features, turns that evidence score into a probability with the sigmoid curve, and learns the weights from labeled examples. The result is a linear decision boundary with a probabilistic interpretation.',
+        'That simplicity is the point. Logistic regression is often the baseline a more complex model must beat. It trains quickly, predicts cheaply, handles sparse features well, and gives coefficients that can be inspected as changes in log-odds. When it fails, the failure is usually informative.',
       ],
     },
     {
-      heading: `How it works`,
+      heading: 'The obvious approach',
       paragraphs: [
-        `The model starts with all weights at zero, so every email receives p(spam) = 0.5. Gradient Descent then updates the three parameters using cross-entropy loss. With sigmoid plus cross-entropy, the gradient simplifies to (p - truth) times the feature, so a badly wrong confident prediction pushes hard and a nearly right one nudges. In the demo, epoch 1 creates a rough boundary, epoch 15 has most points on the correct side, epoch 60 classifies all ten emails correctly, and epoch 200 mostly sharpens confidence. The boundary itself is exactly the line where w*x + b = 0.`,
-        `The close-up view shows why the sigmoid matters. Near z = 0 it is steep, so small evidence changes can flip an uncertain decision. In the tails it saturates: z = 6 and z = 60 both mean almost certain. Entropy & Information explains the -log(p) penalty behind cross-entropy, and Softmax & Temperature extends the same idea to many classes. Neural Network Forward Pass is built from this weighted-sum-then-nonlinearity pattern, stacked many times.`,
+        'The obvious approach is a hand-written threshold: if an email has more than three exclamation marks, call it spam. That kind of rule is brittle. It ignores combinations of evidence, cannot learn relative feature strength from data, and produces no honest probability for downstream tradeoffs.',
+        'Another obvious approach is ordinary linear regression on labels 0 and 1. That gives scores, but it can predict values below 0 or above 1, and squared error is poorly matched to classification confidence. A probability model needs outputs in the interval from 0 to 1 and a loss that punishes confident wrong answers strongly.',
+        'Logistic regression keeps the linear evidence score but changes the output and loss. The sigmoid maps any real number to a probability. Cross-entropy measures how surprised the model should be by the true label. The pair gives clean gradients and a convex training problem for the basic model.',
       ],
     },
     {
-      heading: `Cost and complexity`,
+      heading: 'Core insight',
       paragraphs: [
-        `For N examples, d features, and E epochs, batch training costs O(E * N * d). This demo has d = 2 and N = 10, so even 200 epochs are tiny. Storage is d weights plus one bias, and prediction costs O(d): multiply, add, apply sigmoid. The simplicity is why Logistic Regression remains a baseline in fraud, ads, medicine, and search. FTRL-Proximal Online CTR Case Study shows the massive sparse version: hashed ad features, online updates, and per-coordinate optimizer state. It is also easy to inspect: each coefficient changes log-odds, not vague feature importance. That makes failure analysis concrete: if all-caps gets a large positive weight, you can see exactly which cue moved the boundary.`,
+        'The core insight is log-odds. Logistic regression assumes the log-odds of the positive class are a linear function of the features. If z = w * x + b, then sigmoid(z) is the probability. A one-unit feature increase changes the log-odds by that feature weight, holding other features fixed.',
+        'The p = 0.5 boundary is where z = 0. On one side, the weighted evidence favors the positive class. On the other side, it favors the negative class. Distance from the boundary becomes confidence because the sigmoid moves probabilities toward 0 or 1 as z becomes more negative or positive.',
+        'This is why the model is interpretable but limited. It can say how each feature shifts linear evidence. It cannot discover a curved boundary unless you provide transformed features, interaction terms, splines, buckets, or other representation work.',
       ],
     },
     {
-      heading: `Real-world uses`,
+      heading: 'How it works',
       paragraphs: [
-        `Teams use it anywhere a transparent probability score is valuable: credit risk, churn, spam, medical triage, and ad click prediction. ROC Curves & AUC compares how well those scores rank positives above negatives. Precision, Recall & the Confusion Matrix turns the scores into concrete errors after a threshold is chosen. Calibration & Reliability Diagrams checks whether a displayed 80% behaves like 80% in reality.`,
+        'The model starts with weights and a bias. For an example x, it computes z = w1*x1 + w2*x2 + ... + b. The sigmoid function 1 / (1 + exp(-z)) turns z into p, the predicted probability of the positive class. The prediction rule can be p >= 0.5, but production systems usually choose thresholds based on cost, recall, precision, or capacity.',
+        'Training minimizes cross-entropy. For a positive example, the loss is -log(p). For a negative example, the loss is -log(1 - p). This loss barely penalizes confident correct predictions, penalizes uncertainty moderately, and punishes confident wrong predictions heavily.',
+        'With sigmoid plus cross-entropy, the gradient has a simple form: prediction error times feature value. If p is too high for a negative example, the model pushes weights downward in proportion to that example’s features. If p is too low for a positive example, it pushes upward. Gradient descent repeats this until the boundary and probabilities fit the training data.',
       ],
     },
     {
-      heading: `Pitfalls and misconceptions`,
+      heading: 'What the visual is proving',
       paragraphs: [
-        `The line is both the strength and the limit. If the classes need a curve, interactions, or a tree-shaped rule, this model underfits unless you add better features. Perfectly separable data also creates a subtle failure: without Regularization: L1 & L2, cross-entropy keeps rewarding bigger weights forever because 0.999 is still better than 0.99. High probabilities on tiny data can be fantasy, and correlated features can make individual weights look unstable even when predictions are good. Cross-Validation & Honest Evaluation is how you test the model without grading its homework.`,
+        'The boundary-learning view proves that a linear probability model can be trained by error-driven movement of a line. At the start, every point receives 0.5. As training proceeds, wrongly placed or uncertain points steer the weights. The boundary rotates and shifts until spam-like examples sit on the high-probability side and ham-like examples sit on the low-probability side.',
+        'The late epochs prove an important subtlety. Once every toy point is classified correctly, cross-entropy still rewards sharper confidence. On perfectly separable data, weights can keep growing without regularization because 0.999 is still better than 0.99 for the correct class. Correct labels do not automatically mean well-behaved probabilities.',
+        'The sigmoid close-up proves how scores become probabilities. Around z = 0, the curve is steep and small evidence changes matter. In the tails, the curve saturates. The log-loss view then proves why overconfident mistakes are dangerous: assigning 0.05 probability to the true class costs far more than being unsure.',
       ],
     },
     {
-      heading: `Study next`,
+      heading: 'Why it works',
       paragraphs: [
-        `Study Gradient Descent for the optimizer moving the line, Regularization: L1 & L2 for the leash that stops runaway weights, FTRL-Proximal Online CTR Case Study for sparse online logistic learning, and Calibration & Reliability Diagrams before treating sigmoid outputs as trustworthy probabilities. Then use ROC Curves & AUC and Precision, Recall & the Confusion Matrix to evaluate the score and choose an operating threshold.`,
+        'It works because many risk signals combine roughly additively on the log-odds scale. In spam detection, each exclamation mark, all-caps word, suspicious domain, or phrase can shift evidence toward spam. In credit risk or churn, each feature can shift evidence toward the event. The model is simple, but the feature set can be rich.',
+        'It also works because the training objective is convex for the basic model. There is one global basin rather than a maze of local minima. That makes optimization reliable and diagnostics clearer. If the model performs poorly, the problem is usually representation, data quality, leakage, class imbalance, or the linear assumption, not a mysterious optimization failure.',
+        'Finally, it works well with sparse high-dimensional data. Text, ads, user IDs, query terms, and categorical features can produce millions of mostly zero features. Logistic regression with regularization or online optimizers can handle that scale efficiently.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'For N examples, d features, and E epochs, batch training costs O(E * N * d). Prediction costs O(d) for dense features or O(number of nonzero features) for sparse inputs. Storage is one weight per feature plus a bias. That makes the model cheap enough for real-time scoring and large sparse systems.',
+        'The tradeoff is bias. A linear boundary is stable and readable, but it cannot represent feature interactions unless you create them. If exclamation marks matter only when combined with a suspicious sender, the basic model will miss that interaction unless a feature encodes it. Tree models and neural networks can learn richer interactions automatically, but they cost more and are harder to inspect.',
+        'Regularization is usually necessary. L2 keeps weights small and stable. L1 can drive weak features to zero. Without regularization, separable data can push weights toward infinity and correlated features can make coefficients unstable. Regularization is not just overfitting prevention; it is part of making the probability model usable.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Teams use logistic regression anywhere a transparent probability score is valuable: credit risk, churn, spam, fraud, medical triage, moderation queues, ad click prediction, search ranking features, and operational alert scoring. It is especially strong when the data is sparse, the baseline must be reliable, and the organization needs to explain why a score moved.',
+        'It is also useful as a calibration and evaluation anchor. ROC Curves & AUC compares how well the scores rank positives above negatives. Precision, Recall & the Confusion Matrix turns the scores into concrete errors after a threshold is chosen. Calibration & Reliability Diagrams checks whether a displayed 80% behaves like 80% in reality.',
+        'In production systems, logistic regression often sits inside larger stacks. It may score candidates before a neural reranker, provide a simple fallback, or serve as an interpretable benchmark. A complex model that cannot beat a well-regularized logistic baseline probably has a data or evaluation problem.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The line is both the strength and the limit. If the classes need a curve, interactions, or a tree-shaped rule, the model underfits unless you add better features. Nonlinear feature engineering can help, but at some point another model class may be the honest answer.',
+        'Probability output is not automatically calibrated. Small datasets, class imbalance, label noise, leakage, distribution shift, and over-regularization can all produce probabilities that look precise but are wrong. Treat sigmoid output as a model score until calibration has been checked on held-out data.',
+        'Interpretability can also be overstated. A coefficient is readable when features are stable, independent enough, and measured consistently. With correlated features, missingness artifacts, or leakage, a coefficient may explain the training data without explaining the world. Cross-validation, ablations, and feature audits are still required.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Gradient Descent for the optimizer moving the line, Cross-Entropy and Entropy for the loss, Regularization: L1 & L2 for controlling weights, FTRL-Proximal Online CTR Case Study for sparse online logistic learning, and Calibration & Reliability Diagrams before treating sigmoid outputs as trustworthy probabilities.',
+        'Then use ROC Curves & AUC to evaluate ranking, Precision and Recall to choose thresholds, Feature Hashing for sparse categorical inputs, Naive Bayes for another simple probabilistic baseline, and Neural Network Forward Pass to see how logistic regression becomes one layer inside deeper models.',
       ],
     },
   ],

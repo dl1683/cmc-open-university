@@ -308,51 +308,90 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'ScaNN, short for Scalable Nearest Neighbors, is a Google Research vector-similarity search system for approximate nearest-neighbor retrieval at scale. It belongs beside HNSW, Product Quantization, Faiss IVF-PQ, and DiskANN because it is not just a library call. It is a data-structure composition: partition the vector space, score compressed candidates quickly, then optionally rescore a smaller shortlist more accurately.',
-        'The distinctive ScaNN lesson is score-aware compression. Traditional vector quantization tries to minimize reconstruction error: make the compressed vector look as much like the original as possible. The ScaNN paper argues that this is the wrong objective for maximum inner product search. In retrieval, the costly mistake is not every coordinate error; it is an error that changes which items belong in the top-k.',
+        `Embedding search turns meaning into geometry. A query and millions of documents, products, images, or users become vectors, and retrieval asks for the nearest vectors under dot product, cosine distance, or Euclidean distance. The problem is that exact search compares the query with every stored vector. At millions or billions of vectors, memory bandwidth and arithmetic dominate the request.`,
+        `ScaNN, short for Scalable Nearest Neighbors, is Google's approximate nearest-neighbor system for this problem. It is best taught as a pipeline: prune the search space with partitions, score compressed candidates with asymmetric hashing, and optionally rescore a shortlist with more accurate distances before returning top-k results.`,
+      ],
+    },
+    {
+      heading: 'The obvious approach',
+      paragraphs: [
+        `The obvious approach is brute-force search. Embed the query, compute its score against every stored vector, sort or select the best k, and return the winners. This is simple, exact, and often the right answer for small datasets. The current ScaNN configuration guide still recommends brute force for small collections.`,
+        `The wall is scale. If every query must touch every vector, doubling the corpus roughly doubles the scoring work and memory traffic. High dimensionality also weakens many simple pruning tricks. You need an index that can skip most vectors while keeping the true neighbors likely enough to survive.`,
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        `ScaNN spends build-time structure to save query-time work. Partitioning decides which regions of the vector space deserve attention. Asymmetric hashing makes candidate scoring cheap by storing compact database-vector codes. Rescoring spends exact or higher-quality work only on candidates that already look promising.`,
+        `The distinctive ScaNN idea is score-aware compression. Ordinary vector quantization tries to reconstruct each vector well. ScaNN asks a retrieval-specific question: will this compressed representation preserve the scores that decide top-k? For maximum inner product search, the anisotropic quantization paper shows why residual error parallel to a data vector can matter more than equal-sized orthogonal error.`,
+      ],
+    },
+    {
+      heading: 'How the visual model teaches it',
+      paragraphs: [
+        `In the three-stage search view, follow the query as it narrows the candidate set. Partitioning is a coarse decision: which leaves are worth searching? Compressed scoring is a cheaper decision: which vectors inside those leaves might belong in the answer? Exact rescoring is the expensive decision saved for the shortlist.`,
+        `In the anisotropic-quantization view, focus on the direction of the error. A compressed vector can be close in Euclidean distance and still damage the inner product that ranks results. The highlighted parallel-error case matters because it changes the score the user actually depends on.`,
+        `In the SOAR redundancy view, the second partition path is not a bug or a duplicate for its own sake. It is a backup route for a vector that partition pruning might otherwise miss. The visualization is about budgeted redundancy: buy recall with a small number of extra placements, not with uncontrolled copying.`,
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'The official ScaNN algorithm notes describe three phases. Partitioning is optional but important for large datasets: during training, assign database vectors to leaves; during query serving, search only selected leaves. Scoring computes approximate distances or inner products for the candidates in those leaves. Rescoring, also optional, recomputes more accurate distances for the best k-prime candidates before selecting the final k results.',
-        'The scoring stage uses asymmetric hashing. The query is handled in a richer form while database vectors are represented by compact codes. This is close in spirit to Product Quantization and Faiss IVF-PQ, but ScaNN changes the quantization objective. Its anisotropic vector quantization penalizes residual error parallel to the original vector more heavily than orthogonal error, because parallel error is more likely to damage large inner products.',
+        `Training builds the index. Partitioning assigns database vectors to leaves. Query serving chooses a subset of leaves, so most vectors are never scored. The official ScaNN guide frames the partition ratio as the pruning lever: searching more leaves improves accuracy and costs more scoring work.`,
+        `Scoring then computes approximate distances or inner products for candidates in the selected leaves. ScaNN can score with brute force or asymmetric hashing. With asymmetric hashing, the query can stay in a richer form while each database vector is stored as compact codes, so scoring is mostly table lookups and additions rather than full floating-point vector math.`,
+        `Rescoring repairs the last mile. The approximate stage produces more candidates than the final k. ScaNN then recomputes better distances for that shortlist and selects the final k. This is why the shortlist size is a real tuning knob: too small loses recall, too large gives back the latency that approximation was meant to save.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Why it works',
       paragraphs: [
-        'The practical knobs are familiar but sharp. More partitions can reduce candidate scans but creates balance and recall risk. Searching more leaves improves recall and increases latency. More code bits reduce quantization error and increase memory or scoring cost. Deeper rescoring improves final ranking and reads more exact data. SOAR-style redundancy can improve recall by placing selected vectors into more than one partition, but every extra copy spends memory and index-build work.',
-        'A useful mental model is a retrieval budget ledger. Partitioning spends recall risk to buy pruning. Anisotropic hashing spends approximation to buy compressed scoring. Rescoring spends exact distance work on a shortlist. Redundancy spends index size to reduce miss probability. The correct configuration is not universal; it is measured against recall@k, p95 latency, memory, update behavior, and downstream answer quality.',
+        `ScaNN works when the index preserves enough of the true neighbor set before the final exact work. Partitioning is allowed to be approximate because it only has to pass likely leaves to later stages. Compressed scoring is allowed to be approximate because rescoring can correct the best candidates. Rescoring works because it spends accuracy only where a ranking change can still affect the answer.`,
+        `The anisotropic loss improves the middle stage by optimizing the error that matters to ranking. If the application uses maximum inner product search, preserving high inner products is more important than minimizing average reconstruction error over all coordinates. That is the algorithmic reason ScaNN is more than "PQ with different defaults."`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Worked example',
       paragraphs: [
-        'Imagine a product-search or RAG system with 50 million text and image embeddings. Exact search is too slow and too memory-bandwidth heavy. A ScaNN-style deployment trains partitions over a representative sample, stores compact candidate codes, and keeps enough full-vector or higher-precision information to rescore the final shortlist. The serving path embeds the user query, picks the closest leaves, scores compressed candidates with lookup-table-heavy arithmetic, rescoring the top few hundred before handing results to a reranker or generator.',
-        'The operating contract should be explicit. Compare ScaNN candidate recall against a flat exact index on traffic samples. Track recall separately for common queries, rare categories, new products, multilingual content, and tenants with unusual vector distributions. When the embedding model changes, rebuild or shadow-build the index and compare exact-neighbor overlap before cutover. If RAG answers depend on this retrieval layer, evaluate final answer groundedness as well as ANN recall.',
+        `Imagine a RAG system with 50 million passage embeddings and a 768-dimensional query vector. Exact search would score 50 million vectors for every question. A ScaNN-style serving path embeds the query, selects a small number of trained leaves, scores compressed candidates inside those leaves, rescoring a few hundred or a few thousand candidates before passing results to a reranker or generator.`,
+        `The correctness check is empirical but precise. Build a flat exact index for traffic samples or held-out queries. Compare ScaNN's candidate set against exact nearest neighbors. Track recall separately for common queries, rare categories, long-tail languages, fresh documents, and filtered searches. If the embedding model changes, shadow-build the new index and compare neighbor overlap before cutover.`,
       ],
     },
     {
-      heading: 'Where SOAR fits',
+      heading: 'Costs and tuning behavior',
       paragraphs: [
-        'SOAR, Spilling with Orthogonality-Amplified Residuals, is a later Google Research improvement to ScaNN. It adds carefully selected redundancy so vectors can be found through more than one partition route. This is not the same as blindly duplicating everything. The SOAR framing is that a small, geometry-aware spill budget can reduce misses while minimally affecting index size and other operating metrics.',
-        'That makes SOAR a useful bridge between algorithms and systems design. Redundancy is a normal reliability idea in distributed systems, but ScaNN uses it inside an ANN index: backup placement for candidate discovery rather than backup replicas for machines. The shared lesson is budgeted redundancy, not free safety.',
+        `The main cost is a recall-latency-memory trade. More leaves can improve partition quality but cost more build work. Searching more leaves improves recall and increases candidate scoring. More code bits reduce quantization error and increase memory or scoring cost. Larger rescore shortlists improve final ranking and cost more exact work.`,
+        `The current ScaNN guide gives practical rules of thumb: brute force for small datasets, asymmetric hashing plus rescoring for medium datasets, and partitioning plus asymmetric hashing plus rescoring for larger datasets. It also suggests a partition count on the order of the square root of the dataset size, then tuning the number of searched leaves to the recall target. Treat those as starting points, not laws.`,
+        `SOAR adds another line to the ledger. Redundancy can reduce misses by giving selected vectors more than one partition route, but each spill spends index bytes, build work, and sometimes query work. Useful redundancy is placed by geometry and measured against recall and latency; naive duplication is just a bigger index.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it wins',
       paragraphs: [
-        'Do not summarize ScaNN as "faster PQ." The better explanation is "top-k-aware compressed retrieval." Its anisotropic loss is motivated by maximum inner product search, where preserving the score of likely top results matters more than uniform reconstruction. That means metric choice, vector normalization, and application objective must be clear before tuning.',
-        'Do not benchmark only a happy-path dataset. ANN systems fail in the tails: rare queries, fresh items, strict metadata filters, language shifts, embedding-model migrations, and category clusters that were underrepresented in training. A serious evaluation reports recall@k, latency percentiles, memory footprint, index build time, update path, filter interaction, and downstream RAG or recommendation quality.',
+        `ScaNN is a good fit when a large embedding corpus makes exact search too slow and the product can tolerate approximate retrieval with measured recall. It belongs in semantic search, recommendation candidate generation, image or audio retrieval, RAG evidence retrieval, and other systems where a later reranker or generator can consume a high-quality candidate set.`,
+        `It is especially attractive when maximum inner product search is the bottleneck and compressed scoring can preserve the candidates that matter. It also teaches a general systems pattern: use cheap approximate stages to reduce the search space, then spend exact work only on the part of the problem that can still change the answer.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it is the wrong tool',
       paragraphs: [
-        'Primary sources: Google Research ScaNN README at https://github.com/google-research/google-research/blob/master/scann/README.md, ScaNN algorithm configuration docs at https://github.com/google-research/google-research/blob/master/scann/docs/algorithms.md, the ICML paper "Accelerating Large-Scale Inference with Anisotropic Vector Quantization" at https://proceedings.mlr.press/v119/guo20h/guo20h.pdf, the Google Research launch post at https://research.google/blog/announcing-scann-efficient-vector-similarity-search/, the SOAR Google Research post at https://research.google/blog/soar-new-algorithms-for-even-faster-vector-search-with-scann/, the SOAR paper link at https://arxiv.org/abs/2404.00774, and the TensorFlow retrieval scaling article at https://blog.tensorflow.org/2023/05/scaling-deep-retrieval-with-tensorflow-recommenders-and-vertex-ai-matching-engine.html. Study Embeddings & Similarity, Product Quantization, Faiss IVF-PQ Case Study, HNSW, DiskANN SSD Vector Search Case Study, Multi-Index RAG, Cross-Encoder Reranker, RAG Evaluation, and ANN Recall-Latency Pareto Ledger next.',
+        `Do not reach for ScaNN when exactness is mandatory, the dataset is small enough for brute force, or updates must be visible immediately with no rebuild or maintenance path. A relational predicate, inverted index, or ordinary key-value lookup is better when the query is exact rather than semantic.`,
+        `It can also be the wrong fit when strict metadata filters remove most of the corpus after vector search. If the index cannot account for the filter, it may return a high-recall candidate set for the wrong universe. Filter-aware indexing, hybrid retrieval, or per-tenant indexes may be needed.`,
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        `ANN systems fail in the tails. Rare queries, fresh items, underrepresented languages, embedding-model migrations, skewed tenants, and category clusters missing from training can all lose recall while average benchmark numbers look healthy. The index can also go stale if the corpus changes faster than the rebuild plan.`,
+        `Another failure is metric confusion. Dot product, cosine similarity, and Euclidean distance are not interchangeable once normalization, training objective, and application semantics are fixed. A team that tunes ScaNN against the wrong metric can improve benchmark recall while making product ranking worse.`,
+      ],
+    },
+    {
+      heading: 'Study next and sources',
+      paragraphs: [
+        `Study Embeddings & Similarity first, then Product Quantization and Faiss IVF-PQ Case Study to understand compressed scoring. Compare ScaNN with HNSW and DiskANN SSD Vector Search Case Study to see graph-based and storage-aware ANN alternatives. For production retrieval, study Multi-Index RAG, Cross-Encoder Reranker, RAG Evaluation, and ANN Recall-Latency Pareto Ledger.`,
+        `Primary sources: ScaNN README at https://github.com/google-research/google-research/blob/master/scann/README.md, ScaNN algorithm guide at https://github.com/google-research/google-research/blob/master/scann/docs/algorithms.md, Google Research's ScaNN launch post at https://research.google/blog/announcing-scann-efficient-vector-similarity-search/, the ICML 2020 anisotropic vector quantization paper at https://proceedings.mlr.press/v119/guo20h/guo20h.pdf, the Google Research SOAR post at https://research.google/blog/soar-new-algorithms-for-even-faster-vector-search-with-scann/, and the SOAR paper at https://arxiv.org/abs/2404.00774.`,
       ],
     },
   ],

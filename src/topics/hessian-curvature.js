@@ -239,11 +239,25 @@ export const article = {
       ],
     },
     {
+      heading: `Core insight`,
+      paragraphs: [
+        `The gradient tells you which way the loss changes fastest at the current point. The Hessian tells you how that gradient itself changes as you move. That second piece is what separates a round bowl, a narrow ravine, and a saddle point.`,
+        `Its eigenvectors are the locally natural directions of the landscape. Its eigenvalues are the curvature along those directions. Once you see that, Newton's method becomes less mysterious: it rescales the step by the shape of the local quadratic bowl instead of walking blindly downhill.`,
+      ],
+    },
+    {
       heading: `How it works`,
       paragraphs: [
-        `Start with a smooth scalar loss f(w) where w is a parameter vector. The gradient ∇f is the vector of first partial derivatives — it points downhill. The Hessian H is the matrix of second partial derivatives: entry H[i,j] = ∂²f / ∂wᵢ∂wⱼ. Because mixed partials commute (Schwarz's theorem), the Hessian is symmetric: H = Hᵀ. A symmetric matrix has real eigenvalues and orthogonal eigenvectors — this is the crucial fact. The eigendecomposition H = VΛVᵀ rotates the landscape into a coordinate system where curvature along each axis is a single number (the eigenvalue). On a contour map, the eigenvectors point along the principal axes of each ring, and the eigenvalues measure how curved the ring is along those axes. A large eigenvalue means tight, steep curvature; a small eigenvalue means gently sloping terrain. If all eigenvalues are positive the point is a local minimum (a bowl of rings). If all are negative it is a local maximum (an inverted bowl). If they have mixed signs — some positive, some negative — the point is a saddle, and the contours tear open into hyperbolas: you can escape to lower loss by stepping along the most-negative eigenvector's direction.`,
+        `Start with a smooth scalar loss f(w) where w is a parameter vector. The gradient ∇f is the vector of first partial derivatives — it points downhill. The Hessian H is the matrix of second partial derivatives: entry H[i,j] = ∂²f / ∂wᵢ∂wⱼ. Because mixed partials commute (Schwarz's theorem), the Hessian is symmetric: H = Hᵀ. A symmetric matrix has real eigenvalues and orthogonal eigenvectors — this is the central fact. The eigendecomposition H = VΛVᵀ rotates the landscape into a coordinate system where curvature along each axis is a single number (the eigenvalue). On a contour map, the eigenvectors point along the principal axes of each ring, and the eigenvalues measure how curved the ring is along those axes. A large eigenvalue means tight, steep curvature; a small eigenvalue means gently sloping terrain. If all eigenvalues are positive the point is a local minimum (a bowl of rings). If all are negative it is a local maximum (an inverted bowl). If they have mixed signs — some positive, some negative — the point is a saddle, and the contours tear open into hyperbolas: you can escape to lower loss by stepping along the most-negative eigenvector's direction.`,
         `Newton's method exploits the Hessian directly. The update rule is w ← w − H⁻¹∇f. This is not gradient descent with a learning rate — it is solving the local quadratic approximation f(w + δ) ≈ f(w) + ∇fᵀδ + ½δᵀHδ for the optimal step δ. On any true quadratic, this lands at the minimum in ONE step, regardless of how eccentric the rings are. On the ravine f = ½(x² + 9y²) with condition number κ = 9, gradient descent with the optimal learning rate still zigzags for 26 steps. Newton solves it in one. The cost? Inverting the Hessian requires O(d³) algebra, where d is the number of parameters. At GPT scale (d ≈ 10¹¹) you would need ~10²² numbers to store H. So while Newton wins on iterations, it loses catastrophically on compute.`,
         `Modern optimizers are all bargains in the same game: exploit curvature without computing the full Hessian. Adam uses only the diagonal entries of the Hessian (estimated from squared gradient history), which costs O(d) and works well on axis-aligned ravines but is blind to tilted ones. L-BFGS keeps a low-rank sketch of the last 10 or so gradients. Hessian-free CG uses double-backprop to compute H·v products without ever writing down H. K-FAC factors the Hessian layer-wise as a Kronecker product. They are all on the same spectrum: how much of H⁻¹ can you afford to approximate?`,
+      ],
+    },
+    {
+      heading: `Mechanism`,
+      paragraphs: [
+        `Start from the contour rings. Round rings mean similar curvature in every direction; long skinny rings mean one direction is much steeper than another. The Hessian is the local matrix that explains those shapes: eigenvectors point along the ring axes, and eigenvalues say how sharply the loss curves along them.`,
+        `In the Newton view, compare information used per step. Gradient descent knows the downhill direction but not how the floor is shaped, so it zigzags through ravines. Newton uses curvature to solve the local quadratic model in one shot. The reason we do not use it everywhere is not elegance; it is the O(d^2) storage and O(d^3) algebra wall.`,
       ],
     },
     {
@@ -255,13 +269,28 @@ export const article = {
     {
       heading: `Real-world uses`,
       paragraphs: [
-        `The Hessian is central to understanding optimization geometry. Li et al. (2018) used Hessian eigenvalues to show that skip connections in neural networks reduce the condition number (eccentricity), which is why they train faster. Practitioners use the safe learning rate rule lr < 2/λmax (the largest eigenvalue) to avoid instability. The condition number κ = λmax/λmin appears everywhere in optimization theory — it predicts how many steps gradient descent must take, and it motivates adaptive methods. In second-order optimization (rare in deep learning but common in classical statistics and control), you compute the Hessian or approximations to it. Bayesian neural networks use approximate Hessians for posterior uncertainty. Natural gradient descent replaces the identity learning-rate matrix with the Fisher information matrix (related to the Hessian). In robotics and trajectory optimization, where d is small (≤1000) and real-time is crucial, local quadratic models and Newton steps dominate. Any competent optimization textbook (Boyd & Vandenberghe, Nesterov, Nocedal) builds around the Hessian as the fundamental curvature object.`,
+        `The Hessian is central to understanding optimization geometry. Li et al. (2018) used Hessian eigenvalues to show that skip connections in neural networks reduce the condition number (eccentricity), which is why they train faster. Practitioners use the safe learning rate rule lr < 2/λmax (the largest eigenvalue) to avoid instability. The condition number κ = λmax/λmin appears everywhere in optimization theory — it predicts how many steps gradient descent must take, and it motivates adaptive methods. In second-order optimization (rare in deep learning but common in classical statistics and control), you compute the Hessian or approximations to it. Bayesian neural networks use approximate Hessians for posterior uncertainty. Natural gradient descent replaces the identity learning-rate matrix with the Fisher information matrix (related to the Hessian). In robotics and trajectory optimization, where d is small (≤1000) and real-time constraints are strict, local quadratic models and Newton steps dominate. Any competent optimization textbook (Boyd & Vandenberghe, Nesterov, Nocedal) builds around the Hessian as the fundamental curvature object.`,
       ],
     },
     {
       heading: `Pitfalls and misconceptions`,
       paragraphs: [
         `First trap: "Saddle points are rare in high dimensions" is WRONG. In 1000 dimensions a random critical point has positive curvature in ~500 directions and negative in ~500, which is a saddle. As dimension grows, saddles are overwhelmingly common and minima are vanishingly rare. The Hessian's eigenvalue signs tell you which. Second trap: confusing the Hessian with the loss landscape's shape globally. The Hessian is LOCAL — it describes the landscape in a small neighborhood around the current point. Off that neighborhood the quadratic approximation f(w + δ) ≈ f(w) + ∇fᵀδ + ½δᵀHδ breaks down. A point can have a negative-definite Hessian (bowl shape locally) but be a saddle globally. Third trap: assuming a diagonal approximation (like Adam's per-coordinate scaling) captures all the geometry. If the true ravine is rotated 45° (the tilted bowl H = [[2.5, 1.5], [1.5, 2.5]]) a diagonal Hessian cannot see it — the eigenvectors are at ±45° but a diagonal matrix has eigenvectors along the axes. Fourth: "Newton's method is just steepest descent with a weird learning rate" is dangerously false. Newton solves the local quadratic model exactly; steepest descent is a pessimistic walk along the gradient. On a true quadratic Newton IS exact; on a nonlinear loss it is not exact but still quadratically convergent near the optimum (fast). Steepest descent is linear. Finally: Newton's Achilles heel is the computation of H and its inverse. Modern approximate-Newton methods sidestep this by never materializing H, but you must know the price you are paying in lost geometry.`,
+      ],
+    },
+    {
+      heading: `Limits and failure modes`,
+      paragraphs: [
+        `The Hessian is local. A clean quadratic approximation near one point does not describe the whole loss landscape. Farther away, higher-order terms can dominate, curvature can change sign, and a Newton step can become too aggressive unless damped or trust-region controlled.`,
+        `The matrix can also be indefinite. A saddle has both positive and negative eigenvalues, so blindly inverting H may point toward instability rather than a minimum. Practical second-order methods use damping, line search, trust regions, or Hessian-vector products to avoid treating every curvature estimate as safe.`,
+        `Scale is the final failure mode. For modern neural networks, storing H is impossible and inverting it is worse. Most production optimizers therefore use approximations: diagonal moments, low-rank history, Kronecker factors, or curvature-vector products. The Hessian remains the theory object even when the implementation never materializes it.`,
+      ],
+    },
+    {
+      heading: `Worked example`,
+      paragraphs: [
+        `For f(x, y) = 0.5x^2 + 4.5y^2, the gradient is [x, 9y] and the Hessian is [[1, 0], [0, 9]]. The y direction is nine times steeper than the x direction, so gradient descent tends to bounce across the ravine unless its learning rate respects the steep direction.`,
+        `Newton's method multiplies by H inverse, turning [x, 9y] into [x, y] before taking the step. On this exact quadratic, it lands at the minimum in one update. The example is small, but it explains why curvature information is valuable and why approximating it is worth so much engineering effort.`,
       ],
     },
     {
@@ -272,4 +301,3 @@ export const article = {
     },
   ],
 };
-

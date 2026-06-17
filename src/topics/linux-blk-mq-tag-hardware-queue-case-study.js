@@ -62,7 +62,7 @@ function* queueRouting() {
   yield {
     state: blkGraph('blk-mq splits request staging from hardware dispatch'),
     highlight: { active: ['ctx0', 'ctx1', 'ctx2', 'hctx0', 'hctx1'], found: ['sched', 'tag'] },
-    explanation: 'blk-mq gives each CPU a nearby software staging context and then maps those contexts onto one or more hardware dispatch queues. That removes the old single-queue bottleneck for fast devices.',
+    explanation: 'blk-mq splits CPU-local staging from device dispatch. That lets ordinary request building stay near the submitting CPU while hardware queues receive enough work to keep fast devices busy.',
     invariant: 'Software queueing is about CPU locality; hardware queueing is about device parallelism.',
   };
 
@@ -101,7 +101,7 @@ function* queueRouting() {
       ],
     ),
     highlight: { active: ['ctx:role', 'hctx:role', 'tag:role'], compare: ['bio:owner'] },
-    explanation: 'The vocabulary matters. bios describe memory ranges and disk ranges, requests are schedulable block-layer units, ctx and hctx route them, and tags identify inflight requests until completion.',
+    explanation: 'The vocabulary is the mechanism. bios describe memory and disk ranges, requests are schedulable block-layer units, ctx and hctx route them, and tags identify inflight requests until completion.',
   };
 }
 
@@ -178,37 +178,115 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The problem',
       paragraphs: [
-        'blk-mq is the Linux multi-queue block layer. It was built so fast storage devices could receive many I/O requests in parallel without forcing every CPU and every request through one shared queue. The design separates per-CPU software staging queues from hardware dispatch queues.',
-        'The core data structures are practical queueing objects: software contexts, hardware contexts, requests, tag sets, scheduler queues, and driver dispatch callbacks. Together they form the path between page-cache writeback or reads and the device driver.',
+        'The Linux block layer sits between filesystems, memory management, and storage drivers. Higher layers submit bios that describe memory pages and disk ranges. Drivers need concrete requests that can be dispatched to hardware and completed later. The block layer has to merge, schedule, route, limit, and complete that work without becoming the bottleneck.',
+        'The old single-queue model was built for a world where disks were slow and a central queue was a reasonable coordination point. Modern systems have many CPUs submitting I/O at the same time and devices such as NVMe SSDs that can process many commands in parallel. A single shared software queue makes the CPU side fight over locks and makes the device side look narrower than it really is.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approach',
       paragraphs: [
-        'A filesystem or memory-management path submits bios. The block layer merges or turns them into requests. blk-mq places work in a software context near the submitting CPU, optionally lets an I/O scheduler order it, allocates an inflight tag, and dispatches the request through a hardware context to the driver.',
-        'The tag is critical. It identifies request state while the operation is inflight and limits queue depth. When the device completes the request, the completion path uses the tag to find the request, complete it, clear the tag, and let waiting work move forward.',
+        'The naive design has one request queue per block device. Filesystems submit bios, the block layer builds requests, a scheduler orders them, and the driver dispatches them. This gives one place to merge adjacent work, apply fairness, and decide the next request.',
+        'That design is easy to reason about, but it serializes too much. Every CPU that submits I/O touches the same queue. Every dispatch decision flows through one coordination point. For spinning disks, careful ordering mattered more than raw parallel dispatch. For fast SSDs, the queue itself can become a larger cost than the media operation.',
       ],
     },
     {
-      heading: 'Complete case study: NVMe read',
+      heading: 'The wall',
       paragraphs: [
-        'A page-cache miss needs a disk read. The request enters blk-mq, receives a tag, and dispatches to an NVMe hardware queue. The NVMe driver converts it into a submission queue entry and rings the SSD doorbell. When the completion queue entry arrives, the driver completes the tagged request, blk-mq frees the tag, and the page cache can mark the folio uptodate.',
-        'This is the bridge between Linux Page Cache XArray and NVMe Submission/Completion Queue Case Study. The page cache thinks in file offsets and folios; NVMe thinks in queues and commands; blk-mq translates pressure and identity between them.',
+        'The first wall is lock contention. A multicore machine can have many application threads, page-cache misses, direct I/O calls, and writeback workers submitting block work at once. If they all mutate one queue, the queue becomes a shared hot spot. The storage stack burns CPU time coordinating before the driver even sees the request.',
+        'The second wall is hardware shape. NVMe devices expose submission and completion queues, often with multiple queue pairs. Hardware can accept several independent dispatch streams. A block layer that only models one queue cannot map naturally onto that parallelism. The software path is narrow while the hardware path is wide.',
       ],
     },
     {
-      heading: 'Pitfalls',
+      heading: 'Core insight',
       paragraphs: [
-        'Queue depth is both performance and risk. If it is too small, the SSD idles. If it is too large, tail latency can rise, cgroups and fairness can suffer, timeouts become noisy, and memory is consumed by inflight state. The right policy depends on device, workload, scheduler, and latency target.',
-        'A second trap is assuming one scheduler fits every device. For fast NVMe, no scheduler can be a good default because the device already has parallel hardware queues. For slower or fairness-sensitive workloads, an I/O scheduler may matter more than raw dispatch speed.',
+        'blk-mq splits the path into software staging and hardware dispatch. Software contexts are close to submitting CPUs. Hardware contexts represent dispatch lanes toward the device driver. The mapping between them lets the block layer preserve CPU locality while feeding the parallel queues that modern storage exposes.',
+        'Tags are the other core idea. A tag is an inflight request identifier and a capacity token. A request must own a tag before dispatch. The tag gives the completion path a direct index back to request state, and the finite tag set prevents unlimited work from entering the device. No free tag means the block layer applies backpressure before the driver creates more inflight commands.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Vocabulary',
       paragraphs: [
-        'Primary sources: Linux blk-mq documentation at https://docs.kernel.org/block/blk-mq.html and the Linux block multi-queue paper at https://kernel.dk/blk-mq.pdf. Study Queue, Ring Buffer, Backpressure & Flow Control, Linux Fair Scheduler Run Queue, Linux Page Cache XArray, Readahead & Dirty Writeback, NVMe Submission/Completion Queue, and io_uring Submission & Completion Rings next.',
+        'A bio is the lower-level description of an I/O operation: memory segments, disk sector ranges, operation type, and related flags. A request is the block-layer scheduling and dispatch unit that may contain one or more bios. The filesystem and memory layers often think in bios; the driver-facing path tends to think in requests.',
+        'A ctx is a software queueing context, typically associated with CPU-local staging. An hctx is a hardware context, a dispatch structure mapped toward a hardware queue or group of queues. A tagset manages the identifiers available for inflight requests. These names are not decoration; they are the mechanism blk-mq uses to route work and bound pressure.',
+      ],
+    },
+    {
+      heading: 'Queue routing',
+      paragraphs: [
+        'When a thread submits I/O, blk-mq can stage the request in a context near that CPU. This reduces shared lock traffic during request construction and ordinary queueing. Later, requests are dispatched through a hardware context selected by the device mapping, CPU mapping, scheduler policy, and driver configuration.',
+        'For NVMe, the hardware context often corresponds naturally to a controller submission queue path. The driver converts a block request into a device command, places it on a submission queue, and rings a doorbell. Completion comes back through the device completion path, where the tag identifies which request has finished.',
+      ],
+    },
+    {
+      heading: 'Tag lifecycle',
+      paragraphs: [
+        'The tag lifecycle is simple but central. A tag starts free. Dispatch allocates it to a request. While the request is inflight, the tag names the request state. When the device completes the command, blk-mq clears the tag, completes the bios attached to the request, and wakes or schedules more work that was waiting for capacity.',
+        'This turns queue depth into an explicit ledger. The device can be kept busy without allowing infinite outstanding work. Completion lookup is direct instead of a search through all inflight requests. Backpressure is local and measurable: if the tag set is exhausted, dispatch stops until a completion returns capacity.',
+      ],
+    },
+    {
+      heading: 'Schedulers',
+      paragraphs: [
+        'blk-mq does not mean every device must run without scheduling policy. It supports optional multi-queue schedulers. Some fast NVMe workloads use none to reduce overhead. Other workloads use mq-deadline, BFQ, Kyber, or device-specific policy to control latency, fairness, starvation, or service guarantees.',
+        'The scheduler decision is a tradeoff. Raw throughput favors minimal policy on devices that already reorder internally. Predictable latency and fairness may require a scheduler, especially when multiple cgroups, tenants, or request classes share a device. The queueing structure supplies the lanes; the scheduler decides how work enters them.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'Suppose CPU0 submits a read, CPU1 submits another read, and CPU2 submits writeback. Each request can enter a nearby software context instead of contending on one global queue. The block layer may merge adjacent bios, apply scheduler policy, allocate tags, and route two requests through hardware context 0 and one through hardware context 1.',
+        'The NVMe driver places commands on device submission queues. One command completes quickly. The completion reports the tag, blk-mq finds the request state, completes the attached bio, clears the tag bit, and allows another waiting request to dispatch. The important point is that completion both returns a result and returns capacity.',
+      ],
+    },
+    {
+      heading: 'What the animation teaches',
+      paragraphs: [
+        'The queue routing view separates three ideas that are easy to blur. CPUs create work. Software contexts stage that work with locality. Hardware contexts dispatch toward the device. The scheduler and tag allocator sit in the middle because routing is not enough; the layer also needs policy and pressure control.',
+        'The tag pressure view shows why tags are more than labels. When tags are available, dispatch can continue. When all tags are owned by inflight requests, the block layer stops pushing new work to that hardware queue. Completion is therefore a scheduling event: clearing one tag may immediately wake the next request.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The locality invariant is that ordinary request staging should avoid unnecessary global contention. Per-CPU or CPU-near contexts keep hot submission paths from constantly fighting over one shared lock. That improves scalability on systems where many cores submit I/O concurrently.',
+        'The capacity invariant is that every inflight request owns a tag until completion. That one rule gives blk-mq bounded queue depth, direct completion lookup, and a natural backpressure point. The hardware can stay busy, but the software stack still knows how much outstanding work exists and where each completion belongs.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'The multi-queue design has more moving parts than a single queue. It needs software contexts, hardware contexts, tag maps, scheduler integration, driver mappings, CPU affinity choices, timeout handling, and completion paths. The common path is optimized, but the mental model and tuning surface are larger.',
+        'Queue depth is the central tradeoff. Too little depth leaves the device idle and underuses internal parallelism. Too much depth can raise tail latency, hide congestion until it is severe, consume memory, make timeouts harder to interpret, and reduce fairness between workloads. A fast benchmark can still be a poor interactive system if it wins by letting queues grow too deep.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'blk-mq wins on multicore systems with fast storage. It lets many CPUs submit work without routing every operation through a single hot queue, and it lets the driver feed devices that expose multiple dispatch queues. NVMe is the clean example, but the abstraction also helps other block devices that benefit from parallel dispatch and tag-based completion.',
+        'It also provides a common bridge between different layers. Filesystems can submit bios, cgroups can apply policy, schedulers can manage fairness, and drivers can talk to hardware queues. blk-mq carries request identity, capacity, and routing across those boundaries.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'More queues do not automatically mean better performance. A slow single-queue device may not benefit much. A workload dominated by fairness policy may need scheduling more than raw dispatch speed. A latency-sensitive workload may need lower queue depth even if a deeper queue improves throughput.',
+        'blk-mq also does not promise completion order. Devices and drivers can complete requests out of order, and higher layers must tolerate that where ordering matters. Barriers, flushes, filesystem journaling, and writeback policy are separate correctness mechanisms layered around the request path.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Common failures include tag starvation, overloaded hardware contexts, mismatched CPU-to-queue affinity, scheduler choices that hurt the actual workload, queue depths that inflate tail latency, and timeout storms when a device stops completing requests. Observability has to distinguish CPU submission contention, scheduler delay, tag wait, driver dispatch, and device service time.',
+        'Another failure is treating blk-mq as a magic accelerator. If the upper layer submits tiny random I/O with no locality, if writeback floods the device, or if cgroup policy is misconfigured, the queueing layer can only expose and control pressure. It cannot turn a hostile workload into an efficient storage pattern by itself.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study Queue for the baseline abstraction, Ring Buffer for hardware queue shape, Backpressure and Flow Control for tag pressure, NVMe Submission and Completion Queue for the device side, and io_uring Submission and Completion Rings for the user-to-kernel analogue. Readahead and Dirty Writeback explain where many bios originate.',
+        'Primary references are the Linux blk-mq documentation and the Linux block multi-queue design paper. A useful exercise is to trace one read from page-cache miss to bio, request, software context, scheduler, tag allocation, hardware context, driver submission, completion, tag release, and wakeup. That path is the whole system in miniature.',
       ],
     },
   ],

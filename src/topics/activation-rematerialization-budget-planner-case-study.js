@@ -92,7 +92,7 @@ function* memoryPlan() {
   yield {
     state: plannerGraph('Rematerialization starts with a live-memory profile'),
     highlight: { active: ['model', 'profile', 'ops', 'budget', 'planner', 'e-model-profile', 'e-model-ops'], compare: ['train'], found: ['trace'] },
-    explanation: 'The production problem is not just "turn on checkpointing." The planner needs activation sizes, operation costs, a memory cap, and correctness constraints before choosing what to save and what to recompute.',
+    explanation: 'Read this left to right as a budgeting pipeline. The planner needs activation sizes, operation costs, a memory cap, and correctness constraints before it can choose what to save and what to recompute.',
   };
 
   yield {
@@ -171,7 +171,7 @@ function* cutPolicy() {
   yield {
     state: cutGraph('Selective checkpointing chooses op-level save rules'),
     highlight: { active: ['mat', 'gelu', 'attn', 'cut', 'e-cut-attn'], compare: ['drop'], found: ['rng'] },
-    explanation: 'Plain checkpointing replays a whole region. Selective rematerialization can keep expensive matmuls and attention outputs while recomputing cheaper pointwise operations.',
+    explanation: 'Read the graph as an operation-level policy, not one checkpoint box. Selective rematerialization can keep expensive matmuls and attention outputs while recomputing cheaper pointwise operations.',
   };
 
   yield {
@@ -238,7 +238,7 @@ function* distributed() {
   yield {
     state: plannerGraph('Distributed training adds partition and offload choices'),
     highlight: { active: ['budget', 'planner', 'save', 'replay', 'train'], found: ['trace'], compare: ['ops'] },
-    explanation: 'Once training spans many GPUs, the planner also decides whether activation checkpoints are local, partitioned across model-parallel ranks, moved to CPU, or aligned with pipeline-stage boundaries.',
+    explanation: 'Read the save and replay nodes as distributed placement choices now. Once training spans many GPUs, checkpoints may be local, partitioned across model-parallel ranks, moved to CPU, or aligned with pipeline-stage boundaries.',
   };
 
   yield {
@@ -349,45 +349,73 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'An activation rematerialization budget planner is the production version of activation checkpointing. It profiles the training graph, estimates activation bytes and replay cost, chooses save-versus-recompute cuts, preserves replay semantics, and gates the job against peak memory, step time, and gradient correctness.',
-        'The base Activation Checkpointing topic explains the concept. This case study treats checkpointing as a planning data structure: a ledger of saved tensors, recomputed regions, RNG state, distributed partitioning, and launch metrics.',
+        'Activation rematerialization exists because modern training jobs can run out of memory on activations before they run out of memory on parameters. During the forward pass, the framework normally saves intermediate tensors so the backward pass can compute gradients. Those saved tensors are often large: sequence length, hidden width, attention heads, microbatch size, and temporary kernel workspaces all multiply into a live set that can exceed GPU memory.',
+        'The basic trade is simple. Instead of saving every intermediate tensor, save a smaller set of boundary tensors and recompute some interior operations during backward. Memory falls because fewer activations stay live. Compute rises because part of the forward work is performed again. A budget planner is the production form of that trade: it decides which tensors to keep, which operations to replay, how much extra time the job can afford, and what evidence must pass before the run is trusted.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Why the obvious switch fails',
       paragraphs: [
-        'The classical result is Training Deep Nets with Sublinear Memory Cost, which showed that deep networks can trade extra forward computation for much lower activation memory: https://arxiv.org/abs/1604.06174. In a production transformer stack, the same idea becomes a budget problem. The planner profiles activation sizes, marks expensive operators, keeps boundaries, and recomputes interiors only where the memory win justifies the cost.',
-        'PyTorch now documents a spectrum of approaches: ordinary activation checkpointing, torch.compile min-cut partitioning, selective activation checkpointing, and a compile-only memory budget API: https://pytorch.org/blog/activation-checkpointing-techniques/. The key shift is from manual regions to policies and Pareto curves: enough rematerialization to fit the job, not so much that the step becomes too slow.',
+        'The obvious approach is to turn on checkpointing everywhere or checkpoint every fixed number of layers. That can make a job fit, but it treats all operations as if they had the same cost and the same correctness constraints. Replaying a cheap GELU or layer norm is usually fine. Replaying a large attention block, a dense matmul, or an unfused kernel group can make throughput collapse. A policy that saves memory by doubling the most expensive work is not a good policy.',
+        'A second obvious approach is to copy a checkpoint pattern from a different model. That is unreliable because the right cut depends on the actual model graph, sequence length, compiler behavior, tensor parallel degree, pipeline stage boundaries, random operations, and memory budget. The policy that works for a 4k-context model may be poor for a 32k-context model. The policy that works before a kernel or compiler change may be wrong after fusion changes the operation graph.',
+        'The third mistake is to treat activation memory in isolation. ZeRO, FSDP, tensor parallelism, optimizer state sharding, gradient accumulation, temporary buffers, CUDA graphs, and kernel workspaces all share the same device memory. A planner that claims success because saved activations fell from 36 GB to 14 GB can still fail if reserved memory, communication buffers, or temporary workspaces push the step over the real cap.',
       ],
     },
     {
-      heading: 'Data structure',
+      heading: 'Core mechanism',
       paragraphs: [
-        'The planner stores an operation graph with activation sizes, compute cost, fusion groups, randomness requirements, stage ownership, and allowed policies. The output is a cut set: tensors to save, segments to replay, random masks or RNG states to preserve, and distributed movement required by each segment.',
-        'A useful trace row contains step id, segment id, saved boundary, recomputed ops, estimated bytes saved, measured bytes saved, replay milliseconds, RNG mode, rank ownership, and failure action. This turns checkpointing from a boolean flag into a debuggable memory plan.',
+        'The classical result behind this topic is Training Deep Nets with Sublinear Memory Cost, which showed that deep networks can trade extra forward computation for much lower activation memory: https://arxiv.org/abs/1604.06174. In a production transformer training stack, that result becomes a constrained planning problem over a graph. The nodes are operations. The edges are tensors. Each tensor has a byte size and lifetime. Each operation has an estimated replay cost and may belong to a compiler fusion group.',
+        'The planner first builds or consumes a profile of the training step. It records activation sizes, operation costs, kernel choices, randomness requirements, distributed ownership, and memory that checkpointing cannot reduce. Then it chooses a cut set. A cut set is the boundary of saved tensors that lets backward reconstruct the needed values by replaying the forward graph inside each segment. The output is not merely a boolean flag; it is a table of saved boundaries, recomputed regions, RNG handling, expected bytes saved, expected replay time, rank ownership, and launch gates.',
+        'Compiler-backed approaches can express the same idea as graph partitioning. PyTorch material on activation checkpointing describes ordinary checkpointing, selective activation checkpointing, torch.compile min-cut planning, and memory budget APIs. A min-cut view assigns costs to saving tensors and recomputing operations, then finds a boundary that meets the memory goal while avoiding excessive replay. The graph formulation matters because it can see operation-level choices that a layer-level manual rule misses.',
       ],
     },
     {
-      heading: 'Complete case study: long-context transformer fit',
+      heading: 'Why it works',
       paragraphs: [
-        'A 24-layer transformer trains with sequence length 16k on 80 GB GPUs. The base run OOMs at the start of backward because activation memory spikes. Full checkpointing fits but cuts tokens per second too much. The planner keeps matmul and attention outputs, recomputes pointwise and normalization ops, saves dropout masks, and aligns cut boundaries with transformer blocks.',
-        'After the first pass, peak memory falls below the cap but p95 step time is still high. The planner changes the policy to save flash-attention outputs and uses partitioned activation checkpointing across tensor-parallel ranks. The final gate requires peak memory below cap, loss parity with a no-checkpoint micro-run, stable RNG replay, and trace coverage for every checkpointed segment.',
+        'Rematerialization works because backward does not require every forward intermediate to be stored at the same time. It only requires the correct values when each gradient computation needs them. If the saved boundary tensors are sufficient to rerun the forward slice, then the system can reconstruct the missing interior activations just in time. This changes the peak live set: many tensors that would have lived across the whole forward pass are discarded and recreated later.',
+        'The trade is favorable when the dropped tensors are large and the replayed computation is cheap relative to the training step. Pointwise operations, small normalization operations, and short fused interiors are common candidates. Large matmuls and attention operations are often expensive enough that saving their outputs is better. Random operations such as dropout need special handling because replay must generate the same mask or preserve the exact mask. Without that contract, the gradients can silently change.',
+        'The memory-plan view in this module shows the pipeline: model graph, activation profile, operation-cost profile, memory cap, planner, save set, replay set, training step, and evidence gate. The cut-policy view zooms into operation-level choices. The distributed view adds placement: checkpointed activations may be rank-local, partitioned across tensor-parallel ranks, offloaded to CPU, packed into contiguous buffers, or aligned to pipeline boundaries.',
       ],
     },
     {
-      heading: 'Compiler and distributed notes',
+      heading: 'Worked example',
       paragraphs: [
-        'Compiler min-cut changes the tradeoff because fusion can make recomputation cheaper than a simple per-op model predicts. A PyTorch developer note describes formulating recomputation as a max-flow/min-cut problem on the joint forward/backward graph: https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467. The MLSys 2023 fusion-aware checkpointing paper argues that operator fusion can improve both peak memory and runtime in some cases: https://proceedings.mlsys.org/paper_files/paper/2023/file/8a27bb69950c0b46cdb36d10e5514cc8-Paper-mlsys2023.pdf.',
-        'Distributed training adds another layer. DeepSpeed documents activation partitioning across GPUs, CPU checkpointing, contiguous memory optimization, and random seed handling: https://deepspeed.readthedocs.io/en/latest/activation-checkpointing.html. These are not interchangeable knobs; partitioning reduces per-rank activation memory, CPU offload trades GPU memory for transfer latency, and contiguous buffers reduce fragmentation.',
+        'Suppose a 24-layer transformer trains at sequence length 16k on 80 GB GPUs. The base run fails near the start of backward. The memory ledger shows 8 GB of parameters, 24 GB of optimizer state, 8 GB of gradients, 36 GB of activations, and about 10 GB of temporary buffers. Replication and optimizer state are already handled by sharding, so the remaining pressure is mostly activation memory plus temporaries.',
+        'A global checkpoint switch makes the run fit at 52 GB peak, but tokens per second drop too far because the policy replays expensive attention and matmul work. A selective planner tries a better policy. It saves the outputs of large attention and matmul regions, recomputes cheap pointwise and normalization work, saves or regenerates dropout masks deterministically, and places cuts at transformer block boundaries so the plan is easy to inspect. Peak memory lands near the 60 GB cap while throughput stays close to the eager baseline.',
+        'The first policy still has a p95 step-time spike on long sequences. The planner then uses partitioned activation checkpointing across tensor-parallel ranks. Each rank stores only its owned activation slice where the framework can safely reconstruct the full value during backward. A final gate compares a short no-checkpoint baseline with the checkpointed run: peak allocation, reserved memory, step time, loss parity, gradient parity on sampled tensors, RNG parity, and segment coverage must all pass.',
       ],
     },
     {
-      heading: 'Pitfalls and study next',
+      heading: 'Where it matters',
       paragraphs: [
-        'Do not checkpoint random or stateful code without a replay contract. Do not recompute expensive attention and matmuls just because they sit inside a checkpointed block. Do not claim memory savings without measuring peak allocation and reserved memory. Do not ignore p95 step time; checkpointing can fit the model while making the job economically worse.',
-        'Study Activation Checkpointing, ZeRO Optimizer, Fully Sharded Data Parallel, Tensor Parallelism, Pipeline Parallelism, FlashAttention, Batch Size Scaling, Transformer Block, GPU All-Reduce, and Gradient Flow next.',
+        'This pattern matters most in large transformer training, long-context models, diffusion models with large feature maps, graph neural networks with large sampled neighborhoods, and any model where activation memory grows faster than parameter memory. It is especially important when the business goal is not merely to fit the model but to keep a target global batch size, sequence length, or image resolution without buying a larger accelerator class.',
+        'It also matters in distributed training because checkpointing composes with other memory levers. ZeRO and FSDP reduce replicated optimizer, gradient, and parameter state. Tensor parallelism spreads wide operations. Pipeline parallelism spreads depth. Activation checkpointing reduces the stored forward live set. Batch-size tuning reduces many buckets at once but changes optimization behavior. A good memory plan keeps these levers separate so the team knows which one paid for the successful run.',
+        'DeepSpeed-style activation checkpointing exposes distributed choices such as partitioned activations, CPU checkpointing, contiguous buffers, and model-parallel random-state management: https://deepspeed.readthedocs.io/en/latest/activation-checkpointing.html. These choices save memory in different places. Partitioning reduces per-rank storage. CPU offload trades GPU memory for PCIe or NVLink transfer. Contiguous buffers reduce fragmentation. Random-state tracking protects replay correctness.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The most serious failure is silent correctness drift. Dropout masks, stochastic depth, random augmentations inside the graph, mixed precision casts, and stateful modules can all make replay produce different values unless the framework preserves the right state. Loss parity and gradient checks on a short run are not optional when a new policy is introduced.',
+        'The next failure is a bad compute trade. If the planner saves little memory but replays large attention or matmul regions, the run may fit while becoming uneconomic. Another failure is distributed movement. A cut that looks cheap on one GPU can require cross-rank gathers during backward. Offload can save device memory but introduce transfer stalls. Contiguous checkpoint buffers can help fragmentation, but mis-sized buffers waste memory or force fallback allocation.',
+        'Measurement can also mislead. Peak allocated memory, peak reserved memory, temporary workspace size, CUDA graph capture behavior, and allocator fragmentation are not the same metric. A launch that passes on one sequence length, one microbatch, or one kernel version can fail after an apparently unrelated change. Treat the policy as part of the model runtime contract, not as a one-time tuning trick.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Start with a memory ledger. Separate parameters, optimizer state, gradients, activations, temporary buffers, communication buffers, and reserved allocator memory. Then profile the operation graph. Record tensor sizes, operation costs, fusion groups, random operations, and rank ownership. Only after that choose a policy. This prevents the common error of using checkpointing to solve a memory bucket that checkpointing cannot reduce.',
+        'Emit the policy as auditable data: segment id, saved boundary tensors, recomputed operations, estimated bytes saved, measured bytes saved, replay milliseconds, RNG mode, distributed placement, and fallback action. Store the policy with the training configuration. Revalidate it when sequence length, model architecture, compiler mode, kernel library, parallelism degree, or microbatch size changes.',
+        'Gate the launch with both performance and correctness checks. The minimal gate should include peak allocated memory, peak reserved memory, p50 and p95 step time, tokens per second, loss parity against a small no-checkpoint run, gradient parity on sampled tensors, RNG replay parity, and segment coverage. If any item fails, the policy should explain whether to save more tensors, replay less, move a cut boundary, change distributed placement, or use a different memory lever.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources for this topic are Training Deep Nets with Sublinear Memory Cost at https://arxiv.org/abs/1604.06174, PyTorch activation checkpointing techniques at https://pytorch.org/blog/activation-checkpointing-techniques/, the PyTorch min-cut recomputation discussion at https://dev-discuss.pytorch.org/t/min-cut-optimal-recomputation-i-e-activation-checkpointing-with-aotautograd/467, and DeepSpeed activation checkpointing at https://deepspeed.readthedocs.io/en/latest/activation-checkpointing.html.',
+        'Study next: Activation Checkpointing for the basic mechanism, ZeRO Optimizer and Fully Sharded Data Parallel for non-activation memory, Tensor Parallelism and Pipeline Parallelism for distributed placement, FlashAttention for attention memory behavior, Batch Size Scaling for optimization effects, Transformer Block for the local graph shape, GPU All-Reduce for communication costs, and Gradient Flow for the correctness signal that checkpointing must preserve.',
       ],
     },
   ],

@@ -60,7 +60,7 @@ function* lineageAndPartitions() {
   yield {
     state: lineageGraph('An RDD is data plus how to recompute it'),
     highlight: { active: ['rdd1', 'rdd2', 'rdd3'], found: ['e-rdd1-rdd2', 'e-rdd1-rdd3'] },
-    explanation: 'A Resilient Distributed Dataset is an immutable collection split into partitions. Transformations build a lineage graph instead of immediately copying data everywhere.',
+    explanation: 'An RDD is data plus a recipe. The collection is split into partitions, and transformations add lineage edges instead of eagerly copying every intermediate result around the cluster.',
   };
 
   yield {
@@ -84,14 +84,14 @@ function* lineageAndPartitions() {
       ],
     ),
     highlight: { found: ['deps:why', 'compute:why'], active: ['placement:why'] },
-    explanation: 'The paper frames RDDs as distributed data structures, not just a library API. Each partition knows enough to be recomputed from parents if a worker loses it.',
+    explanation: 'This table is the real RDD record. Partitions split work, dependencies form the recovery graph, compute functions rebuild partitions, and preferred locations keep tasks near data.',
     invariant: 'Immutability makes lineage safe: lost partitions can be rebuilt without coordinating updates in place.',
   };
 
   yield {
     state: lineageGraph('Narrow dependencies pipeline; wide dependencies shuffle'),
     highlight: { active: ['e-rdd1-rdd2', 'e-rdd1-rdd3'], compare: ['shuffle', 'e-shuffle-rdd4'] },
-    explanation: 'Map and filter are narrow: one child partition depends on a small number of parent partitions. reduceByKey is wide: many parents feed many children, so the scheduler inserts a shuffle boundary.',
+    explanation: 'Read the edges as dependencies. Map and filter are narrow, so tasks can pipeline locally. reduceByKey is wide, so many parents feed many children and Spark has to insert a shuffle boundary.',
   };
 
   yield {
@@ -147,7 +147,7 @@ function* cacheAndRecovery() {
       ],
     ),
     highlight: { active: ['trace:action', 'recompute:action'], found: ['resume:action'] },
-    explanation: 'RDD fault tolerance replaces eager replication with lineage recomputation. That is cheap when lineage is short and deterministic; checkpointing exists for long or expensive lineages.',
+    explanation: 'Fault tolerance comes from replaying the recipe. If one partition is lost, Spark traces lineage to rebuild the missing piece instead of restarting the whole job, as long as the recipe is deterministic and affordable.',
   };
 
   yield {
@@ -195,7 +195,7 @@ function* cacheAndRecovery() {
       ],
     ),
     highlight: { active: ['spark:keeps', 'ray:keeps'], compare: ['db:recovers_by'] },
-    explanation: 'Spark belongs in a larger family: systems survive failure by keeping the recipe, not only the result. The right recipe depends on whether recomputation is cheaper than replication.',
+    explanation: 'The general systems pattern is recipe versus replica. Spark keeps transformation lineage; databases keep logs; Ray keeps task/object dependencies. The right choice depends on whether recomputation is cheaper than eager copying.',
   };
 }
 
@@ -209,35 +209,76 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'The cluster-computing problem',
       paragraphs: [
-        'Spark RDDs are immutable, partitioned, distributed collections with lineage. They were introduced to make in-memory reuse practical for cluster workloads like iterative machine learning and interactive data mining.',
-        'The case study matters because RDDs changed the fault-tolerance bargain. Instead of replicating every intermediate result, Spark records how to recompute lost partitions.',
+        'Spark RDDs, or Resilient Distributed Datasets, are immutable, partitioned, distributed collections with lineage. They were introduced to make in-memory reuse practical for cluster workloads such as iterative machine learning and interactive data mining. The problem was not that MapReduce could not process large data. The problem was that many important jobs reused the same working set repeatedly, and writing every stage to durable storage made those jobs slow.',
+        'The RDD idea changed the fault-tolerance bargain. Instead of replicating every intermediate result or writing every stage to disk, Spark records how each partition can be recomputed. Cache the data that is worth keeping. If a partition is lost, use lineage to rebuild the missing piece. That is cheaper than up-front replication when transformations are deterministic and recomputation is not too expensive.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive approaches and their limits',
       paragraphs: [
-        'Each RDD tracks partitions, dependencies on parent RDDs, a function for computing partitions, and preferred locations. Transformations are lazy and build a DAG. Actions trigger scheduling. Narrow dependencies can be pipelined; wide dependencies create shuffle boundaries.',
-        'cache() or persist() keeps selected partitions in memory. If a partition is lost, the scheduler uses lineage and available parent data to recompute it. Checkpointing trims long or expensive lineage.',
+        'The first naive approach is to materialize every intermediate stage to stable storage. That gives fault tolerance, but it is slow for iterative jobs. A machine-learning algorithm may scan the same data dozens of times. An analyst may run several queries over the same filtered dataset. Rewriting and rereading the working set wastes IO.',
+        'The second naive approach is to keep data in memory without a recovery story. That is fast until a node fails or memory pressure evicts data. A distributed system that cannot recover cached state is not reliable enough for large clusters.',
+        'The third naive approach is to replicate every cached partition. That improves recovery but spends memory and network bandwidth before you know whether a partition will be lost. RDDs choose recomputation as the default recovery tool and use checkpointing or persistence selectively when recomputation becomes too expensive.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight and mechanism',
       paragraphs: [
-        'RDDs reduce repeated disk IO when data reuse is high. They can struggle with skewed shuffles, memory pressure, long lineage, nondeterministic side effects, and workloads that need fine-grained mutable state. Later systems added richer structured APIs, streaming, and optimized execution engines on top of the core lesson.',
+        'Each RDD records several pieces of metadata: its partitions, its dependencies on parent RDDs, a function for computing each partition, and preferred locations. Transformations such as map and filter are lazy. They build a lineage DAG rather than immediately running. Actions such as count, collect, save, or reduce trigger scheduling.',
+        'Dependencies are the key planning signal. A narrow dependency means each child partition depends on a small number of parent partitions. Those stages can often be pipelined. A wide dependency means many child partitions depend on many parent partitions, usually creating a shuffle boundary. Shuffles are expensive because data must be repartitioned across the cluster.',
+        'cache() or persist() tells Spark to keep selected partitions in memory or another storage level. If a cached partition is lost, Spark traces lineage back to available parent data and recomputes only what is needed. Checkpointing can cut off long lineage by writing an RDD to reliable storage when recomputation would be too costly.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'Why it works',
       paragraphs: [
-        'The RDD abstraction shaped Apache Spark, iterative ML workflows, graph processing, ad-hoc analytics, and many later cluster execution engines. It connects MapReduce, Pregel, Ray, Delta Lake, feature stores, and parameter-server thinking.',
+        'RDDs work because many cluster workloads are deterministic transformations over partitions. If the system knows the recipe for a partition, it does not need to store redundant copies of every intermediate value. It can rebuild lost partitions from parents. This is lineage-based fault tolerance.',
+        'They also work because immutability simplifies recovery. A partition is not mutated in place by arbitrary tasks. A new RDD is derived from parent RDDs. That makes the lineage graph meaningful and makes recomputation safe. Mutable distributed state is harder because recovery must reconstruct the exact sequence of updates.',
+        'The design is strongest when reuse is high. Iterative algorithms, graph processing, and interactive exploration often read the same derived data repeatedly. Caching that working set can turn repeated disk scans into memory reads, while lineage preserves a recovery plan.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Where it matters',
       paragraphs: [
-        'RDDs are not just arrays on many machines. The important part is lineage plus partitioned execution. Also, caching is not free: memory pressure can evict partitions, and recomputation can become expensive if lineage is long or shuffle data is unavailable.',
+        'The RDD abstraction shaped Apache Spark, iterative ML workflows, graph processing, ad-hoc analytics, and later cluster execution engines. It connects MapReduce, Pregel, Ray, Delta Lake, feature stores, and parameter-server thinking because it asks the same question: what state should be materialized, and what state can be reconstructed from a recipe?',
+        'RDDs are most useful when data is immutable, transformations are deterministic, and reuse is high. They are less natural for fine-grained mutable state, transactional updates, streaming event-time semantics, or workloads dominated by one large shuffle with little reuse.',
+        'Spark later added higher-level APIs such as DataFrames and Spark SQL because raw RDDs hide structure from the optimizer. The original RDD lesson still matters, but many production workloads benefit from schemas, logical plans, predicate pushdown, and query optimization on top of the lineage engine.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'Long lineage can become a liability. If an RDD depends on many stages and a late partition is lost, recomputation may be expensive. Checkpointing trims lineage at the cost of writing reliable data. The right checkpoint point is a cost decision: write too often and you waste IO; write too rarely and failures become painful.',
+        'Shuffles are another major failure and cost boundary. A skewed key can send too much data to one reducer. Shuffle files can be lost. Network traffic can dominate execution time. A job that looks like a clean lineage graph can still perform poorly if one wide dependency creates a hot partition.',
+        'Caching is not free. Memory pressure can evict partitions, serialization formats matter, and cached data may compete with execution memory. A cache call is a bet that reuse will justify storage. If the data is used once, caching may only add overhead.',
+      ],
+    },
+    {
+      heading: 'Practical guidance',
+      paragraphs: [
+        'When reading a Spark job, identify partition count, narrow versus wide dependencies, cache points, shuffle boundaries, and checkpoint needs. Then ask whether recomputation is actually cheaper than replication for the expensive parts.',
+        'Use RDDs as the conceptual base for Spark, but do not ignore higher-level APIs. DataFrames and Spark SQL add optimizer knowledge that raw RDD transformations often hide. The best educational path is to understand RDD lineage first, then see how structured execution builds on it.',
+      ],
+    },
+    {
+      heading: 'A worked recovery example',
+      paragraphs: [
+        'Suppose an RDD starts from HDFS blocks, filters records, maps them into feature vectors, and caches the result for an iterative algorithm. One worker loses cached partition 12. Spark does not need to rerun the entire job. It uses the lineage graph to find the parent partition, reruns the filter and map for that partition, and restores only the missing piece.',
+        'Now suppose partition 12 depended on a wide shuffle from many parents. Recovery becomes more expensive because the missing output may need shuffle files or recomputation from many upstream partitions. This is why narrow and wide dependencies are not just scheduler vocabulary. They predict the cost of failure.',
+      ],
+    },
+    {
+      heading: 'What to remember',
+      paragraphs: [
+        'An RDD is not just an array spread across machines. It is a partitioned immutable dataset plus lineage: enough information to compute each partition and recover it after failure. That lineage is the data structure that made in-memory cluster reuse practical.',
+        'The deep lesson is that fault tolerance can come from recomputation, not only replication. That works when computations are deterministic, lineage is not too expensive, and the system knows when to checkpoint.',
+        'The useful comparison is MapReduce. MapReduce writes durable boundaries between jobs. RDDs keep lineage and selectively cache working sets. That is why Spark fit iterative and interactive workloads better while still needing discipline around shuffles and checkpoints.',
+        'In a course sequence, teach RDDs before DataFrames and query optimizers. Students should first understand lineage, partitioning, and shuffle boundaries; then structured APIs make sense as a way to give the optimizer more information.',
+        'The practical test is whether lost state can be recomputed cheaply from a deterministic recipe. If recomputation is cheap, lineage is elegant. If recomputation crosses huge shuffles or nondeterministic side effects, materialization and checkpointing become necessary.',
+        'RDDs are the wrong tool when the program needs many small mutable updates with low latency. A distributed key-value store, stream processor, or database may fit that shape better. RDDs shine when the work is partitioned, deterministic, and batch-oriented enough that lineage is a recovery advantage.',
+        'The best mental shortcut is "recipe plus cache." The recipe explains recovery. The cache explains speed. Spark RDDs became powerful because they kept both ideas visible to the scheduler.',
       ],
     },
     {

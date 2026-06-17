@@ -231,42 +231,72 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Topic Exists',
       paragraphs: [
-        'Complex-valued neural networks use complex numbers inside the model: activations, weights, or both can have real and imaginary parts. That sounds like a cosmetic change until the data itself has phase. Fourier spectra, MRI, radar, wireless I/Q samples, optics, and many wave-based measurements naturally produce complex-valued signals. In those settings, dropping phase or treating real and imaginary parts as unrelated channels can discard useful geometry.',
-        'A complex number stores magnitude and phase. Multiplication by a complex weight rotates and scales a feature. That means a complex layer can express phase shifts and frequency relationships directly. A real-valued network can often approximate the same function, but it may need more parameters, more data, or a less natural representation.',
+        'Complex-valued neural networks exist because some data is naturally measured in amplitude and phase. Radar returns, MRI signals, wireless I/Q samples, Fourier spectra, optics, sonar, and many wave-based systems produce complex numbers before a model ever sees them. In those domains the imaginary part is not decoration. It records a phase relationship that can carry distance, frequency, orientation, interference, timing, or material information.',
+        'A standard real-valued network can ingest complex data by splitting real and imaginary parts into two channels, or by discarding phase and keeping magnitude. Both choices can work, but both can make the model learn geometry that the input representation already had. Complex-valued networks try to keep that geometry native. A complex weight rotates and scales a feature. A complex activation can decide what to do with magnitude and phase. The topic is about using the right algebra for phase-sensitive structure, not about making a model more exotic.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Naive Approach',
       paragraphs: [
-        'A true complex linear layer couples the two parts: output_real = weight_real * input_real - weight_imag * input_imag, and output_imag = weight_real * input_imag + weight_imag * input_real. The cross terms are the point. They make rotation and phase interaction first-class operations. Complex convolution applies the same idea spatially or across time, and complex recurrent layers can preserve oscillatory structure.',
-        'The hard part is that the rest of the neural-network toolkit must also be adapted. Deep Complex Networks introduced complex convolution, complex batch normalization, complex initialization, and activation designs. Some activations split real and imaginary parts. Others operate on magnitude while preserving phase. Optimization often uses Wirtinger-style calculus or framework conventions that reduce complex gradients into real-imaginary updates.',
+        'The naive approach is to treat a complex number as two unrelated real features. A real convolution can learn separate filters over the real and imaginary channels, and with enough data it may learn the coupling. The problem is that the coupling is not arbitrary. In complex arithmetic, the two parts form a magnitude and an angle. Rotating a phase-sensitive signal changes both coordinates together. A split-channel model can express that, but it has to rediscover the rule from examples.',
+        'The even simpler approach is magnitude only. This often helps because magnitude is stable and easy to feed into ordinary networks. It also throws away phase. That loss may be harmless for some classification tasks and damaging for others. In speech, communications, radar, MRI, and transform-based vision, phase can encode alignment, delay, fine geometry, or interference. If the label depends on those relationships, a magnitude-only model may look clean while silently discarding the useful part of the measurement.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Complex layers usually cost more than similarly shaped real layers because each complex multiply expands into several real operations. They also require careful initialization and normalization. The win must therefore come from representation efficiency: fewer channels, fewer learned early filters, faster convergence, or better robustness on phase-sensitive data. CoShNet is an example of a hybrid approach: a fixed complex shearlet transform exposes structured image features, then a smaller complex network does the classification.',
-        'The evaluation should compare against strong real-valued baselines with the same data, compute, and tuning effort. A complex model beating a weak split-channel baseline does not prove much. A complex model that is smaller, faster, and more accurate on data where phase matters is a more serious result.',
+        'The core insight is that representation decides which patterns are easy. A complex number z = a + bi can also be described by magnitude and phase. Multiplication by another complex number rotates and scales z in the complex plane. That is exactly the kind of operation needed for phase shifts, frequency responses, and wave interactions. A complex layer does not merely double a real layer. It imposes a structured relationship between two coordinates.',
+        'This is an inductive bias. It says that phase-preserving transformations should be easy for the network to learn. A real-valued network can still approximate the same mapping, but it may need extra filters or more training data because it does not receive rotation as a built-in operation. Complex-valued networks are therefore most interesting when they reduce sample complexity, parameter count, or brittleness in domains where phase really matters.',
       ],
     },
     {
-      heading: 'Real-world uses',
+      heading: 'How The Layer Works',
       paragraphs: [
-        'CVNNs are most relevant in signal processing, speech and audio spectra, radio modulation, radar, sonar, MRI reconstruction, optics, holography, communications, and transform-based computer vision. They connect to Convolution because many complex models are complex CNNs. They connect to Embeddings & Similarity because the representation geometry changes. They connect to Normalization and Gradient Flow because complex training has its own stability issues.',
+        'A true complex linear layer couples real and imaginary paths. If w = wr + wi*i and x = xr + xi*i, then wx has real part wr * xr - wi * xi and imaginary part wr * xi + wi * xr. The cross terms are the point. The real output depends on both input parts, and the imaginary output also depends on both input parts. That structure is what lets the layer learn rotations and phase interactions directly.',
+        'Complex convolution applies the same multiplication pattern across local windows. Complex recurrent layers can carry oscillatory state. Complex normalization has to handle covariance between real and imaginary parts, not just scale each channel independently. Activations require design choices. A split activation applies a real nonlinearity separately to each part. A magnitude-based activation changes amplitude while preserving or controlling phase. Methods such as modReLU are useful because ordinary ReLU is not naturally defined on the complex plane.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What The Visual Is Proving',
       paragraphs: [
-        'Do not use complex numbers because they sound more advanced. If the task has no meaningful phase, a real-valued model may be simpler and better. Do not collapse complex data to magnitude without checking whether phase carries label information. Do not assume every deep-learning layer has a safe complex analogue; activations, normalization, and optimizers need explicit design. Finally, remember that complex-valued models are not magic explainability tools. They encode different geometry, but they still need ordinary validation.',
+        'The first visual proves that real and imaginary entries should be read as one feature with two coordinates, not as two unrelated scalar columns. The magnitude and phase columns are the semantic view of the same numbers. When the vector plot shows multiplication moving a point, it is demonstrating rotation plus scaling. That movement is the geometric operation the architecture is trying to make cheap.',
+        'The pipeline visual proves that complex networks are a full modeling stack, not a single changed matrix multiply. A useful model needs complex inputs, complex weights, a complex-aware linear or convolutional operation, normalization that stabilizes the coupled coordinates, an activation that makes sense for phase, and a readout suited to the task. The audit table proves the evaluation question: did the domain need phase-aware geometry, and was the real-valued baseline strong enough?',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
       paragraphs: [
-        'Primary sources: Deep Complex Networks at https://arxiv.org/abs/1705.09792, CoShNet at https://arxiv.org/abs/2208.06882, and Theory and Implementation of Complex-Valued Neural Networks at https://arxiv.org/abs/2302.08286. For broader context, see A Survey of Complex-Valued Neural Networks at https://arxiv.org/abs/2101.12249. Study Convolution, Activation Functions, Normalization, Gradient Flow, FNet Fourier Token Mixing Case Study, Embeddings & Similarity, and One-Pixel Attack Case Study next.',
+        'Complex networks work when the task rewards equivariance or sensitivity to phase-like transformations. In radio modulation, a phase shift changes the observed I/Q samples while preserving the underlying transmission. In MRI and radar, the measured field contains spatial and physical information in phase. In Fourier and wavelet features, phase can encode alignment and structure. Complex multiplication gives the model a direct way to represent these relationships.',
+        'Hybrid systems show the same idea from another angle. A fixed Fourier, wavelet, or shearlet transform can expose complex features such as oriented edges, ridges, and frequency bands. A complex-valued network on top can learn from those features without forcing early real-valued layers to rediscover the transform. This can reduce the number of learned parameters or improve robustness, but only when the transform and the downstream task are aligned.',
+      ],
+    },
+    {
+      heading: 'Costs And Tradeoffs',
+      paragraphs: [
+        'The cost starts with arithmetic. One complex multiply expands into several real multiplies and additions, so a complex layer can be slower or heavier than a same-shaped real layer. Hardware and libraries are also more mature for real-valued tensor kernels. Some frameworks support complex gradients, but many production paths still expect real tensors. That affects deployment, quantization, inference acceleration, and monitoring.',
+        'The training cost is design complexity. Initialization must preserve variance in both magnitude and phase. Normalization must avoid distorting the complex geometry. Activations can damage phase if chosen carelessly. Optimizers operate through real and imaginary parameters, often using Wirtinger-style reasoning or framework conventions. A complex model that is harder to train and slower to run must earn its place by using fewer channels, converging faster, improving validation, or solving a task where real baselines struggle.',
+      ],
+    },
+    {
+      heading: 'Real Uses',
+      paragraphs: [
+        'Complex-valued networks are most useful in signal processing, speech and audio spectra, radar, sonar, MRI reconstruction, optics, holography, wireless communications, channel estimation, radio modulation recognition, and transform-based computer vision. They also appear in research on recurrent networks for oscillatory data and in models that operate after Fourier-like token mixing. The shared theme is not that every signal has two channels. The shared theme is that phase carries task-relevant information.',
+        'A practical example is wireless I/Q classification. The receiver observes in-phase and quadrature samples. Treating them as arbitrary real channels ignores the rotational structure of modulation. A complex convolution can learn filters that rotate and scale the signal in a way that matches the physics. Another example is MRI, where phase and magnitude both arise from the measurement process. Dropping phase can simplify reconstruction, but it can also remove information that a careful model could use.',
+      ],
+    },
+    {
+      heading: 'Failure Modes And Limits',
+      paragraphs: [
+        'The main failure mode is using complex numbers where no meaningful phase exists. Then the architecture adds cost without useful bias. Another failure is comparing against a weak real baseline. A split real-imaginary CNN with enough channels, tuned normalization, and good augmentation may be competitive. A claim that complex wins is only persuasive when compute, parameter count, data, and tuning effort are fair.',
+        'Complex-valued models can also fail through unstable training. Bad initialization can explode or collapse magnitudes. A poor activation can destroy phase relationships. Normalizing real and imaginary parts independently can remove the very covariance the model needs. Finally, complex values do not make a model interpretable by default. They encode different geometry, but they still require validation, ablation, calibration, and domain-specific error analysis.',
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        'Study complex numbers, Fourier transforms, convolution, and signal processing basics before treating CVNNs as ordinary deep-learning modules. Then study Deep Complex Networks for complex convolution, normalization, initialization, and activation design. Study CoShNet and related transform-first systems to see how fixed complex features can reduce learned front-end work. In this curriculum, connect the topic to Convolution, Activation Functions, Normalization, Gradient Flow, FNet Fourier Token Mixing Case Study, Embeddings & Similarity, and evaluation discipline for strong baselines.',
       ],
     },
   ],

@@ -301,38 +301,82 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why particle filters exist',
       paragraphs: [
-        'A particle filter, also called sequential Monte Carlo, tracks a hidden state with a cloud of weighted samples. Each particle is one possible world. The motion model propagates particles forward. The sensor model scores how well each particle explains the observation. The weights are normalized into an approximate posterior.',
-        'This is the non-Gaussian companion to Kalman filtering. A Kalman filter keeps one mean and covariance. A particle filter can represent multiple separated hypotheses, sharp edges, nonlinear dynamics, and sensor likelihoods that are not bell curves.',
+        `Localization is a state-estimation problem under uncertainty. A robot wants to know its pose, but it never receives the pose directly. It receives wheel ticks, inertial readings, camera features, lidar scans, map constraints, and sensor noise. Each observation is partial. Odometry drifts. Walls repeat. Doorways look alike. A single confident coordinate can be worse than ignorance if the evidence still supports several places at once.`,
+        `A particle filter, also called sequential Monte Carlo, represents belief as a population of weighted hypotheses. Each particle is one possible state of the world: the robot might be here, facing this way, with this much accumulated uncertainty. The weight says how well that hypothesis explains the observations so far. Instead of forcing belief into one mean and covariance, the filter keeps a sampled approximation of the whole posterior distribution.`,
+        `Particles are a practical data structure for beliefs with awkward shapes. A warehouse robot may be equally likely to be in two identical aisles. A target may have gone left or right around an obstacle. A bearing-only sensor may constrain the target to a curve rather than a point. A weighted sample cloud can represent those shapes directly, as long as enough particles cover the important regions.`,
       ],
     },
     {
-      heading: 'Data structures',
+      heading: 'The naive approach and its wall',
       paragraphs: [
-        'The core data structure is an array of particles. Each row stores state, log weight or normalized weight, sensor likelihood, and sometimes lineage or random seed for debugging. The algorithm repeatedly runs propagate, weight, normalize, estimate, and resample-if-needed.',
-        'Effective sample size is the diversity receipt: ESS = 1 / sum(w_i^2) for normalized weights. If ESS is low, the cloud has many rows but only a few statistically meaningful hypotheses. Resampling copies high-weight particles and deletes low-weight particles, then resets weights to 1/N.',
+        `The naive approach is to keep one best state estimate. Move it with odometry, correct it with sensors, and report that coordinate. This is attractive because it is cheap and easy to reason about. The problem is that the best single estimate can be an average of incompatible possibilities. If the robot could be in aisle A or aisle B, the average might lie inside a shelf between them. The number is precise, but the belief is false.`,
+        `A stronger classical approach is the Kalman filter family. A Kalman filter keeps a mean and covariance, propagates them through a motion model, and updates them with measurement information. That is excellent when the posterior is roughly Gaussian, dynamics are close to linear, and measurement noise is well behaved.`,
+        `The wall appears when the posterior is not one blob. Repeated corridors create multiple peaks. Nonlinear dynamics bend probability mass. A kidnapped robot must recover from being moved to a completely different region. A range-bearing sensor can create curved likelihood bands. A Gaussian summary erases this structure. Keeping every possible state is impossible, but keeping only one smooth summary can erase the answer.`,
       ],
     },
     {
-      heading: 'Complete case study: robot localization',
+      heading: 'The core insight',
       paragraphs: [
-        'A warehouse robot starts uncertain about which aisle it occupies. Odometry moves each pose particle with noise. A lidar or camera observation scores each pose against the map. Particles in the wrong aisle receive tiny weights; particles near a plausible scan match keep weight. When ESS collapses, systematic resampling focuses compute on plausible poses while preserving enough diversity for future ambiguity.',
-        'The method handles cases that break a single Gaussian: two identical-looking corridors, a kidnapped robot, nonlinear bearing-only measurements, and non-Gaussian sensor glitches. The price is Monte Carlo cost: more particles give better approximation but spend more CPU and memory.',
+        `A particle filter uses samples as the representation of belief. At time t, the filter stores particles x_i and weights w_i. The particles say where probability mass currently lives. The weights say how much each sampled state should matter. This trades a closed-form distribution for a finite table that can be updated with ordinary simulation and likelihood scoring.`,
+        `The loop has four steps. First, sample a new state for each particle from the motion model. If the robot moved forward one meter with noisy wheels, every particle is pushed forward with a plausible amount of noise. Second, compare each predicted particle with the new sensor observation. A particle whose simulated lidar scan matches the real scan gets a high likelihood. A particle in the wrong room gets a low likelihood. Third, normalize the weights so they sum to one. Fourth, decide whether to resample.`,
+        `The important invariant is recursive Bayesian filtering: prediction uses the transition model, correction uses the observation likelihood, and the resulting weighted cloud approximates the posterior. The filter never needs to enumerate all states. It only needs enough particles in the regions that matter and a likelihood model that rewards the right hypotheses.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanism and data structures',
       paragraphs: [
-        'Resampling is not free. It reduces weight degeneracy but can cause particle impoverishment by copying the same few states repeatedly. Resampling every frame may delete minority hypotheses too early. Most systems resample only when ESS falls below a threshold, then add motion noise or roughening if the model justifies it.',
-        'Another trap is underflow. Multiplying many small likelihoods can turn most weights into zero. Use log weights and log-sum-exp normalization. Also make the random stream replayable; otherwise a localization bug can disappear when you rerun the same scenario.',
+        `The core data structure is an array of particle records. A minimal row stores state and weight. A production row often stores log weight, likelihood components, timestamp, map version, proposal id, random seed, and lineage information. That extra metadata is not decorative. Localization failures are hard to debug if you cannot replay which observation reweighted which hypotheses and which resampling step deleted an alternative.`,
+        `Weights are usually handled in log space because likelihoods multiply across time and can underflow quickly. The implementation computes log likelihoods, subtracts the log-sum-exp normalization constant, and converts to normalized weights only when needed. The weighted mean can estimate a unimodal pose, but for a multimodal belief the better output may be the highest-weight particle, a cluster summary, or a set of candidate modes with probabilities.`,
+        `Effective sample size is the main diversity diagnostic. For normalized weights, ESS = 1 / sum(w_i^2). If all N particles have equal weight, ESS is N. If one particle has almost all the weight, ESS approaches 1. That matters because a table with 10,000 particles can statistically behave like a handful of useful hypotheses after a sharp sensor update. ESS tells the filter whether the apparent population is still meaningful.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How resampling works',
       paragraphs: [
-        'Primary sources: Gordon, Salmond, and Smith, Novel approach to nonlinear/non-Gaussian Bayesian state estimation at https://digital-library.theiet.org/doi/10.1049/ip-f-2.1993.0015; Doucet sequential Monte Carlo resources at https://www.stats.ox.ac.uk/~doucet/smc_resources.html; Doucet, de Freitas, and Gordon book introduction at https://www.stats.ox.ac.uk/~doucet/doucet_defreitas_gordon_smcbookintro.pdf; Arulampalam et al., A tutorial on particle filters for online nonlinear/non-Gaussian Bayesian tracking at https://www.semanticscholar.org/paper/A-tutorial-on-particle-filters-for-online-nonlinear-Arulampalam-Maskell/7f0bbe9dd4aa3bfb8a355a2444f81848b020b7a4; and Stone Soup particle-filter tutorial at https://stonesoup.readthedocs.io/en/latest/auto_tutorials/04_ParticleFilter.html.',
-        'Study next: Importance Sampling & Off-Policy Estimation, Kalman Filter Sensor Fusion Case Study, Markov Chains & Steady States, Confidence Intervals & the Bootstrap, Reservoir Sampling, and Contextual Bandit Logged Policy Evaluation Case Study.',
+        `Resampling converts a weighted population into an equally weighted one by copying high-weight particles and deleting low-weight particles. Imagine laying every particle on a cumulative weight line from 0 to 1. A particle with weight 0.40 owns 40 percent of the line; a particle with weight 0.01 owns only 1 percent. Sampling N positions on that line produces the next population. High-weight particles receive multiple descendants. Low-weight particles may disappear.`,
+        `Systematic resampling uses one random offset and then N evenly spaced pointers. Stratified resampling uses one random pointer inside each of N equal bins. Residual resampling deterministically keeps the integer part of each particle's expected copy count and samples the remainder. Multinomial resampling is simplest but has higher variance. These methods all approximate the same goal, but their variance differs, which affects how quickly minority hypotheses vanish.`,
+        `Resampling is useful because it spends future computation where the posterior mass is. Without it, most particles may carry nearly zero weight and waste later updates. Resampling is dangerous because copying is not exploration. If the filter resamples after every observation, it can turn a rich posterior into many identical descendants of a few lucky samples. Serious implementations usually resample only when ESS falls below a threshold.`,
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        `Particle filters work because importance sampling can approximate an expectation under a difficult distribution using weighted samples from a distribution we can generate. The transition model gives a proposal: where might each state move next? The observation likelihood reweights those proposals according to the evidence. The weighted particle cloud then approximates the posterior well enough to estimate state, uncertainty, or downstream decisions.`,
+        `The approximation improves when particles cover the high-probability regions and the likelihood is calibrated. More particles reduce Monte Carlo error, but they cannot rescue a proposal that never samples the true state or a sensor model that assigns high likelihood to the wrong places. This is why particle filters are often paired with better proposals, map-aware sampling, or recovery particles that deliberately explore globally after the system appears lost.`,
+        `The method also works because it keeps the computation bounded. Each time step is roughly proportional to particle count times motion and sensor cost. You can double the number of particles to improve coverage, or you can improve the proposal so the same number of particles lands in better places. The algorithm exposes that tradeoff directly.`,
+      ],
+    },
+    {
+      heading: 'Where it is used',
+      paragraphs: [
+        `Robot localization is the standard example. A mobile robot samples pose hypotheses, moves them with odometry, scores them against a map using lidar or vision, and resamples when evidence concentrates. The same structure appears in target tracking, where a radar or camera observes partial information about an object that moves under uncertain dynamics. It also appears in fault diagnosis, where particles represent possible hidden machine states, and in probabilistic simulation, where the system must maintain a belief over latent variables over time.`,
+        `Particle filters are especially helpful in global localization and recovery. If a robot starts with no idea where it is, particles can be spread across the map. As observations arrive, inconsistent regions lose weight and plausible regions survive. If the robot is kidnapped and moved, some systems inject random particles or use adaptive resampling so the filter can recover instead of staying confidently wrong.`,
+        `They are also valuable as an engineering diagnostic. A particle cloud is inspectable. You can see whether the filter is split between two corridors, whether all particles collapsed to one pose, whether the likelihood function prefers the wrong wall, or whether the proposal fails after fast turns. That visibility makes the algorithm easier to debug than a black-box state estimate.`,
+      ],
+    },
+    {
+      heading: 'Failure modes and tradeoffs',
+      paragraphs: [
+        `The biggest failure is sample impoverishment in a high-dimensional or poorly proposed state space. Particles are finite. If the true state lies in a region the proposal rarely visits, the filter may never recover. This is the curse of dimensionality in practical form: as state dimension grows, a fixed number of samples covers less of the relevant volume. Particle filters are natural for low-to-moderate dimensional states such as robot pose; they become harder for large latent states unless the model has strong structure.`,
+        `The second failure is a bad likelihood model. If the map is stale, the sensor calibration is wrong, or the likelihood function is too sharp, the filter may delete correct hypotheses. If the likelihood is too flat, the filter may never concentrate. Sensor timing errors can produce the same symptoms. A lidar scan matched to the wrong pose timestamp punishes particles for the system's synchronization bug rather than for their state.`,
+        `The main tradeoff is particle count versus latency. More particles improve coverage and reduce Monte Carlo variance, but every particle must be propagated and scored. A rich scan-matching likelihood can dominate CPU time. A cheap landmark model allows many particles but may not distinguish enough states. Production tuning measures localization error, ESS, distinct particle count, update latency, recovery time, and the rate of confident wrong estimates.`,
+      ],
+    },
+    {
+      heading: 'Case study: warehouse localization',
+      paragraphs: [
+        `Consider a warehouse robot starting after power loss. It knows the map, but not its aisle. The initialization spreads particles across navigable space. The robot drives forward; the motion model moves every particle forward with noise. A lidar scan arrives. For each particle, the system predicts what the scan should look like from that pose and compares it with the real scan. Particles in impossible places, such as inside racks, get near-zero likelihood. Particles in aisles with matching wall distances gain weight.`,
+        `At first, several aisles may remain plausible because they have similar geometry. A good filter keeps those modes alive. After the robot turns past a distinctive intersection, one cluster starts matching better. The ESS falls as its weights dominate. Resampling duplicates that cluster, deletes weak alternatives, and resets weights so future computation focuses on the likely aisle. If evidence later contradicts the belief, recovery particles or a broader proposal help the robot avoid permanent overconfidence.`,
+        `The correct behavior is not always to collapse quickly. When two places are genuinely ambiguous, the filter should preserve uncertainty until the sensors distinguish them. The output belief should tell the planner that localization is uncertain, not hide ambiguity behind one polished coordinate.`,
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        `Study importance sampling first, because particle weights are importance weights reused over time. Then study Kalman filtering to understand the Gaussian alternative and why it is so efficient when its assumptions fit. Markov chains and hidden Markov models provide the sequential-probability background. The bootstrap helps build intuition for finite sample approximations and resampling variance.`,
+        `Primary sources worth reading are Gordon, Salmond, and Smith on nonlinear and non-Gaussian Bayesian state estimation; Doucet's sequential Monte Carlo resources; Doucet, de Freitas, and Gordon's particle filtering introduction; Arulampalam et al.'s tutorial on particle filters for online tracking; and the Stone Soup particle-filter tutorial. After that, compare practical robotics implementations: look for how they initialize global particles, compute scan likelihoods, gate resampling, inject recovery particles, and log replay data for failure analysis.`,
       ],
     },
   ],

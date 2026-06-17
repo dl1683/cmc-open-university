@@ -219,40 +219,100 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A rolling hash is a fingerprint for a fixed-size moving window. When the window slides one character or byte to the right, the hash can be updated from the old hash by removing the outgoing symbol and adding the incoming symbol. Rabin-Karp uses that trick for string matching: hash the pattern, roll across the text, and only compare bytes where the window hash matches the pattern hash.',
-        'The key distinction is candidate versus proof. If two strings are equal, their hashes match. If two hashes match, the strings might still differ. Rabin-Karp is therefore a fast filter, not a substitute for exact comparison unless the application explicitly accepts probabilistic equality.',
+        'Rolling hashes exist because many programs repeatedly compare overlapping windows. String search slides a pattern-length window across text. Delta transfer compares blocks between files. Content-defined chunking watches a moving fingerprint to choose split points.',
+        'The shared problem is that adjacent windows are almost the same. If the window length is m, a one-character slide keeps m - 1 characters and changes only the outgoing and incoming symbols. The data structure should exploit that overlap.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'Naive baseline and wall',
       paragraphs: [
-        'A common polynomial rolling hash treats a string as digits in a base modulo a prime. For a window of length m, precompute base^(m-1). To slide, subtract the outgoing character times that high power, multiply by the base, add the incoming character, and reduce modulo the prime. That turns O(m) rehashing per position into O(1) update work.',
-        'Rabin fingerprints use polynomial arithmetic over GF(2), which makes them especially useful for byte streams and content-defined chunking. The mental model stays the same: a small rolling fingerprint tracks the current window, and a simple predicate over that fingerprint decides whether something interesting may have happened.',
+        'The naive matcher compares the pattern with every length-m window. It is exact, but in the worst case it rereads m characters at many positions. A slightly different baseline hashes each window from scratch, but that still costs O(m) work per shift.',
+        'The wall is overlap. Consecutive windows share nearly all their bytes, but the naive work treats them as unrelated. The second wall is collisions: a compact fingerprint can reject mismatches cheaply, but it cannot prove equality unless the implementation verifies candidates or accepts a quantified collision risk.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'Preprocessing the pattern is O(m). Scanning a text of length n is expected O(n + matches * m) if hash hits are rare and candidates are verified by byte comparison. Worst-case time can degrade when many collisions or many true candidates force repeated exact checks. Space is O(1) for one pattern, or O(k) hashes for k equal-length patterns stored in a Hash Table or Bloom Filter-style filter.',
+        'Keep a fingerprint that can be updated from the previous fingerprint: remove the outgoing high-order symbol, shift the remaining contribution, add the incoming symbol, and reduce modulo a chosen base ring. One integer comparison can reject most windows.',
+        'The invariant is that after each slide, the maintained fingerprint equals the value that a full hash recomputation would produce for the current window. Rabin-Karp adds a second invariant for exact search: report a match only after checking the actual characters behind a hash hit.',
       ],
     },
     {
-      heading: 'Real-world case studies',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Rsync uses rolling checksums as part of its delta-transfer algorithm: the receiver summarizes blocks, the sender rolls over its file to find matching blocks, and only unmatched data needs transfer. The weak rolling checksum is paired with a stronger check before accepting equality.',
-        'Backup and deduplication systems use related rolling fingerprints for content-defined chunking. Instead of fixed-size blocks, they cut chunks when the rolling fingerprint matches a boundary predicate, so inserting bytes near the front of a file does not shift every later boundary. The chunk is then identified by a cryptographic digest rather than the rolling hash itself.',
+        'In the "slide and match" view, the graph is the rolling update pipeline. Window identifies the current substring, drop removes the old leading character, shift moves the remaining contribution by one base position, add inserts the new trailing character, and check compares the resulting fingerprint with the pattern hash.',
+        'In the "collisions and uses" view, the tables separate filtering from proof. Hash cells show cheap candidates; byte-check or strong-check cells show where correctness is actually decided. The deliberately tiny modulus is there to make collision risk visible rather than theoretical.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Mechanics',
       paragraphs: [
-        'Do not use a teaching modulus as a real collision budget. Small moduli collide constantly. Production systems choose larger fingerprints, independent checks, or cryptographic hashes depending on the risk. Also separate boundary detection from identity: a rolling hash may decide where a chunk ends, but a strong content hash should decide whether two chunks are the same.',
+        'A common polynomial hash treats characters as digits in a base. For a window of length m, precompute base^(m - 1) modulo the modulus. To slide, subtract outgoing * base^(m - 1), multiply by base, add the incoming character, and normalize modulo the modulus.',
+        'Rabin-Karp stores the pattern hash, scans each text window, and compares hashes first. If the hash differs, the window cannot equal the pattern under the maintained hash. If the hash matches, the exact version compares the bytes or characters before returning the position.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Correctness',
+      paragraphs: [
+        'The rolling update is correct because it performs the same algebra as recomputing the polynomial hash over the new window. The outgoing character contributed the high-order term; after removing it, multiplying by the base moves every remaining character into its new position, and adding the incoming character fills the low-order position.',
+        'The search result is exact only if hash hits are verified. Equal strings must have equal hashes, so a hash mismatch is a valid rejection. Unequal strings may have equal hashes, so a hash match is a candidate, not proof. Randomized or double hashing reduces collision probability, but verification is the clean correctness boundary.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'The animation searches for "abra" inside "abracadabra" with base 257 and modulus 101. The pattern hash is 8. The window at position 0 is "abra", so it hashes to 8 and is verified as a match.',
+        'Sliding one step drops "a", shifts "bra", and adds "c" to form "brac", whose hash is 33. That integer mismatch rejects the window without comparing all four characters. Later, the window at position 7 is again "abra", hashes to 8, and passes the exact character check.',
+      ],
+    },
+    {
+      heading: 'Cost and tradeoffs',
+      paragraphs: [
+        'Preprocessing one pattern costs O(m). Scanning a text of length n costs O(n) rolling updates plus the cost of verifying candidates. With rare hash hits, the expected time is close to O(n + m). With many collisions or many true candidates, verification can dominate.',
+        'Space is O(1) for one pattern hash and O(k) for k equal-length pattern hashes. Larger moduli, double hashing, or strong secondary checks reduce false candidates but increase arithmetic or memory cost. Small teaching moduli are useful for demos and dangerous as production collision budgets.',
+      ],
+    },
+    {
+      heading: 'Choosing parameters',
+      paragraphs: [
+        'The base should distinguish the alphabet well enough for the data being scanned, and the modulus should be large enough that accidental collisions are rare. Competitive-programming examples often use one or two large primes. Systems that treat equality as a correctness property usually add byte comparison or a strong digest instead of trusting a rolling hash alone.',
+        'Normalization matters in real text. If search should be case-insensitive, Unicode-normalized, or token-based, normalize before hashing and before exact verification. Otherwise the hash is faithfully answering the wrong question.',
+        'Overflow behavior is also a design choice. Some implementations use modular arithmetic with explicit primes. Others rely on unsigned machine-word overflow for speed. Either can be fine if the collision story and verification boundary are clear.',
+      ],
+    },
+    {
+      heading: 'Production pattern',
+      paragraphs: [
+        'The production pattern is usually weak rolling signal first, strong confirmation second. Rsync uses a cheap rolling checksum to find likely block matches, then a stronger digest to confirm them. Content-defined chunking uses a rolling condition to decide boundaries, then a strong hash to name the chunk.',
+        'That split keeps the algorithm honest. The rolling hash saves work because it is cheap to maintain across overlapping windows. The strong check owns correctness because it is designed for identity. Confusing those two roles is how a useful optimization becomes a data-corruption risk.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins when the rolling summary is reused across many windows: many equal-length patterns, rsync-style block matching, backup deduplication, plagiarism prefilters, malware signatures, stream scans, and content-defined chunking.',
+        'It is also a useful systems pattern beyond string search: maintain a cheap moving summary, use it to nominate candidates or boundaries, and let a stronger comparison decide identity.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'For one exact pattern, KMP often gives a cleaner deterministic bound with no collision discussion. For many different pattern lengths, Aho-Corasick, suffix arrays, suffix automata, or indexes may fit better.',
+        'Rolling hashes also fail when the application forgets the second stage. Boundary detection and identity are different jobs: a rolling hash can choose where a chunk ends, but a strong content hash or byte comparison should decide whether two chunks are the same.',
+        'They also fail under adversarial input if parameters are predictable and collision handling is weak. Public-facing services should treat rolling hashes as filters, not authority, unless the collision risk has been designed and reviewed like any other security-sensitive probability.',
+      ],
+    },
+    {
+      heading: 'Implementation traps',
+      paragraphs: [
+        'The common arithmetic bug is negative modulo after subtracting the outgoing term. Normalize after subtraction before multiplying or adding. The common indexing bug is sliding one character too far and hashing a shorter final window.',
+        'The common architecture bug is using the teaching hash as the storage identity. A backup system may use a rolling fingerprint to find candidate boundaries, but the chunk id should be a strong content hash. The cheap rolling part is there to reduce work, not to own truth.',
+      ],
+    },
+    {
+      heading: 'Study next',
       paragraphs: [
         'Primary sources: Karp and Rabin, Efficient Randomized Pattern-Matching Algorithms, DOI summary at https://cris.huji.ac.il/en/publications/efficient-randomized-pattern-matching-algorithms/, MIT 6.006 rolling-hash lecture at https://ocw.mit.edu/courses/6-006-introduction-to-algorithms-fall-2011/resources/lecture-9-table-doubling-karp-rabin/, Rabin fingerprinting notes at https://www.xmailserver.org/rabin.pdf, and the rsync technical report at https://www.samba.org/rsync/tech_report/. Study KMP Prefix Function, Aho-Corasick Automaton, Hash Table, Bloom Filter, Suffix Array & LCP, and Merkle Tree next.',
       ],

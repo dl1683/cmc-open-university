@@ -192,41 +192,88 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why It Exists',
       paragraphs: [
-        'Raft joint consensus is the membership-change mechanism described in the Raft paper. It lets a replicated log move from one voting configuration to another without losing the overlapping-quorum property that makes consensus safe. Instead of jumping directly from old voters to new voters, Raft first enters a joint configuration containing both sets.',
-        'The Raft paper describes membership changes as using a joint consensus approach where majorities of two different configurations overlap during transitions: https://raft.github.io/raft.pdf. etcd documents runtime reconfiguration as a safety-sensitive operation for adding, removing, and updating members: https://etcd.io/docs/v3.6/op-guide/runtime-reconf-design/.',
+        `A Raft cluster sometimes needs to add, remove, or replace voting members. Hardware fails, zones change, disks fill up, and operators need a way to move the cluster without taking the system offline.`,
+        `Membership is not ordinary configuration. The voter set defines what a majority means, and majority overlap is part of Raft's safety proof. If the voter set changes unsafely, two different groups can both believe they have authority to elect leaders or commit log entries.`,
+        `Joint consensus exists so a cluster can move from one voting configuration to another while preserving quorum overlap at every step.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'The leader appends a configuration entry for C_old,new, the joint configuration. While that entry is active, a log entry is committed only when it is stored on a majority of the old configuration and a majority of the new configuration. After the joint entry is committed, the leader appends C_new. When C_new commits, only the new configuration controls future quorums.',
-        'This two-step path keeps a committed history from disappearing during membership changes. Every committed decision crosses a quorum that overlaps with the next decision. That shared witness is the safety argument.',
+        `The obvious approach is to edit the membership list directly: one moment the voters are A, B, C; the next moment they are A, B, C, D, E. That assumes every node learns the change at the same instant.`,
+        `Distributed systems do not have that instant. Some nodes may still count old majorities while others count new majorities. During a partition or leadership change, that split view can turn into split authority.`,
+        `The wall is quorum math. A majority of the old set and a majority of the new set may not share a member if the transition is done carelessly. Without overlap, two leaders or two committed histories can appear.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The Core Insight',
       paragraphs: [
-        'Membership changes are rare but high risk. New voters should catch up before they are expected to carry quorum. Removing nodes from an unhealthy cluster can strand the system. Multiple simultaneous changes make reasoning harder. Implementations often add strict checks that reject reconfiguration requests likely to cause quorum loss.',
-        'etcd documentation describes two-phase runtime reconfiguration and warns that the cluster must first agree on new configuration before a new member starts as part of that configuration: https://etcd.io/docs/v3.6/op-guide/runtime-reconf-design/. etcd FAQ material also discusses strict reconfiguration checks that reject quorum-losing changes: https://etcd.io/docs/v3.3/faq/.',
+        `Make membership itself a replicated log entry. The cluster does not switch voter sets as external admin metadata; it commits the change through the same log that orders application commands.`,
+        `The safe transition has two steps. First, commit a joint configuration, often written C_old,new, that includes both the old and new voter sets. While that configuration is active, entries must be accepted by a majority of the old set and a majority of the new set. Second, commit the final configuration C_new.`,
+        `The invariant is quorum overlap across the transition. A committed decision in the old configuration, the joint configuration, and the new configuration must share enough witnesses that a conflicting history cannot sneak through.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Reading the Membership Trace',
       paragraphs: [
-        'A three-node etcd cluster A, B, C needs to become A, B, C, D, E. The operator first adds D and E so they can receive data, but they should not immediately decide quorum alone. The leader commits a joint configuration requiring majorities from both A/B/C and A/B/C/D/E. After the cluster safely commits through the joint stage, it commits the final five-node configuration. Later, if C is removed, that too is a logged membership change.',
-        'The lesson is that membership is not external metadata. It is replicated state. Treating it as an ordinary log entry is how Raft keeps administrative actions inside the same safety model as application writes.',
+        `Use the "membership change" view to follow the three stages: old configuration, joint configuration, and final new configuration. The important moment is not when a new server appears in the diagram; it is when the log commits the configuration entry that changes quorum rules.`,
+        `Use the "quorum safety" view to compare which voters are required in each stage. During the joint phase, a candidate or log entry has to satisfy both old-majority and new-majority rules. That double requirement is the safety feature, not extra ceremony.`,
+        `Read the trace as an administrative operation being forced through consensus. Adding a member, removing a member, and replacing a failed machine are only safe when the cluster can still agree on the change.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'How It Works',
       paragraphs: [
-        'The common misconception is that adding a node makes the cluster safer immediately. A new node that has not caught up can make quorum harder, not easier. Another trap is trying to fix quorum loss by adding members after the cluster is already unhealthy. Reconfiguration cannot bypass consensus without risking split-brain behavior.',
+        `The current leader first appends a log entry for the joint configuration C_old,new. Once that entry is committed and applied, the cluster counts quorums against both configurations. A normal command is committed only when enough old voters and enough new voters have stored it.`,
+        `Leader election follows the active configuration rules too. A node cannot safely become leader by convincing only the new side while the old side is still operating under the old rules. The transition keeps election and replication safety aligned.`,
+        `After the joint configuration is committed, the leader appends a second configuration entry for C_new. When C_new commits, the old-only voters no longer count for future quorums. They may remain as learners, be removed, or be shut down according to the system's procedure.`,
+        `Production systems often require a new server to catch up before it becomes a voting member. A lagging voter makes quorum harder to reach and can turn a maintenance action into an outage.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Why It Works',
+      paragraphs: [
+        `Raft's normal safety story relies on majorities overlapping. If one majority committed an entry, a later leader elected by another majority must have some path to learn about that committed history.`,
+        `Joint consensus preserves that story while the definition of majority changes. Requiring a majority of old voters and a majority of new voters means the transition cannot be completed by a group that is invisible to the other side.`,
+        `Because configuration entries are log entries, membership changes have a clear order relative to application commands. A node can know which quorum rules apply to a given log index. That is what prevents administrative action from living outside the safety model.`,
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        `Start with a three-node cluster A, B, C. A majority is two. The operator wants to expand to A, B, C, D, E. If D and E immediately count as voters before they have caught up, the cluster may need three votes while two of the five are still empty or slow.`,
+        `A safer flow first adds D and E in a way that lets them receive the log and catch up. Then the leader commits the joint configuration C_old,new. During this phase, a log entry needs a majority of A, B, C and a majority of A, B, C, D, E.`,
+        `After that joint entry is safely committed, the leader commits C_new. Now the five-node cluster can make future decisions with a majority of any three voters. If C is later removed, that removal is another logged membership change, not a side edit to a config file.`,
+      ],
+    },
+    {
+      heading: 'Cost and tradeoff',
+      paragraphs: [
+        `Membership changes are rare but high risk. The protocol adds at least two configuration commits, and the joint phase can make quorum requirements stricter while the transition is active.`,
+        `Operationally, the hard part is timing the change. New voters should catch up before they carry quorum. Removed voters should not be needed for the next decision. A cluster that is already unhealthy may not be able to reconfigure itself safely.`,
+        `Implementations often add strict checks that reject reconfiguration requests likely to cause quorum loss. etcd documents runtime reconfiguration as a safety-sensitive operation for adding, removing, and updating members: https://etcd.io/docs/v3.6/op-guide/runtime-reconf-design/.`,
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        `Joint consensus wins for planned membership changes: replacing hardware, adding capacity, rotating nodes across zones, or shrinking after maintenance while the cluster remains available.`,
+        `It is especially important for control-plane stores such as etcd, where a mistaken membership change can take the whole platform offline. The method keeps operator actions inside Raft's normal proof structure.`,
+        `It also gives a clean teaching rule: if a decision changes who is allowed to decide, that decision must itself be decided safely.`,
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        `It fails as a rescue tool after quorum is already gone. If the current voters cannot agree, the cluster cannot safely agree to a new voter set without an explicit recovery procedure outside normal operation.`,
+        `It fails when operators add lagging voters and assume more nodes automatically means more safety. A voter that cannot participate in quorum makes progress harder, not easier.`,
+        `It also fails when systems allow too many simultaneous changes. The point of joint consensus is to keep the proof understandable. Batching unrelated membership edits can hide which quorum relationship is actually protecting the transition.`,
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: Raft paper at https://raft.github.io/raft.pdf, etcd runtime reconfiguration design at https://etcd.io/docs/v3.6/op-guide/runtime-reconf-design/, etcd runtime configuration guide at https://etcd.io/docs/v3.3/op-guide/runtime-configuration/, and etcd FAQ at https://etcd.io/docs/v3.3/faq/. Study Raft Election, Raft Log Replication, Raft Snapshots, etcd Raft Case Study, and Kubernetes Reconciliation Case Study next.',
       ],

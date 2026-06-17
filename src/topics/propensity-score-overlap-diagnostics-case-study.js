@@ -228,37 +228,84 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A propensity score is the probability of treatment assignment given observed covariates. Propensity diagnostics turn that score into a causal-design checklist: do treated and control units overlap, do covariates balance after adjustment, and do weights remain stable enough to trust?',
-        'The score is not a causal effect. It is a data structure for designing a comparison from observational data. It compresses many observed covariates into one balancing score, then forces the analyst to confront where the comparison is unsupported.',
+        'In an observational study, people do not receive treatment by coin flip. Sicker patients are more likely to get a care program. Heavy users are more likely to receive a discount. High-risk accounts are more likely to get a retention call. A raw treated-versus-control comparison mixes the effect of the treatment with the reasons the treatment was assigned.',
+        'Propensity score diagnostics exist before effect estimation. They ask whether the data contains fair comparisons at all. The diagnostics do not prove causality, but they can show whether the proposed adjustment is staying inside the part of the data where treated and untreated units both exist.',
+      ],
+    },
+    {
+      heading: 'The obvious approach and the wall',
+      paragraphs: [
+        'The obvious approach is to fit an outcome model with a treatment column and call the coefficient the treatment effect. That is tempting because it looks like ordinary prediction work: add covariates, add treatment, report the treatment term.',
+        'The wall is common support. If treated units live in a covariate region where there are no comparable controls, the model is guessing what would have happened under control. If propensity scores are near 0 or 1, inverse-propensity weights can let one or two unusual rows dominate the estimate. A more flexible model does not solve that; it can make the lack of overlap easier to hide.',
+      ],
+    },
+    {
+      heading: 'The core insight',
+      paragraphs: [
+        'The propensity score is a design tool. It estimates e(x) = P(T = 1 | X), the probability that a unit receives treatment given observed pre-treatment covariates. Units with similar scores had similar measured chances of treatment, even if their raw covariate vectors are large.',
+        'That single score gives the study a practical handle: match similar treated and control units, form score bands, compute weights, inspect overlap, and audit balance. The score is not the treatment effect. It is a way to build and test a comparison before outcomes are interpreted.',
+      ],
+    },
+    {
+      heading: 'What to inspect in the visual',
+      paragraphs: [
+        'In the balance-table view, follow the path from covariates and treatment assignment into the score, then into bins or weights, and finally into the balance audit. The important move is not the fitted score by itself. The important move is whether the adjusted treated and control groups now look similar on pre-treatment covariates.',
+        'In the overlap-trim view, watch the tails. A band with many treated units and almost no controls is not a weak estimate; it is a different kind of claim. It asks the analysis to infer a missing counterfactual from outside the support of the observed data. Trimming those bands can make the remaining estimate more credible, but it narrows the population being studied.',
       ],
     },
     {
       heading: 'How it works',
       paragraphs: [
-        'Estimate e(x) = P(T = 1 | X) from pre-treatment covariates. Then match, subclassify, or weight units using the score. The diagnostic table checks standardized mean differences before and after adjustment. A separate overlap table checks whether both treated and control units exist across the score range.',
-        'The score only balances observed covariates. Hidden confounding remains a causal assumption, not a modeling detail. That is why propensity diagnostics belong next to Causal Graphs, Doubly Robust Estimation, and sensitivity analysis.',
+        'Start with a causal design decision: choose only pre-treatment covariates that are plausible common causes of treatment and outcome. Estimate the propensity score from those covariates. Then use the score to match units, subclassify them into score bands, or weight them so treated and control groups represent a common target population.',
+        'After adjustment, compute standardized mean differences for the covariates. This is the balance audit. A good result is not "the propensity model predicted treatment well." A good result is "important covariates are balanced after adjustment, and both groups have support in the score range used by the estimate."',
+        'Then inspect weight stability. For the average treatment effect, treated units often receive weight 1 / e(x), and controls receive weight 1 / (1 - e(x)). Scores near 0 or 1 create large weights. Stabilized weights, trimming, matching calipers, or a narrower estimand may be needed.',
       ],
     },
     {
-      heading: 'Complete case study: patient program uptake',
+      heading: 'Why it works',
       paragraphs: [
-        'A hospital wants to estimate whether an outreach program reduces readmissions. Treated patients are older and higher risk, so raw comparisons are misleading. A propensity model estimates treatment probability from age, prior utilization, risk score, and region. The overlap table shows the highest-risk treated patients have almost no comparable controls, so those rows are trimmed.',
-        'After trimming and weighting, most standardized mean differences fall below a practical threshold, but prior utilization remains imbalanced. The study reports the overlap population, revises the model, and shows balance diagnostics before presenting any effect estimate.',
+        'The key theorem is that the propensity score is a balancing score: under the usual assumptions, conditioning on the true propensity score balances the observed covariates between treated and untreated units. That lets a high-dimensional adjustment problem become a lower-dimensional design problem.',
+        'The word "observed" matters. Propensity scores cannot balance variables that were not measured, variables measured after treatment, or variables chosen in a way that opens collider bias. The score helps only inside a credible causal design.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Costs and tradeoffs',
       paragraphs: [
-        'A high-quality propensity model for predicting treatment is not automatically a good causal design. A very accurate score can create extreme weights if treatment is nearly deterministic in parts of the covariate space. The goal is balance and overlap, not leaderboard accuracy.',
-        'Do not adjust for post-treatment variables or colliders. Propensity covariates should be pre-treatment common causes of treatment and outcome, guided by the causal graph. Also report how trimming changes the estimand.',
+        'The main statistical cost is variance. Extreme weights make the estimate sensitive to a small number of units, so confidence intervals widen and small data errors matter more. The main design cost is scope. Trimming non-overlap often improves credibility, but the estimand becomes the effect for the overlap population, not the effect for everyone.',
+        'There is also a modeling tradeoff. A score model must be good enough to balance confounders, but not judged only by treatment-prediction accuracy. A model that perfectly separates treated from control units is a warning sign for causal estimation, not a victory.',
+        'Good reports make that scope change explicit. If trimming removes the sickest patients or newest accounts, the final estimate should name the remaining population. Otherwise a careful overlap decision can be misread as a claim about everyone.',
+        'The diagnostic output should therefore include both the original population and the retained overlap population.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Where it wins',
       paragraphs: [
-        'Primary sources: Rosenbaum and Rubin, "The central role of the propensity score in observational studies for causal effects" at https://academic.oup.com/biomet/article/70/1/41/240879 and a PDF mirror at https://www.stat.cmu.edu/~ryantibs/journalclub/rosenbaum_1983.pdf. Study Causal Graphs, Doubly Robust Estimation, Importance Sampling, Instrumental Variables, and Causal Forest Uplift Policy next.',
+        'Propensity diagnostics are useful when treatment is observational, the analyst has rich pre-treatment covariates, and there is real overlap between treated and control groups. They are especially helpful in healthcare, education, pricing, marketing, policy evaluation, and product experiments where randomization was absent or incomplete.',
+        'They work best as part of a full design report: causal graph, covariate list, score model, overlap plot, trimming rule, balance table, weight summary, and sensitivity checks. The diagnostics are the evidence that the comparison was constructed rather than merely asserted.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when important confounders are missing. If physician judgment, income, disease severity, sales intent, or user motivation drives both treatment and outcome but is not captured, balance on measured covariates can still leave a biased estimate.',
+        'It also fails when overlap is weak, when post-treatment variables are included, when colliders are adjusted for, or when the score model is treated as a black-box leaderboard problem. The target is a credible comparison, not the highest AUC.',
+      ],
+    },
+    {
+      heading: 'Worked case study',
+      paragraphs: [
+        'A hospital wants to estimate whether a nurse outreach program reduces 30-day readmissions. The treated patients are older, have higher risk scores, and used more care before enrollment. The raw readmission rate is lower for treated patients, but that number is not interpretable because program staff selected patients deliberately.',
+        'The team estimates propensity from age, prior admissions, diagnosis group, risk score, region, and pre-treatment utilization. The overlap table shows that the lowest-risk controls and highest-risk treated patients have no good counterparts, so those bands are trimmed. The estimand is now the effect for patients who could plausibly have been in either group.',
+        'After weighting, age, risk score, and region are balanced, but prior utilization still has a standardized mean difference of 0.18. The study does not report the treatment effect yet. It revises the score model, checks matching calipers, and reports the balance table with the final estimate. That discipline is the point of the method: the causal claim starts with the design, not with the outcome regression.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Primary sources: Rosenbaum and Rubin, "The central role of the propensity score in observational studies for causal effects" at https://academic.oup.com/biomet/article/70/1/41/240879 and a PDF mirror at https://www.stat.cmu.edu/~ryantibs/journalclub/rosenbaum_1983.pdf.',
+        'Study Causal Graphs, Doubly Robust Estimation, Importance Sampling, Instrumental Variables, and Causal Forest Uplift Policy next.',
       ],
     },
   ],

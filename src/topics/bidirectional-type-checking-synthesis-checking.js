@@ -135,35 +135,85 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why This Exists',
       paragraphs: [
-        'Bidirectional type checking splits type checking into two judgments. Synthesis asks an expression to produce a type. Checking asks an expression to conform to a type already known from context. This keeps inference local and makes annotation requirements predictable.',
-        'The idea is especially useful when full Hindley-Milner Algorithm W & Let Polymorphism is either too global or too weak for the language features involved, such as subtyping, higher-rank polymorphism, dependent types, or gradual boundaries.',
+        'A type checker has two jobs that pull in opposite directions. Programmers want to omit obvious type annotations, but they also want precise errors, fast editor feedback, and language features that make types more expressive than the terms alone.',
+        'Full inference works well for small ML-style cores, but modern languages often include subtyping, overloaded operations, higher-rank functions, typed holes, effects, gradual dynamic values, or dependent function types. In those languages, guessing every missing type globally can become expensive, unpredictable, or impossible to explain.',
+        'Bidirectional type checking exists to make the flow of type information explicit. Some expressions produce a type from syntax and the environment. Other expressions are checked against a type that the surrounding context already knows.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The Obvious Approach and the Wall',
       paragraphs: [
-        'Variables synthesize by environment lookup. Literals synthesize from their syntax. Function application synthesizes by first synthesizing the function type, then checking the argument against the parameter type. Lambdas usually check against an expected function type, because their parameter type is not locally visible unless annotated.',
-        'Annotations are mode switches. If e checks against A, then (e : A) can synthesize A. That lets programmers place a small number of annotations at boundaries while the checker fills in local details inside each boundary.',
+        'The obvious implementation is bottom-up inference: infer a type for every expression, then combine the results. Variables synthesize from the environment. Literals synthesize from their syntax. If f has type int -> bool and x has type int, then f(x) has type bool.',
+        'The wall appears with terms that need context. A bare lambda like x => x + 1 does not carry the type of x. A polymorphic empty list does not tell you which element type it should have. A higher-rank function may require the checker to know the expected shape before it can inspect the body.',
+        'A global constraint solver can sometimes recover the missing information, but that pushes complexity into distant call sites and often produces errors far from the real cause. The bidirectional approach says: when local syntax does not carry enough information, get direction from the surrounding expected type or require an annotation at that boundary.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The Core Insight',
       paragraphs: [
-        'For x => x + 1, a checker with no expected type may not know whether x is int, float, bigint, or a custom numeric type. If the context expects int -> int, checking pushes int down to x, verifies x + 1 has type int, and accepts the lambda.',
-        'For map(xs, x => x.id), the call expression may synthesize enough information from map and xs to check the lambda against an expected element type. The lambda did not need a full global solver; the application context supplied its missing shape.',
+        'Split typing into two judgments. In synthesis mode, an expression produces a type: infer(expr) returns A. In checking mode, an expression is verified against an expected type: check(expr, A) succeeds or reports why the expression does not fit A.',
+        'The split changes the shape of the implementation. Variables, literals, field access, and many applications synthesize. Lambdas, object literals, pattern branches, and other context-sensitive forms often check. An annotation is the bridge: after e checks against A, the annotated expression (e : A) can synthesize A for the outside world.',
       ],
     },
     {
-      heading: 'Engineering notes',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'A bidirectional checker should make mode transitions explicit in code. Separate synth(expr) from check(expr, expected), and keep error messages tied to the mode that failed. A vague "cannot infer type" is much weaker than "lambda needs an expected function type or an annotation here."',
-        'This style also fits IDEs. As users edit code, annotations and outer contexts create islands of stable expected types. The checker can produce useful local errors without solving the entire file perfectly after every keystroke.',
+        'In the synthesize vs check view, read the arrows as type information moving through the syntax tree. The synth path moves upward from expression to type. The check path moves downward from an expected type into the expression. The table shows why variables and literals are easy, while lambdas need an expected function type.',
+        'In the annotations view, focus on the mode switch. The annotation supplies the missing type, the inside expression is checked against it, and the outer expression can now synthesize it. The subtyping node is the place where a synthesized type is compared with the expected one.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How It Works',
+      paragraphs: [
+        'A checker usually keeps two mutually recursive functions. synth(context, expr) returns a type when the expression can determine one locally. check(context, expr, expected) verifies that the expression has the expected type.',
+        'Variables synthesize by lookup in the context. Literals synthesize from their syntax. An application can synthesize by first synthesizing the callee, confirming that the callee has a function type, checking the argument against the parameter type, and returning the result type.',
+        'A lambda usually checks. If the expected type is int -> int, the checker binds x : int while checking the body, then verifies that the body checks against int. If no expected function type is available, the checker asks for an annotation instead of guessing the parameter type from the whole program.',
+        'A common rule connects the two modes: if an expression synthesizes A, it can check against B when A is compatible with B. In a simple language, compatible means equal. In richer languages, it may mean subtype, assignable, effect-compatible, or dynamically guarded.',
+      ],
+    },
+    {
+      heading: 'Why It Works',
+      paragraphs: [
+        'The soundness story is local. A synthesized type is justified by syntax and the current context. A checked expression is accepted only because the checker has verified it against an expected type. The compatibility relation is explicit, so the implementation has a named place to handle subtyping or other language-specific rules.',
+        'The practical win is that the checker uses information at the point where it is available. A function parameter type may be absent inside a lambda expression, but present in the annotation, variable declaration, function argument position, or branch target surrounding that lambda.',
+        'This does not make inference more magical. It makes the boundary between inference and required programmer intent visible.',
+      ],
+    },
+    {
+      heading: 'Worked Example',
+      paragraphs: [
+        'Consider x => x + 1. By itself, the lambda does not synthesize a type because x has no type in the environment. Now put it where int -> int is expected, for example let inc: int -> int = x => x + 1.',
+        'The declaration pushes int -> int down into the lambda. The checker binds x : int, checks x + 1 against int, and accepts the lambda. The full declaration can now synthesize or expose int -> int to later code.',
+        'The same pattern explains application checking. If map expects a function A -> B and a list of A, then the expected parameter type can flow into the lambda passed to map. The programmer gets local inference without asking the checker to solve every lambda from scratch.',
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        'Bidirectional checking keeps many decisions local, which helps compilers, interpreters, and IDEs. The checker can often report a useful error as soon as synthesis, checking, or compatibility fails.',
+        'The tradeoff is rule design. If too many forms require checking, users drown in annotations. If too many forms try to synthesize, the implementation drifts back toward global inference and weaker diagnostics. The language designer has to choose where annotations are expected and make those points feel natural.',
+        'Subtyping and effects add another cost. The compatibility relation must be decidable, predictable, and explainable. Otherwise the checker may still be local but the errors will feel mysterious.',
+      ],
+    },
+    {
+      heading: 'Where It Wins',
+      paragraphs: [
+        'Bidirectional checking wins in languages with expressive type features: higher-rank polymorphism, typed holes, dependent function types, object and record literals, union and intersection types, gradual typing, effects, and typed macro or DSL boundaries.',
+        'It also wins in editor tooling. Expected types from declarations and call sites let the editor check a nested expression even while the surrounding file is incomplete.',
+      ],
+    },
+    {
+      heading: 'Where It Fails',
+      paragraphs: [
+        'It fails when users expect full inference everywhere. Some expressions really need annotations, and a bidirectional checker should say that plainly instead of pretending the missing information can always be reconstructed.',
+        'It can also fail through poor diagnostics. A nested lambda may fail because the outer expression did not provide an expected function type. Good errors should identify whether synthesis failed, checking failed, or a synthesized type failed compatibility with the expected type.',
+        'The repair is often an annotation at the boundary where human intent is clearer than syntax.',
+      ],
+    },
+    {
+      heading: 'Sources and Study Next',
       paragraphs: [
         'Primary sources: Pierce and Turner, Local Type Inference, at https://www.cis.upenn.edu/~bcpierce/papers/lti-toplas.pdf, David Christiansen bidirectional typing tutorial at https://davidchristiansen.dk/tutorials/bidirectional.pdf, and Bidirectional Typing survey at https://arxiv.org/pdf/1908.05839. Study Hindley-Milner Algorithm W & Let Polymorphism, Unification Union-Find Type Constraints, Gradual Typing Boundaries & Blame Guards, and Data-Flow Worklist Analysis next.',
       ],

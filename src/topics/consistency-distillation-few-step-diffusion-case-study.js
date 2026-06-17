@@ -210,12 +210,102 @@ export const article = {
     { title: 'OpenAI: Simplifying, Stabilizing, and Scaling Continuous-Time Consistency Models', url: 'https://openai.com/index/simplifying-stabilizing-and-scaling-continuous-time-consistency-models/' },
   ],
   sections: [
-    { heading: 'What it is', paragraphs: ['Consistency distillation and progressive distillation are ways to make diffusion-style generation fast. The core idea is to compress a slow teacher sampler into a student that can take one or a few larger jumps.', 'This topic belongs next to Diffusion Models and Knowledge Distillation: the teacher supplies a trajectory through noisy states, and the student learns a cheaper map that preserves enough quality for the product route.'] },
-    { heading: 'Data structures', paragraphs: ['A useful implementation stores teacher trajectories, paired noisy states, clean targets, student predictions, loss weights, sampler-step budgets, quality scores, and fallback routes. Those records are what turn a research claim into a deployable artifact.', 'The validation ledger is as important as the model. It must track quality metrics, human preference, artifact classes, latency, cost, and which requests still need the slower teacher.'] },
-    { heading: 'How it works', paragraphs: ['Progressive distillation repeatedly halves the number of sampler steps. A 64-step teacher trains a 32-step student; that student can become the next teacher for a 16-step student, and so on.', 'Consistency models use a related idea: states along the same diffusion trajectory should map consistently to the same clean sample. This lets the model jump from noise toward data much more directly.'] },
-    { heading: 'Complete case study', paragraphs: ['A real-time media product uses a two-step consistency model for previews, a four-step model for controlled edits, and the full teacher for expensive final assets. Requests that trip safety or quality gates do not use the fast path.', 'The launch dashboard records speed, quality, fallback rate, and artifact categories. If the few-step model is fast but creates unacceptable detail errors, the router narrows its use instead of declaring the whole method a failure.'] },
-    { heading: 'Costs and tradeoffs', paragraphs: ['Few-step models reduce sequential sampling cost, but they can carry a quality gap from the teacher. They may also need expensive distillation data, careful loss weighting, and route-specific evaluation.', 'The product question is not whether two steps are possible. It is whether two steps are good enough for a particular task, with a measured fallback when they are not.'] },
-    { heading: 'Pitfalls', paragraphs: ['Do not compare only step count. A one-step sampler that harms quality, diversity, or controllability can be worse than a slower sampler. Do not trust one metric such as FID or one benchmark slice when the user-visible failure mode is different.', 'A second trap is failing to preserve the teacher fallback. Distillation should narrow expensive compute, not remove the safety valve before the quality frontier is understood.'] },
-    { heading: 'Sources and study next', paragraphs: ['Primary sources: Consistency Models at https://arxiv.org/abs/2303.01469, Progressive Distillation at https://arxiv.org/abs/2202.00512, and OpenAI sCM discussion at https://openai.com/index/simplifying-stabilizing-and-scaling-continuous-time-consistency-models/. Study Diffusion Models, Knowledge Distillation, Benchmark Variance Model Selection, LLM Inference Scaling Playbook, and Diffusion LLM Serving Scheduler next.'] },
+    {
+      heading: 'Why this exists',
+      paragraphs: [
+        'Diffusion models produce strong images, audio, and video because they denoise gradually. The cost is latency: a sampler may need dozens or hundreds of model evaluations before it reaches a clean sample.',
+        'Consistency distillation exists to make that sampler usable in interactive products. It trains a student model to take much larger jumps along the same denoising path, so preview, editing, and serving routes can use one or a few steps instead of a long sequential chain.',
+      ],
+    },
+    {
+      heading: 'The baseline approach',
+      paragraphs: [
+        'The baseline diffusion sampler starts from noise and applies many small denoising updates. Each update is conservative. The model only has to repair a little uncertainty at a time, which is why the final sample can be high quality.',
+        'A reasonable speed hack is to skip steps or use a shorter hand-tuned schedule. That helps until the jumps become too large. Then details wash out, conditioning weakens, and artifacts appear because the model was trained for a slower trajectory.',
+      ],
+    },
+    {
+      heading: 'The wall',
+      paragraphs: [
+        'The wall is sequential work. If a request needs 50 denoising evaluations, the runtime cannot stream a finished sample after the fifth one. GPU batching helps throughput, but the critical path is still long for each sample.',
+        'The second wall is evaluation. A faster sampler can look fine on one metric and fail on the product task. Face details, text rendering, edit faithfulness, diversity, and safety behavior can degrade in ways that a single FID-style number will not catch.',
+      ],
+    },
+    {
+      heading: 'The core mechanism',
+      paragraphs: [
+        'Progressive distillation trains a shorter sampler from a longer deterministic teacher. A 64-step teacher trains a 32-step student. That student can become the teacher for 16 steps, then 8, then 4. Each round halves the step budget while trying to keep the student on the teacher trajectory.',
+        'Consistency models use a related target. Points from the same probability-flow trajectory should map to the same clean sample. The model learns a function that sends noisy states at different times back toward the same x0 endpoint.',
+        'The practical records are teacher trajectories, paired noisy states, clean targets, student predictions, time or noise levels, loss weights, sampler budgets, quality scores, and fallback routes. Without that ledger, speed claims are hard to debug.',
+      ],
+    },
+    {
+      heading: 'Core insight',
+      paragraphs: [
+        'The point is not merely to remove sampler steps. The point is to teach a student model that far-apart noisy states on the same trajectory should agree about the same clean sample. Once that agreement is learned, inference can take larger jumps without asking the model to invent the path from scratch.',
+        'This turns a slow iterative process into a learned shortcut. The shortcut is useful only when it preserves the behavior users care about: prompt adherence, structure, identity, safety, and artifact quality.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'The training signal turns a long path into endpoint agreement. If two noisy states came from the same underlying sample, the student is penalized when it maps them to different clean results. That consistency gives the model permission to jump farther at inference.',
+        'The teacher matters because it supplies a path that already works. The student is not guessing how to denoise from scratch in one leap. It is learning to approximate a known sampler under a shorter compute budget.',
+      ],
+    },
+    {
+      heading: 'Cost and behavior',
+      paragraphs: [
+        'Inference cost drops roughly with the number of model evaluations on the critical path. A two-step sampler can be far cheaper than a 50-step sampler if the model size and batching behavior are similar.',
+        'Training cost moves in the other direction. Distillation needs teacher runs, stored or recomputed pairs, careful noise schedules, loss weighting, and validation across routes. The cheaper runtime is bought with an extra training and evaluation pipeline.',
+        'The quality frontier is the real artifact. One step may be fast but brittle. Two to eight steps often give a better speed-quality tradeoff. More steps move the student closer to teacher behavior but give back some latency.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Few-step diffusion wins when users need fast approximations more than perfect final samples. Preview images, interactive editing, rapid design exploration, and low-latency media generation can route many requests through a distilled sampler.',
+        'It also wins when a product can tier quality. A fast model can produce candidates, a slower route can refine selected results, and the full teacher can handle expensive final assets or high-risk prompts.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'A one-step or two-step student can lose detail, diversity, prompt faithfulness, or edit control. The failure may be small in aggregate metrics but obvious to users when hands, text, geometry, or fine texture matter.',
+        'Distillation can also preserve teacher biases while adding new artifacts. If the teacher struggles on a distribution slice, the student usually does not fix that slice by being faster. It may make the weak cases harder to detect because the output arrives with less visible uncertainty.',
+        'Removing the teacher fallback too early is a deployment error. Distillation should reduce expensive sampling volume. It should not remove the slow path before the product knows which requests the fast path cannot handle.',
+      ],
+    },
+    {
+      heading: 'Concrete example',
+      paragraphs: [
+        'A media editor can use a two-step consistency model for thumbnails, a four-step model for controlled edits, and the original teacher for final hero images. The router sends unsafe prompts to policy handling before spending GPU time and sends high-risk quality requests to the slower sampler.',
+        'The dashboard should track sampler choice, p50 and p99 latency, GPU cost, human preference, artifact categories, fallback rate, and route-specific failures. If the fast model is excellent for previews but weak for final text rendering, the product narrows the route instead of calling the method a failure.',
+      ],
+    },
+    {
+      heading: 'Implementation checklist',
+      paragraphs: [
+        'Keep teacher version, student version, noise schedule, timestep pairing, loss weighting, sampler step count, and evaluation slice in the same experiment ledger. Few-step claims are hard to interpret if the teacher changed or if the student was evaluated on easier prompts.',
+        'Evaluate by route. A two-step preview sampler, a four-step edit sampler, and a full teacher route have different jobs. Track their latency, cost, fallback rate, and failure categories separately instead of collapsing them into one quality number.',
+        'Preserve a slow path. The distilled model should reduce how often expensive sampling is needed, not remove the ability to recover quality when the fast path is uncertain.',
+      ],
+    },
+    {
+      heading: 'Rule of thumb',
+      paragraphs: [
+        'Use consistency distillation when latency is part of the product experience and the domain tolerates a measured quality-speed tradeoff. It is especially useful for previews, ideation, and interactive editing.',
+        'Do not use it as a blanket replacement for the teacher until difficult slices have been tested. The fastest route should earn trust per workload, not inherit trust from the full sampler.',
+        'The right question is not "can we sample in two steps?" The right question is "which requests can safely use two steps, what quality debt appears, and when should the system fall back?"',
+        'A strong rollout usually starts with a narrow route. Put the distilled sampler where speed is visibly valuable, keep teacher comparison data flowing, and expand only after the failure categories are boring and measured across representative prompts, formats, and latency tiers.',
+      ],
+    },
+    {
+      heading: 'Sources and study next',
+      paragraphs: [
+        'Primary sources: Consistency Models at https://arxiv.org/abs/2303.01469, Progressive Distillation at https://arxiv.org/abs/2202.00512, and OpenAI sCM discussion at https://openai.com/index/simplifying-stabilizing-and-scaling-continuous-time-consistency-models/.',
+        'Study Diffusion Models first, then Knowledge Distillation, Benchmark Variance Model Selection, Diffusion LLM Serving Scheduler, and any topic on inference routing or quality evaluation. The useful next question is not whether a sampler is fast; it is which requests can safely use the fast route.',
+      ],
+    },
   ],
 };

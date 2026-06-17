@@ -90,7 +90,7 @@ function* compactToken() {
   yield {
     state: tokenGraph('A JWT is a signed envelope, not a magic session'),
     highlight: { active: ['issuer', 'header', 'payload', 'sig', 'token', 'e-header-token', 'e-payload-token', 'e-sig-token'], compare: ['verifier'] },
-    explanation: 'The compact form has three base64url pieces: protected header, payload claims, and signature. The signature protects the exact header and payload bytes. The payload is readable unless the token is also encrypted.',
+    explanation: 'The compact form has three base64url pieces: protected header, payload claims, and signature. The signature protects the exact header and payload bytes, but the payload is still readable unless the token is encrypted as JWE.',
     invariant: 'A signed JWT is integrity-protected; it is not automatically secret.',
   };
 
@@ -119,19 +119,19 @@ function* compactToken() {
       ],
     ),
     highlight: { active: ['alg:job', 'kid:job', 'iss:job', 'aud:job'], compare: ['alg:risk', 'typ:risk'] },
-    explanation: 'The header and claims are a data structure for verification. Every field that drives lookup or policy must be interpreted under local rules, not trusted just because the token says it.',
+    explanation: 'The header and claims are verification inputs, not instructions from a trusted party. Local policy decides which algorithms, issuers, audiences, token types, and key sources are acceptable.',
   };
 
   yield {
     state: tokenGraph('kid selects a key from the issuer key set'),
     highlight: { active: ['token', 'header', 'jwks', 'verifier', 'e-jwks-verifier', 'e-token-verifier'], found: ['issuer'], compare: ['deny'] },
-    explanation: 'Many deployments publish a JSON Web Key Set. The verifier uses issuer configuration and kid to select a public key, then checks the JWS signature. A kid is a lookup hint, not authority to fetch arbitrary keys.',
+    explanation: 'Many deployments publish a JSON Web Key Set. The verifier uses trusted issuer configuration plus kid to select a public key; kid is only an index into that trusted set, not permission to fetch attacker-chosen keys.',
   };
 
   yield {
     state: tokenGraph('Signature success is only the first gate'),
     highlight: { active: ['verifier', 'api', 'e-verifier-api', 'payload'], compare: ['deny'], found: ['sig'] },
-    explanation: 'After the signature validates, the resource server still checks issuer, audience, expiry, not-before, token type, scopes, subject rules, and application policy. A valid token for another API is still invalid here.',
+    explanation: 'Signature success only proves integrity under an accepted key. The resource server must still reject wrong issuer, wrong audience, expired time window, wrong token type, missing scopes, or a subject that policy does not allow.',
   };
 }
 
@@ -139,7 +139,7 @@ function* verificationPath() {
   yield {
     state: verifyGraph('Verification is a pipeline with local policy at each edge'),
     highlight: { active: ['split', 'parse', 'alg', 'kid', 'cache', 'sig'], compare: ['claims'] },
-    explanation: 'A robust verifier splits the compact token, base64url-decodes header and payload, parses JSON, rejects malformed structure, and then enforces an algorithm allowlist before using any key.',
+    explanation: 'A strict verifier rejects bad structure before it reaches crypto. It splits exactly three parts, base64url-decodes header and payload, parses JSON, and enforces an algorithm allowlist before using any key material.',
     invariant: 'The token may propose values; the verifier chooses what is acceptable.',
   };
 
@@ -152,7 +152,7 @@ function* verificationPath() {
   yield {
     state: verifyGraph('Claims turn crypto success into authorization context'),
     highlight: { active: ['sig', 'claims', 'policy', 'e-sig-claims', 'e-claims-policy'], found: ['alg', 'cache'] },
-    explanation: 'The verified payload becomes authorization context only after claim validation. Issuer binds the signing authority. Audience prevents cross-service replay. Expiry and not-before bound time. Scope and subject feed the policy gate.',
+    explanation: 'The verified payload becomes authorization context only after claim validation. Issuer binds signing authority, audience prevents cross-service replay, time claims bound reuse, and scope plus subject feed the policy gate.',
   };
 
   yield {
@@ -194,38 +194,108 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'A JSON Web Token is a compact way to carry claims between parties. In the common signed form, a JWT is a JWS: protected header, claims payload, and signature joined with dots. The compact JWS serialization is useful because it is small enough for HTTP headers, but it also compresses many security decisions into a tiny string.',
-        'RFC 7519 defines JWT as a compact claims representation that can be signed or MACed as a JWS or encrypted as a JWE: https://www.rfc-editor.org/rfc/rfc7519. RFC 7515 defines JWS compact serialization as protected-header payload signature segments using base64url: https://www.rfc-editor.org/rfc/rfc7515. RFC 7517 defines JSON Web Keys and JSON Web Key Sets: https://www.rfc-editor.org/rfc/rfc7517.',
+        "APIs need a compact way to receive identity and authorization facts without making every request call the identity provider. A JSON Web Token carries claims such as issuer, subject, audience, expiry, token type, tenant, and scope in a string small enough for an HTTP Authorization header. That makes it attractive for API gateways, microservices, mobile clients, and federated identity systems.",
+        "The common API form is a signed JWT, which is a JSON Web Signature. The signature protects the exact header and payload bytes from tampering. If verification succeeds under an accepted issuer key and algorithm, the API can trust that those bytes came from a signing authority it recognizes.",
+        "That is only the beginning. A valid signature does not prove the token is meant for this API, still within its time window, the right kind of token, or sufficient for the requested resource. JWT verification exists to turn an untrusted string into a small verified context that local authorization policy can safely consume.",
       ],
     },
     {
-      heading: 'Data structure model',
+      heading: 'JWT, JWS, and JWKS',
       paragraphs: [
-        'The verifier sees several linked records: issuer configuration, accepted algorithms, JWKS cache, JOSE header, signature bytes, payload claims, clock tolerance, and application policy. The kid header is a lookup key into a trusted issuer key set. It is not permission to fetch keys from wherever the token says.',
-        'Verification should be modeled as a pipeline: parse structure, reject disallowed algorithms, bind keys to the issuer, verify the signature over the exact signing input, validate issuer, audience, time, token type, and required claims, then pass only the resulting claims into authorization logic.',
+        "JWT is the claims format. It says how to represent a set of claims as JSON and defines registered names such as `iss`, `sub`, `aud`, `exp`, `nbf`, and `iat`. JWS is the signing envelope. It defines the protected header, payload, signature, and compact serialization with three base64url segments separated by dots. JWE is the encryption envelope, which is separate. A signed JWT is integrity-protected, not automatically secret.",
+        "JWKS means JSON Web Key Set. It is a JSON document containing public keys, usually published by an issuer so resource servers can verify tokens. The `kid` header is a key id that helps the verifier choose one key from that trusted set. It is not permission for the token to name an arbitrary key source.",
+        "Those distinctions matter because many JWT bugs come from mixing layers. Decoding is not verification. Signature success is not authorization. JWKS lookup is not a trust decision by itself. The verifier has to combine the token with local issuer configuration, accepted algorithms, key material, time rules, token profile, and resource policy.",
       ],
     },
     {
-      heading: 'Complete case study: API gateway',
+      heading: 'The Naive Verification Plan and Wall',
       paragraphs: [
-        'An API gateway accepts bearer tokens from an OAuth authorization server. For each request, it reads the Authorization header, splits the JWT, parses header and payload, finds issuer configuration from a local allowlist, refreshes JWKS on kid miss, validates the JWS signature, and then checks iss, aud, exp, nbf, typ, scope, and tenant before forwarding claims to the service.',
-        'The service does not re-parse random token strings. It receives a small verified context: subject, issuer, audience, scopes, tenant, and original token ID for audit. Zanzibar Authorization Case Study or OPA Rego Policy Decision Graph can then decide whether that subject may touch the concrete resource.',
+        "The tempting shortcut is to decode the payload, read the claims, and trust the fields because the token looks official. Another common shortcut is to verify the signature and then accept every claim as automatically relevant to the current request. Both shortcuts are dangerous because JWTs are self-contained enough to look finished before they have been checked against local policy.",
+        "A token is attacker-controlled input until verification finishes. The header may say `alg`, `kid`, `typ`, `jku`, or `x5u`, but those values are proposals, not instructions from a trusted authority. The payload may say `admin: true`, but that claim means nothing unless it came from the expected issuer, was signed with an accepted key, is intended for this audience, and is allowed by this API.",
+        "The correct mental model is a pipeline. Structure, algorithm, key, signature, claims, and resource policy are separate gates. Skipping any gate leaves room for substitution attacks, algorithm confusion, replay, or token-kind confusion.",
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Core Insight: Local Policy Owns Trust',
       paragraphs: [
-        'Do not let the token choose its own trust rules. The verifier must provide the accepted algorithms, trusted issuers, trusted JWKS locations, clock tolerance, and token profiles. RFC 8725 warns about weak signature validation, none-alg acceptance, RSA/HMAC algorithm confusion, substitution attacks, unsafe kid lookup, arbitrary jku/x5u fetching, and cross-JWT confusion: https://www.rfc-editor.org/rfc/rfc8725.',
-        'A valid signature does not prove the caller is allowed to perform an action. It proves the token bytes came from a key accepted for that issuer and algorithm. Authorization still needs audience, scope, resource relationship, tenant, and policy checks.',
+        "The token may propose values, but the verifier decides what is acceptable. Local configuration supplies trusted issuers, JWKS locations, allowed algorithms, accepted key types, expected audience, token type, clock tolerance, required claims, and authorization rules. The verifier should never let the token choose its own trust anchor.",
+        "The real data structure is not just `header.payload.signature`. It is token bytes plus issuer metadata, algorithm allowlist, JWKS cache, key-rotation rules, claim validators, clock source, token-profile rules, and the authorization policy that consumes the verified result.",
+        "This is why well-designed JWT verification code often looks more like a policy engine than a decoder. The parser extracts fields. The verifier binds them to trusted configuration. The application receives a verified context, not a raw token-shaped bag of claims.",
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How the visual model teaches it',
       paragraphs: [
-        'Primary sources: RFC 7519 JWT at https://www.rfc-editor.org/rfc/rfc7519, RFC 7515 JWS at https://www.rfc-editor.org/rfc/rfc7515, RFC 7517 JWK at https://www.rfc-editor.org/rfc/rfc7517, and RFC 8725 JWT Best Current Practices at https://www.rfc-editor.org/rfc/rfc8725.',
-        'Study OAuth PKCE Token Lifecycle Case Study, JSON Parser Stack Case Study, Agent Payments Protocol Mandate Ledger Case Study, Capability Security & Attenuation, Macaroon Caveat Chain Case Study, UCAN Delegation Proof Chain, Zanzibar Authorization Case Study, OPA Rego Policy Decision Graph, Hash Table, and Distributed Tracing next.',
+        "The compact-token view shows that a JWT is a signed envelope with three visible parts: protected header, payload, and signature. The payload is readable by anyone who holds the token unless the system uses JWE encryption. The signature protects integrity, not confidentiality.",
+        "The verification-path view shows the actual gate sequence. Structure must be valid before crypto. Algorithm must be allowlisted before key use. `kid` must resolve inside a trusted issuer key set. Signature success must feed claim validation, and claim validation must feed local authorization policy. The API should allow the request only after all of those gates pass.",
+      ],
+    },
+    {
+      heading: 'Mechanism: Verification Pipeline',
+      paragraphs: [
+        "First split the compact token into exactly three parts. Reject missing parts, extra parts, invalid base64url, malformed JSON, unsupported critical headers, and token sizes outside policy. This is ordinary input validation, but it matters because malformed tokens should not reach confusing crypto or key lookup paths.",
+        "Next parse the protected header and select an allowed algorithm from local configuration. The algorithm in the header must match what the issuer and key are allowed to use. A verifier should not accept `none` for bearer access tokens, should not allow RSA/HMAC confusion, and should not let one key be reused across incompatible algorithm families.",
+        "Then bind the token to issuer configuration. Depending on the system, the issuer may be discovered from a trusted route, tenant mapping, or the untrusted `iss` claim followed by an allowlist lookup. The important rule is that `iss` can only select from preconfigured trusted issuers. It cannot introduce a new issuer on the fly.",
+        "After that, choose a key. For JWKS-backed issuers, `kid` is a lookup hint inside the trusted issuer key set. If the key is missing, the verifier may refresh the issuer JWKS according to cache rules. It should not follow arbitrary `jku` or `x5u` URLs supplied by the token unless those URLs are pinned by issuer configuration.",
+        "Now verify the JWS signature over the exact base64url signing input: protected-header segment, dot, payload segment. Only after signature success should the verifier treat the payload as authenticated. Claim validation then checks issuer, audience, expiry, not-before, issued-at, token type, subject, tenant, scope, and application-specific constraints.",
+      ],
+    },
+    {
+      heading: 'JWKS as a Rotation Cache',
+      paragraphs: [
+        "A JWKS cache is a key-rotation data structure. It needs issuer binding, cache lifetime, refresh-on-miss behavior, overlap during rotation, and protection against untrusted key sources. The same `kid` string from two issuers must not collide because the cache key is really issuer plus key id, not key id alone.",
+        "Refresh behavior has to balance availability and security. If a key rotates and the verifier never refreshes, legitimate tokens fail. If the verifier fetches aggressively on every unknown `kid`, attackers can turn verification into a network amplification or denial-of-service path. Production systems usually cache by issuer, respect TTLs, refresh on misses with rate limits, and keep old keys long enough for token overlap.",
+        "The JWKS document itself is not magic. It is trusted only because the issuer configuration says where to get it, how to validate transport, and which algorithms or key types are acceptable. A token-supplied key URL is attacker input unless local policy has pinned it.",
+      ],
+    },
+    {
+      heading: 'Worked Example: API Gateway',
+      paragraphs: [
+        "An API gateway receives `Authorization: Bearer <token>`. It does not pass the token directly to business logic. It splits the compact token, parses the header and payload, rejects unsupported algorithms, finds issuer configuration from an allowlist, resolves `kid` inside the issuer JWKS cache, and verifies the signature.",
+        "After crypto succeeds, the gateway checks claims. `iss` must equal the configured issuer. `aud` must name this API, not some neighboring service. `exp` and `nbf` must fit the gateway clock with a small allowed skew. `typ` or a profile-specific field must say this is an access token, not an ID token or refresh token. Tenant and subject must be valid for the route. Scopes or permissions must include what the endpoint requires.",
+        "The downstream service receives a verified context: subject, issuer, audience, tenant, scopes, token id, and authentication method. It does not need to re-parse arbitrary strings. A policy layer such as OPA Rego or a relationship-based authorization system can then decide whether the subject may access the concrete resource.",
+      ],
+    },
+    {
+      heading: 'Why It Works: The Pipeline',
+      paragraphs: [
+        "The signature check binds the protected header and payload bytes to a key accepted for the configured issuer and algorithm. If either segment changes, verification fails. That gives the API integrity over the authenticated claims.",
+        "Claim validation prevents substitution. Audience says which API may consume the token. Issuer says who was allowed to sign it. Expiry and not-before limit replay time. Token type prevents an ID token, access token, or refresh token from standing in for another credential. Scope and tenant claims feed the local authorization layer.",
+        "The order matters. If claim checks happen before signature verification, the application may act on attacker-edited JSON. If signature checks happen without audience and type checks, a valid token can be replayed in the wrong place. The pipeline works because each gate removes a different class of attack.",
+      ],
+    },
+    {
+      heading: 'Costs and Tradeoffs',
+      paragraphs: [
+        "Parsing and claim checks are cheap. Signature verification is the dominant per-request CPU cost, especially for asymmetric algorithms. JWKS fetching is far more expensive than verification, so production systems cache key sets and avoid network lookup on the hot path whenever possible.",
+        "JWTs reduce central session lookups, but they make revocation and claim freshness harder. A signed token can remain valid until expiry even after a user is disabled or permissions change. Common mitigations include short lifetimes, refresh tokens with server-side checks, token introspection for high-risk paths, revocation lists for exceptional cases, and sender-constrained tokens.",
+        "JWTs also increase log and storage risk. A bearer access token is a credential. If it appears in logs, browser storage, URLs, referrers, crash reports, or analytics events, whoever obtains it may be able to use it until expiry unless additional proof-of-possession or policy controls apply.",
+      ],
+    },
+    {
+      heading: 'Where JWTs Win and Fail',
+      paragraphs: [
+        "JWTs win in stateless API gateways, service-to-service calls, federated identity flows, and distributed systems where many services need to verify the same issuer without storing a local session row. They work best when issuers are few, audiences are strict, token lifetimes are short, keys rotate cleanly, and services convert raw tokens into a small verified context.",
+        "They fail when immediate revocation, hidden claims, or constantly changing permissions are core requirements. They also fail when every service invents its own verifier. JWT security depends on consistent local policy. A fleet with five subtly different validators is a substitution bug waiting to happen.",
+        "A JWT is also not an authorization system by itself. It can carry claims into one, but resource decisions still require policy. A token that says a user has `documents:read` does not automatically answer which document, in which tenant, under which sharing rule.",
+      ],
+    },
+    {
+      heading: 'Common Failure Modes',
+      paragraphs: [
+        "Algorithm confusion is the classic mistake: trusting the token header to decide whether a signature is required or which key type to use. The fix is an allowlist bound to issuer and key, with incompatible algorithm families kept separate.",
+        "`kid` injection is another common failure. Treating `kid` as a raw file path, SQL fragment, cache key without issuer binding, or reason to fetch attacker-controlled keys turns lookup metadata into an attack surface. The fix is sanitized lookup inside a trusted issuer key set.",
+        "Audience and token-type confusion are quieter but common. A token issued for one API, one tenant, or one kind of use can be validly signed and still wrong for this request. The fix is strict `aud`, `iss`, token profile, tenant, and route-level policy checks.",
+      ],
+    },
+    {
+      heading: 'Study Next',
+      paragraphs: [
+        "Primary sources: RFC 7519 JWT at https://www.rfc-editor.org/rfc/rfc7519, RFC 7515 JWS at https://www.rfc-editor.org/rfc/rfc7515, RFC 7517 JWK at https://www.rfc-editor.org/rfc/rfc7517, and RFC 8725 JWT Best Current Practices at https://www.rfc-editor.org/rfc/rfc8725.",
+        "RFC 8725 is the security checklist: it covers weak signature validation, none-alg acceptance, RSA/HMAC confusion, substitution attacks, unsafe `kid` lookup, arbitrary `jku` and `x5u` fetching, indirect server attacks, and cross-JWT confusion.",
+        "Study OAuth PKCE Token Lifecycle Case Study for how access tokens are obtained, JSON Parser Stack Case Study for parse boundaries, Capability Security and Attenuation for explicit authority, Macaroon Caveat Chain Case Study and UCAN Delegation Proof Chain for attenuated credentials, Zanzibar Authorization Case Study for relationship checks, and OPA Rego Policy Decision Graph for policy after verification.",
       ],
     },
   ],

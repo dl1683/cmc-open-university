@@ -223,44 +223,66 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Redpanda is a Kafka-compatible streaming platform implemented with a thread-per-core architecture using Seastar. From the outside, producers and consumers can use Kafka APIs. Inside, partition work is assigned to shards that run on pinned cores, and partition replication uses Raft.',
-        'This is a strong data-structures lesson because it makes locality explicit. A partition is not just a name in a topic. It has an owning shard, local queues, logs, cache state, replication state, and per-shard metrics. The architecture tries to avoid shared mutable state on the hot path.',
+        `A streaming broker sits in the middle of systems that cannot stop: payment events, click streams, metrics, audit logs, fraud signals, inventory updates, and machine telemetry. Producers append records, consumers fetch them later, and the broker has to preserve ordering rules, durability, and throughput while machines fail and traffic shifts. The broker is a storage engine, a replication system, a network server, and a scheduler at the same time.`,
+        `Redpanda is useful as a case study because it keeps the Kafka-facing contract familiar while changing much of the internal machinery. Clients can use Kafka-compatible produce and fetch APIs. Internally, Redpanda is built on Seastar's shard-per-core model: cores run independent reactors, data structures are kept shard-local when possible, and cross-core communication is treated as a visible cost. Each topic partition becomes more than a logical label. It is a unit of placement, ownership, replication, storage, cache locality, and operational diagnosis.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The naive design and the wall',
       paragraphs: [
-        'Producers write to topics, and records are routed to partitions. Redpanda assigns partition replicas to shards on nodes. The shard that owns a partition handles its append, fetch, replication, and storage work through asynchronous Seastar reactors.',
-        'Replication is partition-scoped. A partition leader appends records, sends them to follower replicas, and advances the committed position when quorum rules are satisfied. The visible Kafka-like behavior sits above a storage and consensus layer that is tuned around local ownership.',
-        'The contrast with ordinary thread-pool designs is the key idea. A thread pool can accidentally share locks, queues, caches, and allocator state across many workers. A shard-per-core design makes the ownership boundary explicit and pays cross-core communication only when the system actually crosses that boundary.',
+        `The simple broker design is a pool of worker threads reading requests from shared queues and updating shared partition objects. That design is easy to explain and works at moderate scale, but the hidden data structures become expensive under load. Workers contend on locks. Cache lines bounce between cores. Allocators and request queues become shared choke points. One hot partition can poison the whole worker pool because every worker is allowed to touch everything.`,
+        `Adding more threads does not automatically fix this. Past a point, the broker spends more time coordinating access to shared state than doing useful append, fetch, checksum, compression, and replication work. This is the wall that thread-per-core systems are trying to avoid. The question is not whether concurrency exists. The question is whether ownership is crisp enough that the hot path can run mostly without locks, remote cache misses, and surprise handoffs.`,
+        `A partitioned log already gives the broker a natural ownership boundary. Kafka-style systems route records to partitions, and each partition has ordering and replication state. Redpanda leans into that boundary: if a shard owns a partition replica, the append path, fetch path, cache state, and Raft state should usually stay with that shard. Cross-core operations still happen, but they are deliberate messages rather than accidental shared-memory traffic.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'The core idea',
       paragraphs: [
-        'Thread-per-core reduces lock contention but increases the importance of placement, full-core sizing, nonblocking code, and per-shard monitoring. A single hot partition can make one core look bad while node-level averages appear healthy. That is why shard labels and partition-level metrics matter.',
-        'The architecture also changes operational failure modes. Raft lag, disk queues, request queues, cache pressure, and key skew can all surface as produce or fetch latency. Debugging requires moving between Kafka API semantics, partition placement, Raft replication, and reactor-level resource use.',
+        `Shard-per-core means the system is designed around per-core reactors instead of a general-purpose pool of interchangeable workers. A reactor owns an event loop on one core. It runs asynchronous tasks, issues nonblocking I/O, manages local queues, and touches local state. The design goal is not merely to use all cores. It is to make the unit of computation match the unit of data ownership.`,
+        `For Redpanda, the important unit is the partition replica. A producer request is parsed at the Kafka API layer, routed to the partition, and then handled by the shard that owns that partition replica. That shard appends to the log, participates in Raft replication for that partition, serves fetches, and accounts for local resource use. The broker's data structures therefore form a map from topic partition to node, shard, log segments, cache state, and consensus state.`,
+        `The same idea appears in the operational model. If a partition is hot, the owning shard is hot. If a follower is slow, the Raft group for that partition exposes lag. If disk queues grow, the affected shards and partitions need to be visible. Averages across the whole node can look healthy while one shard is overloaded. This is why per-shard and per-partition metrics are not decorative; they are how the architecture explains itself under pressure.`,
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'A payments topic has 64 partitions across a three-node Redpanda cluster. Most keys hash evenly, but one merchant id becomes extremely hot. The partition for that merchant is owned by shard 2 on node A. Produce latency rises only for that partition, and node averages are misleading because other shards are idle.',
-        'The team inspects per-shard CPU, partition throughput, Raft follower lag, and disk queue metrics. The fix may be a better key, an application-level split for the hot merchant, more partitions for future growth, or moving replicas. The important lesson is that the data structure boundary, the partition, maps onto a concrete CPU ownership boundary.',
+        `Start with a produce request. A client writes records to a topic. The key or partitioning rule chooses a partition. The broker routes the request to the shard that owns the leader replica for that partition. Once the request is on the owning shard, the fast path can operate on shard-local structures: append state, segment metadata, request queues, memory accounting, and cache entries.`,
+        `Replication is partition-scoped. A partition leader appends records and replicates them to follower replicas. The record becomes visible according to the configured durability semantics when the replication and commit rules are satisfied. The important lesson is the layering: Kafka compatibility describes the client contract, while Raft and the storage engine implement the internal durability path. Compatibility at the protocol surface does not mean the internals have to mirror Apache Kafka's implementation choices.`,
+        `Backpressure is also local before it is global. A shard can become busy because its partitions receive too many writes, because consumers fetch aggressively, because compaction or storage work competes for I/O, because followers lag, or because a key distribution concentrates traffic on one partition. The broker needs queues and admission control that can slow producers or reshape work before overloaded shards accumulate unbounded latency.`,
+        `Seastar's asynchronous model matters here. Blocking inside a reactor is dangerous because it stalls all work owned by that core. The code has to express waits as asynchronous continuations and keep I/O, timers, and network work integrated with the reactor loop. That requirement changes how data structures are written. A simple mutex around shared state is often the wrong tool; local ownership plus message passing is the preferred shape.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Kafka-compatible does not mean Kafka-identical. Clients can speak a familiar protocol, but the internal scheduling, memory, consensus, and storage design can be very different. Another misconception is that thread-per-core removes backpressure. It actually makes backpressure easier to localize, but overloaded shards still need throttling, queueing, and operational response.',
+        `The performance argument is locality. If one core repeatedly touches the same partition state, the CPU cache has a better chance of keeping useful data nearby. If only one shard mutates a partition's hot structures, the design avoids many locks and atomic updates. If cross-core calls are explicit, engineers can measure and reduce them instead of discovering them indirectly through latency spikes.`,
+        `The correctness argument is scoped ownership. A partition already has strict ordering requirements, so it is a natural serialization point. The system does not need every core to concurrently mutate the same partition log. It needs the right core to process that partition quickly, replicate it safely, and expose committed data consistently. Shard ownership aligns the concurrency boundary with the ordering boundary.`,
+        `The operating argument is diagnosability. In a thread-pool broker, an overloaded topic may appear as a vague rise in worker utilization, lock contention, and queue length. In a shard-per-core broker, the operator can ask sharper questions: which partition is hot, which shard owns it, whether the leader or follower is slow, whether disk queues or Raft lag are growing, and whether the traffic pattern is skewed. The data model points directly to the failure model.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'Concrete example',
       paragraphs: [
-        'Primary sources: Redpanda architecture documentation at https://docs.redpanda.com/streaming/current/get-started/architecture/, Redpanda monitoring documentation at https://docs.redpanda.com/streaming/current/manage/monitoring/, Redpanda sizing guidance at https://docs.redpanda.com/streaming/current/deploy/redpanda/manual/sizing/, and Seastar at https://seastar.io/. Study Kafka Log Case Study, Raft Log Replication, Event Loop, Epoll Interest & Ready List Case Study, Sharding & Partitioning, and Backpressure next.',
+        `Consider a payments topic with 64 partitions spread across a three-node cluster. Most merchants produce a steady stream of authorization events, but one merchant starts a promotion and sends ten times its normal traffic. The partition for that merchant is led by shard 2 on node A. Cluster-wide CPU looks moderate because many shards are idle. The client, however, sees produce latency spike for that merchant's records.`,
+        `A useful incident review follows the ownership chain. First, identify the hot topic partition from produce latency and throughput. Second, map that partition to its leader node and shard. Third, compare per-shard CPU, request queue depth, storage queue depth, Raft follower lag, and consumer lag. Fourth, decide whether the cause is key skew, insufficient partition count, slow followers, storage pressure, or a consumer pattern that is driving fetch pressure. The fix may be changing the key, splitting one merchant at the application layer, increasing partitions for future headroom, moving replicas, or scaling the cluster.`,
+        `The educational point is that the logical partition and the physical core are connected. A bad key does not merely create an abstract imbalance in a hash table. It can overload a specific reactor, delay a specific Raft group, and make node-level averages misleading. This is why partition design is not an application-only concern in streaming systems. It reaches down into CPU scheduling and storage behavior.`,
+      ],
+    },
+    {
+      heading: 'Tradeoffs and failure modes',
+      paragraphs: [
+        `Shard-per-core is not free performance. It demands careful placement, full-core sizing, nonblocking code, shard-aware metrics, and load balancing that respects ownership. A blocking call inside a reactor can hurt unrelated partitions on the same shard. A cross-core call in the hot path can erase the locality benefit. A single hot partition can make the cluster look underused while one core is saturated.`,
+        `The model also moves complexity into operations. Teams need to know how partitions map to shards, how leaders and followers are distributed, how to read per-shard saturation, and how to separate client-facing latency from Raft lag or disk pressure. Autoscaling is harder than adding generic workers because the unit of work is stateful. Rebalancing partitions can help, but moving state has cost and can create its own load.`,
+        `There are also workload limits. If an application needs strict ordering for a single very hot key, adding partitions does not automatically help because that key still maps to one ordered stream unless the application changes its model. If the workload is dominated by large scans or storage bandwidth, CPU-local ownership may not be the main bottleneck. If clients produce many small records with poor batching, network and per-request overhead can dominate. The architecture gives strong tools, but it does not remove the need for workload design.`,
+      ],
+    },
+    {
+      heading: 'Signals and study next',
+      paragraphs: [
+        `Good evaluation combines client metrics, partition metrics, shard metrics, and replication metrics. Watch p50, p95, and p99 produce latency by topic and partition; per-shard CPU and queue depth; disk append latency and queueing; Raft commit latency and follower lag; consumer lag; batch size; compaction pressure; and key distribution. The dangerous pattern is a healthy node average hiding an unhealthy shard.`,
+        `Primary sources: Redpanda architecture documentation at https://docs.redpanda.com/streaming/current/get-started/architecture/, Redpanda monitoring documentation at https://docs.redpanda.com/streaming/current/manage/monitoring/, Redpanda sizing guidance at https://docs.redpanda.com/streaming/current/deploy/redpanda/manual/sizing/, and Seastar at https://seastar.io/. Study Kafka Log Case Study, Raft Log Replication, Event Loop, Epoll Interest & Ready List Case Study, Sharding & Partitioning, Backpressure, and Consistent Hashing next.`,
       ],
     },
   ],

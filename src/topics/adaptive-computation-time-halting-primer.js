@@ -101,7 +101,7 @@ function* haltingMass() {
       ],
     ),
     highlight: { active: ['s1:halt', 's2:halt', 's3:halt'], found: ['s4:action'] },
-    explanation: 'Adaptive Computation Time makes the model emit a halting probability at each recurrent step. The runtime accumulates that mass until it reaches the halt threshold, then emits a weighted output and stops spending compute on this item.',
+    explanation: 'Adaptive Computation Time makes the model emit a halting probability at each recurrent step. The runtime accumulates that mass, uses the final remainder to make the weights sum to one, and then stops spending compute on this item.',
     invariant: 'Halting is differentiable because the output is a weighted mixture of step states plus a final remainder.',
   };
 
@@ -125,13 +125,13 @@ function* haltingMass() {
       ],
     }),
     highlight: { active: ['easy', 'easyStop'], compare: ['hard', 'hardStop'], found: ['target'] },
-    explanation: 'The same network can halt quickly for easy inputs and keep refining hard inputs. This is the old adaptive-compute promise behind modern early exit, dynamic depth, and variable test-time compute.',
+    explanation: 'The same network can halt quickly for easy inputs and keep refining hard inputs. The promise is variable compute; the limit is that the halt policy must be calibrated, capped, and measured by hard-case quality.',
   };
 
   yield {
     state: actGraph('The ACT state machine'),
     highlight: { active: ['halt', 'accum', 'e-halt-accum'], found: ['emit'], compare: ['loop'] },
-    explanation: 'The data structure is tiny but load-bearing: current recurrent state, halting probability p_t, cumulative halt mass, final remainder, ponder step count, and a mask telling which examples are still active.',
+    explanation: 'The data structure is tiny but load-bearing: recurrent state, p_t, cumulative halt mass, final remainder, ponder count, and an active mask. If any buffer is wrong, the model may keep updating halted examples or lose the gradient path for stopping.',
   };
 
   yield {
@@ -213,7 +213,7 @@ function* recurrentDepth() {
   yield {
     state: universalGraph('Universal Transformer recurs in depth'),
     highlight: { active: ['attn', 'ffn', 'next', 'e-next-attn'], found: ['halt'] },
-    explanation: 'Universal Transformer applies the same transformation function repeatedly across depth. Positions are processed in parallel, but each position can keep refining over recurrent steps and may halt at a different depth.',
+    explanation: 'Universal Transformer applies the same transformation function repeatedly across depth. Positions are processed in parallel at each step, while the halt policy decides which positions keep refining and which ones are copied forward.',
   };
 
   yield {
@@ -342,45 +342,103 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Adaptive Computation Time (ACT) is a way for a neural network to learn how many internal computation steps to spend before producing an output. Instead of choosing a fixed number of recurrent updates, the model emits a halting probability at each step, accumulates halt mass, and stops once enough mass has been assigned.',
-        'The data-structure view is simple: current state, step counter, halting probabilities, cumulative halt mass, final remainder, active mask, and ponder cost. The learning view is deeper: the network is trained not only to be correct, but also to avoid unnecessary internal work.',
+        'Fixed-depth neural networks spend the same internal compute on easy and hard examples. A trivial input receives the same number of recurrent steps or layers as an ambiguous input. That is simple to batch, but it wastes work when difficulty varies.',
+        'Adaptive Computation Time, or ACT, exists to make compute a learned resource. The model emits a halting probability at each recurrent step, accumulates halt mass, and stops once the example or position has received enough computation.',
+        'The topic is useful because it turns a vague phrase, "think longer," into concrete state: hidden state, step count, halting probability, cumulative mass, final remainder, active mask, and ponder cost. Those buffers are small, but they decide how much computation the model buys for each input.',
       ],
     },
     {
-      heading: 'Core data structures',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The halting accumulator stores p_t for each recurrent step and adds it until the threshold is reached. The final step uses a remainder so the halt weights sum to one and gradients still flow. An active mask prevents halted examples or positions from being updated again. A ponder-cost term penalizes extra steps, turning compute into part of the loss.',
-        'This is why ACT belongs with finite-state machines, Markov chains, and gradient flow: it is a small differentiable state machine that learns a stopping policy while preserving a path for training signal.',
+        'The obvious approach is a fixed compute budget. Run every example for T recurrent steps, or build a Transformer with L layers and send every token through all of them. This gives regular shapes, predictable latency, and straightforward training.',
+        'The wall is uneven difficulty. A fixed budget may over-serve easy cases and under-serve hard ones. Raising the budget helps hard cases but makes every case more expensive. Lowering it saves compute but can damage the tail of difficult inputs.',
+        'A second obvious approach is a hand-written confidence threshold. Stop when the classifier looks confident. That can help simple classifiers, but it does not train the internal computation policy as part of the model. ACT makes the stopping rule differentiable enough to learn with the task loss.',
       ],
     },
     {
-      heading: 'Case study: ACT',
+      heading: 'Core insight and invariant',
       paragraphs: [
-        'Alex Graves introduced ACT for recurrent neural networks. The arXiv abstract says the method lets RNNs learn how many computational steps to take between receiving an input and emitting an output, with minimal architecture changes and deterministic differentiable behavior. The paper reports strong results on synthetic tasks such as parity, binary logic, addition, and sorting, and observes harder-to-predict transitions in character language modeling receiving more computation.',
-        'The main lesson is still current: adaptive compute is valuable when difficulty varies per example or per position. If every example needs the same amount of work, fixed depth is simpler and easier to optimize.',
+        'The core insight is to represent stopping as accumulated probability mass rather than as a hard branch with no gradient. Each recurrent step proposes a halt probability. The runtime keeps adding those probabilities until the total reaches one.',
+        'The invariant is that the output weights sum to one. Early steps contribute their halt probabilities, and the final step contributes the remainder needed to reach the threshold. The final prediction is a weighted mixture of intermediate states.',
+        'That invariant is what makes the method trainable. The network can learn both how to update the state and how much mass to assign at each step. The ponder cost then gives the optimizer a reason not to spend extra steps unless they improve the result.',
       ],
     },
     {
-      heading: 'Case study: Universal Transformer',
+      heading: 'Mechanism',
       paragraphs: [
-        'Universal Transformer applies recurrence in depth rather than time. It repeatedly applies a shared transformation function to all positions in parallel, using self-attention at each recurrent step. Google Research explains that the model can apply more computation to ambiguous symbols, such as bank in a sentence whose meaning depends on river, while spending fewer steps on less ambiguous symbols.',
-        'The operational difference from a standard Transformer is that depth becomes a loop with possible per-position halting, not a fixed stack of different blocks. That gives more algorithmic flavor, but it also introduces halting initialization, maximum-step, and masking concerns.',
+        'At step t, the recurrent core reads the current state and produces a new state plus a halt probability p_t. If the accumulated mass plus p_t is still below one, the example remains active and another recurrent step runs.',
+        'When the next p_t would cross the threshold, the runtime uses a remainder instead of the raw p_t. If the accumulated mass is 0.92, the final weight is 0.08. The weighted output includes the states from each step using these halt weights.',
+        'The active mask prevents halted examples or positions from being updated further. The ponder cost adds a penalty proportional to the number of steps or accumulated computation. A hard maximum step count prevents unbounded loops and forces a fallback when the halt unit is uncertain.',
+        'Universal Transformer adapts the idea to depth. The same transformation block is applied repeatedly, with self-attention at each recurrent step. Positions can halt at different depths, and halted positions are copied forward while active positions continue to refine.',
       ],
     },
     {
-      heading: 'Case study: PonderNet',
+      heading: 'Why it works',
       paragraphs: [
-        'PonderNet revisits the halting problem as a learned distribution over computation steps. Its arXiv abstract frames the goal as adapting compute to problem complexity and balancing prediction accuracy, computational cost, and generalization. The reported results include improvements on complex synthetic problems, extrapolation tests, question answering with less compute, and a reasoning benchmark.',
-        'PonderNet is useful to study because it separates the idea of adaptive compute from one specific ACT accumulator. The family resemblance is the important part: a controller learns when more internal computation is worth paying for.',
+        'ACT works because it avoids making the final output depend on a non-differentiable stop decision alone. The model does stop execution, but the training signal flows through a weighted mixture of the states that led to the stop.',
+        'The remainder is the correctness detail that keeps the mixture well formed. Without it, halt probabilities could overshoot or leave missing mass. With it, the output is a convex mixture of step states, so the loss can shape early and late computation.',
+        'The ponder penalty changes the optimization problem. Extra steps are no longer free. If another step improves the answer enough, the model can pay for it. If it does not, the model is rewarded for halting earlier. This is the core tradeoff: accuracy versus compute.',
+        'The active mask preserves the runtime meaning of halting. Once an example or position halts, later recurrent work must not silently change its state. Otherwise the learned stop signal would not correspond to actual saved computation.',
       ],
     },
     {
-      heading: 'Production pitfalls',
+      heading: 'What the readouts show',
       paragraphs: [
-        'Adaptive halting can fail silently. A bad halt bias can trap the model in shallow computation. A weak ponder penalty can make it overthink every input. Incorrect masks can continue updating halted states. A missing hard cap can create unbounded loops. And if the remainder path is wrong, the model may not learn useful stopping behavior.',
-        'For LLM serving, ACT is usually a conceptual ancestor rather than a drop-in speed trick. Early-Exit Transformer Layer Skipping, Mixture-of-Depths Token Routing, speculative decoding, and compute routers are the production-facing descendants that turn adaptive computation into latency, FLOP, and quality controls.',
+        'The halting-mass table is an accumulator. Each row adds probability mass. The last row uses a remainder so the total reaches one exactly. The action column is not just a label; it is the runtime decision to continue or emit.',
+        'The easy-versus-hard plot shows the intended allocation pattern. Easy inputs reach the halt line early. Hard inputs spend more recurrent steps. A good model improves hard examples enough to justify that extra compute.',
+        'The buffer table is the implementation checklist. State, halt buffer, remainder, active mask, and ponder cost must agree. Bugs in these buffers do not merely change the picture; they change the learned compute policy.',
+        'The recurrent-depth view shows the same idea per position. Ambiguous tokens can receive more revisions while unambiguous tokens are copied forward. The limit is synchronization: attention still sees a sequence-level state at each recurrent step.',
+      ],
+    },
+    {
+      heading: 'ACT case study',
+      paragraphs: [
+        'Alex Graves introduced ACT for recurrent neural networks. The paper frames the method as a way for RNNs to learn how many computational steps to take between receiving an input and emitting an output, with small architecture changes and deterministic differentiable behavior.',
+        'The reported tasks include parity, binary logic, addition, sorting, and character language modeling. Those examples matter because they have variable internal work: some inputs require short computation, while others benefit from extra recurrence.',
+        'The lesson is still current. Adaptive compute is valuable when difficulty varies per example or per position. If every example needs the same amount of work, fixed depth is simpler and easier to optimize.',
+      ],
+    },
+    {
+      heading: 'Universal Transformer case study',
+      paragraphs: [
+        'Universal Transformer applies recurrence in depth rather than time. It repeatedly applies a shared transformation function to all positions in parallel, using self-attention at each recurrent step. Positions can halt independently, so ambiguous symbols may receive more revisions.',
+        'The operational difference from a standard Transformer is that depth becomes a loop with possible per-position halting, not a fixed stack of different blocks. That adds algorithmic flavor, but it also adds halt initialization, maximum-step, and masking concerns.',
+        'PonderNet is a related case study. It learns a distribution over computation steps rather than relying on the exact ACT accumulator. The family resemblance is the important part: a controller learns when more internal computation is worth paying for.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'ACT saves compute only when enough examples halt early and when the overhead of recurrence, masking, and bookkeeping is smaller than the skipped work. On accelerators, variable depth can also reduce batching regularity, so saved theoretical FLOPs may not become proportional wall-clock gains.',
+        'The model pays training complexity. Halt bias, ponder penalty, maximum steps, and remainder handling all affect the learned policy. Tuning them is part of the model design, not a cosmetic setting.',
+        'There is also an evaluation cost. Average compute can fall while rare hard cases get worse. A useful report needs quality and compute by difficulty slice, not just one mean accuracy and one mean step count.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'Adaptive compute wins when difficulty truly varies and extra internal steps help the hard cases. Synthetic algorithmic tasks, recurrent reasoning tasks, ambiguous token disambiguation, and systems with a wide spread of input difficulty are natural fits.',
+        'It is also a useful lens for modern descendants. Early-exit models skip later layers when confidence is high. Mixture-of-Depths routes only some tokens through a block. Test-time compute controllers decide when extra reasoning, verification, or search is worth the latency.',
+        'The shared win is conditional work. Spend less on cases that are already resolved, and spend more on cases where refinement changes the answer.',
+      ],
+    },
+    {
+      heading: 'Limits and failure modes',
+      paragraphs: [
+        'Adaptive halting can fail silently. A bad halt bias can trap the model in shallow computation. A weak ponder penalty can make it spend too many steps. Incorrect masks can continue updating halted states. A missing hard cap can create unbounded loops.',
+        'The remainder path is another failure mode. If the final remainder is detached or miscomputed, the model may not learn a useful stopping policy even though the forward pass appears to run.',
+        'A product can also fail by optimizing the wrong objective. Saving average FLOPs is not enough if the system stops early on rare but valuable cases. Improving hard cases is not enough if latency becomes unpredictable. The halt policy must be evaluated against the product budget.',
+        'ACT is usually not a drop-in LLM serving speed trick. Modern serving systems often prefer early exit, layer skipping, speculative decoding, or routing policies because they expose clearer controls and simpler rollback behavior.',
+      ],
+    },
+    {
+      heading: 'Worked example and guidance',
+      paragraphs: [
+        'An easy input emits halt masses 0.72 then a remainder of 0.28 and stops after two steps. A harder input emits 0.18, 0.17, 0.23, 0.24, and a final remainder of 0.18 before stopping at five steps. Both produce weighted state mixtures, but the hard input buys more internal refinement.',
+        'Use adaptive computation when easy cases are common, hard cases benefit from extra refinement, and the system can tolerate variable internal work. Avoid it when fixed-shape batching, predictable latency, or accelerator utilization matters more than per-example savings.',
+        'Before shipping any adaptive-depth policy, log step counts, halt probabilities, remainders, maximum-step hits, quality by difficulty slice, latency by slice, and fallback decisions. If those fields are hidden, the halt curve is not debuggable.',
       ],
     },
     {

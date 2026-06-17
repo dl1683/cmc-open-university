@@ -177,31 +177,83 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'Tail sampling makes trace sampling decisions after seeing most or all of a trace. That lets the collector keep traces because they are slow, erroneous, tenant-specific, route-specific, or otherwise interesting, instead of deciding blindly at request start.',
-        'OpenTelemetry explains that tail sampling evaluates traces after spans are complete enough to apply criteria that are unavailable to head sampling: https://opentelemetry.io/docs/concepts/sampling/. The OpenTelemetry tail sampling blog describes decision_wait and num_traces as core configuration levers: https://opentelemetry.io/blog/2022/tail-sampling/.',
+        'Distributed tracing is most valuable when something unusual happens: a checkout request is slow, a downstream payment span errors, a canary route behaves differently, or one tenant has a bad experience. Those facts are often known near the end of the trace, not when the root span starts.',
+        'Tail sampling exists because storing every trace is expensive, but deciding too early throws away the traces engineers most need. OpenTelemetry describes tail sampling as evaluating traces after enough spans have arrived to apply criteria that head sampling cannot know at request start.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'The obvious approach and the wall',
       paragraphs: [
-        'The processor maintains a bounded trace buffer keyed by trace ID. Each trace record holds spans, arrival times, current policy evidence, and a deadline. When the deadline expires, policies decide whether to export the whole trace or drop it.',
-        'This is a memory-vs-evidence trade-off. Longer decision windows catch late child spans and more accurate latency/status facts, but they keep more traces in memory. num_traces, expected new traces per second, and memory limits are capacity controls, not just configuration trivia.',
+        'The obvious approaches are collect everything or sample at the head. Collecting everything gives the best evidence but can overwhelm storage, indexing, and query budgets. Head sampling is cheap because it decides at the start, but it is blind to final latency, downstream failures, and attributes added later.',
+        'The wall is that trace value is not uniformly distributed. A random early decision can keep many normal traces while dropping the one failed request that explains the incident. The sampling decision needs later evidence, but later evidence requires buffering.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core insight',
       paragraphs: [
-        'A checkout platform keeps 100% of error traces, all traces above 800 ms, all traces for the canary tenant, and 1% of normal fast traffic. The collector waits 10 seconds, buffers by trace ID, exports selected full traces, and records policy counters so operators know whether errors, latency, or baseline sampling drove retention.',
-        'During an incident, the SLO alert points to checkout p99. Tail sampling ensures the trace backend has complete slow checkout traces, not random span fragments. The team can move from metric alert to trace tree without drowning the backend in every normal request.',
+        'Group spans by trace ID in the collector, wait for a bounded decision window, then apply policies to the whole trace. The policy can keep every error trace, every slow trace, selected tenants or routes, and a smaller probabilistic sample of normal traffic.',
+        'The data structure is a bounded trace map. Each trace record accumulates spans, arrival time, a deadline, and policy evidence. When the decision wait expires, the collector exports the entire trace or drops the entire trace. The goal is not random span retention. The goal is to preserve complete causal stories that are worth debugging.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'What the views show',
       paragraphs: [
-        'Tail sampling is not free. It can miss slow traces if decision_wait is too short, evict traces if num_traces is too low, or OOM the collector if memory is undersized. It also does not replace metrics; metrics still alert first.',
-        'Use probabilistic head sampling when later trace information cannot affect the decision. Tail sampling is for policies that need the tail of the trace: final status, total latency, downstream service path, or attributes that appear after the root span starts.',
+        'In the decision buffer view, follow spans as they enter a trace-ID map, wait behind decision_wait, and then move through policy to keep or drop. The memory node is part of the algorithm: every extra second of waiting holds more traces in the collector.',
+        'In the policy mix view, read each policy as a claim about diagnostic value. Status keeps errors, latency keeps slow traces, attributes keep important tenants or services, and probabilistic sampling keeps a baseline. A healthy mix preserves rare important traces while still leaving normal traffic for comparison.',
+      ],
+    },
+    {
+      heading: 'How it works',
+      paragraphs: [
+        'The tail sampling processor receives spans from applications or upstream collectors. It indexes them by trace ID and keeps each trace in memory until the decision window closes or pressure forces a decision. Configuration such as decision_wait and num_traces is capacity planning, not decoration.',
+        'When the timer fires, policies evaluate the spans that have arrived. A status-code policy can keep errors. A latency policy can keep traces over a threshold. Attribute policies can keep canary, customer tier, route, or service-specific traces. A probabilistic policy can keep a small baseline of otherwise normal traces.',
+        'If a trace is selected, the collector exports the trace as a unit to the backend. If it is dropped, its buffered spans are discarded. Late spans that arrive after the decision are a known failure mode and need measurement.',
+      ],
+    },
+    {
+      heading: 'Why it works',
+      paragraphs: [
+        'It works because the collector waits until the evidence that makes a trace valuable has had time to appear. A root span may look routine at the start, while a payment child span errors three services later or the total duration crosses the p99 threshold near the end.',
+        'It also works because the unit of retention is the trace. Engineers debug relationships: parent and child spans, service boundaries, retries, queue waits, and downstream calls. A few isolated spans are much less useful than one complete trace tree selected for a clear reason.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A checkout platform receives 20,000 traces per minute. The team cannot store all of them, but it wants complete evidence for incidents. The collector waits 10 seconds, keeps 100 percent of traces with error status, keeps all traces over 800 ms, keeps all traces for the canary tenant, and keeps 1 percent of normal fast traffic.',
+        'During an incident, an SLO burn alert shows checkout p99 rising. Because the tail sampler kept complete slow checkout traces, the team can inspect full request paths through cart, pricing, payment, fraud, and inventory. The backend does not need every normal request to make that debugging path available.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'Tail sampling spends memory to buy better decisions. Traffic rate times decision_wait times spans per trace determines buffer pressure. A larger window can see more late child spans, but it increases heap use and makes the collector more sensitive to bursts.',
+        'It also adds policy complexity. The selected trace set is biased toward what the rules keep, which is useful for debugging but can distort naive analysis. Operators need counters for kept, dropped, late, and evicted traces, broken down by policy, plus normal collector health metrics.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'It wins when later trace information changes the decision: errors, slow requests, canary traffic, high-value tenants, important routes, unusual service paths, and enough baseline traffic for comparison. It is especially strong when trace storage is expensive but incident debugging still needs complete traces.',
+        'It pairs well with metrics. Metrics and SLOs alert quickly; tail sampling decides which traces survive long enough to explain the alert.',
+      ],
+    },
+    {
+      heading: 'Where it fails',
+      paragraphs: [
+        'It fails when collectors are undersized, decision_wait is too short, late spans are common, or memory pressure evicts traces before policy can evaluate them. In those cases the sampler may drop exactly the trace it was meant to preserve.',
+        'It also fails as a replacement for observability design. Sampling does not detect incidents, fix bad instrumentation, choose good span names, control label cardinality, or remove sensitive data. It only chooses which trace evidence reaches the backend.',
+      ],
+    },
+    {
+      heading: 'Practical sizing questions',
+      paragraphs: [
+        'Before setting a policy, estimate new traces per second, average spans per trace, p95 and p99 trace duration, burst size, and collector memory. decision_wait should be long enough for the evidence the policy needs, not copied from a default.',
+        'Then decide what normal traffic baseline you still need. Keeping only errors and slow traces is useful during incidents, but it can make it harder to compare broken and healthy paths. A small probabilistic baseline gives context.',
+        'Roll out policies in stages. First measure what each rule would have kept, then export selected traces, then tune memory limits and backend costs. Dashboards should separate traces kept by error, latency, attribute, and probabilistic rules so an accidental broad match does not silently turn into collect-everything.',
+        'Size the collector tier as part of the tracing system, not as a sidecar afterthought. If applications send bursts through a small collector, the sampler may evict traces before it has enough spans to decide. Run load tests with realistic span counts, long traces, exporter failures, and backend throttling so the policy is proven under pressure.',
       ],
     },
     {

@@ -362,52 +362,102 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why this exists',
       paragraphs: [
-        'The Browser Scheduler API, centered on scheduler.postTask, lets application code post main-thread tasks with coarse priorities: user-blocking, user-visible, and background. The callback returns through a Promise, can be delayed, and can be tied to a signal for cancellation or priority changes.',
-        'This is a Priority Queue lesson wrapped in browser performance. The Event Loop still decides when JavaScript can run, Promise Microtask Queue still explains why microtasks run before ordinary tasks, and requestAnimationFrame Frame Budget still owns visual work before paint. postTask gives app-owned tasks a more explicit priority layer than timer hacks.',
+        'The browser main thread has to run input handlers, JavaScript, style, layout, paint, and framework work without making typing and scrolling feel stuck. One long task can block all of it.',
+        'Applications often create work with different urgency. Echoing a keystroke is urgent. Recomputing visible rows is important but chunkable. Rebuilding a search index can wait. A plain FIFO queue cannot express those differences.',
+        'scheduler.postTask gives application-owned main-thread tasks named priorities: user-blocking, user-visible, and background. The lesson is a real browser API, but the data-structure idea is a priority queue plus cancellation scopes plus resumable chunk cursors.',
       ],
     },
     {
-      heading: 'How it works',
+      heading: 'The obvious approach',
       paragraphs: [
-        'The WICG scheduling draft describes static priority queues for fixed-priority tasks and dynamic priority queues associated with TaskSignal objects. A TaskController can abort its signal or change the priority for tasks that share that signal. The browser then selects runnable scheduler task queues using priority and enqueue order.',
-        'scheduler.yield is the companion idea for long work. Instead of running a 100 ms loop, code processes a chunk, yields, and resumes later. Chrome documents that yielded continuations compose with postTask priorities, so visible work can stay visible while still leaving gaps for input and rendering.',
+        'The usual first attempt is to break work with setTimeout, Promise callbacks, requestAnimationFrame, or requestIdleCallback. Each tool solves part of the problem.',
+        'Timers create a gap but do not say why one task matters more than another. Microtasks run before the browser returns to ordinary tasks, so Promise.then is not a fairness checkpoint. requestAnimationFrame is for visual work before paint. Idle callbacks can be delayed for a long time under pressure.',
       ],
     },
     {
-      heading: 'Data structures behind it',
+      heading: 'Where that breaks',
       paragraphs: [
-        'There are several concrete structures hiding under the API. A priority queue orders scheduler task queues. A cancellation graph fans one TaskSignal out to many pending tasks. A chunk cursor stores where a long loop should resume. A version token prevents stale rendered output from overwriting fresher input. A trace log records chunk cost so the budget can be tuned instead of guessed.',
-        'That makes this topic a bridge between Binary Heap, Queue, AbortController Cancellation Graph, The Event Loop, and React Fiber Scheduler Case Study. React Fiber solves a framework-level scheduling problem with lanes and resumable work; scheduler.postTask offers a browser-level primitive for app tasks outside a framework scheduler.',
+        'The wall is stale, urgent, and bulky work sharing one lane. A keypress can wait behind old background work. A new query can race with an old filter result. A 100 ms loop can block paint even if it was scheduled with the right intention.',
+        'Priority alone does not fix that. JavaScript is cooperative on the main thread. Once a task starts running, the browser cannot preempt it in the middle of ordinary synchronous code. The code must return or yield.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'The core idea',
       paragraphs: [
-        'Consider a 100,000 row data grid. A keypress gets user-blocking treatment only for the small echo path: update the input value, abort the old filter run, and schedule the new run. Filtering and ranking are user-visible but chunked around a saved cursor. DOM writes are kept in requestAnimationFrame. Index rebuilding, prefetch, and metrics move to background priority or a worker.',
-        'The important shift is from one big "update grid" function to a scheduling graph. Input, filtering, rendering, caching, and metrics have different urgency, cancellation needs, and data structures. postTask helps encode those differences, but the real win comes from small chunks, explicit aborts, and measured budgets.',
+        'Make urgency explicit, keep long work resumable, and make stale work abortable. scheduler.postTask names the urgency. TaskController and TaskSignal carry cancellation and priority changes. scheduler.yield creates a continuation point so long work can give the browser a chance to run input and rendering.',
+        'This is not a magic faster thread. It is a better contract for cooperative scheduling: small tasks, clear priority, visible cancellation, and measured chunk budgets.',
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: 'How the mechanism works',
       paragraphs: [
-        'Priority is not preemption. A running JavaScript task still blocks the main thread until it returns. postTask only helps when work is split into tasks or yielded continuations. It also does not make CPU-heavy work free; if a chunk is expensive enough to threaten frames, Web Workers: A Second Thread or a server-side path may be the better structure.',
-        'Availability matters. MDN currently marks Scheduler.postTask as limited availability because it does not work in some widely used browsers. Production code should feature-detect scheduler, scheduler.postTask, scheduler.yield, TaskController, and TaskSignal behavior, then fall back to timers, rAF, idle callbacks, or workers based on the workload.',
+        'postTask accepts a callback and options such as priority, delay, and signal. The default priority is user-visible. user-blocking is for work that must run quickly to preserve user experience. background is for work that can wait.',
+        'A TaskController creates a TaskSignal. If tasks are scheduled with that signal, the controller can abort pending work. When the task priority comes from the signal rather than a fixed postTask priority option, the controller can also change priority before the task runs.',
+        'scheduler.yield returns control to the browser and resumes later. The useful pattern is a loop with a cursor: process a bounded slice, save the cursor, yield, check cancellation, then continue.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Do not use user-blocking for everything. A priority queue where every item is high priority has no useful priority. Do not schedule unbounded loops and expect the browser to rescue responsiveness. Do not confuse microtasks with yielding; Promise.then keeps you in the checkpoint and can starve rendering. Do not leave stale background work alive after the user changes the query.',
-        'Also be careful with framework schedulers. React, Solid, Angular, and query libraries may already batch or prioritize work internally. Native browser scheduling is a tool for your own main-thread tasks, not a reason to bypass framework invariants or commit huge DOM changes outside the rendering model.',
+        'The invariant is that important pending work should not sit behind lower-priority pending work once the current task returns. Priority queues preserve that ordering at task boundaries.',
+        'Yield points preserve responsiveness because they create boundaries. A 50 ms synchronous loop blocks frames; ten 5 ms chunks give the browser chances to handle input and paint between chunks.',
+        'Cancellation preserves correctness as much as performance. If query B replaces query A, tasks from A must either abort or lose the right to commit output. Priority without cancellation still wastes CPU and can show stale UI.',
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: 'How to read the visualization',
       paragraphs: [
-        'Primary sources: MDN Scheduler.postTask at https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/postTask, MDN Prioritized Task Scheduling API at https://developer.mozilla.org/en-US/docs/Web/API/Prioritized_Task_Scheduling_API, MDN TaskController at https://developer.mozilla.org/en-US/docs/Web/API/TaskController, MDN TaskSignal at https://developer.mozilla.org/en-US/docs/Web/API/TaskSignal, the WICG Scheduling APIs draft at https://wicg.github.io/scheduling-apis/, and Chrome scheduler.yield guidance at https://developer.chrome.com/blog/use-scheduler-yield.',
-        'Study next: The Event Loop, Promise Microtask Queue, requestIdleCallback Idle Deadline Queue, requestAnimationFrame Frame Budget, PerformanceObserver Long Task Attribution, AbortController Cancellation Graph, Binary Heap, Queue, Web Workers: A Second Thread, React Fiber Scheduler Case Study, UI State Machine Workflow, Backpressure & Flow Control, and Browser Rendering.',
+        'In the priority-lanes view, watch which lane receives the next unit of work. The high-priority lane is not preempting running code; it is winning the next scheduling choice after JavaScript returns.',
+        'In the yield-loop view, the cursor is the real state. Each yield matters because it turns one blocking loop into resumable pieces and gives input and paint a gap.',
+        'In the cancellation-audit view, every old run is a potential bug. The important state change is not that a new task starts; it is that the old fetch, parse, render, and background index paths lose authority to commit stale results.',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A 100,000-row grid receives a keypress. The input echo is user-blocking and tiny: update local state and show the typed character. The old filter controller is aborted immediately.',
+        'The new filter work is user-visible. It scans rows in 5 ms slices, stores a cursor, calls scheduler.yield, checks the signal, and resumes. DOM writes are batched into requestAnimationFrame because visual commits belong near paint.',
+        'Index rebuilding and prefetching are background or moved to a worker if they are CPU-heavy. A version token prevents an old chunk from committing results after a newer query has started.',
+      ],
+    },
+    {
+      heading: 'Costs and tradeoffs',
+      paragraphs: [
+        'postTask adds ordering control, not extra CPU. If every chunk still takes 40 ms, the page still janks. The dominant cost is usually the work itself, plus bookkeeping for controllers, signals, cursors, version tokens, and traces.',
+        'The API also has compatibility cost. As of June 2026, MDN marks Scheduler.postTask as limited availability because it is not supported in some widely used browsers. Production code should feature-detect scheduler, scheduler.postTask, scheduler.yield, TaskController, and TaskSignal behavior.',
+        'Fallbacks should preserve the behavior goal, not the exact API shape. Timers can create crude gaps, rAF can guard visual commits, requestIdleCallback can run opportunistic work, and Web Workers can remove CPU-heavy work from the main thread.',
+      ],
+    },
+    {
+      heading: 'Where it wins',
+      paragraphs: [
+        'postTask is useful for app-owned main-thread work with mixed urgency: large data grids, search-as-you-type filters, syntax highlighting, client-side indexing, analytics preparation, and progressive rendering.',
+        'It is strongest when the work is already chunkable and has clear cancellation boundaries. A scheduling graph with input, visible computation, render commit, background maintenance, and tracing can benefit from named priorities.',
+      ],
+    },
+    {
+      heading: 'Where it is the wrong tool',
+      paragraphs: [
+        'Do not use postTask to hide CPU-bound work that should run in a worker. If the calculation is expensive and does not need the DOM, moving it off the main thread often beats carefully slicing it.',
+        'Do not use user-blocking for everything. A priority queue where every item has the highest priority has become FIFO with extra ceremony.',
+        'Do not bypass framework scheduling blindly. React, Solid, Angular, and data-fetching libraries may already batch, defer, or cancel work. Native scheduling should wrap app-owned tasks without violating those invariants.',
+      ],
+    },
+    {
+      heading: 'Failure modes',
+      paragraphs: [
+        'The common failure is confusing microtasks with yielding. Promise callbacks run in the microtask checkpoint and can delay rendering if chained heavily.',
+        'Another failure is forgetting that priority is cooperative. A task that never returns cannot be rescued by a better queue. Split the work first; then priority can matter.',
+        'Stale commits are the subtle failure. Aborting fetch is not enough if parsing, ranking, rendering, or background indexing can still publish old output. Each phase needs a signal check or version guard.',
+      ],
+    },
+    {
+      heading: 'Study next',
+      paragraphs: [
+        'Study The Event Loop, Promise Microtask Queue, requestAnimationFrame Frame Budget, requestIdleCallback Idle Deadline Queue, PerformanceObserver Long Task Attribution, AbortController Cancellation Graph, Binary Heap, Queue, Web Workers: A Second Thread, React Fiber Scheduler Case Study, UI State Machine Workflow, Backpressure & Flow Control, and Browser Rendering.',
+        'Primary and current sources: MDN Scheduler.postTask at https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/postTask, MDN Prioritized Task Scheduling API at https://developer.mozilla.org/en-US/docs/Web/API/Prioritized_Task_Scheduling_API, the WICG Scheduling APIs draft at https://wicg.github.io/scheduling-apis/, and Chrome scheduler.yield guidance at https://developer.chrome.com/blog/use-scheduler-yield.',
       ],
     },
   ],

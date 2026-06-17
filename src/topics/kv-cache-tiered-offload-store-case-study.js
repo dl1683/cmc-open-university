@@ -347,45 +347,114 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: `Why This Exists`,
       paragraphs: [
-        'A KV Cache Tiered Offload Store moves reusable prompt KV blocks out of scarce GPU HBM into larger tiers such as pinned CPU memory, local SSD, or a remote distributed store. On a later request, the server can load the blocks back instead of recomputing prefill. This is the storage version of the same inference economics: trade memory and IO for fewer expensive prompt passes.',
-        'vLLM documents an OffloadingConnector that extends prefix caching by offloading completed KV blocks to slower but larger tiers. The default CPU spec copies GPU blocks into pinned host memory, while a tiering spec uses CPU as the primary tier plus secondary tiers; secondary tiers are staged through CPU rather than talking directly to GPU: https://docs.vllm.ai/en/latest/features/kv_offloading_usage/.',
+        `Transformer inference keeps a key-value cache for every generated context token. That cache is what lets decode attend to earlier tokens without recomputing all previous transformer layers. It is also huge. Long prompts, long conversations, tool traces, and many concurrent users can fill GPU HBM before arithmetic becomes the bottleneck.`,
+        `Agentic workloads make the opportunity visible. The system prompt, tool instructions, repository context, policy text, and previous trace prefixes may repeat across turns. Recomputing that prefix every time wastes prefill compute and increases time to first token. Keeping every possible prefix in GPU memory is not possible either, because active decode needs that same HBM.`,
+        `A tiered KV-cache offload store treats computed prompt state as a cacheable artifact with a memory hierarchy. Hot blocks stay in GPU HBM. Warm blocks can sit in pinned CPU memory. Colder blocks can spill to SSD or a remote pool. The goal is not to make slow memory behave like HBM. The goal is to reload reusable state when loading is cheaper than recomputing prefill.`,
       ],
     },
     {
-      heading: 'How it works',
+      heading: `The Obvious Approach and the Wall`,
       paragraphs: [
-        'The request is tokenized into exact prefix-block keys. The server checks hot GPU blocks first, then CPU, then storage or remote backends. A hit is promoted toward GPU and inserted into the local block table before decode reads it. A miss runs prefill and can asynchronously put completed blocks into lower tiers for future reuse.',
-        'LMCache documents CPU RAM and local storage as non-GPU offload tiers, with disk backends creating one file per KV chunk, LRU eviction when capacity is exceeded, asynchronous puts, blocking gets, and prefetch from disk into CPU RAM: https://docs.lmcache.ai/kv_cache/local_storage.html. Ray Serve describes KV offloading as a way to extend capacity with CPU memory or local disk and preserve reusable prefills across turns: https://docs.ray.io/en/latest/serve/llm/user-guides/kv-cache-offloading.html.',
+        `The simplest approach is to keep KV cache only on the GPU and evict when memory is full. That is easy to reason about, but it wastes reuse. When a later request repeats a large prefix, the server must run prefill again even if another request just paid for that same computation.`,
+        `The second tempting approach is to offload everything that does not fit. That turns a memory problem into a latency problem. CPU RAM, SSD, network storage, and remote cache nodes are slower tiers with their own queues, failures, and tail behavior. If every request blocks on cold storage, the cache can make the service worse while appearing busy.`,
+        `The real wall is selectivity. A tiered store must know which blocks are safe to reuse, which blocks are likely to be reused, and which loads are worth delaying a request for. Without that discipline, offload becomes a larger trash can for state the product should have dropped.`,
       ],
     },
     {
-      heading: 'Complete case study: agentic traces',
+      heading: `Core Invariant`,
       paragraphs: [
-        'Agentic workloads often repeat a system prompt, tool schemas, repository instructions, and prior trace structure across many turns. Without a shared KV store, each node may recompute the same prefixes or miss because the next turn lands on a different worker. A tiered store gives the router a new option: route toward cache locality, or load the prefix from a shared store before prefill. SLO-Aware LLM Request Router explains how that option competes with queue depth, p99 budget, tenant policy, and fallback.',
-        'The vLLM Mooncake Store integration frames this as a distributed KV cache pool for agentic workloads, reporting large throughput and TTFT improvements on its published traces when cache hit rate rises sharply: https://vllm.ai/blog/2026-05-06-mooncake-store. LMCache describes Mooncake as a distributed KV cache storage system that pools DRAM and SSD resources from multiple nodes and supports RDMA-oriented transfer paths: https://docs.lmcache.ai/kv_cache/storage_backends/mooncake.html.',
+        `The invariant is exact computational equivalence: a loaded KV block must be the same state the model would have produced by prefilling the same token block under the same model contract. The placement can change. The semantics cannot.`,
+        `That means the cache key is not just text. It must encode token ids, model identity, tokenizer version, adapter or LoRA identity, position scheme, attention layout, dtype or quantization format, block size, and any tenant or safety boundary that affects reuse. Two prompts that look similar to a person may still be a miss if tokenization, position, or adapter state differs.`,
+        `This invariant is stricter than ordinary application caching. A stale HTML fragment may show old text. A stale KV block changes the model computation itself. The store needs versioning and invalidation rules that are closer to compiled artifact caching than to fuzzy semantic retrieval.`,
       ],
     },
     {
-      heading: 'Cost and complexity',
+      heading: `Mechanism`,
       paragraphs: [
-        'Tiering adds new knobs and new failure modes. Hit rate, tier latency, bytes moved, CPU staging pressure, disk queue depth, remote congestion, eviction policy, freshness keys, and cleanup after aborted requests all matter. A cache that increases IO but rarely hits can make time to first token worse while looking busy.',
-        'NVIDIA Dynamo documents multiple vLLM KV offloading backends, including a built-in KV Block Manager with CPU and disk tiers, LMCache with multi-level storage backends, and FlexKV with GPU, CPU, SSD, distributed reuse, io_uring, and GPUDirect Storage: https://docs.nvidia.com/dynamo/backends/v-llm/kv-cache-offloading. vLLM also exposes FlexKVConnectorV1 for a distributed KV store with CPU, SSD, and remote storage support: https://docs.vllm.ai/en/latest/api/vllm/distributed/kv_transfer/kv_connector/v1/flexkv_connector/.',
+        `A request first becomes token blocks. The runtime hashes those blocks into prefix keys and asks the local block table whether they are already resident in GPU memory. If they are, decode can use them directly. If not, the runtime checks slower tiers in order: CPU staging memory, local SSD, remote cache pool, or another configured backend.`,
+        `A cold hit must be promoted before attention can read it. A block stored on SSD is loaded into CPU memory, copied into GPU blocks, registered in the local block table, and then used by the model. A remote hit may add network transfer before the CPU and GPU staging steps. This promotion path is why the store must measure time to first token by tier, not just hit rate.`,
+        `A miss runs normal prefill. After prefill completes a block, the runtime can asynchronously put that block into lower tiers for future requests. Reads often block the current request because decode needs the KV now. Writes can usually run in the background because the current request already has the state it needs.`,
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: `Animation Notes`,
       paragraphs: [
-        'Do not treat offload as free memory. CPU, SSD, and remote stores are slower tiers. They help when cache reuse is high enough to beat recomputation, not when every prompt is unique. Do not reuse KV across different tokens, model ids, adapters, RoPE positions, or cache formats. A false hit changes the model computation.',
-        'Do not confuse tiered offload with KV Cache Transfer Fabric Case Study. Transfer fabric moves state between prefill and decode workers. Tiered offload preserves and reloads reusable KV state across requests, turns, or engine instances. Serious systems can use both, but they solve different placement problems.',
+        `The tier-ladder view starts with a prefix key and shows the hierarchy. HBM is the only tier that directly feeds active attention. CPU is the staging tier. SSD and remote tiers buy capacity and sharing, but they must promote through the path that the engine can actually consume.`,
+        `The promote-path view separates blocking gets from asynchronous puts. A get matters to the request in front of the user. A put matters to a future request. The eviction audit then shows the policy question: which blocks deserve scarce HBM, which deserve CPU or SSD, and which should be dropped because they are stale, low value, or unsafe.`,
       ],
     },
     {
-      heading: 'Sources and study next',
+      heading: `Tier Roles`,
       paragraphs: [
-        'Primary and official sources: vLLM KV Offloading Usage Guide at https://docs.vllm.ai/en/latest/features/kv_offloading_usage/, NVIDIA Dynamo KV Cache Offloading at https://docs.nvidia.com/dynamo/backends/v-llm/kv-cache-offloading, vLLM Mooncake Store blog at https://vllm.ai/blog/2026-05-06-mooncake-store, LMCache local storage docs at https://docs.lmcache.ai/kv_cache/local_storage.html, LMCache Mooncake backend docs at https://docs.lmcache.ai/kv_cache/storage_backends/mooncake.html, Ray Serve KV offloading guide at https://docs.ray.io/en/latest/serve/llm/user-guides/kv-cache-offloading.html, and vLLM FlexKVConnector docs at https://docs.vllm.ai/en/latest/api/vllm/distributed/kv_transfer/kv_connector/v1/flexkv_connector/.',
-        'Study KV Cache Concurrency Capacity Model, Prefix Caching & RadixAttention, LLM Serving: PagedAttention, KV Cache Transfer Fabric Case Study, SLO-Aware LLM Request Router, KV Cache Quantization & Compression, Weka Filesystem Case Study, GPU Memory Pool Fragmentation Ledger, Distributed Tracing, Tail Latency & p99 Thinking, and LLM Unit Economics Ledger Case Study next.',
+        `GPU HBM is for active decode and the hottest reusable prefixes. It has the bandwidth and latency attention needs, but it is scarce and expensive. Treating HBM as an archival cache is a fast path to out-of-memory errors and poor batching.`,
+        `Pinned CPU memory is a useful staging area. It is much larger than HBM and can feed GPU transfers efficiently, but it still competes with other host memory needs. If CPU staging fills with low-value prefixes, GPU promotion slows down and the server may lose the latency benefit it hoped to gain.`,
+        `SSD and remote tiers are capacity tiers. They are useful for repeated large prefixes, agent sessions that may return later, and multi-node reuse. They also introduce filesystem behavior, queue depth, network congestion, serialization costs, and cleanup problems. A system should be able to prove that a block loaded from these tiers is cheaper than recompute for the workload slice using it.`,
+      ],
+    },
+    {
+      heading: `Routing and Locality`,
+      paragraphs: [
+        `Tiered offload works better when the router understands cache locality. If a user session, agent loop, or repeated workload keeps bouncing between replicas, every turn may reload or recompute state. Sticky routing, prefix-aware placement, and shared remote stores all try to keep reusable KV close to the engine that needs it.`,
+        `The router should not optimize hit rate alone. A GPU hit on a lightly loaded replica is very different from an SSD hit on a saturated node. A shorter prefix hit may be worse than a longer prefix miss if the miss can be prefetched while queued. Routing should consider reusable prefix length, tier, queue depth, model replica health, and service-level objective.`,
+        `This is where tiered offload connects to the broader serving stack. Continuous batching decides how requests share decode steps. PagedAttention or block managers decide how KV is carved into reusable blocks. Prefix caching decides what can be reused. Offload extends the placement choices beyond HBM.`,
+      ],
+    },
+    {
+      heading: `Eviction Policy`,
+      paragraphs: [
+        `Eviction is the core product policy. The store should keep live decode state, likely next-turn prefixes, and expensive repeated prefixes. It should demote or drop one-off prompts, expired sessions, stale model versions, and prefixes whose load path is slower than recompute.`,
+        `Plain LRU is a reasonable starting point but often too shallow. An agent session may pause for a while and then return with a highly reusable prefix. A popular system prompt may be reused across many users. A long customer-specific trace may be valuable only for that customer and unsafe for anyone else. The policy needs workload knowledge, not just last access time.`,
+        `Eviction should happen before crisis. Waiting until the GPU allocator fails turns cache policy into an exception handler. A better system watches HBM pressure, CPU staging pressure, disk capacity, remote quota, and request mix, then demotes completed or inactive blocks before active decode is threatened.`,
+      ],
+    },
+    {
+      heading: `Economics`,
+      paragraphs: [
+        `The economic question is simple: did the cache reduce total cost or only move it? Prefill compute is expensive, but so are CPU copies, disk reads, network transfer, serialization, metadata operations, and larger failure domains. A tiered store earns its keep when it lowers time to first token, increases useful throughput, or reduces cost per accepted task on real traffic.`,
+        `The best workloads have repeated prefixes: agent loops, chat sessions with stable system and tool context, retrieval flows that reuse large documents, customer support playbooks, codebase analysis, and applications with shared policy text. Random one-off prompts often do not benefit. For those, the store may add lookup overhead and eviction churn without saving prefill.`,
+        `Measure by slice. A 90 percent hit rate on tiny blocks may not matter. A 20 percent hit rate on very long prefixes may be valuable. A disk hit that saves 800 milliseconds on average but adds a 5-second p99 may violate the product promise. The useful metric is not just hit rate; it is latency and cost saved per block loaded by tier.`,
+      ],
+    },
+    {
+      heading: `Implementation Guidance`,
+      paragraphs: [
+        `Start with a strict key schema and version it. Include model, tokenizer, adapter, position encoding, block size, dtype, quantization, safety boundary, and tenant scope. Make a cache miss the default for any unknown field. A false miss wastes compute; a false hit corrupts inference.`,
+        `Make gets cancellable and bounded. If a request has a tight SLO, waiting for a slow SSD or remote read may be worse than recomputing. The runtime should have a policy for when to stop waiting, fall back to prefill, or serve from a shorter prefix. That policy belongs in code, not in an operator's head during an incident.`,
+        `Make puts asynchronous but observable. A failed background put should not fail the current request, but it should count. Otherwise the system may believe it is preserving reuse while the lower tier is silently dropping state. Track put success, put latency, bytes written, evictions, and cleanup lag.`,
+        `Protect the GPU allocator. Promotion should reserve destination blocks before loading from lower tiers. Partial promotions need rollback or cleanup. If the request is cancelled mid-transfer, the store must release HBM, CPU buffers, file handles, and remote references.`,
+      ],
+    },
+    {
+      heading: `Failure Modes`,
+      paragraphs: [
+        `Stale keys are the most dangerous failure. A model update, adapter swap, tokenizer change, position-scaling change, or dtype change can make old KV invalid. The store needs versioned namespaces and refusal rules that prefer recompute over unsafe reuse.`,
+        `Tail latency is the most visible failure. A remote cache can look excellent in average latency and still ruin p99 when many requests fetch the same popular prefix or when disk queue depth spikes. Thundering herds need request coalescing, admission control, and prefetch policies.`,
+        `Capacity leaks are common. Aborted requests, crashed workers, half-written files, forgotten remote references, and demoted blocks with no owner can fill lower tiers. Quotas and garbage collection are part of the cache design. They are not cleanup chores to add later.`,
+        `Security boundaries also matter. KV state can encode prompt content and intermediate representations of sensitive context. Cross-tenant reuse should be opt-in, scoped, audited, and usually avoided unless the system can prove that the prefix is public and identical for all users.`,
+      ],
+    },
+    {
+      heading: `Where It Wins`,
+      paragraphs: [
+        `Tiered KV offload wins in long-context chat, coding agents, customer-support copilots, tool-using agents, retrieval systems with repeated documents, model gateways with shared system prompts, and multi-turn workflows where the same prefix is expensive to prefill repeatedly.`,
+        `It is especially useful when the serving stack can combine three ideas: block-based KV management, prefix-aware routing, and tier-aware admission control. The block manager gives reusable units. The router finds locality. The admission policy decides when a cold hit is worth waiting for.`,
+      ],
+    },
+    {
+      heading: `Where It Fails`,
+      paragraphs: [
+        `It fails on mostly unique traffic. If every prompt is new and short, the store becomes overhead. It also fails when lower-tier bandwidth is weak, when routing is random, when keys are incomplete, or when the product SLO cannot tolerate blocking gets.`,
+        `It fails when teams confuse offload with transfer fabric. Transfer fabric moves KV between prefill and decode workers or across engine roles. Tiered offload preserves reusable KV across time and memory tiers. A serious serving system may use both, but the design questions are different.`,
+        `It fails when the cache is evaluated by aggregate dashboards only. You need per-tier hit rate, per-tier TTFT, bytes moved, promotion failures, eviction reason, stale-key rejection, cleanup lag, and cost per task. Without those, a tiered store can look sophisticated while quietly harming the service.`,
+      ],
+    },
+    {
+      heading: `Study Next`,
+      paragraphs: [
+        `Study KV Cache Concurrency Capacity Model first to understand why HBM pressure appears. Then read KV Cache, Prefix Caching and RadixAttention, LLM Serving PagedAttention, KV Cache Transfer Fabric Case Study, SLO-Aware LLM Request Router, KV Cache Quantization and Compression, GPU Memory Pool Fragmentation Ledger, Tail Latency, Distributed Tracing, and LLM Unit Economics Ledger Case Study.`,
+        `For implementation context, compare the ideas used by vLLM offloading connectors, LMCache local and distributed storage, Ray Serve KV offloading, and NVIDIA Dynamo backends. Focus less on brand names and more on the common contract: exact keys, tiered placement, bounded promotion, observable eviction, and proof that reuse beats recompute for the workload.`,
       ],
     },
   ],

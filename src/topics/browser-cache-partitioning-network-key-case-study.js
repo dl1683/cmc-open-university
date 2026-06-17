@@ -200,38 +200,81 @@ export function* run(input) {
 export const article = {
   sections: [
     {
-      heading: 'What it is',
+      heading: 'Why it exists',
       paragraphs: [
-        'Browser cache partitioning adds site context to network cache keys. A resource URL is no longer enough to identify a reusable browser-cache entry across unrelated top-level sites. This reduces cross-site timing leaks and tracking surfaces that depend on shared cache state.',
-        'Chrome describes HTTP cache partitioning as adding a Network Isolation Key composed of top-level site and current-frame site to the resource URL: https://developer.chrome.com/blog/http-cache-partitioning. MDN State Partitioning describes partitioning storage and related browser state by top-level site: https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/State_Partitioning.',
+        'Browser cache partitioning exists because a cache is a memory system, and memory can leak information even when the bytes are protected. A website usually cannot read the response body of another site, but it may be able to measure whether loading a known URL is unusually fast. If the speed difference reveals that some other top-level site already warmed the resource, the cache has become a cross-site side channel.',
+        'The old performance intuition was simple: the same URL should reuse the same browser-local cache entry. That gave public CDNs a strong advantage because one site could warm a library and another site could reuse it. The privacy problem is that reuse also created observable shared state. A fast request for a rare script, avatar URL, tracking pixel, font, or account-specific image can reveal a bit of browsing history or user state.',
+        'Partitioning changes the trust boundary. The browser still caches. It still uses freshness, validators, Vary, and revalidation. The difference is that the lookup is scoped by site context before the ordinary HTTP cache key is considered. A resource fetched while visiting one top-level site should not automatically become a browser-local hit while visiting an unrelated top-level site.',
       ],
     },
     {
-      heading: 'Core data structure',
+      heading: 'Why the obvious key fails',
       paragraphs: [
-        'The structure is a prefixed key. Before partitioning, a browser HTTP cache key might be URL plus method plus Vary-selected headers. After partitioning, the browser also includes top-level site, frame site, or a related network partition key before those existing dimensions.',
-        'Partitioning applies beyond one HTTP cache entry. Modern privacy work discusses partitioning HTTP cache, DNS cache, connection pools, preflight cache, service-worker-related state, and other network state. The exact key shape varies by browser and evolves over time.',
+        'The obvious key for an HTTP cache is request identity: method, URL, selected headers, freshness metadata, validators, and the dimensions named by Vary. Under that representation, shop.example and news.example embedding the same CDN script can share one local browser entry if the response permits caching. That is efficient, but it answers the wrong question.',
+        'The safer question is not merely "has this browser seen this URL?" It is "has this browser seen this URL in this site context?" The attack does not need same-origin read access. It only needs a measurable difference between a warm local hit and a cold network path. Once timing reveals a cache hit across site boundaries, the cache key has become too broad.',
+        'Adding random delays is not a good primary fix. Timing defenses are hard because the network itself is noisy, attackers can repeat probes, and browsers need consistent performance. The robust data-structure fix is key separation: make the state the attacker wants to observe live under a different key.',
       ],
     },
     {
-      heading: 'Complete case study',
+      heading: 'Core mechanism',
       paragraphs: [
-        'A widget vendor serves https://cdn.vendor.example/widget.js to two customers: shop.example and news.example. In an old shared-cache model, a user who visited shop.example could later load news.example and get a browser-cache hit for the same widget URL. That saved bytes but also made cross-site cache probing possible.',
-        'With cache partitioning, shop.example and news.example get separate browser cache entries for the same CDN URL. The CDN edge cache can still be globally effective, but browser-local reuse is scoped to site context. The vendor measures per-site hit rate, adds first-party preload where needed, and stops promising shared-CDN browser warmth.',
+        'Cache partitioning is a key-prefix change. The browser derives a partition key from site context, then performs the ordinary cache lookup inside that partition. Chrome documentation for HTTP cache partitioning describes a Network Isolation Key that includes the top-level site and current-frame site in addition to the resource URL. Other forms of browser state can use related partitioning rules, but the core idea is the same: site context becomes part of the lookup boundary.',
+        'The data-structure shape is nested: partition key, then HTTP cache key, then response metadata. The inner key still includes URL and the normal HTTP caching dimensions. Vary still selects representations. Cache-Control still decides freshness. ETag and Last-Modified still support validation. No-Vary-Search can still affect query handling where supported. Partitioning does not replace HTTP caching; it wraps it with a privacy boundary.',
+        'The same idea can apply beyond the HTTP cache. DNS results, connection pools, preflight caches, storage, service worker state, and other network or browser-local state can expose cross-site observations if they are shared too broadly. The design question is always the same: who should be allowed to observe this state? That observer belongs in the key.',
       ],
     },
     {
-      heading: 'Pitfalls and misconceptions',
+      heading: 'Why it works',
       paragraphs: [
-        'Partitioning does not make HTTP caching irrelevant. It changes the boundary of reuse. Within a partition, Cache-Control, ETag, Vary, No-Vary-Search, and Service Worker Cache Storage still matter.',
-        'It also does not mean every browser has the same key shape. Chrome, Firefox, and Safari have shipped or discussed different partitioning strategies. Treat this as a privacy architecture trend and verify the behavior in the browsers you support.',
+        'The invariant is simple: a lookup under one top-level site should not reveal whether another unrelated top-level site warmed the same browser-local network state. The lookup can reveal state inside its own partition because that is part of ordinary browsing. It should not reveal state across the partition boundary.',
+        'The proof idea is key non-aliasing. If a victim request writes an entry under (shop.example, vendor.example, widget.js), an attacker request under news.example looks for (news.example, vendor.example, widget.js). Those are different keys. A hit in the attacker partition proves only attacker-partition history. The cross-site bit disappears because the two requests no longer alias to the same local cell.',
+        'This is a precise privacy gain, not a general anonymity promise. Servers still see requests. Timing can still reveal same-partition state. First-party caches still work. The improvement is that unrelated site contexts stop sharing one browser-local answer to the question "is this object already here?"',
+      ],
+    },
+    {
+      heading: 'Worked example',
+      paragraphs: [
+        'A user visits shop.example, which embeds https://cdn.vendor.example/widget.js in a vendor frame. The response is cacheable for a day. Under a partitioned cache, the browser stores it under a key shaped like (top-level site = shop.example, frame site = vendor.example, URL = widget.js), plus the normal HTTP dimensions. The resource can be reused later while the user is still in the same relevant site context.',
+        'Later the user visits news.example, which embeds the same widget URL. Without partitioning, news.example might observe an immediate local hit and infer that some earlier page already loaded the widget. With partitioning, the browser looks under (news.example, vendor.example, widget.js). That entry is empty until news.example warms it. The CDN edge may still have the object and deliver it quickly, but the browser-local signal from shop.example is not reused.',
+        'The same example explains the performance cost. The browser may store two local copies of an identical URL under two top-level sites. That costs disk space and bandwidth. It is still the intended behavior because the second copy buys isolation. The system spends some reuse to remove a cross-site observation channel.',
+      ],
+    },
+    {
+      heading: 'Visual model',
+      paragraphs: [
+        'The double-key cache view shows the important structural change: the resource node is still the same URL, but key A and key B lead to different cache cells. In the shared-cache version, both top-level sites can collide on a URL-only entry. In the partitioned version, top-level site and frame site are part of the path before the browser reaches the ordinary cache key.',
+        'The privacy tradeoff plot shows the product decision. More partition depth means fewer cross-site observations, but it also means less browser-local reuse across unrelated sites. The matrix frames apply the same key-prefix idea to several state types. HTTP cache, DNS, connection pools, preflight caches, and service-worker-controlled caches each need their own exact platform rules, but the recurring pattern is to put the observing context into the key.',
+      ],
+    },
+    {
+      heading: 'Where it matters',
+      paragraphs: [
+        'This matters anywhere a web page can probe a resource that another site might have loaded. Public CDNs, third-party widgets, fonts, avatars, images, pixels, preflight responses, DNS entries, and connection reuse can all become sensors if the browser shares state across unrelated contexts. Partitioning is part of the same privacy direction as storage partitioning and third-party cookie restrictions: embedded code should not automatically receive one shared ambient state bucket across the web.',
+        'For performance engineers, the operational change is that browser-local reuse becomes mostly first-party or same-partition reuse. Public CDNs still help through edge proximity, origin shielding, TLS termination, and global delivery, but they no longer guarantee a warm local browser entry across customers. A vendor serving a third-party widget should budget each top-level customer site as its own warmup population.',
+        'For security engineers, the useful mental model is threat surface reduction. Cache partitioning does not need to identify every possible probe URL. It removes an entire class of aliasing by making unrelated contexts miss each other in the local map.',
+      ],
+    },
+    {
+      heading: 'Failure modes and limits',
+      paragraphs: [
+        'Partitioning has limits. It does not hide requests from servers. It does not make URLs secret. It does not remove timing differences inside one partition. It does not fix bad Cache-Control settings, incorrect Vary headers, overbroad service worker behavior, or application-level identity leaks. The narrower claim is that one unrelated partition should not get a local browser hit because another unrelated partition warmed the object.',
+        'The exact key shape is browser-specific and can change as privacy models evolve. Engineers should treat documentation as the platform contract and verify behavior in the browsers that matter for their product. A cache audit that checks only one browser or one state type can miss important differences in HTTP cache, preflight cache, DNS cache, service workers, and connection reuse.',
+        'Partitioning can also create false performance conclusions. A CDN log may show an edge hit while the browser reports a local miss. A real-user metric may show extra requests after a browser update. A synthetic test that reuses one top-level site may not represent a third-party embed across many customer sites. Separate browser cache, edge cache, origin cache, and service worker cache in the measurements.',
+      ],
+    },
+    {
+      heading: 'Operational guidance',
+      paragraphs: [
+        'Build metrics that distinguish the layers. Browser cache hit, service worker cache hit, CDN edge hit, origin hit, preflight reuse, DNS lookup, connection reuse, and transfer size are different signals. Segment browser-local cache metrics by top-level site when debugging third-party assets. A global hit rate can hide the fact that every customer site is warming its own partition.',
+        'Design delivery for first-party friendliness. Self-host critical assets when that improves locality and control. Preload only resources that are actually critical. Avoid excessive third-party bundles whose cold-start cost repeats across top-level sites. Use Cache-Control, validators, compression, and immutable asset names correctly within each partition. Do not try to bypass the privacy boundary by creating new probes or covert shared state.',
+        'When investigating regressions, compare before and after under the same top-level site, then across different top-level sites. Use DevTools and resource timing carefully, and verify with real browsers rather than assuming one abstract cache. If a third-party widget becomes slower after partitioning, the likely repair is packaging, preload strategy, size reduction, or first-party deployment, not weakening isolation.',
       ],
     },
     {
       heading: 'Sources and study next',
       paragraphs: [
-        'Primary sources: Chrome HTTP cache partitioning at https://developer.chrome.com/blog/http-cache-partitioning, MDN State Partitioning at https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/State_Partitioning, PrivacyCG storage partitioning notes at https://github.com/privacycg/storage-partitioning, and XS-Leaks partitioned HTTP cache guidance at https://xsleaks.dev/docs/defenses/secure-defaults/partitioned-cache/.',
-        'Study next: HTTP Vary Cache-Key Normalization for the inner representation key, No-Vary-Search Query Key for query canonicalization, Cache-Status HTTP Observability for measuring misses, CORS Preflight Cache and Storage Access API Third-Party Cookie Gate for related browser privacy boundaries, Service Workers & Offline-First and Cache Storage Versioned Precache for partitioned app-controlled caches, and Data Leakage for the threat-model lens.',
+        'Primary sources for this topic are Chrome HTTP cache partitioning at https://developer.chrome.com/blog/http-cache-partitioning, MDN State Partitioning at https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/State_Partitioning, PrivacyCG storage partitioning notes at https://github.com/privacycg/storage-partitioning, and XS-Leaks partitioned HTTP cache guidance at https://xsleaks.dev/docs/defenses/secure-defaults/partitioned-cache/.',
+        'Study next: HTTP Vary Cache-Key Normalization for the inner representation key, No-Vary-Search Query Key for query canonicalization, Cache-Status HTTP Observability for measuring misses, CORS Preflight Cache for another partition-sensitive cache, Storage Access API Third-Party Cookie Gate for related storage boundaries, Service Workers and Cache Storage Versioned Precache for app-controlled caches, Resource Hints Preload Preconnect for warmup strategy, and Data Leakage for the threat-model lens.',
       ],
     },
   ],
